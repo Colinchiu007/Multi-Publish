@@ -9,6 +9,7 @@ const fs = require("fs")
 const os = require("os")
 const path = require("path")
 const http = require("http")
+const dns = require("dns")
 const { startFakeServer } = require("./helpers/fake-http")
 const { fetchMediaToTemp, fetchMediaSetToTemp, DEFAULT_MAX_MEDIA_BYTES } = require("../src/publish/media-fetch")
 
@@ -248,25 +249,57 @@ async function main () {
 
   console.log("\n--- 防线 1c：DNS rebinding（TOCTOU）---")
 
-  await t("已校验地址被钉到连接上（结构锁）", async () => {
-    // ⚠️ 本条是**结构锁**，不是行为锁：它证明「连接用的 lookup 是
-    // makePinnedLookup 生成的、且它只认 SSRF 已校验过的地址」。
+  await t("【行为锁·变异敏感】校验答公网 / 连接答内网 → 内网不得收到任何请求", async () => {
+    // 上一版这里是一条**结构锁**，作者（我）自评「本沙箱无行为验证条件」。
+    // 那个结论是错的：DNS rebinding 不需要一台能双答的 DNS 服务器，只需要能
+    // 分别控制**校验那次解析**与**连接那次解析**——而这两者天然是两个注入面：
+    //   校验那次 = opts.lookup（可控）
+    //   连接那次 = 未修复版本里由 net.js 读取的进程级 dns.lookup（可 patch）
     //
-    // 为什么不用行为锁：DNS rebinding 要求「第一次解析答公网、第二次答内网」，
-    // 这需要一个可控的双答 DNS 环境。本沙箱无此条件——实测撤掉钉住后
-    // rebind.example.com 直接 ENOTFOUND，内网收到 0 个请求，
-    // 即「未钉住」和「已钉住」在此环境下的可观测结果相同（都没连上），
-    // 行为锁会平凡通过、给出虚假安心。故只锁结构，并在 SSRF 用例里
-    // 继续覆盖「公网域名解析到私网」这一可实测的相邻形态。
-    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'publish', 'media-fetch.js'), 'utf8')
-    assert.match(src, /lookup: makePinnedLookup\(parsed\.hostname, verifiedAddresses\)/,
-      '连接层必须使用 SSRF 已校验过的地址，不得让 http.request 自行解析')
-    assert.match(src, /const verified = await assertOutboundUrl\(/,
-      '必须接收 assertOutboundUrl 返回的已校验地址')
-    // makePinnedLookup 只能返回被钉住的地址，不得回落到原始 hostname 解析
-    const guard = src.slice(src.indexOf('function makePinnedLookup'))
-    assert.ok(!/dns\.(promises\.)?lookup/.test(guard),
-      'makePinnedLookup 内部不得再调用真实 DNS（否则钉住形同虚设）')
+    // 本例用 legs 两腿模拟攻击者：leg1 给校验（答公网，通过 SSRF），
+    // leg2 patch dns.lookup（答 127.0.0.1，即 rebinding 答案），
+    // 内网受害者是本机假服务器。判别标准是「内网收到几个请求」——
+    // 撤掉地址钉住时应读到内部数据，保留时应 0 请求。
+    const net = require("net")
+    const realDnsLookup = dns.promises.lookup
+    const realNodeLookup = require("dns").lookup
+    let internalHits = 0
+    const internal = http.createServer((req, res) => {
+      internalHits++
+      res.writeHead(200, { "Content-Type": "text/plain" })
+      res.end("SECRET-INTERNAL-DATA")
+    })
+    await new Promise((r) => internal.listen(0, "127.0.0.1", r))
+    const internalPort = internal.address().port
+
+    // leg2：连接那次的解析答内网
+    const rebound = (host, opts, cb) => {
+      const done = typeof opts === "function" ? opts : cb
+      const wantAll = typeof opts === "object" && opts && opts.all
+      if (wantAll) return done(null, [{ address: "127.0.0.1", family: 4 }])
+      return done(null, "127.0.0.1", 4)
+    }
+    require("dns").lookup = rebound
+    try {
+      let out
+      try {
+        const r = await fetchMediaToTemp("http://rebind.attacker.invalid:" + internalPort + "/secret.mp4", {
+          // leg1：校验这次答公网，通过 SSRF
+          lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+          timeoutMs: 2500,
+        })
+        try { out = fs.readFileSync(r.path).toString("utf8") } finally { r.cleanup() }
+      } catch (e) { out = "ERROR:" + e.message.slice(0, 60) }
+
+      assert.strictEqual(internalHits, 0,
+        "内网收到了 " + internalHits + " 个请求，且读到内容: " + out.slice(0, 40) +
+        " ⇒ DNS rebinding 未被钉死")
+      assert.ok(out.indexOf("SECRET-INTERNAL-DATA") === -1, "读出了内部数据: " + out)
+    } finally {
+      require("dns").lookup = realNodeLookup
+      dns.promises.lookup = realDnsLookup
+      await new Promise((r) => internal.close(r))
+    }
   })
 
   await t("相邻形态：公网域名解析到私网 → 拒绝（可实测的同类防线）", async () => {
@@ -278,6 +311,62 @@ async function main () {
         timeoutMs: 3000,
       }),
       /internal\/private network/)
+  })
+
+  console.log("\n--- 防线 5：同步抛错不得逃逸成 uncaughtException（CRITICAL）---")
+
+  await t("畸形 Location 头 → promise 正常 reject，不逃逸", async () => {
+    // `new URL('http://[')` 会**同步抛出**。它在 http response 事件回调里，
+    // 逃出去即 uncaughtException —— 而引擎全局无处理器，等于一个请求就能
+    // 终结整个多租户发布 API 进程。
+    const evil = http.createServer((req, res) => {
+      res.writeHead(302, { Location: "http://[" })
+      res.end("redirect")
+    })
+    await new Promise((r) => evil.listen(0, "127.0.0.1", r))
+    const port = evil.address().port
+    let escaped = null
+    const onUncaught = (e) => { escaped = e }
+    process.on("uncaughtException", onUncaught)
+    try {
+      await assert.rejects(
+        () => fetchMediaToTemp("http://cdn.example.com:" + port + "/clip.mp4", {
+          lookup: fakeLookup("93.184.216.34"), __connectHost: "127.0.0.1", timeoutMs: 2500,
+        }),
+        /malformed|redirect/i,
+        "畸形 Location 必须走 promise reject")
+      // 给逃逸事件一个落地窗口
+      await new Promise((r) => setTimeout(r, 120))
+      assert.strictEqual(escaped, null,
+        "同步抛错逃逸成 uncaughtException: " + (escaped && (escaped.code || escaped.message)))
+    } finally {
+      process.removeListener("uncaughtException", onUncaught)
+      await new Promise((r) => evil.close(r))
+    }
+  })
+
+  await t("mkdtempSync 同步抛错（磁盘满/只读/fd 耗尽）→ 正常 reject", async () => {
+    const realMkdtemp = fs.mkdtempSync
+    fs.mkdtempSync = function () { const e = new Error("no space"); e.code = "ENOSPC"; throw e }
+    const src = http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "video/mp4" }); res.end("x") })
+    await new Promise((r) => src.listen(0, "127.0.0.1", r))
+    let escaped = null
+    const onUncaught = (e) => { escaped = e }
+    process.on("uncaughtException", onUncaught)
+    try {
+      await assert.rejects(
+        () => fetchMediaToTemp("http://cdn.example.com:" + src.address().port + "/a.mp4", {
+          lookup: fakeLookup("93.184.216.34"), __connectHost: "127.0.0.1", timeoutMs: 2500,
+        }),
+        /temp dir/,
+        "临时目录创建失败必须走 promise reject")
+      await new Promise((r) => setTimeout(r, 120))
+      assert.strictEqual(escaped, null, "mkdtempSync 同步抛错逃逸: " + (escaped && escaped.code))
+    } finally {
+      process.removeListener("uncaughtException", onUncaught)
+      fs.mkdtempSync = realMkdtemp
+      await new Promise((r) => src.close(r))
+    }
   })
 
   console.log("\n--- 防线 3/4：批量拉取的部分失败不留痕 ---")

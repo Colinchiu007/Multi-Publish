@@ -25,23 +25,6 @@ const { URL } = require("url");
 const { assertOutboundUrl } = require("../ssrf-guard");
 const { errorCode } = require("../error-codes");
 
-/**
- * 测试钩子守卫：`__connectHost` 只允许本包测试传入。
- *
- * 它能把连接目标改到别处，若可由请求体驱动就成了绕过 SSRF 的后门
- * （校验的是 cdn.example.com，实际连的是内网）。这里显式拒绝任何来自
- * 非测试上下文的取值——生产路径根本不读它，此守卫只防未来误接线。
- */
-const TEST_HOOK_KEYS = ["__connectHost"];
-function assertNoExternalTestHooks (source) {
-  if (!source || typeof source !== "object") return;
-  for (const key of TEST_HOOK_KEYS) {
-    if (source[key] !== undefined) {
-      throw new Error(key + " is a test-only hook and must not be supplied by callers");
-    }
-  }
-}
-
 /** 单个媒体文件的体积上限（默认 512 MiB）。够覆盖绝大多数短视频，又不至于打死进程。 */
 const DEFAULT_MAX_MEDIA_BYTES = 512 * 1024 * 1024;
 
@@ -105,8 +88,6 @@ function mediaError (message, code) {
  */
 async function fetchMediaToTemp (url, opts) {
   opts = opts || {};
-  // opts 本身可以是测试构造的（内部调用），但公开入口 fetchMediaSetToTemp
-  // 传下来的对象必须先过守卫，见 assertNoExternalTestHooks 注释。
 
   const label = opts.label || "media";
   const maxBytes = opts.maxBytes || DEFAULT_MAX_MEDIA_BYTES;
@@ -177,12 +158,13 @@ async function fetchMediaToTemp (url, opts) {
         // 假地址（如测试里用 93.184.216.34），连接就会打到一个根本不监听该地址
         // 的主机上，表现为永久挂起直到超时。
         //
-        // 这里必须用**真实 DNS**建立连接：SSRF 已在 assertOutboundUrl 里判定过
-        // 解析结果全为公网，真实解析的结果与之一致（否则 DNS rebinding 场景下
-        // 两次解析可能不同，但那属于 DNS 层的问题，不由这里承担）。
-        // 代价是测试无法让公网域名指向本机假服务器 —— 故功能用例改为直接
-        // 监听 127.0.0.1 并接受「私网字面量被 SSRF 拦」这一既成事实，
-        // 下载通路另用本机端口 + 关闭 SSRF 的专用注入口径验证。
+        // 上面这个 makePinnedLookup 就是「用真实 DNS 判定后的地址」——不再让
+        // http.request 自行解析一次（那会重开 rebinding 窗口）。
+        // 代价：公网域名无法直接指向本机假服务器，故测试需要 __connectHost
+        // 把连接目标改到本机；该键外部不可触达（见调用图：两个 HTTP 入口都只传
+        // body，不传 fetchOpts）。
+        //
+        // 测试钩子 __connectHost 优先于上面的钉住地址（仅本包测试可用）。
       },
       (res) => {
         const status = res.statusCode || 0;
@@ -193,9 +175,20 @@ async function fetchMediaToTemp (url, opts) {
           // 3xx 的响应体不喂给媒体文件，但仍必须 resume 掉，否则 socket 挂起；
           // 它不计入 maxBytes —— 本服务只对**最终落盘的文件**设上限，中间跳转体
           // 由上游服务器自己控制，跳数上限（MAX_REDIRECTS）才是这里的实际防线。
-          const nextUrl = new URL(res.headers.location, parsed.href).href
+          // ⚠️ 必须包 try/catch：`new URL()` 对畸形 Location（如 `http://[`）
+          // 会**同步抛出**。它在 http response 事件回调里，逃出去就是
+          // uncaughtException —— 而引擎全局没有 uncaughtException 处理器，
+          // 等于一个请求（甚至一次磁盘写满）就能终结整个多租户发布 API。
+          let nextUrl
+          try {
+            nextUrl = new URL(res.headers.location, parsed.href).href
+          } catch (e) {
+            fail(mediaError(label + " redirect Location is malformed: " + res.headers.location, errorCode.request_error))
+            return
+          }
           fetchMediaToTemp(nextUrl, Object.assign({}, opts, { hops: hops + 1 }))
-            .then(done, fail);
+            .then(done, fail)
+            .catch(fail)
           return;
         }
         if (status < 200 || status >= 300) {
@@ -214,7 +207,15 @@ async function fetchMediaToTemp (url, opts) {
           return;
         }
 
-        dir = fs.mkdtempSync(path.join(os.tmpdir(), "mp-media-"));
+        // 同理：mkdtempSync 在磁盘满 / /tmp 只读 / fd 耗尽时会同步抛，
+        // 也是常规运维事件，不该带走整个进程。
+        try {
+          dir = fs.mkdtempSync(path.join(os.tmpdir(), "mp-media-"));
+        } catch (e) {
+          res.resume()
+          fail(mediaError(label + " cannot create temp dir: " + (e && e.code ? e.code : e.message), errorCode.io_error))
+          return
+        }
         const file = path.join(dir, "asset" + extensionFor(res.headers["content-type"], parsed.href));
 
         let bytes = 0;
@@ -302,8 +303,6 @@ async function fetchMediaSetToTemp (urls, opts) {
 module.exports = {
   MAX_REDIRECTS,
   fetchMediaToTemp,
-  assertNoExternalTestHooks,
-  TEST_HOOK_KEYS,
   fetchMediaSetToTemp,
   resolveMediaRef,
   DEFAULT_MAX_MEDIA_BYTES,
