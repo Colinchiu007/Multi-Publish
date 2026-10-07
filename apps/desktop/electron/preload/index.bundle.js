@@ -1088,6 +1088,28 @@ var require_aggregation = __commonJS({
   }
 });
 
+// electron/preload/creator.js
+var require_creator = __commonJS({
+  "electron/preload/creator.js"(exports2, module2) {
+    var { ipcRenderer: ipcRenderer2 } = require("electron");
+    function createCreatorApi2(renderer = ipcRenderer2) {
+      const invoke = (channel, payload) => renderer.invoke(channel, payload);
+      return {
+        creatorList: () => invoke("creator:list"),
+        creatorFollow: (payload) => invoke("creator:follow", payload),
+        creatorUnfollow: (payload) => invoke("creator:unfollow", payload),
+        creatorToggle: (payload) => invoke("creator:toggle", payload),
+        creatorCheckNow: (payload) => invoke("creator:check-now", payload),
+        creatorDiscoveries: (payload) => invoke("creator:discoveries", payload),
+        creatorCollect: (payload) => invoke("creator:collect", payload),
+        creatorCollectOne: (payload) => invoke("creator:collect-one", payload),
+        creatorSkipOne: (payload) => invoke("creator:skip-one", payload)
+      };
+    }
+    module2.exports = { createCreatorApi: createCreatorApi2 };
+  }
+});
+
 // electron/preload/hot-topics.js
 var require_hot_topics = __commonJS({
   "electron/preload/hot-topics.js"(exports2, module2) {
@@ -1468,6 +1490,7 @@ var { createVideoCloneApi } = require_video_clone();
 var { createServicesApi } = require_services();
 var { createFilmEngineeringApi } = require_film_engineering();
 var { createAggregationApi } = require_aggregation();
+var { createCreatorApi } = require_creator();
 var { createHotTopicsApi } = require_hot_topics();
 var { createAutoPipelineApi } = require_auto_pipeline();
 var { createAutomationApi } = require_automation();
@@ -1517,6 +1540,7 @@ var fullApi = {
   ...createServicesApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
+  ...createCreatorApi(ipcRenderer),
   ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
   ...createAutomationApi(ipcRenderer),
