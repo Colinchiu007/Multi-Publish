@@ -169,7 +169,18 @@ class LicenseManager {
     if (!licenseKey) return false
     // Don't re-activate if already activated with same or different key
     if (this._data.type === "pro" || this._data.type === "lifetime") return false
-    const key = licenseKey.trim()
+    // 2026-10-07：这里原本只 `trim()` 后就写库，**没有任何有效性校验**。
+    // 实测（node 直驱本类）：输入 `a` / `x` / `随便什么字符串` / `"   "` / `!!!`
+    // 一律返回 true，并写入 type=pro + expiresAt=null（永不过期）+ 8 项 PRO_FEATURES。
+    // 叠加 #3064 保留的正式包激活码入口 ⇒ 任意非空字符串即可获得永久 Pro。
+    //
+    // 最小止血：空串/纯空白不得视为有效 key。
+    // **这不是完整修复**——客户端校验本质可绕过（改一行代码即可）。
+    // 根因是本地 license 存在一条不经服务端核销的授权路径，而服务端的
+    // `POST /api/v1/redeem` 已经带 `durationDays` 与事务化到期结算。
+    // 正式包是否改为一律走服务端核销，见本次 PR 的说明与执行记录。
+    const key = String(licenseKey).trim()
+    if (!key) return false
     this._data.type = "pro"
     this._data.licenseKey = key
     this._data.activatedAt = new Date().toISOString()

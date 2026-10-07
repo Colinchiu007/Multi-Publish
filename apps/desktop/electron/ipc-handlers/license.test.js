@@ -142,3 +142,64 @@ describe('许可证同步访问级别', () => {
     expect(event.returnValue).toBe('admin')
   })
 })
+
+// 2026-10-07 新增：license:activate 的打包态拒收。
+//
+// 逃逸分析：`licenseManager.activate(key)` 原本只对 key 做 `trim()`，没有任何
+// 有效性校验——输入 `a` / `随便什么字符串` / `"   "` 一律返回 true，并写入
+// type=pro + expiresAt=null（永不过期）+ 8 项 PRO_FEATURES。而 preload 通过
+// contextBridge 把 licenseActivate 暴露给渲染层，`UpgradeModal` 的激活码输入框
+// 在正式包可见 ⇒ 任意字符串即可白嫖永久 Pro。
+//
+// 本文件此前 8 条用例全测访问级别，`activate()` 本身零覆盖 —— 这就是逃逸路径。
+describe('license:activate 打包态拒收（P0 权限泄漏）', () => {
+  function makeHandlers({ isPackaged, activateImpl }) {
+    const listeners = {}
+    __registerMock('electron', { app: { isPackaged } })
+    const licenseManager = {
+      isPro: vi.fn(() => false),
+      getInfo: vi.fn(() => ({ type: 'free' })),
+      activate: vi.fn(activateImpl || (() => true)),
+      deactivate: vi.fn(),
+      activateTrial: vi.fn(),
+    }
+    registerLicenseHandlers(
+      { handle: vi.fn(), on: (ch, h) => { listeners[ch] = h } },
+      { app: { isPackaged }, licenseManager, identityService: undefined },
+    )
+    return { handler: listeners['license:activate'], licenseManager }
+  }
+
+  it('正式构建（isPackaged=true）拒收，且不触碰 licenseManager.activate', async () => {
+    const { handler, licenseManager } = makeHandlers({ isPackaged: true })
+    const r = await handler(makeTrustedEvent(), 'MP-ANY-KEY')
+    expect(r.code).not.toBe(0)
+    expect(r.data).toBe(false)
+    expect(r.message).toContain('账号核销')
+    expect(licenseManager.activate).not.toHaveBeenCalled()
+  })
+
+  it('只有明确 false 才放行——undefined 同样拒收', async () => {
+    // `app.isPackaged !== false` 是严格不等：undefined 属「非明确开发态」必须拒收。
+    const { handler, licenseManager } = makeHandlers({ isPackaged: undefined })
+    const r = await handler(makeTrustedEvent(), 'MP-ANY-KEY')
+    expect(r.code).not.toBe(0)
+    expect(licenseManager.activate).not.toHaveBeenCalled()
+  })
+
+  it('开发构建（isPackaged=false）才走到 licenseManager.activate', async () => {
+    const { handler, licenseManager } = makeHandlers({ isPackaged: false })
+    const r = await handler(makeTrustedEvent(), 'MP-DEV-KEY')
+    expect(licenseManager.activate).toHaveBeenCalledWith('MP-DEV-KEY')
+    expect(r.code).toBe(0)
+  })
+
+  it('拦截优先于 key 校验：任意 key 都先被拒（含空白）', async () => {
+    // 若把 key 校验挪到拦截之前，空白 key 会先返回「激活失败」，反而暴露了
+    // 校验分支的存在。此处锁定判断顺序。
+    const { handler, licenseManager } = makeHandlers({ isPackaged: true })
+    const r = await handler(makeTrustedEvent(), '   ')
+    expect(r.message).toContain('账号核销')
+    expect(licenseManager.activate).not.toHaveBeenCalled()
+  })
+})
