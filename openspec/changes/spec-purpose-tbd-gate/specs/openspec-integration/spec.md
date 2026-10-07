@@ -43,3 +43,30 @@
   或移到写出 `docs-only` 输出的 `classify` step 之前，或从 step 里摘掉测试点名
 - **THEN** `scripts/check-spec-purpose.test.js` 的结构锁 MUST 变红
 - **AND** 去掉 `.gitignore` 中对判据本体的 negation 时，同文件的 `check-ignore` 锁 MUST 变红
+- **AND** 定位 step MUST 用其**语义标题**而非门禁编号，命令 MUST 落在该 step 正文内，
+  注释行 MUST NOT 参与"已接线"判定（在注释里提一句脚本路径既不构成接线，也不得把位置判据骗过去）
+
+#### Scenario: 每个 Purpose 段都被判，而不只是第一个
+
+- **WHEN** 一份主规格里出现两个 `## Purpose` 段，第一段已写好、第二段仍是归档占位词
+- **THEN** 检查 MUST 判失败，并点名"第 2 个 Purpose 段"
+- **AND** 两段都合规时 MUST NOT 判失败 —— 重复标题本身不属本门禁的职责，不得把它变成噪声源
+
+#### Scenario: 标题形态与文件编码的取值边界
+
+- **WHEN** Purpose 标题写作 `### Purpose`，或文件带 UTF-8 前导 BOM
+- **THEN** 检查 MUST 判其合规（层级 `##`/`###` 都收；BOM 先剥）
+- **AND** 当标题写作 `##Purpose`（`#` 序列后无空白）时 MUST 判 `MISSING_SECTION` ——
+  CommonMark 下那不是标题，"没有 Purpose 段"是事实而非误报
+- **AND** BOM 档位 MUST 用"BOM 直接压在 Purpose 标题行上"的样本验证（否则该锁对判据路径失明，
+  反证 M9 首跑 `NOT_RED` 即由此而来）
+
+#### Scenario: 参数化行为必须从进程入口被验证
+
+- **WHEN** 以 `--limit=abc` / `--min-specs=2.5` / `--min-specs=-1` 调用判据
+- **THEN** MUST 以 rc=2 出声并点名坏参数，MUST NOT 静默回落默认值 ——
+  旧写法 `Number('abc')=NaN` 会让 `slice(0, NaN)` 把违规明细整页吞掉而 rc 仍为 1
+- **AND** `--root` / `--min-specs` / `--limit` MUST 同时接受等号式与空格式，且两式产出同一结果
+- **AND** MUST 存在 `--help`（rc=0），其正文写明退出码口径：0 合规 / 1 违规或判据自身故障
+  （文案带 `FAIL(closed)`）/ 2 用法错误
+- **AND** 至少一条 CLI 用例 MUST 经**子进程入口**打进去：只调用导出函数不构成对参数层的覆盖

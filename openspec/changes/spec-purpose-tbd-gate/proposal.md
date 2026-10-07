@@ -22,9 +22,10 @@ TBD - created by archiving change <name>. Update Purpose after archive.
 
 - 新增 `scripts/check-spec-purpose.js`：全量扫描 `openspec/specs/**/spec.md`，
   Purpose **缺失 / 空 / 仍是占位词（TBD、TODO、待补充…）** ⇒ rc=1 并逐条点名。
-- 新增 `scripts/check-spec-purpose.test.js`（14 条）：四类违规各一条、两条空集出口各一条、
-  规模下界、增量目录不得入域、**真实仓库上不得把写好 Purpose 的规格判成 EMPTY**，
-  以及两条**接线结构锁**（必须住在 `changes` job、必须在 `classify` 之后、测试必须同 step 点名、
+- 新增 `scripts/check-spec-purpose.test.js`（**23 条**，初始 15 条 + QM-6 之后 8 条）：四类违规各一条、
+  两条空集出口各一条、规模下界、增量目录不得入域（谓词层 + 装配层各锁一次）、**逐段判**（第二段 TBD）、
+  标题层级档、前导 BOM 档、占位词**负控**档、CLI 契约两条、真实仓库上不得把写好 Purpose 的规格判成 EMPTY，
+  以及四条**接线结构锁**（提取器自证 / 必须住在 `changes` job 且在 `classify` 之后 / 按语义标题唯一定位 /
   `.gitignore` 必须放行本体脚本）。
 - 接线：`.github/workflows/quality-gate.yml` 新增 **Gate 12d**（`changes` job，紧跟 Gate 12c）。
 - `.gitignore` 补 `!scripts/check-spec-purpose.js`（第 106 行 `scripts/*.js` 会整体忽略新建脚本）。
@@ -55,3 +56,28 @@ TBD - created by archiving change <name>. Update Purpose after archive.
 - 本轮实测顺带修掉的一个自身缺陷：判据第一版用带 `m` 的多行正则取正文，`$` 在多行模式下匹配
   **空行行尾**，把 15 份**已写好 Purpose** 的规格判成 EMPTY（真实例子 `openspec/specs/creator-monitor/spec.md`）。
   改为逐行扫描后归零；并留一条"真实文件形状"的回归锁防复发。
+
+## QM-6 双模型评审之后的修订（23 条 / 15 格反证的由来）
+
+两条轴共 23 条发现（后端 11：2 CRITICAL / 5 MAJOR / 2 MINOR / 2 INFO；工程 12：0 CRITICAL / 3 MAJOR / 8 MINOR / 1 INFO）。
+逐条处置见 `openspec/records/spec-purpose-tbd-gate.md`；落到判据上的净变化：
+
+- **逐段判**（B1，CRITICAL）：只查第一个 `## Purpose` 会把「第一段写好、第二段留 TBD」读成合规。
+- **标题层级 `##` 与 `###` 都收**（B2，CRITICAL 的一半）；`##Purpose` **不**放宽 ——
+  CommonMark 要求 `#` 序列后跟空格/制表符或行尾，那不是标题，报缺段是正确判定。
+- **剥前导 BOM**（B3 / 自查 F-A）；现状量测 `openspec/specs` BOM=0 ⇒ 属预防性加固，不写成"已救下多少份"。
+- **排除口径按完整前缀锚定**（B9）：旧的 `/(^|\/)changes\//` 会把「能力恰好命名为 changes 的主规格」静默排除。
+- **接线锁改为按 step 定位 + 剥注释**（B6）：旧的 `indexOf` 取首次命中，注释里出现同一串就能把位置判到注释上。
+- **CLI 契约补齐**（F6/F7/F8）：畸形 `--limit` / `--min-specs` 一律 rc=2 出声（旧写 `Number('abc')=NaN`
+  会让 `slice(0, NaN)` 把违规明细**整页静默吞掉**）；`--root`/`--limit` 等号式与空格式等价；补 `--help`。
+- **恒真断言清零**（F5/F10）：`assert.ok(Array.isArray(x))` 与被 walk 起点天然排除的"夹具"各删一处。
+- **占位词表补负控**（F1）：`待办…` / `占用…` 必须放过；以 `占位` 二字起头的合法名词短语**按现状会误杀**，
+  该代价被钉成断言而不是留给下一个会话重新发现。
+- 两条**被实测否证的评审处方**（记录在案，防止下一个人照抄）：
+  ① 改用 `js-yaml` 解析 workflow —— `changes` job 只有 `actions/checkout` + 门禁命令，
+     **没有 Install deps**（`has_install_step=false`），`require('js-yaml')` 会在 CI 当场 `MODULE_NOT_FOUND`；
+     仓内用 js-yaml 的三把 workflow 锁全跑在有依赖的 static-gates。工程轴独立得出同一结论
+     （「YAML 解析不会更安全，反而引入依赖」），两轴在此互证。
+  ② 「加 100 份 TBD、删 100 份好的可绕过规模下界」—— 与实现不符：违规是**逐份**判的，
+     与总数无关，加 100 份 TBD 直接红 100 条。规模下界只管"扫描域退化"，注释已把这条边界写明。
+
