@@ -1,7 +1,8 @@
 # video-clone-pipeline Specification
 
 ## Purpose
-TBD - created by archiving change video-clone-pipeline. Update Purpose after archive.
+定义 video-clone-pipeline 的行为契约，判据只认下列 Requirement 与其 Scenario：「独立流水线编排」、「CloneReport 契约与校验」、「相似度自检（F4）」等，共 5 条。本规格由归档 change `video-clone-pipeline` 产生。
+
 ## Requirements
 ### Requirement: 独立流水线编排
 `video-clone-pipeline` SHALL 提供独立于 Story2Video 的六阶段编排（ingest → analyze → plan → generate → compose → publish），阶段实现以 adapter 注入方式提供；未接线的阶段 SHALL fail-closed（返回 `VIDEOCLONE_STAGE_NOT_IMPLEMENTED`），不得静默跳过。

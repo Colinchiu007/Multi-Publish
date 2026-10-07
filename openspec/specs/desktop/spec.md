@@ -1,7 +1,8 @@
 # desktop Specification
 
 ## Purpose
-TBD - created by archiving change merge-publish-types. Update Purpose after archive.
+定义 desktop 的行为契约，判据只认下列 Requirement 与其 Scenario：「发布类型入口合并」、「模式卡片数据模型与提取」、「采集页改写切换 Node 引擎」等，共 14 条。本规格由归档 change `merge-publish-types` 产生。
+
 ## Requirements
 ### Requirement: 发布类型入口合并
 

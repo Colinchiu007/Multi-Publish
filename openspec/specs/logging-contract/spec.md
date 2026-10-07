@@ -1,7 +1,8 @@
 # logging-contract Specification
 
 ## Purpose
-TBD - created by archiving change logging-contract. Update Purpose after archive.
+定义 logging-contract 的行为契约，判据只认下列 Requirement 与其 Scenario：「脱敏模式同源」、「Level 枚举与默认级别」、「保留策略」等，共 6 条。本规格由归档 change `logging-contract` 产生。
+
 ## Requirements
 ### Requirement: 脱敏模式同源
 所有 JS 日志出口 SHALL 使用同一组 5 类脱敏模式（Bearer / 带引号键值 / 无引号键值 / sk- 前缀 / eyJ 通用 JWT），且三处内联实现（desktop logger、shared-utils logger、api-publish-engine log-redact）SHALL 保持同源一致；任何单边修改 SHALL 被契约测试拦截。

@@ -1,7 +1,8 @@
 # desktop/rewrite-hard-constraints Specification
 
 ## Purpose
-TBD - created by archiving change rewrite-hard-constraints. Update Purpose after archive.
+定义 desktop/rewrite-hard-constraints 的行为契约，判据只认下列 Requirement 与其 Scenario：「硬约束运营中心同步与引擎注入」，共 1 条。本规格由归档 change `rewrite-hard-constraints` 产生。
+
 ## Requirements
 ### Requirement: 硬约束运营中心同步与引擎注入
 

@@ -1,7 +1,8 @@
 # story2video-media-import-feedback Specification
 
 ## Purpose
-TBD - created by archiving change image-carousel-voice-bgm-fixes. Update Purpose after archive.
+定义 story2video-media-import-feedback 的行为契约，判据只认下列 Requirement 与其 Scenario：「媒体导入失败提示带类别宾语」、「路径解析失败与文件不可读区分」、「媒体导入通道为本地公开操作且 File 原样透传」等，共 4 条。本规格由归档 change `image-carousel-voice-bgm-fixes` 产生。
+
 ## Requirements
 ### Requirement: 媒体导入失败提示带类别宾语
 

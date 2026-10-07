@@ -1,7 +1,8 @@
 # higgsfield-refined-output Specification
 
 ## Purpose
-TBD - created by archiving change higgsfield-round3c-refined-output. Update Purpose after archive.
+定义 higgsfield-refined-output 的行为契约，判据只认下列 Requirement 与其 Scenario：「Structured refined director blocks」、「Refined template self-audit and safe trailer …」、「Block coverage is an advisory refined-only me…」等，共 5 条。本规格由归档 change `higgsfield-round3c-refined-output` 产生。
+
 ## Requirements
 ### Requirement: Structured refined director blocks
 The standalone video engine SHALL accept and return an optional blocks object for refined video prompts. It MUST retain only the 12 approved director-block names, retain only non-empty string values of at most 4000 characters, render blocks in canonical order, and preserve legacy rendering when blocks are absent or invalid.

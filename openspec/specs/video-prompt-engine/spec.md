@@ -1,7 +1,8 @@
 # video-prompt-engine Specification
 
 ## Purpose
-TBD - created by archiving change video-prompt-optimize-engine. Update Purpose after archive.
+定义 video-prompt-engine 的行为契约，判据只认下列 Requirement 与其 Scenario：「视频提示词统一经 prompt-engine 优化」、「领域与视频平台契约」、「结构化视频输出」等，共 15 条。本规格由归档 change `video-prompt-optimize-engine` 产生。
+
 ## Requirements
 ### Requirement: 视频提示词统一经 prompt-engine 优化
 所有视频提示词优化路径（videogen 流水线 videogen_generate 前、Story2Video 混合模式 select_video_scenes→generateSceneVideo 前）SHALL 统一调用 prompt-engine 服务（POST /v1/optimize 或 /v1/optimize/batch，请求携带 domain=video），执行视频提示词改写与输出校验；不得绕过 prompt-engine 直接把未经优化的提示词提交视频 provider，也不得把图片优化提示词原样复用为视频提示词。本义务不适用 film-engineering 视频生成路径（film_generate_videos 阶段及失败分镜单镜重试）：该路径的 kit/剧本套用提示词 SHALL 原文直送视频 provider（`<<<uuid>>>` 令牌与块标签逐字符不变），在该路径调用 prompt-engine 优化链路本身构成合同违例。

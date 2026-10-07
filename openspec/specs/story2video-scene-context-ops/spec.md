@@ -1,7 +1,8 @@
 # story2video-scene-context-ops Specification
 
 ## Purpose
-TBD - created by archiving change story2video-scene-context-ops. Update Purpose after archive.
+定义 story2video-scene-context-ops 的行为契约，判据只认下列 Requirement 与其 Scenario：「规则数据化与加载语义」、「打磨修复」、「运营后台规则管理」等，共 4 条。本规格由归档 change `story2video-scene-context-ops` 产生。
+
 ## Requirements
 ### Requirement: 规则数据化与加载语义
 场景上下文规则 SHALL 以 JSON 数据文件承载（内置 `story-context-rules.json`），引擎加载优先级为「外部配置覆盖（环境变量 `STORY2VIDEO_CONTEXT_RULES_PATH` 或 `<userData>/config/story-context-rules.json`）→ 内置 JSON → 代码默认」；加载后必须 schema 校验，非法规则 SHALL 回退内置并告警，不得静默使用坏规则，也不得使流水线失败。

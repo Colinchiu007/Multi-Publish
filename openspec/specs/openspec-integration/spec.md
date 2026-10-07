@@ -1,7 +1,8 @@
 # openspec-integration Specification
 
 ## Purpose
-TBD - created by archiving change openspec-integration. Update Purpose after archive.
+定义 openspec-integration 的行为契约，判据只认下列 Requirement 与其 Scenario：「三层机制分工」、「OpenSpec change 生命周期」、「适用范围约束」等，共 11 条。本规格由归档 change `openspec-integration` 产生。
+
 ## Requirements
 ### Requirement: 三层机制分工
 系统开发流程 SHALL 由三层机制分工协作：CCG 负责决策/执行编排（复杂度/风险评估、双模型分析审查、task.json 生命周期），质量节拍负责流程门禁（Phase 0-5 阶段检查、7 步日常循环、QM-1~4），OpenSpec 负责规格工件（change 生命周期与 specs 真相源）。三层职责不得相互替代。

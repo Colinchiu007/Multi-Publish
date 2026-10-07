@@ -1,7 +1,8 @@
 # story2video-video-carousel-blend Specification
 
 ## Purpose
-TBD - created by archiving change s2v-video-carousel-blend. Update Purpose after archive.
+定义 story2video-video-carousel-blend 的行为契约，判据只认下列 Requirement 与其 Scenario：「混合流水线配置契约（video 段）」、「fixed 模式场景选择」、「ai-judged 模式选择与比例钳制」等，共 7 条。本规格由归档 change `s2v-video-carousel-blend` 产生。
+
 ## Requirements
 ### Requirement: 混合流水线配置契约（video 段）
 Story2Video 流水线 SHALL 支持可选的 `story2videoTextConfig.video` 配置段，声明混合成片模式。字段：`mode`（枚举 `off` | `fixed` | `ai-judged`，默认 `off`）、`provider`（字符串，空=运行时解析默认视频生成器）、`model`（字符串，可空）、`fixedRatio`（整数百分比，默认 25，范围 [10,50]，仅 fixed 生效）、`minRatio`（整数百分比，默认 20，范围 [5,80]，仅 ai-judged 生效）、`maxRatio`（整数百分比，默认 40，范围 [5,80]，仅 ai-judged 生效）、`maxScenes`（整数，默认 3，范围 [1,12]）。`mode=off` 时系统 MUST 保持既有纯图片轮播行为；缺失/空 video 段按 `off` 处理，不得报错。

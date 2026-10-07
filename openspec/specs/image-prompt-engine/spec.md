@@ -1,7 +1,8 @@
 # image-prompt-engine Specification
 
 ## Purpose
-TBD - created by archiving change image-prompts-via-prompt-engine. Update Purpose after archive.
+定义 image-prompt-engine 的行为契约，判据只认下列 Requirement 与其 Scenario：「图片提示词统一经 prompt-engine 优化」、「风格检测」、「输出校验 fail closed」等，共 15 条。本规格由归档 change `image-prompts-via-prompt-engine` 产生。
+
 ## Requirements
 ### Requirement: 图片提示词统一经 prompt-engine 优化
 所有图片提示词优化路径（Story2Video optimize 阶段、通用 OPTIMIZE/OPTIMIZE_BATCH 阶段）SHALL 统一调用 prompt-engine 服务（POST /v1/optimize 或 /v1/optimize/batch），执行风格检测、改写与输出校验；不得绕过 prompt-engine 直接调用默认 LLM 作为图片提示词优化路径。

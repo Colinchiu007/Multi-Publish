@@ -1,7 +1,8 @@
 # story2video-image-fallback-retry Specification
 
 ## Purpose
-TBD - created by archiving change story2video-autopilot-tts-localization. Update Purpose after archive.
+定义 story2video-image-fallback-retry 的行为契约，判据只认下列 Requirement 与其 Scenario：「拒绝类失败的风险分析」、「受控重写重试」、「第五次失败后的可操作提示」，共 3 条。本规格由归档 change `story2video-autopilot-tts-localization` 产生。
+
 ## Requirements
 ### Requirement: 拒绝类失败的风险分析
 图片生成拒绝类失败时，系统 SHALL 对提示词进行风险分析，识别触发拒绝的维度。

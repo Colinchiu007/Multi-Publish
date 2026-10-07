@@ -1,7 +1,8 @@
 # story2video-history-public-read Specification
 
 ## Purpose
-TBD - created by archiving change story2video-history-public-read-channels. Update Purpose after archive.
+定义 story2video-history-public-read 的行为契约，判据只认下列 Requirement 与其 Scenario：「本地只读历史通道未登录放行」、「场景-测试映射」，共 2 条。本规格由归档 change `story2video-history-public-read-channels` 产生。
+
 ## Requirements
 ### Requirement: 本地只读历史通道未登录放行
 身份服务启用但未登录时，`story2video:list-projects` 与 `pipeline:history` 两个只读历史通道 SHALL 允许调用（返回本地数据，按 owner 隔离），不得被访问控制层以许可证拒绝。

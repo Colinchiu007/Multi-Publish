@@ -1,7 +1,8 @@
 # video-clone-pipeline-slice4 Specification
 
 ## Purpose
-TBD - created by archiving change video-clone-pipeline-slice4. Update Purpose after archive.
+定义 video-clone-pipeline-slice4 的行为契约，判据只认下列 Requirement 与其 Scenario：「阶段级进度事件」、「协作中止」、「IPC-ready runner」等，共 4 条。本规格由归档 change `video-clone-pipeline-slice4` 产生。
+
 ## Requirements
 ### Requirement: 阶段级进度事件
 `createVideoClonePipeline` SHALL 在 executorOptions 接受 eventSink，并在每阶段入口发 `stage:started`、成功发 `stage:succeeded`、失败发 `stage:failed`（含序列化 error）；请求校验通过后 SHALL 发 `completed`（经 runner）。事件回调异常不得阻断流水线。

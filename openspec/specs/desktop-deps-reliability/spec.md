@@ -1,7 +1,8 @@
 # desktop-deps-reliability Specification
 
 ## Purpose
-TBD - created by archiving change desktop-deps-reliability. Update Purpose after archive.
+定义 desktop-deps-reliability 的行为契约，判据只认下列 Requirement 与其 Scenario：「可复现依赖解析」、「关键依赖启动前自检与自愈」、「Vite 优化缓存失效守卫」，共 3 条。本规格由归档 change `desktop-deps-reliability` 产生。
+
 ## Requirements
 ### Requirement: 可复现依赖解析
 workspace 依赖声明 SHALL 可被 npm 完整解析，不允许解析到 registry 上不完整存在的版本集。

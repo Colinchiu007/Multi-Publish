@@ -1,7 +1,8 @@
 # publish-frequency-control Specification
 
 ## Purpose
-TBD - created by archiving change publish-frequency-control. Update Purpose after archive.
+定义 publish-frequency-control 的行为契约，判据只认下列 Requirement 与其 Scenario：「发布频率守卫必须在生产装配路径上生效」、「间隔维度与策略单一真源」、「账号身份缺席不得绕过频率门禁」等，共 6 条。本规格由归档 change `publish-frequency-control` 产生。
+
 ## Requirements
 ### Requirement: 发布频率守卫必须在生产装配路径上生效
 

@@ -1,7 +1,8 @@
 # ui-i18n-p2 Specification
 
 ## Purpose
-TBD - created by archiving change desktop-ui-i18n-p2. Update Purpose after archive.
+定义 ui-i18n-p2 的行为契约，判据只认下列 Requirement 与其 Scenario：「首页文案全量 i18n」、「时间格式化随语言」、「场景-测试映射」，共 3 条。本规格由归档 change `desktop-ui-i18n-p2` 产生。
+
 ## Requirements
 ### Requirement: 首页文案全量 i18n
 Home.vue 的全部用户可见文案 SHALL 纳入 vue-i18n `home` 命名空间（zh/en 成对），模板与脚本不得残留硬编码中文文案（注释与平台数据源除外）。

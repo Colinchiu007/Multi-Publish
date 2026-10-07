@@ -1,7 +1,8 @@
 # ci Specification
 
 ## Purpose
-TBD - created by archiving change film-engineering-real-e2e-ci. Update Purpose after archive.
+定义 ci 的行为契约，判据只认下列 Requirement 与其 Scenario：「电影工程真实 E2E 默认门禁」、「证据保留」，共 2 条。本规格由归档 change `film-engineering-real-e2e-ci` 产生。
+
 ## Requirements
 ### Requirement: 电影工程真实 E2E 默认门禁
 

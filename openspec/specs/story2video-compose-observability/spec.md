@@ -1,7 +1,8 @@
 # story2video-compose-observability Specification
 
 ## Purpose
-TBD - created by archiving change story2video-compose-observability. Update Purpose after archive.
+定义 story2video-compose-observability 的行为契约，判据只认下列 Requirement 与其 Scenario：「合成生命周期可关联」、「FFmpeg 阶段记录可诊断结果」、「分块拼接具备块级观测」等，共 4 条。本规格由归档 change `story2video-compose-observability` 产生。
+
 ## Requirements
 ### Requirement: 合成生命周期可关联
 

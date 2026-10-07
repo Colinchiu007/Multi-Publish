@@ -1,7 +1,8 @@
 # user-feedback-log-upload Specification
 
 ## Purpose
-TBD - created by archiving change user-feedback-log-upload. Update Purpose after archive.
+定义 user-feedback-log-upload 的行为契约，判据只认下列 Requirement 与其 Scenario：「Desktop feedback submission」、「Controlled log upload」、「Feedback ingest」等，共 4 条。本规格由归档 change `user-feedback-log-upload` 产生。
+
 ## Requirements
 ### Requirement: Desktop feedback submission
 The desktop Settings > General page SHALL allow a user to submit a non-empty bounded feedback message and explicitly choose whether sanitized application logs are attached.

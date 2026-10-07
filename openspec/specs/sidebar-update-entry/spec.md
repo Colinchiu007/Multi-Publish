@@ -1,7 +1,8 @@
 # sidebar-update-entry Specification
 
 ## Purpose
-TBD - created by archiving change sidebar-update-available-entry. Update Purpose after archive.
+定义 sidebar-update-entry 的行为契约，判据只认下列 Requirement 与其 Scenario：「入口显隐与位置」、「入口四态」、「点击即退出并安装」等，共 5 条。本规格由归档 change `sidebar-update-available-entry` 产生。
+
 ## Requirements
 ### Requirement: 入口显隐与位置
 侧边栏 footer 子元素顺序 SHALL 为 `[0] 服务连接信息` → `[1]「新版本」入口（仅在 badgeMode !== 'hidden' 时渲染）` → `[2] 登录 banner` → `[3] 升级弹窗（条件渲染）`。无可用更新时该入口不存在于 DOM，原顺序契约（`[0] 服务连接信息 → [1] 登录 banner`）保持不变。
