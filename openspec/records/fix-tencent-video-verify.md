@@ -2,9 +2,7 @@
 record: fix-tencent-video-verify
 task: 视频号发布成功却判 verification timeout（假失败）——补齐成功文案形态
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
-sync_backfill_owner: "backfill-tencent-video-record"
+sync_status: PASS
 ---
 
 ## 本次执行记录：视频号假失败（fix-tencent-video-verify，2026-10-07）
@@ -20,7 +18,7 @@ sync_backfill_owner: "backfill-tencent-video-record"
 | 变异反证 | PASS | 从生产源码删掉三个新词形 ⇒ 用例当场红；还原后 5/5 绿 |
 | 测试 | PASS | RPA 相关 5 个文件合计 **94/94 通过** |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面 |
-| 远程同步 | PENDING | 待合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | PR #3017 已 squash 合并，merge SHA `1bfec940d6ec5b40af77cfa91bf34087d0331809`，2026-10-07T09:11:58+08:00。取证 `git log origin/main --grep='(#3017)$' --format=%H|%cI`；`git ls-remote --heads origin fix-tencent-video-verify` 返回 0 行，证远端分支已删 |
 
 ### 一处测试自身被纠正的记录
 
