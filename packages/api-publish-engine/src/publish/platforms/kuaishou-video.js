@@ -112,8 +112,8 @@ class KuaishouVideoChain {
     this.partSize = opts.partSize || PART_SIZE
     const timeout = opts.timeout
     const headers = { 'User-Agent': this.userAgent }
-    this.cpHttp = opts.cpHttp || createHttpClient({ timeout, headers })
-    this.uploadHttp = opts.uploadHttp || createHttpClient({ timeout, headers })
+    this.cpHttp = opts.cpHttp || createHttpClient({ timeout, headers, agents: opts.agents })
+    this.uploadHttp = opts.uploadHttp || createHttpClient({ timeout, headers, agents: opts.agents })
   }
 
   // cp 域请求统一拼绝对 URL（注入的 cpHttp 无 baseURL，与测试假服务器对齐）

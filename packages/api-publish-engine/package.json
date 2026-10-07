@@ -50,6 +50,8 @@
     "aws4": "^1.13.2",
     "axios": "^1.20.0",
     "form-data": "^4.0.6",
+    "http-proxy-agent": "^5.0.0",
+    "https-proxy-agent": "^5.0.1",
     "js-yaml": "^4.2.0",
     "pg": "8.16.3",
     "proper-lockfile": "4.1.2"
