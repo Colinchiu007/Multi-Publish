@@ -1,3 +1,42 @@
+# [未发布] fix(desktop): 审核回查结论此前一条都写不回发布历史 —— 关联键错配（2026-10-07，audit-writeback-key-fix）
+
+### 症状与第一性原因
+
+- 真机现场（B 站投稿取证）：回查拿到了 `published`，历史页的审核徽标却始终不出现，主进程日志只有一行 `audit-update-skipped`。
+- 根因是**调用方与被调方对「关联键」的理解不一致**：`phase4-events.js:91` 传的是**队列任务 id**（`task.id`，形如 `task_1_1791361909906`），而 `publish-history.js` 的 `updateRecordAudit` 只按 **`record.id`**（`addRecord` 自己生成的 `Date.now().toString(36)+4rand`）匹配。两个键**永远不相等** ⇒ 每一次回写都恒返回 `updated:false`。
+- 队列 id 其实一直存在记录的 **`taskId`** 字段里（`phase4-events.js:107` 写入）。规范键的口径仓库自己早已回答过两处：`PublishHistory.vue:633` 按 `record.taskId || record.id` 做 join，`phase4-events.js:151-153` 明写「关联键的语义＝发布任务 id」。只有被调方没跟上。
+- **影响面不止 B 站**：所有走审核回查的平台（bilibili / weibo / douyin / zhihu / xiaohongshu / toutiao / youtube…）历史上从未成功落过一次审核结论。这条链是**第四次复发的「装饰性链路」**——链路两端都在，中间是断的。
+
+### 为什么四层测试全绿（关键，比修 itself 更重要）
+
+`phase4-events.test.js` 的 P0-1 组用例不是"没测到"，而是**两侧合谋**：
+
+- 夹具里 `updateRecordAudit: vi.fn(() => ({ updated: true }))` —— 被调方**永远报成功**，于是"到底有没有改到那条记录"在这套夹具下**结构性不可表示**；
+- 同处 `expect(id).toBe('task-audit-1')` 把"传队列 id"钉成调用点契约（这一点本身是对的，保留），却没人管被调方收不收到。
+
+命中 AGENTS.md 两条已记纪律：「测试断言不得反向固化错误行为」+「契约夹具不得替对方剥壳」（此处形态是**替对方改返回值**）。
+
+### 修法
+
+- `updateRecordAudit` 改为 **`taskId` 优先、`id` 兜底**，两侧都做 `String(x || '')` 空值保护（防 `String(undefined)==="undefined"` 冒充缺字段记录）；参数改名 `taskOrRecordId` 把语义写进签名；`matchesOwner` 与其余判据一字未动。
+- **调用点不改** —— 它传的本来就是规范键，改的是被调方的理解。
+- 不改数据格式、不迁移存量：存量记录缺 `auditStatus` 就继续缺，回查再跑一次才补上（**不擅自回填**）。
+
+### 回归保护
+
+- `publish-history.test.js` 新增 K1–K4 + K6（真实现 + **独立回读 JSONL**，不看返回值）：K1 队列键必须命中并真的落盘（含"记录主键 ≠ 队列 id"的前提自证）、K2 `id` 兜底仍可用、K3 两条记录传 A 不串到 B（夹具对不同输入返回不同内容）、K4 owner 不符不回写（**自带正向对照**，否则该负断言是恒真式）、K6 退化键 `"undefined"` 不回写。
+- `phase4-events.test.js` 新增 **X1 跨模块契约锁**：把**真** `publish-history` 注入 `wireTaskQueueEvents`，走完整链 `task:success` → 真 `addRecord` → 监控回调 → `updateRecordAudit(task.id)` → 独立回读那份 JSONL。这是 §"合谋夹具"唯一测不到的那一层。
+- 反证五条逐个实跑变红，收尾断言源文件逐字节还原（`ALL_RESTORED=true`）：N1 退回只按 `record.id`（＝修复前的原始 bug）⇒ **X1 + K1 + K3 + K4** 红；N2 只按 `taskId` ⇒ K2 + 两条既有锁红；N3 摘 owner ⇒ K4 + 既有 owner 锁红；N4 键判据恒真 ⇒ K6 + 两条既有锁红；N5 删空值保护 ⇒ **仅 K6 红**（补 K6 之前这条变异全绿，即"有守卫无锁"）。
+- 消费者并集按 `git grep` 反查后整组跑：13 个文件 **446 tests 全绿**；不是只跑 diff 里出现的那两个测试文件。
+
+### 顺带核实并排除的一项
+
+- `packages/shared-utils/src/publish-history.js` 是同名**孪生**实现，容易被当成"第二处同缺陷"。实测它 `module.exports` 只有 `addRecord/listRecords/getRecord/getStats/getHistoryPath/configurePublishHistory`，**根本不导出 `updateRecordAudit`** ⇒ 无重复缺陷可修，未动。
+
+见 `docs/PRD-AUDIT-WRITEBACK-TASKID-KEY-2026-10-07.md`（含反证归因表与工具层坑）与 `openspec/records/audit-writeback-key-fix.md`。
+
+---
+
 # [未发布] fix(publish): B 站发布后回查改为按端点自报桶扇出，并把命中桶的真实 state 送进日志（2026-10-07，bilibili-audit-buckets / PR #3065）
 
 ## 背景与根因
