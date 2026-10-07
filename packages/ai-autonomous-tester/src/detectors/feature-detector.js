@@ -1,7 +1,7 @@
 /**
- * FeatureDetector - ���Ӧ������ʵ�ֵĹ��ܣ�Ϊ Agent �ṩ�����ģ�
+ * FeatureDetector - 检测应用中已实现的功能（为 Agent 提供上下文）
  *
- * �ɼ���ά����Ϣ�� Agent �Ķ�������ƥ���жϣ�
+ * 采集多维度信息供 Agent 阅读，不做匹配判断：
  * - Routes (Vue Router: path + name)
  * - Navigation menu items
  * - Page titles / H1
@@ -9,10 +9,10 @@
  * - Sidebar/menu structure
  * - Component-level exports
  *
- * ʹ�÷�ʽ:
+ * 使用方式:
  *   const detector = new FeatureDetector({ srcDir: "./src" });
  *   const features = await detector.detect();
- *   // �� features �� Agent���� Agent ��������� PRD ƥ��
+ *   // 把 features 给 Agent，让 Agent 决定如何与 PRD 匹配
  */
 
 const fs = require("fs");

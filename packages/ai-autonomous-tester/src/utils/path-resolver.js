@@ -1,8 +1,8 @@
 /**
- * ·����������
+ * 路径解析工具
  * 
- * �� monorepo ����λ�����ϲ�����Ŀ��Ŀ¼
- * ����ƥ�� .git / AGENTS.md�����ƥ�� package.json
+ * 从 monorepo 任意位置向上查找项目根目录
+ * 优先匹配 .git / AGENTS.md，其次匹配 package.json
  */
 
 const fs = require('fs');
