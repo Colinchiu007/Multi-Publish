@@ -2,8 +2,6 @@
 record: add-encoding-integrity-gate
 task: 新增文本编码完整性门禁（Gate 12b）——拦字面 U+FFFD 与非 UTF-8 文本，棘轮两层
 date: 2026-10-07
-sync_reason: "PR 合并后回填：远程同步行改写 PASS + merge SHA、删除 sync_reason/sync_backfill_owner 两字段，须与删除 scripts/gate-record-debt-ledger.json 登记项同一次提交完成。"
-sync_backfill_owner: "agent / Mavis"
 ---
 
 ## 本次执行记录：文本编码完整性门禁（add-encoding-integrity-gate，2026-10-07）
@@ -28,7 +26,26 @@ sync_backfill_owner: "agent / Mavis"
 | QM-1 打包 / QM-4 视觉 | ➖ N/A | 未改 `apps/desktop/electron/**`；无 UI 变更 |
 | ⚠️ 踩坑记录 | — | **`.gitignore:106` 有 `scripts/*.js`** —— 新门禁脚本必须 `git add -f` 才能入库，否则 `git add -A scripts/` 会静默跳过（本次就中了一次，直到 `git status` 才发现文件没进暂存区） |
 | ⚠️ 踩坑记录 | — | 自测文件首行写成 `# @ts-check` → JS 里 `#` 开头是 SyntaxError（只有 `#!` 是 hashbang）。同族 `check-no-brand-residue.test.js` 用的是 `/**` 块注释 |
-| 远程同步 | PENDING | 合并后回填 |
+| 远程同步 | PASS —— PR #3032 已合并为 `origin/main` b7c1a83（2026-10-07T12:21:12+08:00，squash merge，CI 19 success / 1 skipped / 0 failure）；远端分支 add-encoding-integrity-gate 随合并自动删除 |
+
+### 首轮 CI 实证：门禁在合入前就抓到了自己
+
+PR #3032 首次 CI `QG Changes` + `Gate Result` 红，日志：
+
+```
+❌ 新增 2 处编码损坏（基线外，清单只能缩小）：
+  + scripts/check-text-encoding-integrity.js:     U+FFFD × 4（首现行 8）
+  + scripts/check-text-encoding-integrity.test.js: U+FFFD × 2（首现行 38）
+```
+
+**新门禁把自己的源码判成了损坏**，两层根因：
+① 检测器不能包含被检测的模式——注释里为举例写了 U+FFFD 字面量；
+② 基线在 `git add` 之前生成，而判据域是 `git ls-files`，脚本自己没进基线。
+
+修法：注释改文字描述 + 脚本头部写死自指约束（**本文件自身不得出现字面 U+FFFD，注释里也不许**）
++ 自测改用 `String.fromCodePoint(0xFFFD)` 构造 + 重新 `--update-baseline`。
+第二轮 CI 起 `QG Changes` 即绿。选码点构造而非显式自指豁免：豁免是特例，
+会被后人当模板抄走；码点构造让脚本在**结构上**就踩不到自己。
 
 ### 遗留（不假装已闭合）
 
