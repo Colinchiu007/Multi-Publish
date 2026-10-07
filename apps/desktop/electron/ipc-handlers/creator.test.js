@@ -7,6 +7,12 @@
  *  2. **超限时零副作用**：collect 通道必须在发起任何采集请求前拒绝。
  *  3. **错误分类可区分**：数量超限 / 输入非法 / 频道不存在是三种排查方向。
  */
+// 必须先启用 electron mock：本文件多数用例不传 event 就调 handler，
+// 靠的正是 withSenderCheck 的测试放行分支（未打包 + 无 senderFrame 直接放行）。
+// 不启用时 require('electron').app 为 undefined，守卫一律 fail-closed，
+// 全部用例会以「未授权的调用来源」失败——那是桩缺失，不是被测行为。
+__enableElectronMock()
+
 const { registerHandlers } = require('./creator')
 
 function createMockIpcMain () {
@@ -296,5 +302,46 @@ describe('creator IPC · 送入 AI 写作', () => {
     const ipc = mountWith({ startRun: async () => ({ success: true, runId: 'r' }) })
     const r = await ipc._get('creator:send-to-writer')({}, {})
     expect(r.reason).toBe('creator:invalid_input')
+  })
+})
+
+describe('creator IPC · sender 守卫（2026-10-07 CCG 评审 i6/Gate 17）', () => {
+  // 背景：Gate 17 要求显式 sender 守卫占比 >= 65%，本模块新增 10 个通道一度把
+  // 占比从 65.4% 稀释到 64.0%。补守卫不能只让门禁变绿——必须证明它真的会拒人。
+  const HOSTILE = { senderFrame: { url: 'https://evil.example/' } }
+
+  // 不能复用「送入 AI 写作」那个 describe 里的 mountWith：它在块内作用域，
+  // 这里另起一份，保证守卫用例只依赖模块级的桩。
+  function mount () {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps())
+    return ipc
+  }
+
+  it('外部页面带 senderFrame 时一律拒绝，不执行业务逻辑', async () => {
+    const ipc = createMockIpcMain()
+    let called = false
+    registerHandlers(ipc, stubDeps({
+      creatorStore: { getDiscovery: async () => { called = true; return null } },
+    }))
+    const r = await ipc._get('creator:send-to-writer')(HOSTILE, { discoveryId: 'd1' })
+    expect(called).toBe(false, '守卫必须在业务逻辑之前拦下')
+    expect(r.code).not.toBe(0)
+  })
+
+  it.each([
+    'creator:list', 'creator:follow', 'creator:unfollow', 'creator:toggle',
+    'creator:check-now', 'creator:discoveries', 'creator:collect',
+    'creator:collect-one', 'creator:skip-one', 'creator:send-to-writer',
+  ])('%s 同样受守卫覆盖（逐条防「漏加一个」）', async (channel) => {
+    const r = await mount()._get(channel)(HOSTILE, {})
+    expect(r.code).not.toBe(0)
+  })
+
+  it('依赖缺失的降级通道也不得成为无守卫旁路', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({ creatorStore: null }))
+    const r = await ipc._get('creator:list')(HOSTILE, {})
+    expect(r.code).not.toBe(0)
   })
 })

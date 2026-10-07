@@ -85,33 +85,43 @@ optional 依赖），**不在 asar 内**。本仓 `python-bridge.js:104` 直接 
 「asar 内 require 链通过」**不等于**「YouTube 采集在打包产物上可用」——
 后者取决于目标机器是否 pip 安装了该依赖，属已登记的遗留项。
 
-### QM-1 打包证据（2026-10-07 实测）
-
-前置：`node scripts/verify-worktree-deps.js` → OK（11 个 workspace 解析通过，
-未被其他分支的链接污染）。
-
-| 步骤 | 结果 |
-|---|---|
-| `pnpm exec electron-builder --win --dir --publish never` | **rc=0**，产物 `dist-electron/win-unpacked` |
-| asar 体积 | 145,257,509 字节 |
-| asar 内含本特性模块 | ✅ `electron/services/{creator-collector,creator-limits,creator-monitor,creator-schema,creator-store}.js`、`electron/ipc-handlers/creator.js`、`electron/preload/creator.js` |
-| asar 内含既有 logger | ✅ `@multi-publish/shared-utils/src/logger.js` 等 |
-| 解包后 require 链 | ✅ 5 个 services 模块 + ipc-handlers 全部 require 成功（无缺依赖、无语法错） |
-| 产物启动 | ✅ `Multi-Publish.exe` 启动后 8 秒仍存活；stderr 中**无** `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar` / `Cannot find module.*creator` |
-
-**注意**：本特性依赖的 `content_aggregator` 是 **Python 包**（`pyproject.toml` 的
-optional 依赖），**不在 asar 内**。本仓 `python-bridge.js:104` 直接 spawn 系统
-`python`，Python 依赖靠 pip 装进目标机器的 site-packages。因此
-「asar 内 require 链通过」**不等于**「YouTube 采集在打包产物上可用」——
-后者取决于目标机器是否 pip 安装了该依赖，属已登记的遗留项。
 
 ### 遗留（不假装已闭合）
+
+> **2026-10-07 补充**：下列第 2、3 条经 CCG **实现级**外部双家族评审（`opencode` × `claude`，
+> `.adversarial/ccg-deep-c7b300d3/`，8 条问题 / 最低维度分 3）逐条核实后**升级为确证缺陷**，
+> 不是"预留"而是"缺失"，详见下方「CCG 实现级评审处置」。
 
 - **`content_aggregator` 未随打包分发**（`python-bridge.js:104` spawn 系统 `python`）。功能在缺依赖时应降级提示并给出确切安装命令（含国内镜像源写法），但**该路径未经真实缺包环境验证**
 - `creator-monitor.js` 目前只含纯逻辑（失败分级、配额求解）；探测调度、claim 落库、outbox finalizer、采集编排**尚未接线到主进程**，IPC 层以依赖注入方式预留
 - 送入 AI 写作（`full-auto-pipeline` 复用）未接线
 - 未跑端到端真实采集（需 API Key + 打包产物内验证）
 - 商店/多账号未实现（D10 已在数据结构预留 `credential_alias`）
+
+### CCG 实现级评审处置（2026-10-07）
+
+方案级评审跑了 8 轮，但**实现代码此前从未被外部评审过**。本轮对实际 diff 跑
+`ccg-deep-review.js --proposer opencode --critic codex`，产出 8 条（3 Critical / 5 Warning，
+correctness 3 / security 4 / performance 6 / maintainability 5）。逐条核实结果：
+
+| # | 评审结论 | 核实 | 处置 |
+|---|---|---|---|
+| i1 | `listPosts` 只请求 `part=snippet`，`contentDetails.videoId` 恒 undefined，回退 `it.id` 取到的是**播放列表条目 id** | **成立（Critical）** | 已修：`part=snippet,contentDetails`；**删除 `it.id` 回退**（取不到 videoId 就丢弃该条）；非 UC 输入 fail-closed。+10 条回归用例（新建 `creator-collector-runtime.test.js`——该模块此前零测试，正是逃逸原因） |
+| i2 | `markCollected` 与 `enqueueOutbox` 无事务，崩溃即产生 `collected` 但未入队的漂移 | **成立（Critical）** | 与本方案 §16「三者同事务」的定稿判据直接冲突。**随 i4 一并处理**（`enqueueOutbox` 本身都还没实现） |
+| i3 | `superseded` 被 `collectBatch` 计入 `failed` 且不重试 | **成立** | 随接线一并修 |
+| i4 | `collection_quota_ledger` 建表 + 有测试断言，但**无任何运行时引用**（死表） | **成立** | 随接线一并修（`creatorQuota` 本就无产出方） |
+| i5 | `videoNotFound` 归 ITEM 而 `invalidPageToken` 归 PERMANENT，探测阶段按批次整体分类，粒度混用 | 成立（设计层） | 记录，随接线一并修 |
+| i6 | `creatorPendingTotal` 在 `Collection.vue` 模板被引用但未定义 | **成立**（`undefined > 0` 为 false，不抛错，角标永不显示——比评审描述的"抛错"轻） | 随接线一并修 |
+| i7 | `projectedProbeUnits` 假设每次探测恒 1 unit，但分页与逐条取正文会放大消耗 | 成立（设计层） | 记录，随接线一并修 |
+| i8 | QM-1 证据整节重复两次；`.quality-gates.md` 残留 `>>>>>>>` 冲突标记 | **成立** | 已修：去重 19 行、清除 2 行冲突标记，并把该文件里"主进程已接线"的错误断言改回事实 |
+
+**评审未收敛**（最低维度分 3 < 阈值 8.0），引擎落入自扮演裁决出口、8 条全部无 verdict，
+即"未形式收敛"。此处的如实结论是：外部评审指出的问题里，**最重的一条不是代码风格，
+而是"整套实现从未真正跑通过一次"**——`registerHandlers` 只在自身测试里被调用，
+`ipc-handlers/index.js` 未注册它，`creator-store.js` 缺 11 个 IPC 层要用的方法，
+容器注册名（`creatorRuntime`）与 IPC 依赖名（`creatorMonitor`）也对不上。
+既有测试全部用桩 store 直调 handler，因此 365 项测试与 QM-1 打包**双双放过**了它：
+打包只证明模块"在包里"，不证明它"被接线"。
 
 ### 零假设·零臆测（证据等级）
 

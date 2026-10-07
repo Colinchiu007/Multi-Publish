@@ -23,6 +23,12 @@ const {
 
 const { CREATOR_INPUT_ERRORS } = require('../services/creator-collector')
 
+// 显式 sender 守卫。**必须字面出现在每个注册点的实参里**：
+// check-ipc-sender-guard 的 GUARD_PATTERNS 只对 `ipcMain.handle(通道, <实参文本>)`
+// 的实参文本做正则匹配，不解析局部 helper 的定义——把守卫藏进 `wrap` 里
+// 会被判成「注入咽喉点」而非显式守卫，既过不了占比门禁，也丢掉了纵深防御。
+const { withSenderCheck } = require('./helpers')
+
 /** 领域错误 → UI 形状。排查方向不同的错误 MUST 分开，不要合并成一句话。 */
 function toIpcError (err) {
   if (err instanceof ClampError) {
@@ -63,12 +69,16 @@ function registerHandlers (ipcMain, deps) {
     log,
   } = deps || {}
 
-  const degraded = (channel) => ipcMain.handle(channel, () => ({
+  // 降级注册同样要守卫：不能出现「服务缺失时反而无守卫」的旁路。
+  // 形参刻意叫 ch 而不是 channel：check-ipc-sender-guard 对**动态**通道名按
+  // 实参表达式文本生成标签（`<expr:ch>`），automation.js:35 用的也是 `channel`，
+  // 同名会被判成「同一通道重复注册且守卫状态不一致」而报 ERROR。
+  const degraded = (ch) => ipcMain.handle(ch, withSenderCheck(() => ({
     code: -1,
     reason: 'service-unavailable',
     message: '博主监控服务未就绪，请在设置中检查依赖与凭证',
-    channel,
-  }))
+    channel: ch,
+  })))
 
   const wrap = (fn) => async (_evt, payload) => {
     try {
@@ -91,17 +101,17 @@ function registerHandlers (ipcMain, deps) {
   }
 
   // ── 博主列表（含待采集角标） ─────────────────────────────────
-  ipcMain.handle('creator:list', wrap(async () => {
+  ipcMain.handle('creator:list', withSenderCheck(wrap(async () => {
     const creators = await creatorStore.listCreators()
     const items = []
     for (const c of creators) {
       items.push({ ...c, pendingCount: creatorStore.countPending(c.id) })
     }
     return { code: 0, items, totalPending: items.reduce((s, x) => s + x.pendingCount, 0) }
-  }))
+  })))
 
   // ── 关注博主 ────────────────────────────────────────────────
-  ipcMain.handle('creator:follow', wrap(async (payload) => {
+  ipcMain.handle('creator:follow', withSenderCheck(wrap(async (payload) => {
     const input = requireString(payload, 'input')
 
     // 配额校验 MUST 在写库之前：超限时拒绝且不产生任何行
@@ -128,30 +138,30 @@ function registerHandlers (ipcMain, deps) {
       perCreatorLimit: payload.perCreatorLimit ?? null,
     })
     return { code: 0, creator, follow }
-  }))
+  })))
 
   // ── 取消关注 / 暂停恢复 ─────────────────────────────────────
-  ipcMain.handle('creator:unfollow', wrap(async (payload) => {
+  ipcMain.handle('creator:unfollow', withSenderCheck(wrap(async (payload) => {
     const followId = requireString(payload, 'followId', { max: 64 })
     await creatorStore.deleteFollow(followId)
     return { code: 0 }
-  }))
+  })))
 
-  ipcMain.handle('creator:toggle', wrap(async (payload) => {
+  ipcMain.handle('creator:toggle', withSenderCheck(wrap(async (payload) => {
     const followId = requireString(payload, 'followId', { max: 64 })
     const follow = await creatorStore.setFollowEnabled(followId, !!payload.enabled)
     return { code: 0, follow }
-  }))
+  })))
 
   // ── 立即检查 ────────────────────────────────────────────────
-  ipcMain.handle('creator:check-now', wrap(async (payload) => {
+  ipcMain.handle('creator:check-now', withSenderCheck(wrap(async (payload) => {
     const followId = requireString(payload, 'followId', { max: 64 })
     const r = await creatorMonitor.probeCreator(followId, { manual: true })
     return { code: 0, ...r }
-  }))
+  })))
 
   // ── 发现列表 ────────────────────────────────────────────────
-  ipcMain.handle('creator:discoveries', wrap(async (payload) => {
+  ipcMain.handle('creator:discoveries', withSenderCheck(wrap(async (payload) => {
     const limit = Number.isInteger(payload.limit) ? payload.limit : 50
     const offset = Number.isInteger(payload.offset) ? payload.offset : 0
     const items = await creatorStore.listDiscoveries({
@@ -160,10 +170,10 @@ function registerHandlers (ipcMain, deps) {
       limit, offset,
     })
     return { code: 0, items, limit, offset }
-  }))
+  })))
 
   // ── 批量采集 ────────────────────────────────────────────────
-  ipcMain.handle('creator:collect', wrap(async (payload) => {
+  ipcMain.handle('creator:collect', withSenderCheck(wrap(async (payload) => {
     const follow = await creatorStore.getFollow(requireString(payload, 'followId', { max: 64 }))
     if (!follow) {
       const e = new Error('关注项不存在')
@@ -196,25 +206,25 @@ function registerHandlers (ipcMain, deps) {
       available: plan.available,
       max: effectiveLimit,
     }
-  }))
+  })))
 
   // ── 单条采集：零填参，不受数量上限约束，但仍受配额约束 ────────
-  ipcMain.handle('creator:collect-one', wrap(async (payload) => {
+  ipcMain.handle('creator:collect-one', withSenderCheck(wrap(async (payload) => {
     const discoveryId = requireString(payload, 'discoveryId', { max: 64 })
     const r = await creatorMonitor.collectOne(discoveryId)
     return { code: 0, ...r }
-  }))
+  })))
 
-  ipcMain.handle('creator:skip-one', wrap(async (payload) => {
+  ipcMain.handle('creator:skip-one', withSenderCheck(wrap(async (payload) => {
     const discoveryId = requireString(payload, 'discoveryId', { max: 64 })
     await creatorStore.skipDiscovery(discoveryId)
     return { code: 0 }
-  }))
+  })))
 
   // ── 送入 AI 写作 ────────────────────────────────────────────
   // 复用既有 full-auto-pipeline 的 collect → rewrite → create 三段，**不执行 publish**
   // （非目标 N1：不做一键搬运发布）。幂等键见下，避免同一内容反复点重复消耗 LLM 额度。
-  ipcMain.handle('creator:send-to-writer', wrap(async (payload) => {
+  ipcMain.handle('creator:send-to-writer', withSenderCheck(wrap(async (payload) => {
     const discoveryId = requireString(payload, 'discoveryId', { max: 64 })
     const pipeline = deps.fullAutoPipeline
     if (!pipeline || typeof pipeline.startRun !== 'function') {
@@ -238,7 +248,7 @@ function registerHandlers (ipcMain, deps) {
       return { code: -1, reason: 'writer-start-failed', message: (started && started.error) || 'AI 写作启动失败' }
     }
     return { code: 0, runId: started.runId, idempotencyKey: `creator:${sig}` }
-  }))
+  })))
 }
 
 module.exports = { registerHandlers, toIpcError, COLLECT_DEFAULTS }

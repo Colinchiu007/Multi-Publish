@@ -61,15 +61,29 @@ function createCreatorCollector (deps = {}) {
   async function listPosts (channelId) {
     if (typeof listPostsImpl === 'function') return listPostsImpl(channelId)
     const { apiKey } = credentials()
-    // uploads 播放列表 ID = 'UU' + channelId.slice(2)
-    const uploads = 'UU' + String(channelId).slice(2)
+    // uploads 播放列表 ID = 'UU' + channelId.slice(2)。**只在输入确为 UC 形式时**才允许这么拼：
+    // 拿非 UC 的串去切前两字符会得到一个语法合法但指向别的播放列表的 ID，
+    // 而 YouTube 对不存在的播放列表返回 200 + 空 items —— 表现为「该博主没有新作品」，
+    // 是典型的静默错误（监控看起来正常，实际永远采不到东西）。故这里 fail-closed。
+    const cid = String(channelId || '')
+    if (!/^UC[\w-]{22}$/.test(cid)) {
+      const e = new Error('频道 ID 非法，拒绝拼接 uploads 播放列表')
+      e.code = CREATOR_INPUT_ERRORS.NOT_A_CHANNEL
+      throw e
+    }
+    const uploads = 'UU' + cid.slice(2)
     const json = await httpGet(`${YOUTUBE_API_BASE}/playlistItems`, {
-      part: 'snippet', playlistId: uploads, maxResults: DEFAULT_COLLECT_PAGE_SIZE, key: apiKey,
+      // contentDetails 是 videoId 的**唯一**来源：playlistItems 的 id 字段是
+      // 「播放列表条目 id」而非视频 id，漏掉 contentDetails 就会把它误当 externalId，
+      // 于是 (platform, external_id) 去重键与 watch URL 双双写错且无法自证。
+      part: 'snippet,contentDetails', playlistId: uploads, maxResults: DEFAULT_COLLECT_PAGE_SIZE, key: apiKey,
     })
     const items = Array.isArray(json && json.items) ? json.items : []
     return items.map((it) => {
       const sn = it.snippet || {}
-      const vid = (it.contentDetails && it.contentDetails.videoId) || it.id || ''
+      // 刻意**不做** `|| it.id` 回退：见上，it.id 是播放列表条目 id，
+      // 拿它当 external_id 会让去重键与 URL 同时错掉。取不到 videoId 就丢弃该条。
+      const vid = (it.contentDetails && it.contentDetails.videoId) || ''
       return {
         externalId: vid,
         title: sn.title || '',
