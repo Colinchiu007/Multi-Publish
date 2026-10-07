@@ -76,7 +76,27 @@
 
 `content-aggregator` 已在 `packages/python-backend/pyproject.toml:21` 声明为可选依赖。
 
-**因此 YouTube 不需要从零写频道解析**——这是 MVP 选它的核心理由，也是它区别于其余 6 个平台的决定性优势：只有它能在**不依赖反爬对抗**的前提下证明"关注 → 监控 → 发现 → 采集"这条链路本身成立。
+**⚠ 重要更正（2026-10-07 实测，修正本文早期论断）**
+
+本文早期版本称 YouTube「是唯一能在**不依赖反爬**的前提下证明链路成立的平台」。**这句话只对「发现」成立，对「取正文」不成立。** 实测 `youtube_transcript_api` 的实现：
+
+| 环节 | 实现 | 性质 |
+|---|---|---|
+| 频道/作品枚举 | `googleapis.com/youtube/v3/{channels,playlistItems,search}` | ✅ **官方 Data API** |
+| **字幕正文** | ① GET `youtube.com/watch?v=<id>` ② 正则从 HTML 刮出 `INNERTUBE_API_KEY` ③ POST `youtube.com/youtubei/v1/player` ④ 请求体伪装 `clientName: ANDROID, clientVersion: 20.10.38` | ⚠️ **非官方**：抓页面 + 调内部 Innertube 接口 + **客户端伪装** |
+
+该库自带文档即在讨论 **「Working around IP bans」** 与 **Webshare 代理**配置——即其作者已知该路径存在 IP 封禁。
+
+**修正后的风险定位**：
+
+| 环节 | 反爬强度 | 失败后果 |
+|---|---|---|
+| 发现（探测） | **低**——纯官方 API | 监控停止新发现（可自愈：配额/网络） |
+| **取正文（字幕）** | **中**——轻量抓取 + 客户端伪装 | 该条正文降级为 description，**监控本身不受影响** |
+
+**为什么仍选 YouTube**：抖音/小红书/视频号需要处理**签名算法、风控体系、登录态对抗**（持续对抗军备）；字幕抓取是**每次一个页面请求、可缓存、无状态**，量级完全不同。**"轻量抓取" ≠ "平台级反爬对抗"**，但也不能说"完全无反爬"。
+
+**因此正文路径必须有降级与缓存**（见 §8.0.1）：同一 `videoId` 的字幕**本地缓存、永不重复抓取**；字幕抓取失败时**降级为 description 且不计入博主连续失败**（§8.6）——抓不到字幕是内容降级，不是监控故障。
 
 ### 1.5 不可回避的风险声明
 
@@ -127,7 +147,7 @@
 
 | 平台 | 采集能力等级 | 依据 | 本期状态 |
 |---|---|---|---|
-| **YouTube** | `official` | Data API v3，依赖包已实现 | ✅ **本期交付** |
+| **YouTube** | `official`（发现）/ `official`+轻量抓取（正文） | **发现**：Data API v3，依赖包已实现。⚠️ **正文**：字幕经 `youtube-transcript-api`（抓 watch 页 + 内部 Innertube 接口 + 客户端伪装），属**非官方轻量抓取**，见 §1.4 更正 | ✅ **本期交付** |
 | 知乎 | `best_effort` | cookie 鉴权 + 已有 stealth 采集；收藏夹官方 API 已可用 | 后续 |
 | X (Twitter) | `best_effort` | API v2 付费档，或登录 cookie | 后续 |
 | 抖音 | `best_effort` | 无开放接口，需 cookie + Playwright，**有封号风险** | 后续 |
