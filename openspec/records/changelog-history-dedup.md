@@ -10,8 +10,8 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 ## 本次执行记录：CHANGELOG 历史副本清理（changelog-history-dedup，2026-10-07）
 
 > 分支：`changelog-history-dedup`；worktree：`D:/Data/projects/mp-worktrees/mp-changelog-history-dedup`
-> 坐标系：开分支时 `origin/main`=`24d4c0a76` → re-merge 后 merge-base=`cbce3254158`（授权文件里的 `applies_to_base` 就是这个 sha，**由当场 `git merge-base` 打印，不是手抄**）
-> 范围：🔧 门禁工具（`scripts/` 三件 + 两个测试）+ 🗄️ 台账数据（`CHANGELOG.md` 净删 47,824 行）+ 📝 OpenSpec change ⇒ 含 `scripts/` 工具脚本自身 = **混合 PR，不走 docs-only 快速通道**
+> 坐标系：开分支时 `origin/main`=`24d4c0a76` → 两次 re-merge 后当前 merge-base=`6fb99307b`（授权文件里的 `applies_to_base` 就是这个 sha，**由当场 `git merge-base` 打印后写入、不是手抄**；中途曾钉在 `cbce32541`，re-sync 后由 `scripts/changelog-dedup-regen.js` 重算并改写授权与台账，`identical=true` 回读通过）
+> 范围：🔧 门禁工具（`scripts/` 三件 + 两个测试）+ 🗄️ 台账数据（`CHANGELOG.md` 净减 47,796 行）+ 📝 OpenSpec change ⇒ 含 `scripts/` 工具脚本自身 = **混合 PR，不走 docs-only 快速通道**
 > OpenSpec：`openspec/changes/dedup-changelog-history/`（`openspec validate --strict` 通过），capability 新增 `changelog-ledger-integrity`
 
 ### 为什么这件事不能靠"改宽默认判据"完成（本 PR 的判据前提）
@@ -39,30 +39,30 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
 | 变更类型与隔离 | PASS | `start-mp-task.ps1 -TaskName changelog-history-dedup` rc=0 **且按产物复核**：`git worktree list` 出现该路径、`rev-parse --abbrev-ref HEAD`=`changelog-history-dedup`、`status --porcelain` 0 行、`verify-worktree-deps.js` OK（11 项解析指向本 worktree）。pre-flight `pre-code-edit-guard.ps1` 在共享根返回 rc=1（拒绝），故全程不在共享根落笔 |
-| 单一实现（口径分裂的根因） | PASS | 实测同一份 `origin/main` blob：growth `headingsOf`=**1,184/1,185**，副本棘轮 `analyze.entries`=**1,158** ⇒ 两把锁各写了一遍"什么是一条条目"。新增 `scripts/changelog-entries.js` 为唯一实现（`HEADING_RE / splitEntries / titleOf / pickKeeper / groupByTitle / analyze / dedupe / countByTitle`），两侧改为 require 它；由测试 `条目模型只有一份实现…条目总数必须相等` 钉住（RED 阶段实测该条先红，接完线后转绿） |
-| TDD（红→绿全过程留痕） | PASS | 先写 10 条新用例，**RED 实测** `tests 21 / pass 15 / fail 6`（6 条全是我新增的，owner 原 11 条此时已全绿 ⇒ 我加的测试没有动他的不变量）；实现后 `21 / 21 / 0`，再补「例外必须出声」那条行为锁后为 **`22 / 22 / 0`**（终态，反证七轮跑完复测仍 22/22）。副本棘轮 **`14 / 14 / 0`** 全程未红。；实现后 `21 / 21 / 0`。中途一次断言写错（我按「lost 只有一条」断言，实际默认多重集判据在授权核对前会同时报出 A 消失与 B 削份两条 ⇒ `2 !== 1`），**改正断言的表达而不是放宽判据**：改为断言 A 必在 lost 中且 `got===0`、并要求 `authorizationError` 点名「标题消失」 |
+| 单一实现（口径分裂的根因） | PASS | 实测同一份 base blob（最终坐标系 `6fb99307b`）：growth 旧口径（`^# ` 恰好一个空格）=**1,187**，副本棘轮旧口径（`# [未发布]` 前缀）=**1,158** ⇒ 两把锁各写了一遍"什么是一条条目"；那 29 条差集当场归类为 `# [unreleased]` 12、`# [2026-08-15]` 8、`# fix(自检门禁):` 4、`# fix(工程门禁):` 4、`# [补记]` 1。（开发期间在 `cbce32541` 上曾读作 1,184/1,185，随 re-sync 漂移，以本行最终值为准）新增 `scripts/changelog-entries.js` 为唯一实现（`HEADING_RE / splitEntries / titleOf / pickKeeper / groupByTitle / analyze / dedupe / countByTitle`），两侧改为 require 它；由测试 `条目模型只有一份实现…条目总数必须相等` 钉住（RED 阶段实测该条先红，接完线后转绿） |
+| TDD（红→绿全过程留痕） | PASS | 先写 10 条新用例，**RED 实测** `tests 21 / pass 15 / fail 6`（6 条全是我新增的，owner 原 11 条此时已全绿 ⇒ 我加的测试没有动他的不变量）；实现后 `21 / 21 / 0`，再补「例外必须出声」那条行为锁后为 `22 / 22 / 0`（这是反证七轮当时的基线）。**QM-6 处置又补了 8 条**（raw 字节同源 / head 独有新标题插两份 / head 零条目 / `readBlobOrNullText` 与 `resolveSha` 单元 / 三种授权损坏形态 / 多空格-制表标题 / preamble 被改写），**终态实测 `30 tests / 30 pass`**（`node --test scripts/check-changelog-growth.test.js`，2026-10-07 在本 worktree 复跑）。副本棘轮由 14 条增至 **`19 / 19 / 0`**（+5 为对账器 A1–A5 及其负控），两文件合跑实测 `49 / 49 / 0`。中途一次断言写错（我按「lost 只有一条」断言，实际默认多重集判据在授权核对前会同时报出 A 消失与 B 削份两条 ⇒ `2 !== 1`），**改正断言的表达而不是放宽判据**：改为断言 A 必在 lost 中且 `got===0`、并要求 `authorizationError` 点名「标题消失」 |
 | 测试接线 | PASS | 未新建测试文件（新用例落在两个**已被 CI 点名**的 `.test.js` 里），因此不触发 `check-unwired-tests.js`；`node --check` 三个改动脚本全过 |
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`；改动是仓库门禁脚本 + 台账文本，不产生运行时代码路径变化 |
 | QM-4 视觉 | N/A | 未触任何 `.vue` / 样式 / 布局 |
-| 行尾与编码对账 | PASS | 全程在 **blob 域**（纯 LF）操作：`git cat-file blob <base>:CHANGELOG.md` 取底 → 前置我的条目 → `dedupe` → 写出。staged blob 实测 `CRLF=0 / bareLF=17,916 / loneCR=0 / NUL=0`；`git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` **同为 `131 47929`** ⇒ 无行尾噪声。git 提示的 `LF will be replaced by CRLF` 是本仓 `* text=auto` 的常态（blob 是 LF），不是事故 |
+| 行尾与编码对账 | PASS | 全程在 **blob 域**（纯 LF）操作：`git cat-file blob <base>:CHANGELOG.md` 取底 → 前置我的条目 → `dedupe` → 写出。最终 HEAD blob（`ae5ce1f69`）实测 `CRLF=0 / bareLF=18,021 / loneCR=0 / NUL=0`；`git diff --numstat 6fb99307b HEAD -- CHANGELOG.md` 与 `--ignore-cr-at-eol --numstat` **同为 `133 47929`** ⇒ 无行尾噪声。git 提示的 `LF will be replaced by CRLF` 是本仓 `* text=auto` 的常态（`git ls-files --eol` = `i/lf w/crlf`），不是事故 |
 
 ### 清理的无损对账（独立回读，不复用去重脚本自己的结论）
 
 | 判据 | 实测 |
 |------|------|
-| base（`cbce32541`）规模 | 65,715 行 / 7,596,728 字节；**1,185 条 / 344 种标题 / 冗余 841 份 / 最坏 16 份** |
-| 加我这条条目后 | 1,186 条 / 345 种 |
-| 去重后 | **345 条 / 17,917 行 / 2,070,569 字节**；净减 **47,798 行 / 5,526,159 字节**（`65,715−17,917`、`7,596,728−2,070,569`）。行级 diff 是 `+131 / −47,929`，其中**只有 26 行**来自本 PR 那条台账，其余新增行是幸存块被**重排**到"该标题首次出现的槽位"所致 ⇒ **这次改动不能被称为"纯删除"**（此句由独立对账器判红后纠正，见下） |
-| 每个保留块与 base 同源 | 对账器 A2 走 **raw 字节**（不是 CR 归一后相等）+ A3 要求留下的就是 `pickKeeper` 选的那份；`kept_byte_identical=344`（345 块里除本 PR 新增那条外全部同源） |
+| base（最终坐标系 `6fb99307b`）规模 | 65,818 行 / 7,602,769 字节；**1,187 条 / 346 种标题 / 冗余 841 份 / 最坏 16 份**。（`cbce32541` 时期读作 65,715 / 7,596,728 / 1,185 / 344，行数与条目数随 re-sync 漂移，**冗余份数 841 未变**） |
+| 加我这条条目后（未去重） | 1,188 条 / 347 种 / 冗余仍 841 |
+| 去重后 | **347 条 / 347 种 / 18,022 行**；净减 **47,796 行**（`65,818−18,022`）。行级 diff 是 `+133 / −47,929`（净减 47,796），其中**只有 28 行**是本 PR 那条台账自身（含其后的 `---` 分隔行），其余新增行是幸存块被**重排**到"该标题首次出现的槽位"所致 ⇒ **这次改动不能被称为"纯删除"**（此句由独立对账器判红后纠正，见下）。**head 的字节数在此也不写**：本记录引用的那份 blob 会被后续文案修订继续改变，只有钉住 sha 才有意义（当场复核命令 `git cat-file blob HEAD:CHANGELOG.md | 数 CR/NL`） |
+| 每个保留块与 base 同源 | 对账器 A2 走 **raw 字节**（不是 CR 归一后相等）+ A3 要求留下的就是 `pickKeeper` 选的那份；`kept_byte_identical=346`（347 块里除本 PR 新增那条外全部同源） |
 | 副本内容互不相同的标题 | **12 种** —— 说明这些标题的某份副本曾被就地改写过，"留最长那份"是一个有后果的选择；该数字由门禁与对账器一起打印，属**人工过目清单**，不是无害折叠 |
-| 标题集合 | `distinct_before=345 == distinct_after=345`，脚本对「标题消失」与「集合不相等」都抛错 |
+| 标题集合 | base 的 **346 种一个不少**；head 为 347 种 = 346 + 本 PR 自己那条新增台账。脚本对「标题消失」与「集合不覆盖」都抛错 |
 | 幂等 | 对结果再跑一次 `dedupe` ⇒ `removed=0` |
 | 削减明细 | `removed=841 == redundant=841`；`titles_reduced=269`（写进授权文件的 `expected_titles_reduced`，门禁侧再独立核对一次） |
 
 ### 反证（新加的守卫必须被"拆掉它"证伪过）
 
 驱动脚本每条都跑四步：**从 pristine 快照还原 → 基线必须全绿 → 应用变异（断言锚点命中恰好 1 次）→ 目标用例必须变红 → 逐字节还原并断言与备份 `equals`**。
-基线 = `22 tests / 22 pass`（`scripts/check-changelog-growth.test.js`）。七条全部 PASS。
+首轮基线 = `22 tests / 22 pass`（`scripts/check-changelog-growth.test.js`）。七条全部 PASS。**这不是终态基线** —— 第三轮 B 在用例增至 30 条后把 M1–M7 **全部重跑**过一遍（见下方分轮记录），终态以「用例 30」那一轮为准。
 
 | 变异 | 拆掉的是什么 | 结果 |
 |------|-------------|------|
@@ -123,7 +123,7 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 | F-D | 「逐字节同源」实际是 CR 归一后相同（`readBlobText` 剥掉所有 `\r`） | **成立**，是判据承诺强于实现 | 同源比较改走 `readBlobRaw`（未剥 CR）；标题分组仍用归一口径以便跨行尾可比。补锁 `raw 字节同源：只差一个 CR 的保留份不得算逐字节相同` |
 | F-E | 形状循环只遍历 base 的标题组，head 独有标题被插两份完全失明，而注释承诺了「不得出现份数增长」 | **成立**，属"注释写了实现没做" | 改为遍历 base∪head；新增 `base 没有的新标题被插了多份` 判红 + 锁 |
 | F-H | 「保留哪一份」两套规则：`pickKeeper` 留最长，形状判据只要求"等于任一份" | **成立** | 保留份必须等于 `pickKeeper` 选定那份；并打印「N 种标题的副本内容互不相同」把有后果的选择暴露出来。**副作用立现**：真实数据报出 **12 种**标题副本内容互不相同；且新判据当场把我的两处测试夹具判红（等长时 pickKeeper 取首次出现，夹具却留了 `b3`）—— 是夹具错，不是判据错 |
-| F-A | spec 那条「只减不增」既无实现也无用例，而唯一对账逻辑与被验证者同源 | **成立**，并且它揪出**我的一句假话** | 新增 `scripts/changelog-dedup-reconcile.js`（独立对账器：A1 标题守恒 / A2 raw 同源 / A3 pickKeeper 一致 / A4 幂等 / A5 每标题恰好一块且标题集闭合），5 条用例进已接线的 dup 测试文件；spec 的 Requirement 3 重写为**块级**判据。**连带纠正**：我在 CHANGELOG 条目里写的「新增行数 0（纯删除）」是**错的** —— 去重会把幸存块挪到该标题首次出现的槽位，行级 diff 是 `+131 / −47,929`，其中只有 26 行来自本 PR 那条台账，其余是重排噪声。对账器第一版把"新增行为 0"写成判据，被真实数据当场判红，我才发现措辞错 |
+| F-A | spec 那条「只减不增」既无实现也无用例，而唯一对账逻辑与被验证者同源 | **成立**，并且它揪出**我的一句假话** | 新增 `scripts/changelog-dedup-reconcile.js`（独立对账器：A1 标题守恒 / A2 raw 同源 / A3 pickKeeper 一致 / A4 幂等 / A5 每标题恰好一块且标题集闭合），5 条用例进已接线的 dup 测试文件；spec 的 Requirement 3 重写为**块级**判据。**连带纠正**：我在 CHANGELOG 条目里写的「新增行数 0（纯删除）」是**错的** —— 去重会把幸存块挪到该标题首次出现的槽位，行级 diff 是 `+133 / −47,929`（最终 base 实测；纠正当时读到的是 `+131 / −47,929`），其中只有 28 行来自本 PR 那条台账（当时读到 26 行），其余是重排噪声。对账器第一版把"新增行为 0"写成判据，被真实数据当场判红，我才发现措辞错 |
 | F-B | 第二消费方的测试不在 changeset、parity 只比了总数 | 部分成立（送审遗漏 + 覆盖确实薄） | 补 A1–A5 五条独立用例；`kept_byte_identical` 等块级性质进入对账器输出 |
 | F-C | `applies_to_base` 名字承诺 merge-base，实为 `--base` 的 `rev-parse`；测试里 `headMergeBase` 定义后从未调用 | **成立** | 注释与规格写明真实语义（CI 中由 merge-base 推导，本地 `HEAD^` 时就是 `HEAD^`）；**删除死代码** `headMergeBase`；测试改为从模块取 `AUTH_PATH`，不再自己复制一份字符串 |
 | F-G | 三条 fail-closed 分支（缺必填字段 / JSON 是数组 / sha 形状非法）无用例 | **成立** | 补一条三 case 的用例，逐个断言文案与非零码 |
