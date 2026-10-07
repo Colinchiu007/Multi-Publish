@@ -39,6 +39,7 @@ const { createVideoCloneApi } = require('./video-clone')
 const { createServicesApi } = require('./services')
 const { createFilmEngineeringApi } = require('./film-engineering')
 const { createAggregationApi } = require('./aggregation')
+const { createCreatorApi } = require('./creator')
 const { createHotTopicsApi } = require('./hot-topics')
 const { createAutoPipelineApi } = require('./auto-pipeline')
 const { createAutomationApi } = require('./automation')
@@ -104,6 +105,7 @@ const fullApi = {
   ...createServicesApi(ipcRenderer),
   ...createFilmEngineeringApi(ipcRenderer),
   ...createAggregationApi(ipcRenderer),
+    ...createCreatorApi(ipcRenderer),
   ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
   ...createAutomationApi(ipcRenderer),
