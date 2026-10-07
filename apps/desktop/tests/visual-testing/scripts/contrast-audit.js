@@ -8,9 +8,18 @@
 // 做法：真实渲染每个视图 → 强制 dark → 遍历可见元素取 computed color/
 //       backgroundColor → 算 WCAG 对比度 → 报出低于阈值的组合。
 const { chromium } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
 
 const BASE = process.env.TEST_URL || 'http://127.0.0.1:5188'
 const MIN_RATIO = Number(process.env.MIN_RATIO || 3) // 低于 3:1 视为可疑
+
+// ── 判据（Gate 7c）────────────────────────────────────────────
+// 基线按「视图」记录低对比样本数。CI 判据是**不许增长**：
+// 存量是已知债务，一次性清零会让所有后续 PR 全红；逐波下降才是可执行的判据。
+// 修好某视图后跑 `node contrast-audit.js --update-baseline` 重写基线。
+const BASELINE_FILE = path.resolve(__dirname, '../reports/contrast-audit-baseline.json')
+const UPDATE_BASELINE = process.argv.includes('--update-baseline')
 
 const ROUTES = [
   ['home', '/'], ['accounts', '/accounts'], ['publish', '/publish'],
@@ -108,15 +117,64 @@ async function main () {
   }
 
   await browser.close()
-  const total = report.reduce((a, r) => a + (r.lowContrast ? r.lowContrast.length : 0), 0)
-  console.log(`\n[contrast-audit] 完成 ${report.length} 视图；低对比样本合计 ${total}（阈值 ${MIN_RATIO}:1）`)
-  if (total) {
-    console.log('受影响视图：')
-    report.filter(r => r.lowContrast && r.lowContrast.length).forEach(r => console.log(`  ${r.view}: ${r.lowContrast.length}`))
+
+  const outDir = path.dirname(BASELINE_FILE)
+  fs.mkdirSync(outDir, { recursive: true })
+
+  const counts = {}
+  let total = 0
+  for (const r of report) {
+    const n = r.lowContrast ? r.lowContrast.length : 0
+    counts[r.view] = n
+    total += n
   }
-  require('fs').writeFileSync(
-    require('path').join(__dirname, '../reports/dark-audit/contrast-audit-report.json'),
-    JSON.stringify(report, null, 2)
-  )
+
+  console.log('\n[contrast-audit] 完成 ' + report.length + ' 视图；低对比样本合计 ' + total + '（阈值 ' + MIN_RATIO + ':1）')
+  const affected = report.filter(r => r.lowContrast && r.lowContrast.length)
+  if (affected.length) {
+    console.log('受影响视图：')
+    affected.forEach(r => console.log('  ' + r.view + ': ' + r.lowContrast.length))
+  }
+
+  const detailFile = path.join(outDir, 'contrast-audit-report.json')
+  fs.writeFileSync(detailFile, JSON.stringify(report, null, 2))
+
+  if (UPDATE_BASELINE) {
+    fs.writeFileSync(BASELINE_FILE, JSON.stringify({ minRatio: MIN_RATIO, counts }, null, 2) + '\n', 'utf8')
+    console.log('[contrast-audit] 基线已更新 -> ' + BASELINE_FILE)
+    return
+  }
+
+  // ── 判据：低对比样本数不许超过基线 ──
+  if (!fs.existsSync(BASELINE_FILE)) {
+    console.error('[contrast-audit] 基线文件不存在: ' + BASELINE_FILE)
+    console.error('  先跑一次: node contrast-audit.js --update-baseline')
+    process.exit(2)
+  }
+  const base = JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8'))
+  if (base.minRatio !== MIN_RATIO) {
+    console.error('[contrast-audit] 阈值与基线不一致: 本次 ' + MIN_RATIO + ':1 vs 基线 ' + base.minRatio + ':1')
+    console.error('  改阈值等于换了判据，必须显式 --update-baseline')
+    process.exit(2)
+  }
+
+  const regressions = []
+  for (const [view, n] of Object.entries(counts)) {
+    const b = base.counts[view]
+    if (b === undefined) {
+      // 新视图无基线：若它本身检出低对比，必须登记，否则新视图可无限引入问题而不被发现
+      if (n > 0) regressions.push(view + ': 新视图无基线但检出 ' + n + ' 处低对比')
+    } else if (n > b) {
+      regressions.push(view + ': ' + b + ' -> ' + n + ' (+' + (n - b) + ')')
+    }
+  }
+
+  if (regressions.length) {
+    console.error('\n[contrast-audit] 检测到对比度退化 ' + regressions.length + ' 处：')
+    regressions.forEach(r => console.error('   - ' + r))
+    console.error('  报告: ' + detailFile)
+    process.exit(1)
+  }
+  console.log('[contrast-audit] 无退化（基线 minRatio=' + base.minRatio + ':1）')
 }
 main().catch(e => { console.error(e); process.exit(1) })

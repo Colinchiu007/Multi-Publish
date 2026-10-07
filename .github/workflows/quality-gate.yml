@@ -1033,6 +1033,45 @@ jobs:
           }
           Write-Host "[GATE-7] All visual tests passed"
 
+      # Gate 7c：深色模式文字对比度（2026-10-07，Wave 0.4）。
+      #
+      # 存在的理由：Gate 7 全绿**不能**证明深色模式可读。
+      # 2026-10-07 实测 18 视图全部存在低对比文本（阈值 3:1，合计 61 处），
+      # 最差 1.09:1（浅字压浅底），而 Gate 7 与既有 dark-mode-audit.js 当时全绿。
+      # 根因是那套启发式只统计「接近纯白(≥240)的**背景**像素」，而坏掉的是
+      # **文字色** —— 背景仍是深色，整类问题落在检测盲区。
+      #
+      # 判据是「不许超过基线」而非「必须为 0」：存量是已登记的已知债务，
+      # 一次清零会让所有后续 PR 全红；逐波下降才是可执行的判据。
+      # 降基线必须显式跑 `node contrast-audit.js --update-baseline`。
+      #
+      # 复用本 job 已起的 vite（5174，TEST_URL 见上方 env），不额外起服务。
+      - name: "Gate 7c - Dark mode text contrast"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Push-Location $desktopDir
+          try {
+            Write-Host "=== Gate 7c: dark mode contrast audit ==="
+            node tests/visual-testing/scripts/contrast-audit.js
+            $contrastExit = $LASTEXITCODE
+            Write-Host "[GATE-7c] contrast-audit exit: $contrastExit"
+            if ($contrastExit -ne 0) {
+              Write-Host "[GATE-7c] 低对比退化或基线异常 - 见 reports/contrast-audit-report.json"
+              # 报告作为工件上传，便于 PR 上直接看
+              $reportPath = Join-Path $desktopDir "tests/visual-testing/reports/contrast-audit-report.json"
+              if (Test-Path $reportPath) {
+                Write-Host "--- contrast-audit-report.json ---"
+                Get-Content $reportPath -Raw
+              }
+              Pop-Location
+              exit $contrastExit
+            }
+            Write-Host "[GATE-7c] contrast audit passed"
+          } finally {
+            Pop-Location
+          }
+
       # Gate 7b：基线新鲜度（PR 侧、partial 形态）+ 两轮有界重试终判（#31）。
       # 存在的理由：#2761 改了发布表单 UI 却没刷新基线，而新鲜度检查当时只接在
       # visual-test.yml（2026-09-17 起不再由 PR 触发）里 ⇒ 它全绿合并、main 连红 11 次。
