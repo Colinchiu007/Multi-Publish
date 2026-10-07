@@ -197,8 +197,11 @@ function compareMultisets(baseHeadings, headHeadings) {
 }
 
 function collect({ base, head, root, git } = {}) {
+  // stdio 必须显式设成 pipe：execFileSync 默认把 stderr 继承给父进程，
+  // 于是"base 里没有授权文件"这条**正常信号**会以 `fatal: ... exists on disk, but not in <ref>`
+  // 的形式混进判据输出，读起来像出错了（而且 e.stderr 拿不到，错误文案会退化成裸 message）。
   const runGit = git
-    || ((args) => execFileSync('git', ['-C', root || process.cwd(), ...args], { maxBuffer: 1 << 28 }));
+    || ((args) => execFileSync('git', ['-C', root || process.cwd(), ...args], { maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }));
   const baseText = readBlobText(runGit, base, FILE);
   const headText = readBlobText(runGit, head, FILE);
   const baseHeadings = headingsOf(baseText);

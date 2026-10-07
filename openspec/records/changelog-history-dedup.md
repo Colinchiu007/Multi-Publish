@@ -40,7 +40,7 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 |------|------|-----------|
 | 变更类型与隔离 | PASS | `start-mp-task.ps1 -TaskName changelog-history-dedup` rc=0 **且按产物复核**：`git worktree list` 出现该路径、`rev-parse --abbrev-ref HEAD`=`changelog-history-dedup`、`status --porcelain` 0 行、`verify-worktree-deps.js` OK（11 项解析指向本 worktree）。pre-flight `pre-code-edit-guard.ps1` 在共享根返回 rc=1（拒绝），故全程不在共享根落笔 |
 | 单一实现（口径分裂的根因） | PASS | 实测同一份 `origin/main` blob：growth `headingsOf`=**1,184/1,185**，副本棘轮 `analyze.entries`=**1,158** ⇒ 两把锁各写了一遍"什么是一条条目"。新增 `scripts/changelog-entries.js` 为唯一实现（`HEADING_RE / splitEntries / titleOf / pickKeeper / groupByTitle / analyze / dedupe / countByTitle`），两侧改为 require 它；由测试 `条目模型只有一份实现…条目总数必须相等` 钉住（RED 阶段实测该条先红，接完线后转绿） |
-| TDD（红→绿全过程留痕） | PASS | 先写 10 条新用例，**RED 实测** `tests 21 / pass 15 / fail 6`（6 条全是我新增的，owner 原 11 条此时已全绿 ⇒ 我加的测试没有动他的不变量）；实现后 `21 / 21 / 0`。中途一次断言写错（我按「lost 只有一条」断言，实际默认多重集判据在授权核对前会同时报出 A 消失与 B 削份两条 ⇒ `2 !== 1`），**改正断言的表达而不是放宽判据**：改为断言 A 必在 lost 中且 `got===0`、并要求 `authorizationError` 点名「标题消失」 |
+| TDD（红→绿全过程留痕） | PASS | 先写 10 条新用例，**RED 实测** `tests 21 / pass 15 / fail 6`（6 条全是我新增的，owner 原 11 条此时已全绿 ⇒ 我加的测试没有动他的不变量）；实现后 `21 / 21 / 0`，再补「例外必须出声」那条行为锁后为 **`22 / 22 / 0`**（终态，反证七轮跑完复测仍 22/22）。副本棘轮 **`14 / 14 / 0`** 全程未红。；实现后 `21 / 21 / 0`。中途一次断言写错（我按「lost 只有一条」断言，实际默认多重集判据在授权核对前会同时报出 A 消失与 B 削份两条 ⇒ `2 !== 1`），**改正断言的表达而不是放宽判据**：改为断言 A 必在 lost 中且 `got===0`、并要求 `authorizationError` 点名「标题消失」 |
 | 测试接线 | PASS | 未新建测试文件（新用例落在两个**已被 CI 点名**的 `.test.js` 里），因此不触发 `check-unwired-tests.js`；`node --check` 三个改动脚本全过 |
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`；改动是仓库门禁脚本 + 台账文本，不产生运行时代码路径变化 |
 | QM-4 视觉 | N/A | 未触任何 `.vue` / 样式 / 布局 |
@@ -60,11 +60,38 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 
 ### 反证（新加的守卫必须被"拆掉它"证伪过）
 
-见下表；每条都是「先从 pristine 重建基线全绿 → 应用变异 → 指定测试文件必须变红 → 逐字节还原并断言与备份相同」。
+驱动脚本每条都跑四步：**从 pristine 快照还原 → 基线必须全绿 → 应用变异（断言锚点命中恰好 1 次）→ 目标用例必须变红 → 逐字节还原并断言与备份 `equals`**。
+基线 = `22 tests / 22 pass`（`scripts/check-changelog-growth.test.js`）。七条全部 PASS。
 
-| 变异 | 结果 |
+| 变异 | 拆掉的是什么 | 结果 |
+|------|-------------|------|
+| M1 `ho.length === 0` 分支改成 `continue` | 「标题消失」兜底（#2884 那一档） | `fail_after=1`，红的是 `授权例外负控一：distinct 标题少一个…` ⇒ PASS |
+| M2 摘掉 `bo.some(o => bBlocks[o.index] === kept)` | 「保留份逐字节等于 base 某一份」 | `fail_after=1`，红的是 `…负控二：保留份被改写过…` ⇒ PASS |
+| M3 `authBaseText = readBlobOrNullText(…)` 改成恒 `null` | 「相对 base 新增」⇒ 变成"存在即生效"，后续 PR 可白蹭通行证 | `fail_after=1`，红的是 `授权不可被后续 PR 白蹭…` ⇒ PASS |
+| M4 `applies_to_base !== baseSha` 比对改成 `if (false)` | 坐标系核对 | `fail_after=1`，红的是 `…负控四：applies_to_base 与本次 merge-base 不等…` ⇒ PASS |
+| M5 `if (r.authorization)` 改成 `if (false)` | 「例外生效必须出声」 | `fail_after=1`，红的是 `例外生效必须出声…` ⇒ PASS |
+| M6 `if (complaints.length > 0)` 改成 `if (false)` | 授权声明数字与实测的核对 | `fail_after=4`（一批授权用例同时失去 fail-closed 保护）⇒ PASS |
+| M7 `HEADING_RE` 退回窄的 `/^# \[/` | 条目模型的 canonical 口径（无括号形条目重新变失明） | `fail_after=3`，含 `无括号形条目也必须算…` 与 `条目模型只有一份实现…` ⇒ PASS |
+
+七轮跑完后 `git status --porcelain` = 2 行，且正是本 PR 有意保留的两处后续修改（`stdio` 那条 + 新增的"必须出声"用例），
+**没有任何变异残留进工作区**。
+
+### ⚠️ 反证驱动自己先错过一次（记下来，免得下一个人以为"反证没红＝锁坏了"）
+
+第一版驱动用 `^✖ ([^ (]+)` 取失败用例名 —— 本仓用例标题里带空格（`授权例外负控一：distinct 标题少一个…`），
+于是只截到 `授权例外负控一：distinct`，而我拿 `'distinct 标题少一个'`（含空格）去 `includes` 匹配 ⇒
+**M1/M3/M4 被报成 `expect_hit=false`，看起来像"变异没打中"**，实际 `fail_after=1` 且红的就是预期的那三条。
+口径：① 取失败用例名必须按「到耗时括号为止」整段取（`^✖ (.+?) \([\d.]+ms\)`）并滤掉 `failing tests:` 表头；
+② 期望串一律取**不含空格的短词**（`负控一` / `白蹭` / `必须出声`）；
+③ 「反证报未红」先怀疑驱动的取数，再怀疑锁 —— 与 [[feedback-mismeasured-falsification]] 同源。
+改正后重跑，七条全部 PASS（上表是重跑结果，不是首跑）。
+
+### 两处运行期发现并当场修掉的缺陷
+
+| 缺陷 | 修法 |
 |------|------|
-| （本轮执行后回填） | PENDING |
+| 授权探测把 git 的 `fatal: path '…authorization.json' exists on disk, but not in '<ref>'` 泄漏进判据输出 —— 那本来是"base 里没有授权文件"这条**正常信号**，但读起来像出错 | `execFileSync` 默认 `stdio` 把 stderr 继承给父进程 ⇒ 默认 runner 显式设 `stdio: ['ignore','pipe','pipe']`；顺带让 `e.stderr` 真的可读（原来错误文案只能落到裸 `e.message`） |
+| 「例外生效必须出声」当时只写在实现里，没有任何东西在判 | 补一条行为锁：捕获 `main()` 的 stdout/stderr，断言出现 `例外由授权触发`、`共减少 2 份副本`、`条目 4 -> 2` 与授权路径名（由 M5 实测确认该锁可被打红） |
 
 ### CI 流水线
 

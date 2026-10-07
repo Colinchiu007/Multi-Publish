@@ -205,6 +205,30 @@ test('授权例外：削到恰好 1 份 + 保留份逐字节同源 + distinct �
   fs.rmSync(repo.dir, { recursive: true, force: true });
 });
 
+test('例外生效必须出声：判据输出里必须出现「例外由授权触发」与减少量（静默放行＝判据被改宽而无人知道）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n# [未发布] B\n\nb3\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 2 }),
+  }, 'dedup 3->1 with authorization');
+  const lines = [];
+  const origLog = console.log;
+  const origErr = console.error;
+  console.log = (...a) => { lines.push(a.join(' ')); };
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  let rc;
+  try { rc = main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']); } finally { console.log = origLog; console.error = origErr; }
+  const out = lines.join('\n');
+  assert.equal(rc, 0, '这一档本应过');
+  assert.match(out, /例外由授权触发/, '例外生效必须单独成行');
+  assert.match(out, /共减少 2 份副本/, '必须把削减量写出来，不能只报 PASS');
+  assert.match(out, /条目 4 -> 2/, '规模变化必须写出来');
+  assert.match(out, new RegExp(AUTH_PATH.replace(/[/.]/g, (c) => '\\' + c)), '必须点名是哪张授权文件放的行');
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
 test('授权例外负控一：distinct 标题少一个，授权也救不了（#2884 形态的兜底）', () => {
   const repo = makeRepo();
   commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
