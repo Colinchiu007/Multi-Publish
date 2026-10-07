@@ -57,11 +57,12 @@ const BILIBILI_BUCKET_REASONS = Object.freeze({
 const BUCKET_KEY_SHAPE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/
 
 /**
- * 单次轮询最多补查几个非主桶。本仓对「给创作中心接口送量」高度敏感（见扇出循环注释），
- * 而桶表由端点自己回报 —— 没有上限就等于把放大面交给对方决定。超限即截断并在结果里
- * 出声（`bucketsTruncated`），禁止静默。
+ * 单次轮询最多补查几个**非主桶**。实测端点只回报 2 个非主桶（not_pubed / is_pubing），
+ * 所以「主桶 1 跳 + 补查 2 跳 = 最坏 3 跳」与 PRD §三.1 的口径逐字对齐。
+ * 本仓对「给创作中心接口送量」高度敏感，而桶表由端点自己回报 —— 没有上限就等于把放大面
+ * 交给对方决定。超限即截断并在结果里出声（`bucketsTruncated`），禁止静默。
  */
-const MAX_BUCKET_PROBES = 3
+const MAX_BUCKET_PROBES = 2
 
 function isObservedOnline (archive) {
   if (!archive || typeof archive !== 'object') return false
@@ -105,7 +106,15 @@ function withStatusParam (url, status) {
   }
   const u = String(url || '')
   if (!/[?&]status=/.test(u)) return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'status=' + key
-  return u.replace(/([?&]status=)[^&#]*/, '$1' + key)
+  // 只替换首个会留下后面的同名参数（`?status=a&status=b` → 两个 status），
+  // 而「服务端取哪个」是未定义行为 —— 那正是本模块被反复教育过的「请求成功但条件没生效」形态。
+  // 口径：第一个改写为目标值，其余整段删掉，保证结果里 status **恰好一个**。
+  let seen = false
+  return u.replace(/([?&]status=)[^&#]*/g, (m, head) => {
+    if (seen) return ''
+    seen = true
+    return head + key
+  })
 }
 
 /** data.class 是端点自己回报的桶计数；非对象（含数组）一律视为不可用。 */
@@ -182,8 +191,10 @@ async function checkBilibiliAuditStatus (p) {
     const primaryHit = findEntry(first.entries, postId)
     if (primaryHit) {
       const archive = primaryHit.Archive
-      // published 只能由主桶命中产出：非主桶里 state=0 是矛盾形态，不得当成上线（A3b）
-      if (isObservedOnline(archive)) {
+      // published 只能由**已发布桶**产出，而不是「调用方指定的那个桶」—— 两者不等价：
+      // 若有人把 listUrl 指到 status=not_pubed，按后者写就会把未发布桶里的 state=0 判成上线
+      // （QM-6 后端轴 Critical#1）。主桶语义在这里必须是常量判据。
+      if (primaryBucket === BILIBILI_PRIMARY_BUCKET && isObservedOnline(archive)) {
         return { status: 'published', postId, raw: primaryHit, bucket: primaryBucket, bucketsProbed: probed }
       }
       return {
@@ -198,11 +209,20 @@ async function checkBilibiliAuditStatus (p) {
     const counts = first.classCounts || {}
     // 只收「非主桶 + 计数为正 + 键合形态」三项同时成立的桶，再按上限截断。
     // 判据先算完再探，是为了让 truncated 这个事实可判定（边探边判会把上限变成软提示）。
-    const candidates = Object.keys(counts).filter((key) =>
-      key !== primaryBucket
-      && BUCKET_KEY_SHAPE.test(key)
-      && typeof counts[key] === 'number'
-      && counts[key] > 0)
+    const candidates = []
+    const skipped = []
+    for (const key of Object.keys(counts)) {
+      if (key === primaryBucket) continue
+      const count = counts[key]
+      if (typeof count !== 'number' || !(count > 0)) continue
+      if (!BUCKET_KEY_SHAPE.test(key)) {
+        // 端点哪天回报一个新形态的桶名，这里静默跳过＝「该扇出而没扇出」，
+        // 症状与「稿件不存在」同形 ⇒ 必须把被拒键名记下来（QM-6 后端轴 Warning#5）
+        skipped.push(key)
+        continue
+      }
+      candidates.push(key)
+    }
     const targets = candidates.slice(0, MAX_BUCKET_PROBES)
     const truncated = candidates.length > targets.length
 
@@ -219,13 +239,14 @@ async function checkBilibiliAuditStatus (p) {
         status: 'pending', postId, reason: BILIBILI_BUCKET_REASONS[key] || ('in-' + key + '-bucket'), bucket: key,
         // 原样带出该桶回报的状态字段：这是「审核中/不通过的 state 取值」唯一的取证通道
         state: archive.state, primaryState: archive.primary_state, stateDesc: archive.state_desc,
-        bucketsProbed: probed, classCounts: counts, bucketsTruncated: truncated,
+        bucketsProbed: probed, classCounts: counts, bucketsTruncated: truncated, bucketsSkipped: skipped,
       }
     }
 
     return {
       status: 'pending', postId, reason: 'not-in-list',
-      bucketsProbed: probed, classCounts: first.classCounts, bucketsTruncated: truncated,
+      bucketsProbed: probed, classCounts: first.classCounts,
+      bucketsTruncated: truncated, bucketsSkipped: skipped,
     }
   } catch (e) {
     // 中途抛错也要说得出探到哪一步：error 出口不带 bucketsProbed 会让「第几跳挂的」不可归因

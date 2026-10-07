@@ -104,6 +104,7 @@ function createMonitorTask (task) {
           bucket: result.bucket || '', state: result.state ?? '', primaryState: result.primaryState ?? '',
           stateDesc: result.stateDesc || '',
           bucketsProbed: Array.isArray(result.bucketsProbed) ? result.bucketsProbed.join(',') : '',
+          bucketsSkipped: Array.isArray(result.bucketsSkipped) ? result.bucketsSkipped.join(',') : '',
           classCounts: result.classCounts ? JSON.stringify(result.classCounts) : '',
           bucketsTruncated: result.bucketsTruncated === true,
         },

@@ -568,4 +568,60 @@ describe('B 站审核回查分桶查询', () => {
     expect(timeout.params.lastStateDesc).toBe('审核中')
     expect(timeout.params.lastBucketsProbed).toBe('pubed,is_pubing')
   })
+
+  // A18（QM-6 后端轴 Critical#1）：published 的判据是「已发布桶」这个常量，
+  // 不是「调用方指定的那个桶」—— 否则把 listUrl 指到 not_pubed 就能让未发布桶里的
+  // state=0 被判成上线，而这正是本切片立项要防的那类静默契约断裂。
+  it('A18 listUrl 指向非已发布桶时，即便命中 state=0 也绝不产出 published', async () => {
+    const { checkBilibiliAuditStatus } = require$(MOD_PATH)
+    const body = listBody({ pubed: 0, not_pubed: 1, is_pubing: 0 }, [{ state: 0, primary_state: 0 }])
+    const axios = bucketAxios({ not_pubed: body })
+    const r = await checkBilibiliAuditStatus({
+      postId: TARGET, cookies: 'x', axios,
+      listUrl: 'https://member.bilibili.com/x/web/archives?status=not_pubed&pn=1&ps=20&platform=web',
+    })
+    expect(r.status).toBe('pending')
+    expect(r.reason).toBe('state-unobserved')
+    expect(r.raw).toBeUndefined()
+  })
+
+  // A19（QM-6 后端轴 Critical#2）：重复 status 参数必须塌缩成一个，
+  // 否则「请求发出去了但服务端取哪个未定义」＝本模块反复教育过的「条件没生效却报成功」
+  it('A19 withStatusParam 对已含重复 status 的 URL 也只留一个 status 键', () => {
+    const { withStatusParam } = require$(MOD_PATH)
+    const dup = 'https://member.bilibili.com/x/web/archives?status=pubed&pn=1&status=not_pubed&ps=20'
+    const out = withStatusParam(dup, 'is_pubing')
+    expect(out.match(/status=/g)).toHaveLength(1)
+    expect(out).toContain('status=is_pubing')
+    expect(out).not.toContain('status=pubed')
+    expect(out).not.toContain('status=not_pubed')
+    // 其余参数与相对顺序不得被吃掉
+    expect(out).toContain('pn=1')
+    expect(out).toContain('ps=20')
+    expect(out.indexOf('pn=1')).toBeLessThan(out.indexOf('ps=20'))
+  })
+
+  // A20（QM-6 后端轴 Warning#5）：被形态白名单拒掉的桶键必须出声，不得伪装成「不存在」
+  it('A20 非主桶计数为正但键不合形态 ⇒ 记进 bucketsSkipped 并进日志', async () => {
+    const monitor = require$(MONITOR_PATH)
+    const log = require$('./logger')
+    const seen = []
+    vi.useFakeTimers()
+    try {
+      const spy = vi.spyOn(log, 'notify').mockImplementation((tag, event, payload) => { seen.push({ event, params: payload && payload.params }) })
+      const axios = bucketAxios({
+        pubed: listBody({ pubed: 7, 'bad key': 3 }, [{ bvid: 'BVother000001' }]),
+      })
+      const task = monitor.createMonitorTask({ postId: TARGET, platform: 'bilibili', cookies: 'x', axios, callback: () => {}, maxRetries: 2 })
+      await vi.advanceTimersByTimeAsync(10000)
+      task.stop && task.stop()
+      spy.mockRestore()
+    } finally {
+      vi.useRealTimers()
+    }
+    const progress = seen.find((s) => s.event === 'poll-progress')
+    expect(progress, '未见 poll-progress').toBeTruthy()
+    expect(progress.params.reason).toBe('not-in-list')
+    expect(progress.params.bucketsSkipped).toBe('bad key')
+  })
 })
