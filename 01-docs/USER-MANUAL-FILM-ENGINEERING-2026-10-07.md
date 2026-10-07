@@ -526,12 +526,14 @@ JAXX 从横梁上跳下，落地时扬起一片灰尘。
 
 例：模板原文
 ```
-[CHARACTER: ROKO] — Tall lean demon figure...
+[CHARACTER: ROKO] — Tall lean demon figure; crystal arm.
 ```
-映射 ROKO → 老王后
+映射 ROKO → 老王后（注意：括号注记追加在**整行末尾**，不是紧跟 `[CHARACTER: ROKO]`）
 ```
-[CHARACTER: ROKO]（老王）— Tall lean demon figure...
+[CHARACTER: ROKO] — Tall lean demon figure; crystal arm.（老王）
 ```
+
+实现口径：`parts.push(cl.trim() + (userRole ? '（' + userRole + '）' : ''))`（`script-adapt.js:66`）
 
 **留空的槽位会被自动剔除**（`useFilmCanvas.js:85-87` 只保留非空值）。你只用 2 个角色就只填 2 个。
 
@@ -566,17 +568,14 @@ JAXX 从横梁上跳下，落地时扬起一片灰尘。
 
 ### 6.7 LLM 润色：可选项，失败不阻断
 
-**默认关闭**。勾选「启用 LLM 润色」后，引擎会对**前 20 个**分镜逐条调用 LLM 润色提示词（`script-adapt.js:DEFAULT_LLM_BATCH_LIMIT = 20`）。
+**默认关闭，而且当前版本实际上无法生效。** 这条是本手册最容易误导人的地方，所以说清楚：
 
-**失败不阻断**：任何一条润色失败，该条用本地模板结果，其余照常。全部失败时 `llmEnhanced: false`，并给出 warnings。
+- 引擎的代码路径是完整的：勾选后会对**前 20 个**分镜逐条调用润色（`script-adapt.js:176` `Math.min(adaptedShots.length, 20)`），单条失败不影响其余。
+- **但出厂构建里这条路是断的**：`ScriptAdapter` 的唯一生产构造点传入 `llm: null`（`core/container.setup.js:453` → `film-engineering-service.js:64` `llm: this.llm`），而启用判定是 `useLlm = llmEnabled === true && this.llm && ...`（`script-adapt.js:168`）—— `this.llm` 为 null，`useLlm` 恒 false。
+- **实际表现**：勾了「启用 LLM 润色」，分镜仍然按本地模板生成，`llmEnhanced` 恒为 `false`，`warnings` 恒为空。画布会弹一条非阻断提示：
+  > LLM 润色本次未生效，分镜按内置规则架构生成。
 
-界面上非阻断提示文案：
-
-> LLM 润色本次未生效，分镜按内置规则架构生成。
-
-经典视图的提示文案：
-
-> 已使用本地模板润色
+> **结论**：这个开关在当前版本是个占位。**不要指望它能改变输出**，也不必为它排查配置。经典视图更彻底——它连这条降级提示都没有（`adaptScript` 返回的 `llmEnhanced` 被丢弃，见 14.5），所以在经典视图勾了 LLM 是**完全静默**的。
 
 > **实践建议**：先不开 LLM 跑一遍看基础效果。模板方法本身就是确定性的，LLM 润色可能反而改动块结构。这是我的建议，不是硬性规定——如果你想要更自然的措辞，开着也无妨。
 
@@ -675,6 +674,8 @@ JAXX 从横梁上跳下，落地时扬起一片灰尘。
 > 单批最多 {max} 个分镜，请减少选择数量
 
 > **注意**：`生成所选` 是"一键全量"入口，很容易一不小心就点了 10 镜。点之前先看看选区。
+
+界面提示「请先选择要生成的分镜节点」的**触发条件要分清**：它只在**画布上一个分镜节点都没有**时出现（还没拆分镜、或清空过画布）。画布有镜但一个没选中时，点「生成所选」会**直接生成全部**，不会有这条提示。
 
 ### 7.6 成本确认卡
 
@@ -845,8 +846,8 @@ shot_001.mp4   ← 本批第 2 个
 
 | 类别 | 触发条件 | 日志/清单文案 |
 |---|---|---|
-| 提交被拒 | Provider 返回非零 code | `视频生成调用失败（provider: X）` |
-| Provider 返回错误 | 内层 `data.code < 0` | `视频生成失败（provider: X）` |
+| 提交被拒 | Provider 返回非零 code | **优先显示 Provider 自带的 message**；没有才回落到 `视频生成调用失败（provider: X）` |
+| Provider 返回错误 | 内层 `data.code < 0` | **优先显示 Provider 自带的 message/error**；没有才回落到 `视频生成失败（provider: X）` |
 | 未返回任务 ID | 响应里没有 taskId | `视频生成未返回任务 ID（provider: X）` |
 | 轮询超时 | 超过 10 分钟没拿到 URL | `视频生成超时或失败（provider: X）` |
 | 下载/异常 | 下载失败、抛异常 | 具体异常信息 |
@@ -884,10 +885,10 @@ shot_001.mp4   ← 本批第 2 个
 ### 9.2 步骤
 
 1. 经典视图 → `分镜库` → 勾选要出的分镜（**上限 1000 镜**）
-2. 工具栏点 `全量出片`
-3. 填 **任务 ID**（占位文案：`用于出片台账与断点续跑，如 my-task-01（仅限字母/数字/._-）`）
-4. 点 `发起出片` → 出现 **批次计划预览**
-5. 读计划（批数、磁盘预估、耗时预估）→ 点 `确认执行本批`
+2. 工具栏点 `全量出片` → **批次计划预览立即出现**（面板一打开就自动算好，不需要先点任何按钮）
+3. 读计划（批数、磁盘预估、耗时预估、媒体目录）—— **这是唯一能在花钱前反悔的时机**
+4. 在计划**下方**填 **任务 ID**（占位文案：`用于出片台账与断点续跑，如 my-task-01（仅限字母/数字/._-）`）→ 点 `发起出片`
+5. 进入逐批确认阶段 → 点 `确认执行本批`
 6. **逐批重复**：每批一个确认卡 → `确认执行本批` → 等这批跑完 → 下一批
 7. 全部批次收口 → 出现 `合成成片` 按钮 → 点它 → 等待合成
 8. 成片完成 → `打开所在文件夹` / `另存为`
@@ -917,19 +918,17 @@ shot_001.mp4   ← 本批第 2 个
 
 ### 9.5 逐批确认（D9 语义）
 
-**每批都要单独确认一次**。这是刻意的设计——你可以在跑完前几批后随时停手，不至于一次确认就烧掉几十镜的额度。
+**每批都要单独确认一次**。这是刻实的刻意设计——你可以在跑完前几批后随时停手，不至于一次确认就烧掉几十镜的额度。
 
-确认卡文案：
+确认卡上**实际能看到**的两行：
 
-> 第 {i}/{n} 批 · {count} 个分镜 · 画幅 {aspect} · 时长 {seconds}s
->
 > 确认后才开始本批生成；确认前零模型调用、零计费。
-
-还有一条**累计预算**提示：
 
 > 累计已确认 {count} 镜
 
-帮助你在多批推进中掌握总花费。
+（累计预算提示帮助你在多批推进中掌握总花费。）
+
+> ⚠️ **别指望在确认卡上核对批号与镜数**。文案表里定义了「第 {i}/{n} 批 · {count} 个分镜 · 画幅 {aspect} · 时长 {seconds}s」这个占位符模板，但**全仓零引用**（`production.batchCard` 是死文案），用户永远看不到它。你能看到的是上方工具栏里你**自己刚选**的画幅与时长、以及批次明细里的逐镜状态。**要确认本批镜数，去看批次明细展开后的逐镜清单。**
 
 ### 9.6 切批规则
 
@@ -1093,7 +1092,7 @@ if (!Array.isArray(allowedHosts) || allowedHosts.length === 0) {
 ```
 —— `shot-downloader.js:55-57`
 
-`getAllowedHosts()` 在字段缺失时返回空数组（`film-engineering-service.js:105`）。
+`getAllowedHosts()` 在字段缺失时返回空数组（`film-engineering-service.js:111-114`）。
 
 **结论：使用随包 kit 时，「回收原片」会全部失败**，每镜报「主机名不在 allowedHosts 精确清单内」或「allowedHosts 清单缺失」。这是**设计上的 fail-closed**（宁可不下载，也不放开任意 URL 下载），不是 bug。
 
@@ -1216,7 +1215,7 @@ film-engineering-prompts-YYYY-MM-DD.md
 | 规模 | 批次 | 磁盘估算 | 墙钟估算 |
 |---|---|---|---|
 | 10 镜 | 1 | 80 MB | 50 分钟 |
-| 50 镜 | 5 | 400 MB | 4 小时 10 分 |
+| 50 镜 | 5 | 400 MB | 250 分钟（UI 以分钟整数显示） |
 | 144 镜 | 15 | 1.15 GB | 12 小时 |
 | 1000 镜（上限） | 100 | 8 GB | 83 小时 |
 
@@ -1333,7 +1332,7 @@ film-engineering-prompts-YYYY-MM-DD.md
 | taskId 是否输错 | 区分大小写；必须与当初完全一致 |
 | **是否同时提供了 shotIds** | 恢复需要 taskId **+ 当初那批 shotIds**，只输 taskId 不行 |
 | 台账是否还在 | 路径 `<mediaRoot>/production/<taskId>/ledger.json`；临时目录被系统清理会丢 |
-| shotIds 顺序是否变了 | 批次结构不一致时系统会重建台账（等于从头开始） |
+| **shotIds 数量是否变了** | **只有批次数量或每批数量变了**才会重建台账（等于从头再来）。**换了分镜但数量不变 → 台账被静默复用，你的新分镜被丢弃，系统继续跑台账里的旧分镜，且不告警** |
 
 ### 13.9 回收原片全部失败
 
@@ -1444,6 +1443,9 @@ film-engineering-prompts-YYYY-MM-DD.md
 | 镜头状态不持久化 | `setShotStatus` 内无 `persist()` 调用，刷新后状态回落到落盘时的旧值 | `useFilmCanvas.js:199-202` |
 | 剧本正文/LLM 开关/画幅时长不持久化 | `serializeCanvasState` 只序列化 nodes/edges/meta | `film-canvas-model.js:169-187` |
 | 经典视图无 LLM 降级提示 | `adaptScript` 返回的 `llmEnhanced` 被丢弃，勾了 LLM 但没生效时**无任何提示**（画布有提示） | `useFilmEngineering.js:424-429` |
+| **LLM 润色开关实际不可用** | `ScriptAdapter` 唯一生产构造点传 `llm: null`，`useLlm` 恒 false ⇒ 勾选后 `llmEnhanced` 恒 false、`warnings` 恒空。**这是「规格承诺 / 当前实现」差异**（规格说可选 LLM 润色、失败降级），代码路径完整但出厂构建接不上 | `core/container.setup.js:453` → `film-engineering-service.js:64` → `script-adapt.js:168` |
+| 全量出片确认卡首行为死文案 | `production.batchCard`（含批号/镜数/画幅/时长占位符）定义但零引用，用户看不到 | `zh.js` `production.batchCard`；`grep` 零命中 |
+| 台账复用只看数量不看 ID | 换分镜但每批数量不变时，台账被静默复用、新 shotIds 被丢弃、无告警 | `production-driver.js:178-181` |
 | 「视频生成」标签页文案定义但未使用 | `tabs.video` 有文案，模板无对应 tab-pane | `zh.js` `tabs.video` vs `FilmEngineeringView.vue:57,134,184` |
 | 经典视图「复制令牌」不走降级 | 直接用 `navigator.clipboard.writeText` 且 catch 静默，非安全上下文下点了没反应也无反馈 | `FilmEngineeringView.vue:668-674` |
 | `retry-shot` 未纳入 sender 校验测试清单 | 契约测试的 CHANNELS 数组（15 条）逐条断言 `-3`，但**不含该通道**（由另一个测试文件单独覆盖） | `ipc-handlers/film-engineering.test.js:75-91` |
@@ -1551,7 +1553,7 @@ const off  = fe.onProductionUpdate(cb)         // 返回退订函数
 | `FILM_ASPECTS` / `FILM_DURATIONS` / `DEFAULT_FILM_SECONDS` | `['16x9','9x16','source']` / `[5,8,10]` / 5 | `video-gen.js:40-42` |
 | `POLL_INTERVAL_MS` / `POLL_DEADLINE_MS` | 10s / 10min | `video-gen.js:44-45` |
 | `PRODUCTION_BATCH_SIZE` | 10 | `production-driver.js:29` |
-| `PRODUCTION_BATCH_CONCURRENCY` | 2 | `production-runner.js:13` |
+| `PRODUCTION_BATCH_CONCURRENCY` | 2 | `production-runner.js:14` |
 | `EVENT_MERGE_MS` | 500 | `production-driver.js:30` |
 | `RENDER_MANIFEST_MAX` | 10000 | `film-render.js:91` |
 | `MAX_DOWNLOAD_BYTES` / `MAX_REDIRECTS` | 500 MB / 3 | `shot-downloader.js:30,32` |
@@ -1829,25 +1831,24 @@ python scripts/film-engineering/fetch-hell-grind-kit.py \
 | 步 | 操作 | 预期 | 依据 |
 |---|---|---|---|
 | 1 | 经典视图 → 分镜库 → 勾选 50 个分镜 | — | — |
-| 2 | 工具栏点「全量出片」 | 浮出全量出片面板 | `FilmEngineeringView.vue:355-445` |
-| 3 | 填任务 ID `my-film-01-20261007` | 只允许字母/数字/`.`/`_`/`-`，长度 1-64 | `ipc-handlers/film-engineering.js:63` |
-| 4 | 点「发起出片」 | 出现**批次计划预览**：「共 5 批（每批最多 10 镜），本次 50 个分镜」+ 磁盘预估 400 MB + 耗时预估 4 小时 10 分 | 口径见 12.4 |
-| 5 | **仔细读预估** | 数字太大就改小分镜数。这一步是唯一能在花钱前反悔的机会 | — |
-| 6 | 点「确认执行本批」 | 第 0 批开始跑，进度实时回显「第 k/5 批」「N/M 镜」 | `production-driver.js:194-200` |
-| 7 | 第 0 批跑完 | 出现第 1 批的确认卡；顶部显示「累计已确认 10 镜」 | — |
-| 8 | 确认第 1 批 | — | — |
-| 9 | **跑到第 2 批时，故意关掉应用** | — | — |
-| 10 | 重新打开应用 → 经典视图 → 分镜库 → **重新勾选同样的 50 个分镜（顺序也要一样）** | — | 见下方避坑 |
-| 11 | 点「全量出片」→ 填**同一个**任务 ID → 点「恢复任务」 | 台账视图出现：第 0、1 批「已完成」，第 2 批「待确认」 | `ipc-handlers/film-engineering.js:458-485` |
-| 12 | 逐批继续确认 | 前 2 批被**跳过**（不花钱） | `production-driver.js:207-215` |
-| 13 | 全部 5 批收口 | 提示「全部批次已收口，渲染清单共 50 条」+ 出现「合成成片」按钮 | — |
-| 14 | 点「合成成片」 | 跨 5 个批次目录聚合成 `final.mp4`（零计费直通，不弹成本卡） | `video-gen.js:241-249` |
-| 15 | 「成片已生成」→ 另存为 | — | — |
+| 2 | 工具栏点「全量出片」 | 浮出全量出片面板，**批次计划预览立即自动出现**（不用点任何按钮） | `FilmEngineeringView.vue:355-445` |
+| 3 | 读计划 | 「共 5 批（每批最多 10 镜），本次 50 个分镜」+ 磁盘预估 400 MB + 耗时预估 250 min。**这一步是唯一能在花钱前反悔的机会** | 口径见 12.4 |
+| 4 | 在计划**下方**填任务 ID `my-film-01-20261007` → 点「发起出片」 | 只允许字母/数字/`.`/`_`/`-`，长度 1-64；进入逐批确认阶段 | `ipc-handlers/film-engineering.js:63` |
+| 5 | 点「确认执行本批」 | 第 0 批开始跑，进度实时回显「第 k/5 批」「N/M 镜」 | `production-driver.js:194-200` |
+| 6 | 第 0 批跑完 | 出现第 1 批的确认卡；顶部显示「累计已确认 10 镜」 | — |
+| 7 | 确认第 1 批 | — | — |
+| 8 | **跑到第 2 批时，故意关掉应用** | — | — |
+| 9 | 重新打开应用 → 经典视图 → 分镜库 → **重新勾选当初那 50 个分镜** | — | 见下方避坑 |
+| 10 | 点「全量出片」→ 填**同一个**任务 ID → 点「恢复任务」 | 台账视图出现：第 0、1 批「已完成」，第 2 批「待确认」 | `ipc-handlers/film-engineering.js:458-485` |
+| 11 | 逐批继续确认 | 前 2 批被**跳过**（不花钱） | `production-driver.js:207-215` |
+| 12 | 全部 5 批收口 | 提示「全部批次已收口，渲染清单共 50 条」+ 出现「合成成片」按钮 | — |
+| 13 | 点「合成成片」 | 跨 5 个批次目录聚合成 `final.mp4`（零计费直通，不弹成本卡） | `video-gen.js:241-249` |
+| 14 | 「成片已生成」→ 另存为 | — | — |
 
 **成本**：50 镜 = 50 次计费调用（合成阶段不花钱）。
 
 **避坑**：
-- **第 10 步的 shotIds 顺序必须一致**。系统靠「批次结构是否与计划一致」判断能否续跑；不一致会**重建台账 = 从头再来**（`production-driver.js:178-185`）。这不是 bug——它无法知道你的新顺序是不是同一个任务；
+- **第 10 步的 shotIds 要用当初那一份**。台账复用判定 `sameShape` **只比较批次数量与每批数量，不比较 shotId 本身**（`production-driver.js:178-181`）——**换了分镜但数量不变，台账会被静默复用，你的新分镜被丢弃，系统继续跑台账里的旧分镜，且不告警**。这比"顺序变了会重来"更危险：只有**每批数量变了**才会重建台账（等于从头再来）。要重新出一批不同的分镜，请**换一个 taskId**；
 - **第 13 步的收口是硬条件**。任何一批有缺失镜头，**不产出成片**（`暂无法合成：渲染清单未收口`）。想出片就得把缺的镜补齐（重试或回收）；
 - **第 14 步不弹成本卡是正常的**。收口 run 的 `generate_videos` 阶段显式声明 `checkpoint: false`——它没有分镜要生成，零计费直通到合成（`video-gen.js:244-246`）。**不是成本闸被绕过**；
 - 如果某些批失败了，**不影响其他批**。处理完失败镜、收口通过后照样能合成。
