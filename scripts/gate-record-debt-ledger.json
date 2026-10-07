@@ -1,4 +1,9 @@
 {
+  "本次执行记录：发布记录作品链接落到平台公开内容页（fix-publish-history-public-link，2026-10-07）": {
+    "reason": "本 PR 尚未合并，merge SHA 还不存在；开 PR 时如实写 PENDING，合并后在同一次提交内改写为 PASS + merge SHA 并删除本登记项与 openspec/records/fix-publish-history-public-link.md frontmatter 的三个 sync_* 字段。",
+    "status": "待 PR 合并后回填",
+    "line": 1
+  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
@@ -36,6 +41,4 @@
   },
   "本次执行记录：批量回填已合并未销账的远程同步欠账（sync-backfill-batch-07，2026-10-07）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
   "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。"
-,
-  "本次执行记录：文档绝对路径有效性门禁 + 死脚本清理（doc-abs-path-gate，2026-10-07）": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
 }

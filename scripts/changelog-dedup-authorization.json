@@ -1,7 +1,7 @@
 {
-  "applies_to_base": "06073943b20cd1f71794803cff7ad619e243fa90",
+  "applies_to_base": "23822b73fecc6c8f8e6710c1dc7911e02ea4e1fc",
   "reason": "清理 re-sync 型解冲突造成的历史副本（canonical 口径实测冗余 841 份），见 issue #3037 与 openspec/changes/dedup-changelog-history/",
   "owner_pr": "branch:changelog-history-dedup (issue #3037)",
   "expected_titles_reduced": 269,
-  "expected_entries_after": 348
+  "expected_entries_after": 349
 }
