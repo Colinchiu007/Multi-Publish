@@ -2,9 +2,6 @@
 record: publish-frequency-control
 task: 作品发布频率控制机制接线——PublishIntervalGuard 三条断链修复 + 两档间隔策略单一真源 + 记账时机前移
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由下一个会话回填 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：作品发布频率控制机制接线（publish-frequency-control，2026-10-02）
@@ -40,7 +37,7 @@ sync_backfill_owner: 下一个会话
 | CI 流水线（第二轮：并入 main 后） | PASS | 合到 QM-6 处置前，`origin/main` 由 `f57dd1da` 前进 6 个提交 ⇒ PR 变 `CONFLICTING`，冲突面经 `git merge-tree --write-tree` 只读探测确认**仅 `CHANGELOG.md`**。按置顶型参照解合并（`mp-resync-merge.js` dry-run 判据全过再 `--commit`）：我的块 30 行纯前插，逐档守恒 `15827+30=15857` 行、`15853+30=15883` 个 CR，两口径 `--numstat` 与 `--ignore-cr-at-eol --numstat` 一致。合并提交 `11505431` 推送后 CI **20 pass / 0 fail / 0 pending**，`mergeable=MERGEABLE`、`mergeStateStatus=CLEAN`（required checks 全满足；合并动作按约定留给用户）。⚠️ 本轮踩到 `git show <ref>:<file> | grep -c $'\r'` 在 Git Bash 下因 MSYS 冒号改写**恒返回 0**（三个不同 ref 全报 0，一眼假），必须 `MSYS2_ARG_CONV_EXCL='*'` 或直接走 `execFileSync` —— 与记忆里"探针自身故障会伪装成结论"同族 |
 | 依赖与配置 | PASS | 未新增任何依赖、未改 lockfile；仅新增两个自有源文件与两个环境变量读取点 |
 | 回归复跑（QM-6 处置后） | PASS | shared-utils 全量 `536 passed / 10 skipped`（29 文件，含新增那条 accountId 行为锁）；desktop 受影响面 `417 passed`（19 文件：`src/stores/**` + `src/components/PublishProgress*.vue` 及其用例 + `phase4-events` + `publish-progress-events` + `publish-stage-map` + `container.setup` + `phase3-services`）——即 AGENTS.md 对「发布进度事件双边界与富化契约」点名的五套必跑测试全部覆盖；eslint 对 10 个改动文件零输出 rc=0。**desktop 全量复跑** `13081 passed / 3 skipped (709 文件)` + **2 failed**，两条红与首轮逐条同名同签名（`feedback.test.js` Windows symlink EPERM、`story2video-manual-assets.test.js` finalize_assets），二者均已按「未改动 main 基线对照」定责为既有缺陷，本 PR 未触其路径 ⇒ 不认领。像素门禁未跑：本机未起 dev server 且基线只能取 CI 产物，本轮视觉结论由 DOM 锁承担（见 QM-4 行） |
-| 远程同步 | PENDING | 本 PR（#2773）尚未合并，merge SHA 还不存在。合并后由下一个会话取证回填：`git log origin/main --grep='(#2773)$' --format=%H\|%cI` 取 merge SHA 与时间，`git ls-remote --heads origin publish-frequency-control` 返回 0 行证远端分支已删；回填成 PASS 后**必须整段删除文件头部三个 `sync_*` 字段**（留下即报「已回填却仍留登记字段」） |
+| 远程同步 | PASS | 已合并：merge SHA `32f242ae5dbdd3ed6eab542c4c568739dd03d9a5`（2026-10-04T12:52:55Z，squash 进 main，PR #2773），main 上可回读实现（`publish-frequency-policy.js` 存在、`container.setup.js` 含 `publishIntervalGuard: c.get`、`zh.js`/`TaskRow` 含归因文案）。远端分支已删（2026-10-07 复核 `git ls-remote --heads origin publish-frequency-control` = 0 行）。三个 head 的结论按 check-runs 逐个复核而非只看 PR 桶：`9ed783e9` 21 条全 completed（20 success + 1 skipped）、`11505431` 21 条全 completed（20 success + 1 skipped）、`c32709dd` 22 条全 completed（21 success + 1 skipped），**零失败**。取证命令 `git log origin/main --grep='(#2773)$' --format=%H\|%cI`。本行的回填与文件头三个 `sync_*` 字段的删除发生在**同一次提交**内 |
 
 ### 遗留（不假装已闭合）
 
