@@ -1472,3 +1472,29 @@ const digest = JSON.stringify(body || {}).slice(0, 200).replace(/[A-Za-z0-9_-]{2
 | 打包产物中能否 `import content_aggregator` | QM-1 打包门禁：`electron-builder --win --dir` 后验证 asar 内 require 链 |
 | `default-strategies.json` 中 YouTube 策略键的字段结构 | 实现时读取确认 |
 | 真实 API Key 下的端到端一次采集 | 需用户配置 Key 后跑一次 P0 冒烟 |
+
+### 16.1 分发形态实测：Python 依赖**不进打包产物**（2026-10-07）
+
+**这是本特性最大的落地风险，且不是理论风险——是本仓既有的架构事实。**
+
+| 事实 | 证据 |
+|---|---|
+| 打包后的应用 spawn **系统 `python`**（PATH 上的那个），不是内置解释器 | `python-bridge.js:104`：`process.env.MP_PYTHON \|\| (win32 ? 'python' : 'python3')` |
+| Python 依赖靠 **pip 装进全局 site-packages**，不由应用分发 | `splitter-bridge.js:20` 注释明写「该模块本身经 pip 安装（全局 site-packages）」；`build.extraResources` 无 Python 环境条目 |
+| `content_aggregator` 是**可选依赖** | `pyproject.toml:20-23` 的 `optional` 分组 `aggregation` |
+
+**推论**：**打完包的机器若没手动 `pip install content-aggregator`，YouTube 采集功能不可用。**
+
+**缓解影响面（已实测）**：`service.py:19-26` 的 `_lazy_import()` 对可选依赖做优雅降级（捕获 `ImportError`），因此**缺包不会导致整个 Python 后端启动失败**，只是聚合能力降级。这是好消息——不会把用户的整个应用搞挂。
+
+**但仍必须补上显式检查**，否则用户会遇到"功能莫名其妙不工作"：
+
+| 要求 | 定义 |
+|---|---|
+| 启动即探测 | 后端健康检查阶段探测 `content_aggregator` 是否可导入，结果纳入既有 `/health` 响应 |
+| 状态透出 UI | `creator:list` 返回 `platformAvailability: { youtube: 'ready' \| 'missing_dependency' }` |
+| **明确文案 + 修复指引** | `creatorErrDependencyMissing`：**「博主监控需要额外的采集依赖，未检测到 content-aggregator。请在运行本应用的 Python 环境中执行：pip install content-aggregator」**（给出确切命令，而不是只说「依赖缺失」） |
+| 禁止静默降级 | MUST NOT 在缺依赖时把「博主监控」tab 显示为正常可用；该 tab 应置灰并说明原因 |
+| 设置页可见 | 依赖状态在设置 → 服务状态面板中常驻可见（复用既有 `PRD-SERVICE-STATUS-PANEL` 的展示位） |
+
+**回退方案**：若判定该依赖的分发不可接受（安装门槛过高），则改为**本仓内自实现 YouTube 采集**——官方 Data API 本身不复杂（`channels` + `playlistItems` + 字幕拉取，约 200 行），且能随应用分发。代价是要自己维护字幕获取（`youtube-transcript-api` 仍需 pip）。**此决策需在 P0 冒烟后按实际安装体验定。**
