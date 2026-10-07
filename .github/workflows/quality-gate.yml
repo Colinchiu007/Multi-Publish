@@ -1050,6 +1050,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
+          # ⚠ $desktopDir 必须在**本 step 内**重新计算：它是 Gate 7 step 里的局部变量，
+          # step 之间不共享（job 级 env 可以，shell 变量不行）。上一版直接
+          # Push-Location $desktopDir → 变量为 null → step 在第一行 Write-Host 之后
+          # 就抛错退出，node 从未执行 ⇒ 表现为「只有 exit code 1、没有报告没有诊断」。
+          $desktopDir = Join-Path $PWD "apps/desktop"
+          # 目录不存在就直接失败并说清楚，不要让 Push-Location 静默抛错
+          if (-not (Test-Path -LiteralPath $desktopDir)) {
+            Write-Host "[GATE-7c] FATAL: apps/desktop 不存在 (cwd=$((Get-Location).Path))"
+            exit 2
+          }
+          Write-Host "[GATE-7c] desktopDir = $desktopDir"
           Push-Location $desktopDir
           try {
             Write-Host "=== Gate 7c: dark mode contrast audit ==="
