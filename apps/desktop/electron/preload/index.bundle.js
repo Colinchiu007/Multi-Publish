@@ -1092,18 +1092,18 @@ var require_aggregation = __commonJS({
 var require_creator = __commonJS({
   "electron/preload/creator.js"(exports2, module2) {
     var { ipcRenderer: ipcRenderer2 } = require("electron");
-    function createCreatorApi2(renderer = ipcRenderer2) {
-      const invoke = (channel, payload) => renderer.invoke(channel, payload);
+    function createCreatorApi2(ipcRenderer3) {
       return {
-        creatorList: () => invoke("creator:list"),
-        creatorFollow: (payload) => invoke("creator:follow", payload),
-        creatorUnfollow: (payload) => invoke("creator:unfollow", payload),
-        creatorToggle: (payload) => invoke("creator:toggle", payload),
-        creatorCheckNow: (payload) => invoke("creator:check-now", payload),
-        creatorDiscoveries: (payload) => invoke("creator:discoveries", payload),
-        creatorCollect: (payload) => invoke("creator:collect", payload),
-        creatorCollectOne: (payload) => invoke("creator:collect-one", payload),
-        creatorSkipOne: (payload) => invoke("creator:skip-one", payload)
+        creatorList: () => ipcRenderer3.invoke("creator:list"),
+        creatorFollow: (payload) => ipcRenderer3.invoke("creator:follow", payload),
+        creatorUnfollow: (payload) => ipcRenderer3.invoke("creator:unfollow", payload),
+        creatorToggle: (payload) => ipcRenderer3.invoke("creator:toggle", payload),
+        creatorCheckNow: (payload) => ipcRenderer3.invoke("creator:check-now", payload),
+        creatorDiscoveries: (payload) => ipcRenderer3.invoke("creator:discoveries", payload),
+        creatorCollect: (payload) => ipcRenderer3.invoke("creator:collect", payload),
+        creatorCollectOne: (payload) => ipcRenderer3.invoke("creator:collect-one", payload),
+        creatorSkipOne: (payload) => ipcRenderer3.invoke("creator:skip-one", payload),
+        creatorSendToWriter: (payload) => ipcRenderer3.invoke("creator:send-to-writer", payload)
       };
     }
     module2.exports = { createCreatorApi: createCreatorApi2 };

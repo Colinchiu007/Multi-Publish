@@ -300,8 +300,8 @@ defineExpose({ loadCreators, loadDiscoveries })
 .creator-avatar, .creator-thumb { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
 .creator-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .creator-name, .creator-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.creator-badge, .creator-quality, .creator-badge-num, .creator-collected { font-size: 12px; }
-.creator-paused { color: var(--el-color-danger, #f56c6c); font-size: 12px; }
+.creator-badge, .creator-quality, .creator-badge-num, .creator-collected { font-size: var(--font-size-xs); }
+.creator-paused { color: var(--el-color-danger, #f56c6c); font-size: var(--font-size-xs); }
 .creator-degraded { padding: 8px; border: 1px solid var(--el-color-warning, #e6a23c); border-radius: 4px; }
 .creator-empty { display: flex; flex-direction: column; gap: 4px; color: var(--el-text-color-secondary, #909399); }
 .creator-actions { display: flex; gap: 8px; }
