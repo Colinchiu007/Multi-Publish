@@ -1,3 +1,15 @@
+## `String.replace` 的 `$` 替换令牌会静默损坏文件——替换串含 `$` 时必须用函数式 replacer（2026-10-07）
+
+- 替换串里的 `` $` `` / `$'` / `$&` 分别表示「匹配前的文本 / 匹配后的文本 / 整个匹配」，**不是字面量**。2026-10-07 改执行记录时替换串含 `--grep='(#NNNN)$'`（带 `$'`），`String.replace` 把「匹配点之后的整段文本」插了进去，文件被复制放大，而脚本返回的是「成功」。
+- 规则：替换串含 `$` 时一律用函数式 replacer `t.replace(re, () => newText)`，或 `split(旧).join(新)`。
+- 配套的 tail 探针（打印文件末尾几百字符）能立刻抓到这类损坏。**替换脚本跑完必须看文件尾部，不能只看退出码**。
+
+## CRLF 锚点用 `\n` 会静默落空——替换脚本必须先判断再替换（2026-10-07）
+
+- 仓库中文文件全是 CRLF，脚本里用 `'\n'` 拼锚点会导致 `t.includes(锚点)` 静默返回 false，表现为「脚本跑完了但文件没变」。
+- 脚本必须**先判断再替换**：`if(!t.includes(旧串)){console.log('NOT FOUND');process.exit(1)}`，并准备 LF 版本做二次尝试。
+- 同类：**工具返回「成功」不等于内容落盘**。2026-10-07 用编辑工具改文件，工具报成功但磁盘内容完全没变，随后跑测试「全绿」——测的是改动前的代码。改完立刻用只读探针回读（`t.includes('目标串')`），不信成功提示。
+
 ## 改了 preload 源码就必须重新生成入库的 bundle 产物——`build-preload.test.js` 会直接比对两者（xhs-draft-publish，2026-10-07）
 
 - **`electron/preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 是入库的构建产物**（`git ls-files` 可查到）。`electron/tests/build-preload.test.js:56` 会把**仓库里已提交的** `OUTPUT_FILE` 与源码 `preload/index.js` 暴露的 API 路径做 `toEqual` 深比对。加一个 preload 方法而没跑 `pnpm run build:preload`，该用例报「提交态 bundle 与源码暴露完全相同的 API 路径」失败，并逐条 diff 缺失的键名。

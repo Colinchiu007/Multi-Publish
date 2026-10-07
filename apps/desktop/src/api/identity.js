@@ -30,6 +30,13 @@ export async function identitySignOut() {
     : { code: -1, message: 'IDENTITY_API_UNAVAILABLE' }
 }
 
+export async function identityDiagnosticReport() {
+  const api = getApi()
+  return api && typeof api.identityDiagnosticReport === 'function'
+    ? api.identityDiagnosticReport()
+    : { code: -1, message: 'IDENTITY_API_UNAVAILABLE' }
+}
+
 export function onIdentityStateChanged(callback) {
   const api = getApi()
   if (!api || typeof api.onIdentityStateChanged !== 'function') return () => {}

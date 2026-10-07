@@ -15,6 +15,10 @@
 import { useIdentityStore } from '@/stores/identity'
 import { useNotify } from './useNotify'
 import i18n from '@/i18n'
+import {
+  resolveIdentityErrorMessageKey,
+  resolveIdentityStatusNoteKey,
+} from '@/utils/identity-error-messages'
 
 let activeSignIn = null
 
@@ -38,11 +42,19 @@ export function useLoginGate () {
    */
   async function ensureLogin (options = {}) {
     const message = options.message || i18n.global.t('loginGate.defaultMessage')
-    const disabledMessage = options.disabledMessage || i18n.global.t('loginGate.disabledMessage')
 
     if (identityStore.isAuthenticated) return true
     if (identityStore.status === 'disabled' || identityStore.status === 'error') {
-      notifyWarning('loginGate.disabledMessage', { message: disabledMessage })
+      // 与 ProfileMenu / MemberCenter 共用唯一映射，不再自造文案：
+      // disabled（运行环境未连接服务）与 error（运行中出错）是两回事，
+      // 且 error 态带 error.code 时应给出具体原因，而非笼统说"未配置"。
+      const noteKey = resolveIdentityStatusNoteKey(identityStore.status)
+      const code = identityStore.error && identityStore.error.code
+      const text = options.disabledMessage
+        || (code
+          ? i18n.global.t(resolveIdentityErrorMessageKey(code))
+          : i18n.global.t(noteKey))
+      notifyWarning(noteKey, { message: text })
       return false
     }
     const confirmed = await notifyConfirm('loginGate.defaultMessage', {

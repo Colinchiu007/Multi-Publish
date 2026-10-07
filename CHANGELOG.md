@@ -2,21 +2,21 @@
 
 ### 为什么不能直接把副本删掉（本条最关键）
 
-- main 上 `CHANGELOG.md` 实测（canonical 口径，本 PR 的 merge-base `6fb99307b` 的 blob）：**1187 条 / 346 种标题 / 冗余 841 份 / 最坏同一标题重复 16 次**，65,818 行 / 7,602,769 字节。副本全部来自 re-sync 型解冲突，不是真实历史。
+- main 上 `CHANGELOG.md` 实测（canonical 口径，本 PR 授权文件钉住的 merge-base `06073943b` 的 blob）：**1188 条 / 347 种标题 / 冗余 841 份 / 最坏同一标题重复 16 次**，65,833 行 / 7,603,673 字节。副本全部来自 re-sync 型解冲突，不是真实历史。（**这些数字是"当次 merge-base"的读数**：main 每前进一次，条目数与行数都会变，`scripts/changelog-dedup-regen.js` 只重算授权文件里的两个期望值，**不会**改写本条散文 —— 谁再撞一次 re-sync，跑完 regen 与三把锁后要把这几个数同步过来。）
 - 但 `scripts/check-changelog-growth.js` 判「base 标题**多重集**被 head 包含」，其测试里有一条**有意选定**的不变量：`真仓库四档…副本删一份=红`，注释原文 `// 只删重复副本中的一份 -> 仍须报丢（集合口径会漏，这条就是为它写的）`。
 - ⇒ 「削到 1 份」与「削到 3 份」在这位 owner 的语义里是同一类操作，区别只在数量，而数量是这条门禁唯一能区分的信号。**实测**：把「允许削到 1 份」写成自动例外，`node --test` 立即 `tests 11 / pass 10 / fail 1`，红的正是那条断言（随后按备份逐字节还原，基线回到 11 pass）。
-- 所以本条**没有**改宽默认判据，而是加一条**需要书面授权**的一次性通路：仅当 head 相对 base **新增** `scripts/changelog-dedup-authorization.json` 且其 `applies_to_base` 等于本次 base 的 sha 时，才额外接受清理形状（每个被减少的标题恰好剩 1 份 ∧ 保留块逐字节等于 base 中同标题的某一块 ∧ 一个标题都不许消失 ∧ 声明的 `expected_titles_reduced=269` / `expected_entries_after=347` 与实际相符）。授权文件在 base 已存在则不生效，后续 PR 蹭不到这张通行证；例外生效时**必须出声**打印减少量，不许静默放行。
+- 所以本条**没有**改宽默认判据，而是加一条**需要书面授权**的一次性通路：仅当 head 相对 base **新增** `scripts/changelog-dedup-authorization.json` 且其 `applies_to_base` 等于本次 base 的 sha 时，才额外接受清理形状（每个被减少的标题恰好剩 1 份 ∧ 保留块逐字节等于 base 中同标题的某一块 ∧ 一个标题都不许消失 ∧ 声明的 `expected_titles_reduced=269` / `expected_entries_after=348` 与实际相符）。授权文件在 base 已存在则不生效，后续 PR 蹭不到这张通行证；例外生效时**必须出声**打印减少量，不许静默放行。
 
 ### 结果（清理后当场独立回读，不走去重脚本自己的结论）
 
-- 台账由 65,818 行 / 7,602,769 字节 → **18,022 行**（347 条条目 / 347 种标题，净减 47,796 行）。**head 的字节数故意不写在这里**：这条陈述本身在被改写的 28 行里，写下任何字节数都会因这次写下而立刻变错（实测本条改完即从 2,077,240 变为 2,077,911）；行数与条目数不受文案改写影响，才是不漂移的口径，按字节复核请当场 `git show HEAD:CHANGELOG.md` 自己量。
+- 台账由 65,833 行 / 7,603,673 字节 → **18,037 行**（348 条条目 / 348 种标题，净减 47,796 行）。**head 的字节数故意不写在这里**：这条陈述本身在被改写的 28 行里，写下任何字节数都会因这次写下而立刻变错（实测同一份内容三次改写 2,070,569 → 2,077,240 → 2,078,238）；行数与条目数不受文案改写影响，才是不漂移的口径，按字节复核请当场 `git show HEAD:CHANGELOG.md` 自己量。
 - **无损的性质在「块」这一层**：base 里每个标题至少还剩一份；留下的每一块都**逐字节**等于 base 中的同源块，且就是 `pickKeeper` 会选的那一份；再跑一次 `--dedup` 报 `removed=0`（幂等）。
 - 行级 diff 是 `+133 / −47,929`，其中只有 **28 行**是本 PR 新增的那条台账自身（含其后的 `---` 分隔行），其余新增行是被**重排**的幸存块造成的位置移动（去重把「同题留最长」那份挪到该标题首次出现的槽位）。**所以这次改动不能被称为"纯删除"** —— 这是独立对账器 `changelog-dedup-reconcile.js` 判红后纠正过来的一句过度声明。
 - **12 种标题的几份副本内容互不相同**（说明其中某份曾被就地改写过），保留的是正文最长那份；该数字由门禁与对账器一起打印，属需要人工过目的清单，不是无害折叠。
 
 ### 顺带闭合的一处口径分裂
 
-- 两把锁原先各写一遍「什么是一条条目」：growth 按 `HEADING_RE`（一级标题排除节标题），副本棘轮按 `# [未发布]` 前缀 ⇒ 同一份 base blob（`6fb99307b`）上实测数出 **1,187 vs 1,158** 条，差 29 条全在「非 `[未发布]` 前缀的一级标题」这一段——任何一侧的清理都可能落在另一侧盲区。收敛为单一实现后两侧同为 1,187。
+- 两把锁原先各写一遍「什么是一条条目」：growth 按 `HEADING_RE`（一级标题排除节标题），副本棘轮按 `# [未发布]` 前缀 ⇒ 同一份 base blob（`06073943b`）上实测数出 **1,188 vs 1,158** 条。那 30 条差集当场归类为 `# [unreleased]` 13、`# [2026-08-15]` 8、`# fix(自检门禁):` 4、`# fix(工程门禁):` 4、`# [补记]` 1 —— 其中第 13 条**就是本次 re-sync 从 main 合进来的那条**（`# [unreleased] gate(docs): 文档绝对路径有效性门禁（Gate 12c）`），它对整个副本棘轮**完全隐身**：任何一侧的清理都可能落在另一侧盲区，这不是推演。收敛为单一实现后两侧同为 1,188。
 - 新增 `scripts/changelog-entries.js` 作为**唯一实现**（`HEADING_RE / splitEntries / titleOf / pickKeeper / groupByTitle / analyze / dedupe / countByTitle`），两个门禁都改为 require 它；副本棘轮的条目域随之与 growth 对齐。`.gitignore` 补 `!scripts/changelog-entries.js`（第 106 行 `scripts/*.js` 会把新建的判据本体静默挡在仓库外，CI 与本地就会跑两份不同的东西）。
 
 ### 回归保护
@@ -26,6 +26,21 @@
 - 见 `openspec/changes/dedup-changelog-history/` 与 `openspec/records/changelog-history-dedup.md`；冲突背景与规模数字在 issue #3037。
 
 ---
+# [unreleased] gate(docs): 文档绝对路径有效性门禁（Gate 12c）+ 清理 python-backend 死脚本
+
+### 新增
+
+- `scripts/check-doc-abs-paths.js` — 文档绝对路径有效性门禁（Gate 12c，接入 `changes` job）。
+  只检查**本次改动**的受管文档里，是否存在指向本机不存在目录的 Windows 绝对路径；
+  豁免归档快照、占位符、CI runner 路径与非本机盘符。编号取 12c 是因为 #3032 的
+  文本编码完整性门禁已占用 12b。
+- `scripts/check-doc-abs-paths.test.js` — 13 个用例，含 6 个误伤回归与变异反证锁。
+
+### 移除
+
+- `packages/python-backend/scripts/update_account_isolation.py` — 一次性死代码。其作用
+  （给 `douyin.py` 注入 `_get_browser_data_dir`）已由 `publishers/base.py:405` 正式承接；
+  脚本本身硬编码云端沙箱路径、本机不可运行，且无任何引用。
 # [未发布] fix(ci): CHANGELOG 副本数棘轮门禁——一次 PR 不得让任何标题的副本数变大（2026-10-07，changelog-dup-gate）
 
 ### 事故与判据

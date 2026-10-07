@@ -52,8 +52,12 @@ export const IDENTITY_ERROR_MESSAGE_KEYS = Object.freeze({
   IDENTITY_SECURE_STORAGE_UNAVAILABLE: 'memberCenter.secureStorageUnavailable',
   IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED: 'memberCenter.sessionStoreBlocked',
 
-  // —— 网络 ——
+  // —— 网络（细分码由主进程 classifyNetworkError 判定，各自对应可执行的建议）——
   IDENTITY_NETWORK_UNAVAILABLE: 'memberCenter.networkUnavailable',
+  IDENTITY_NETWORK_TLS_BLOCKED: 'memberCenter.networkTlsBlocked',
+  IDENTITY_NETWORK_DNS_FAILED: 'memberCenter.networkDnsFailed',
+  IDENTITY_NETWORK_TIMEOUT: 'memberCenter.networkTimeout',
+  IDENTITY_NETWORK_PROXY_BLOCKED: 'memberCenter.networkProxyBlocked',
 })
 
 /** 未知错误码的回落文案（中性、不误导）。 */
