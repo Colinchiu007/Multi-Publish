@@ -164,9 +164,11 @@ describe('ProfileMenu', () => {
     // 状态改为带色点的胶囊
     expect(source).toMatch(/profile-menu-status/)
     expect(source).toMatch(/profile-menu-status-dot/)
-    // 错误提示收进容器（左侧色条）
-    const errBlock = source.match(/\.profile-menu-error \{[\s\S]*?\n\}/)
-    expect(errBlock[0]).toMatch(/border-left:\s*3px solid/)
+    // 错误提示收进容器（左侧色条）。
+    // 2026-10-07：色条移到 .profile-menu-error-box —— 内层 .profile-menu-error 只管文字，
+    // 因为诊断文本要换成中性底色，不能和错误红底叠加。视觉不变式（左侧色条）不变。
+    const errBox = source.match(/\.profile-menu-error-box \{[\s\S]*?\n\}/)
+    expect(errBox[0]).toMatch(/border-left:\s*3px solid/)
     // 面板展开动效 + 尊重 reduced-motion
     expect(source).toMatch(/animation:\s*profile-menu-pop/)
     expect(source).toMatch(/@keyframes profile-menu-pop/)

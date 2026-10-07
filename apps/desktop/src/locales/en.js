@@ -1,4 +1,5 @@
 import accountsCloudSyncEn from './accounts-cloud-sync/en'
+import identityDiagnosticsEn from './identity-diagnostics/en'
 
 export default {
   signer: {
@@ -3036,6 +3037,7 @@ export default {
   },
 
   memberCenter: {
+    ...identityDiagnosticsEn,
     title: 'Member Center',
     menuEntry: 'Member Center',
     subtitle: 'Account, plan and membership in one place',
