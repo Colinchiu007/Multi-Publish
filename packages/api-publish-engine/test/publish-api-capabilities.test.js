@@ -138,6 +138,51 @@ async function main () {
     console.log('  ✅ 穷举 ' + checked + ' 个 null 格子全部 404，矩阵纪律对每个动作一致')
   }
 
+  // 回归锁：登录失效必须落到 401。收口（_capabilitiesFailure）此前只认
+  // `login_expired`，而 B站抛的是 `cookieExpired` —— 分支从未命中，B站未登录
+  // 被判成普通数据错误返回 400，客户端拿不到「请重新登录」这个它最需要的信号。
+  // 本组按**错误形状穷举**，不手挑平台：新增平台若用了别的字段名，本锁会红。
+  console.log('--- 回归：登录失效统一 401（字段名无关）---')
+  {
+    // 直接驱动收口逻辑，绕开平台实现，只验「错误 → 状态码」这一层映射。
+    const probes = [
+      ['login_expired（当前契约）', { login_expired: true, message: 'expired' }, 401, 'LOGIN_EXPIRED'],
+      ['cookieExpired（历史字段名）', { cookieExpired: true, message: 'expired' }, 401, 'LOGIN_EXPIRED'],
+      ['code=-101（B站未登录）', { code: -101, message: 'expired' }, 401, 'LOGIN_EXPIRED'],
+      ['普通业务错不得误判为登录', { code: -2, message: 'bad request' }, 400, null],
+      ['未知错误不得误判为登录', { message: 'boom' }, 502, null],
+    ]
+    for (const [label, err, wantStatus, wantCode] of probes) {
+      // Harness 类在模块顶部已 apply 过 helpers，直接建实例即可
+      const h = new Harness((res, status, data) => { h.__last = { status, data } })
+      h._capabilitiesFailure({}, {}, err)
+      assert.strictEqual(h.__last.status, wantStatus, label + '：期望 ' + wantStatus + '，实得 ' + h.__last.status)
+      if (wantCode) assert.strictEqual(h.__last.data.error, wantCode, label + '：错误码应为 ' + wantCode)
+    }
+    console.log('  ✅ ' + probes.length + ' 种错误形状的映射正确，且普通错误未被误判为登录失效')
+  }
+
+  console.log('--- LOGIN_DETECTION 如实声明各平台是否可判定登录失效 ---')
+  {
+    const { LOGIN_DETECTION, canDetectLoginExpired } = require('../src/publish/capabilities')
+    // 声明必须与实现一致：声称 true 的平台，其实现里必须真的有 login_expired/cookieExpired
+    const impl = {
+      bilibili: /cookieExpired:\s*loginExpired/,
+      kuaishou: /login_expired:\s*true/,
+      tencent_video: /login_expired:\s*true/,
+    }
+    for (const p of Object.keys(LOGIN_DETECTION)) {
+      if (canDetectLoginExpired(p)) {
+        assert.ok(impl[p], p + ' 声称可判定登录失效，实现里却找不到对应抛法')
+      }
+    }
+    // 反向：无取证的平台不得声称可判定（防止「以为支持」）
+    assert.strictEqual(canDetectLoginExpired('douyin'), false, '抖音登录失效无取证，不得声称可判定')
+    assert.strictEqual(canDetectLoginExpired('xiaohongshu'), false)
+    assert.strictEqual(canDetectLoginExpired('baijiahao'), false)
+    console.log('  ✅ 声明与实现双向一致：无取证的平台如实标注 false')
+  }
+
   console.log('--- 不支持的平台 404 ---')
   {
     const h = makeHarness()

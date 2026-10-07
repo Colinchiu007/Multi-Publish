@@ -20,7 +20,23 @@ const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
-const { buildTaskDataFromRequest } = require("./publish/publish-request")
+const mediaResolver = require("./publish/resolve-request-media")
+
+/**
+ * 媒体解析的**可注入点**（默认即真实实现）。
+ *
+ * 为什么需要它：e2e 要验证「URL 真的下载过、且任何响应路径都不留临时文件」，
+ * 而下载通路必须连本机假服务器——这要求替换 fetchMediaToTemp。可
+ * `mediaResolver` 是**解构绑定**（模块加载即固化），改 require.cache 追不上，
+ * 于是「换缓存」这种测试技巧注定失败（作者踩过一次，8/8 全是假绿）。
+ *
+ * 纪律：此槽位**只允许代码注入，绝不从请求体/配置/环境变量取值**——
+ * 否则就成了绕过 SSRF 的后门（校验 cdn.example.com、实连内网）。
+ */
+let mediaRequestResolver = mediaResolver.resolveRequestMedia;
+function setMediaRequestResolver(fn) {
+  mediaRequestResolver = typeof fn === "function" ? fn : mediaResolver.resolveRequestMedia;
+}
 
 const GZIP_MIN_BYTES = 256;
 
@@ -1037,7 +1053,11 @@ class PublishApiServer {
 
         // 内容+媒体字段统一走 article→taskData 形状翻译（单一实现 publish/task-data.js），
         // 与桌面端 publisher-router / rpa-view-manager 共用，杜绝多路映射漂移。
-        var built = buildTaskDataFromRequest(body);
+        // media 同时接受本地路径与 URL：URL 由 media-fetch 落到临时目录，
+        // 清理权由 built.cleanup 持有，**必须在 finally 里调用**。
+        var built = await mediaRequestResolver(body);
+        var mediaCleanup = built.cleanup || function () {};
+        try {
         if (!built.ok) {
           this._json(res, built.status, { success: false, error: built.message, code: built.error });
           return;
@@ -1069,6 +1089,11 @@ class PublishApiServer {
           this._logError("PUBLISH_FAILED", e, this._ctx(req, { platform: platform }));
           this._json(res, 200, { success: false, platform: platform, error: "PUBLISH_FAILED" });
         }
+        } finally {
+          // 临时媒体必须在**任何**路径下清理：成功、失败、异常、提前 return。
+          // 放在 finally 而非 catch 里，否则前面的 early return 会绕过清理。
+          mediaCleanup();
+        }
         return;
       }
 
@@ -1077,7 +1102,10 @@ class PublishApiServer {
         var body = await this._parseBody(req);
         var platforms = body.platforms || [];
         var cookie = body.cookie || "";
-        var built = buildTaskDataFromRequest(body);
+        // 与 /publish 同一入口：本地路径与 URL 都接受（见 resolve-request-media.js）
+        var built = await mediaRequestResolver(body);
+        var mediaCleanup = built.cleanup || function () {};
+        try {
         if (!built.ok) {
           this._json(res, built.status, { success: false, error: built.message, code: built.error });
           return;
@@ -1098,6 +1126,10 @@ class PublishApiServer {
         this._auditLog.log({ ownerSubject: this._ownerSubject(req), type: "batch", platform: platforms, title: taskData.title, status: results.every(function(r){return r.success}) ? "success" : "failed", details: results });
         this._json(res, 200, results);
         return;
+        } finally {
+          // 临时媒体必须在任何路径下清理，含上面的 early return（鉴权失败等）
+          mediaCleanup();
+        }
       }
 
       // --- Schedule ---
@@ -1371,7 +1403,12 @@ p{color:#6e6e73}
           { m: "POST", p: "/api/v1/webhook/remove", d: "Remove a webhook. Body: { id }" },
           { m: "POST", p: "/api/v1/auth/logto/webhook", d: "Receive Logto user webhook. HMAC: logto-signature-sha-256" },
           { m: "GET", p: "/api/v1/docs", d: "This page - API documentation" },
-          { m: "GET", p: "/api/v1/openapi.json", d: "OpenAPI 3.0 specification (JSON)" }
+          { m: "GET", p: "/api/v1/openapi.json", d: "OpenAPI 3.0 specification (JSON)" },
+          { m: "GET", p: "/api/v1/platforms/capabilities", d: "发布前能力矩阵总览（哪些平台有什么）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/user-info", d: "账号信息（昵称/粉丝数/头像）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/permission-check", d: "发布权限预检（不可用时返回 401 LOGIN_EXPIRED）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/poi", d: "位置推荐（矩阵标 null 的平台返回 404）" },
+          { m: "POST", p: "/api/v1/platforms/:platform/drafts", d: "草稿箱（同上）" },
         ];
         for (var i = 0; i < endpoints.length; i++) {
           var ep = endpoints[i];
@@ -1407,6 +1444,14 @@ p{color:#6e6e73}
           "/api/v1/ready": { get: { summary: "生产就绪检查", responses: { "200": { description: "所有身份依赖就绪" }, "503": { description: "数据库、迁移或 OIDC/JWKS 未就绪" } } } },
           "/api/v1/me": { get: { summary: "获取当前业务用户和权威权益", parameters: [{ name: "X-Device-ID", in: "header", required: false, schema: { type: "string", minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" } }], responses: { "200": { description: "用户与 entitlement" }, "400": { description: "设备标识无效" }, "503": { description: "业务用户或权益服务不可用" } }, security: [{ bearerAuth: [] }] } },
           "/api/v1/platforms": { get: { summary: "平台列表", responses: { "200": { description: "平台列表" } } } },
+          "/api/v1/platforms/capabilities": { get: { summary: "发布前能力矩阵总览", responses: { "200": { description: "能力矩阵（哪些平台有哪些能力，未取证者显式为 null）" } } } },
+          "/api/v1/platforms/{platform}/{action}": { post: {
+            summary: "发布前能力查询（user-info / permission-check / poi / drafts）",
+            parameters: [{ name: "platform", in: "path", required: true, schema: { type: "string" } },
+                         { name: "action", in: "path", required: true, schema: { type: "string", enum: ["user-info", "permission-check", "poi", "drafts"] } }],
+            requestBody: { content: { "application/json": { schema: { type: "object", properties: { cookie: { type: "string" }, page: { type: "integer" }, pageSize: { type: "integer" }, type: { type: "string" }, search: { type: "string" } } } } } },
+            responses: { "200": { description: "能力查询结果" }, "401": { description: "登录失效（仅 loginDetection=true 的平台会走到这里）" }, "404": { description: "平台无能力面，或该能力在矩阵中为 null" }, "400": { description: "请求体非法或媒体不可解析" } },
+          } },
           "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platform: { type: "string" } }, articleProps), required: ["platform"] } } } }, responses: { "200": { description: "发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
           "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platforms: { type: "array", items: { type: "string" } } }, articleProps), required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
           "/api/v1/schedule": { post: { summary: "创建定时发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" }, scheduledAt: { type: "string", format: "date-time" } }, required: ["platforms", "scheduledAt"] } } } }, responses: { "200": { description: "创建成功" } } }, get: { summary: "列出定时任务", responses: { "200": { description: "任务列表" } } } },
@@ -1471,4 +1516,4 @@ PublishApiServer.registerShutdownSignals = function(server) {
   };
 };
 
-module.exports = { PublishApiServer };
+module.exports = { PublishApiServer, setMediaRequestResolver };

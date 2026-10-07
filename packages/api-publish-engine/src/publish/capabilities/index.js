@@ -82,6 +82,32 @@ const CAPABILITY_MATRIX = Object.freeze({
   }),
 })
 
+/**
+ * 各平台**是否有取证可判定登录失效**（与 CAPABILITY_MATRIX 分开声明，不混在同一层）。
+ *
+ * 为什么要单列：能力矩阵的键名是与 EXPOSED_CAPABILITIES 对齐的一套词汇
+ * （根因锁 test/publish-api-capabilities.test.js 断言二者同源），把
+ * 「登录态判定能力」这种元信息塞进平台行会引入第二套词汇，正是当初
+ * 矩阵键写成 `poi` 导致路由穿透 null 守卫的同一类错误。
+ *
+ * false 的平台在 cookie 失效时只会返回通用 400，客户端拿不到 401——
+ * 这是已知且如实声明的缺口，不是漏实现。无取证时把任意非零码猜成
+ * 「未登录」比不判更危险：会诱导客户端无谓地换号重试。
+ */
+const LOGIN_DETECTION = Object.freeze({
+  douyin: false,        // 切片只证到 status_code=110（风控），登录失效码无取证
+  tencent_video: true,  // LOGIN_EXPIRED_CODES = [300333, 300334]
+  bilibili: true,       // BILI_CODE.NOT_LOGIN(-101) 及 -1025/-1026
+  kuaishou: true,       // result == 109
+  xiaohongshu: false,   // 切片无登录态判定依据
+  baijiahao: false,     // 切片无登录态判定依据
+})
+
+/** 该平台是否能把「登录失效」与普通业务错误区分开（true 时能力面返回 401）。 */
+function canDetectLoginExpired (platform) {
+  return LOGIN_DETECTION[platform] === true
+}
+
 /** 平台是否具备任一能力面。 */
 function supportsCapabilities (platform) {
   return Object.prototype.hasOwnProperty.call(CAPABILITY_FACTORIES, platform)
@@ -106,6 +132,8 @@ function listCapabilities (platform) {
 
 module.exports = {
   CAPABILITY_FACTORIES,
+  LOGIN_DETECTION,
+  canDetectLoginExpired,
   CAPABILITY_MATRIX,
   supportsCapabilities,
   getCapabilities,

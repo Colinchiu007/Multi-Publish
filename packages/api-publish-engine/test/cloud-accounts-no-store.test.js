@@ -320,6 +320,32 @@ test('生产接线结构锁：两条缝都必须真的接在生产代码上', as
       '跨路由共享的常量必须冻结')
   })
 
+  await t.test('能力面（/api/v1/platforms/**）下行同样禁止缓存', async () => {
+    // user-info 回传昵称/粉丝数/头像等账号 PII，permission-check 回带登录态结论，
+    // 与云账号面同属「下行带账号明文信息」的路由，缺 no-store 等于把 PII 写进共享缓存。
+    const mk = () => ({ setHeader (k, v) { this.h = this.h || {}; this.h[k] = v } })
+    const cases = [
+      '/api/v1/platforms/douyin/user-info',
+      '/api/v1/platforms/bilibili/permission-check',
+      '/api/v1/platforms/kuaishou/poi',
+      '/api/v1/platforms/shipinhao/drafts',
+      '/api/v1/platforms/capabilities',
+    ]
+    for (const url of cases) {
+      const res = mk()
+      const applied = applyCloudAccountNoStore(res, url)
+      assert.equal(applied, true, url + ' 应被纳入 no-store 集合')
+      assert.equal(res.h['Cache-Control'], 'no-store', url + ' 必须带 no-store')
+    }
+    // 反向：非账号明文面不得被误纳入（避免把整条 /api/v1 都标成 no-store）
+    for (const url of ['/api/v1/health', '/api/v1/platforms', '/api/v1/logs']) {
+      const res = mk()
+      const applied = applyCloudAccountNoStore(res, url)
+      assert.equal(applied, false, url + ' 不应被纳入（否则是过度施加）')
+      assert.equal(res.h, undefined, url + ' 不应被打 Cache-Control')
+    }
+  })
+
   await t.test('_json 的追加头必须经 mergeFaceHeaders，而不是裸合并', () => {
     assert.match(serverSrc, /if \(extraHeaders\) mergeFaceHeaders\(headers, extraHeaders\);/)
     assert.doesNotMatch(serverSrc, /if \(extraHeaders\) Object\.assign\(headers, extraHeaders\);/,

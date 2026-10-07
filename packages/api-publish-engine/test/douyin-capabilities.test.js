@@ -108,6 +108,41 @@ async function main () {
     console.log('  ✅ 三个能力一致 fail-closed，且请求数为 0')
   })
 
+  // 回归锁：无法识别的响应此前一律 allowed:true（fail-open）。
+  // 该模块存在的全部理由是「把失败点前移到零字节上传」，一旦遇到没见过的响应就
+  // 报「可以发」，预检就退化成摆设——风控换壳、字段改名、网关兜底返 {} 全会放行。
+  // 断言按**响应形状穷举**，不手挑样本：平台侧形态变化时本锁照样红。
+  console.log('--- 抖音能力面：发布权限预检 fail-closed（无法识别即拒绝）---')
+  const UNRECOGNISED = [
+    ['空对象', {}],
+    ['未知风控壳', { detail: 'blocked by risk control' }],
+    ['status_code 为 null', { status_code: null }],
+    ['status_code 为字符串', { status_code: '0' }],
+    ['风控换壳（msg 带 blocked）', { msg: 'blocked', status_msg: 'blocked' }],
+  ]
+  for (const [label, body] of UNRECOGNISED) {
+    await withServer([
+      { method: 'GET', match: new RegExp('^' + POST_PERMISSION_PATH), body },
+    ], async (server) => {
+      const perm = await caps(server).publishPermission()
+      assert.strictEqual(perm.allowed, false, label + ' 应当 fail-closed，实得 allowed=true')
+      assert.strictEqual(perm.risk_blocked, false, label + ' 不应误标为风控（避免上层自动换号）')
+      assert.strictEqual(perm.unrecognized, true, label + ' 应标记 unrecognized 以便调用方区分读不懂与平台拒绝')
+      assert.match(perm.reason, /无法识别/)
+    })
+  }
+  console.log('  ✅ ' + UNRECOGNISED.length + ' 种无法识别的响应全部 fail-closed')
+
+  console.log('--- 只有 status_code===0 才放行（肯定分支唯一）---')
+  await withServer([
+    { method: 'GET', match: new RegExp('^' + POST_PERMISSION_PATH), body: { status_code: 0 } },
+  ], async (server) => {
+    const perm = await caps(server).publishPermission()
+    assert.strictEqual(perm.allowed, true)
+    assert.strictEqual(perm.unrecognized, undefined)
+  })
+  console.log('  ✅ status_code=0 正常放行，未被 fail-closed 误伤')
+
   console.log('\n========== douyin-capabilities 全部通过 ==========')
 }
 

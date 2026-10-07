@@ -15,6 +15,7 @@
     "blocked::example.com:8099": "守卫自测（network-egress-guard.test.js）：http.get 到非 loopback 必须秒失败并被记账",
     "blocked::example.org:8099": "守卫自测（同上）：undici fetch 同一路径必须被拦",
     "blocked::93.184.216.34:8099": "守卫自测（同上）：net.connect 直连 IP 也必须被拦，防止绕过域名判断",
-    "blocked::198.51.100.7:443": "子进程面与 sink 的自测使用 TEST-NET-1 不可路由地址（network-egress-guard-child.test.js / network-egress-guard-ledger-sink.test.js）"
+    "blocked::198.51.100.7:443": "子进程面与 sink 的自测使用 TEST-NET-1 不可路由地址（network-egress-guard-child.test.js / network-egress-guard-ledger-sink.test.js）",
+    "blocked::rebind.attacker.invalid:8099": "test/media-fetch.test.js 的 DNS rebinding 行为锁：校验那次解析答公网地址（通过 SSRF），连接那次解析答 127.0.0.1（rebinding 答案），内网受害者是本机 8099 假服务器。守卫在**连接前**按已校验地址钉住，故此处被 blocked。这条 blocked 记录正是本用例的判别信号——若钉住逻辑被撤掉，台账会转为child/出站记录且内网会真被读到内容。用固定端口 8099（与既有出站类测试一致）以保证键稳定，否则每次运行端口不同会让本判定不确定。"
   }
 }

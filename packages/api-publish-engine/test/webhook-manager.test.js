@@ -104,3 +104,25 @@ test("传输层异常不会让 fire 抛错", async function() {
   await transport.manager.register({ url: PUBLIC_URL });
   await assert.doesNotReject(transport.manager.fire("schedule.completed", {}));
 });
+
+// 抽取 ssrf-guard 时的文案回归锁。
+// 抽取把「4 条不同文案」模板化成 1 条，宣称「逐条一致」——实为证伪。
+// 本锁逐条比对抽取前（c762ed81）的原文案，防止再次「重构顺带改行为」。
+test("抽取 ssrf-guard 后错误文案与抽取前逐条一致", async function() {
+  var manager = createTransport().manager;
+  var expectations = [
+    ["not-a-url", "Invalid webhook URL"],
+    ["http://127.0.0.1/hook", "Webhook URL cannot point to internal/private network"],
+    ["ftp://example.com/x", "Valid webhook URL is required (http:// or https://)"],
+    ["http://user:pw@example.com/x", "Valid webhook URL is required (http:// or https://)"],
+    [42, "Valid webhook URL is required (http:// or https://)"],
+    ["http://" + new Array(2100).join("a"), "Valid webhook URL is required (http:// or https://)"],
+  ];
+  for (const [input, expected] of expectations) {
+    var actual = null;
+    try { await manager.register({ url: input }); } catch (e) { actual = e.message; }
+    assert.strictEqual(actual, expected,
+      "输入 " + JSON.stringify(String(input).slice(0, 24)) + " 的文案与抽取前不一致");
+  }
+});
+
