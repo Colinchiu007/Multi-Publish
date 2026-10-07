@@ -118,6 +118,8 @@ sync_backfill_owner: 回填 PR 的会话
 
 **双向实测取真实退出码**（⚠ 不可用 `cmd | Select-Object` 取 rc，管道会吃掉真值）：WSL 场景 `rc=2`、Git Bash 场景 `rc=0`，`deep-review.sh` 与 `plan-review.sh` 两个脚本均正确。
 
+| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3107)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin ccg-git-bash-entry` 返回 0 行证远端分支已删。⚠ **本载体（`openspec/records/`）的登记走 frontmatter，不进 `gate-record-debt-ledger.json`** —— 后者的键必须匹配 `.quality-gates.md` 的 `## 标题`（`check-gate-record-debt.js:191` 的 `stale` 判据），给文件源载体登记会被判「陈旧登记」而恒红。首版正是踩了这个坑，已撤销 |
+
 ### ⚠️ 过程中自查抓到的真实缺陷
 
 1. **提示语里有 3 个 U+FFFD 损坏字符**：`deep-review.sh` 的 `（要用的???是这个）` 实为 `（要用的就是这个）`。由编辑环节的编码损坏引入，落在**用户可见的诊断文案**上。已修。
