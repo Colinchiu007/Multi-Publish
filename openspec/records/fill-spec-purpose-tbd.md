@@ -2,9 +2,6 @@
 record: fill-spec-purpose-tbd
 task: 把 43 份主规格的 Purpose 从归档残留的 TBD 填成由规格自身派生的行为契约
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填把本行改成 PASS 并整段删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 ---
 
 ## 本次执行记录：主规格 Purpose 去 TBD（fill-spec-purpose-tbd，2026-10-07）
@@ -38,9 +35,10 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 | 残留计数 | PASS | `grep -rla '^TBD - created by archiving' openspec/specs` = **0** 命中（命令当场跑，不凭"应该有 0"） |
 | 行尾/编码对账 | PASS | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `add=86 / del=43`（43 文件 × 每文件 −1 行 TBD + 2 行）⇒ 无行尾改写 |
 | 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` → `PASS（扫描 7176 个 tracked 文件，无品牌残留；已豁免第三方签名服务域名）`。本条记录正文提到参考产品时一律用中性称谓，未点名品牌 |
+| CI 流水线 | PASS | head `7ae0abb63`。PR checks 独立回读 **8 pass / 0 fail / 11 skipping（共 19）**；`文档同步检查`、`QG Changes`、`Changes` 均 completed/success。**docs-only 判定在 runner 自己的日志里**（不是本地复算）：`node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"` 之后逐字为 `docs-only=true` / `files=44` ⇒ 11 项 skipping 是判定生效的结果而非「没跑到」。job：`Changes=112779125798`、`QG Changes=112779126238`、`文档同步检查=112779126388` |
 | 销账机制 | PASS | `node scripts/check-gate-record-debt.js` rc=0 → `OK: …清单无陈旧项、记录标题无重复、记录文件登记字段无残留`（本记录靠自身 frontmatter 的 `sync_*` 登记，`scripts/gate-record-debt-ledger.json` 内无需新增项）；`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` → `本 PR 变更文件 44 个（A=1 M=43 D=0）｜ 新增记录 1 篇 … OK`；`bash scripts/check-docs-sync.sh --base=main --head=HEAD` → `✅ 仅文档/流程变更，无需额外同步` |
 | CHANGELOG 收口 | N/A | 与运行时无关的规格文档卫生；沿既有惯例（`#3070`/`#3071` 这类 docs-only 记录型 PR 不另开台账条目），避免为一句文档改动再制造一次 CHANGELOG re-sync 撞车 |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后取证回填：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`、`git ls-remote --heads origin fill-spec-purpose-tbd` 返回 0 行；改 PASS 的同一次提交内删除本段三个 `sync_*` 字段 |
+| 远程同步 | PASS | 合并命令 `gh pr merge 3084 --squash --delete-branch` ⇒ **merge SHA `ead4091f45018d4b6aada6da7ed49392f1cc71ce`**（`2026-10-07T19:58:21+08:00`）。取证可离线复核：`git log origin/main --grep='(#3084)$' --format=%H\|%cI` 返回该行；`git ls-remote --heads origin fill-spec-purpose-tbd` 返回 **0 行**。落地按**内容**判：`origin/main` 上 `openspec/specs/**/spec.md` 共 151 份，其中 Purpose 为 TBD 或缺失的 = **0**（当场重跑判据脚本，不是在 PR 里声称的数）；本记录在 main 上存在且 5,668 字节。**回填与销账同一次提交**：本行改 PASS 的同时整段删除 frontmatter 三个 `sync_*` 字段（`scripts/gate-record-debt-ledger.json` 内无对应项，无需删项） |
 
 ### 遗留（不假装已闭合）
 
