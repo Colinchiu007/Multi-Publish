@@ -1,0 +1,81 @@
+{
+  "$comment": "文本编码完整性基线（scripts/check-text-encoding-integrity.js 比对对象，清单只能缩小）。存量登记项均已在 openspec 或 CHANGELOG 记录成因与补救路径；新增即判红。收口一条就删对应条目并跑 --update-baseline。根因与事故复盘见 01-docs/learnings.md。",
+  "$measuredAt": "2026-10-07",
+  "entries": {
+    ".ccg/tasks/archive/2026-08/member-center-avatar-entry/analysis-claude.md": {
+      "fffd": 2,
+      "nonUtf8": 0,
+      "line": 124
+    },
+    ".ccg/tasks/archive/2026-08/member-center-avatar-entry/analysis-opencode.md": {
+      "fffd": 1,
+      "nonUtf8": 0,
+      "line": 110
+    },
+    "01-docs/ARCH-OPS-CENTER-RESILIENCE-2026-10-06.md": {
+      "fffd": 3,
+      "nonUtf8": 0,
+      "line": 143
+    },
+    "01-docs/decision-log.md": {
+      "fffd": 141,
+      "nonUtf8": 0,
+      "line": 296
+    },
+    "01-docs/learnings.md": {
+      "fffd": 7212,
+      "nonUtf8": 0,
+      "line": 5533
+    },
+    "01-docs/marketing/01-产品卖点清单.md": {
+      "fffd": 2,
+      "nonUtf8": 0,
+      "line": 444
+    },
+    "apps/desktop/electron/services/adapters/minimax-tts.test.js": {
+      "fffd": 1,
+      "nonUtf8": 0,
+      "line": 361
+    },
+    "apps/desktop/src/styles/staggered-reveal.css": {
+      "fffd": 0,
+      "nonUtf8": 11,
+      "line": 1
+    },
+    "apps/desktop/src/views/Collection.polish.css": {
+      "fffd": 0,
+      "nonUtf8": 1,
+      "line": 1
+    },
+    "openspec/specs/creator-monitor/spec.md": {
+      "fffd": 2,
+      "nonUtf8": 0,
+      "line": 36
+    },
+    "packages/ai-autonomous-tester/src/detectors/feature-detector.js": {
+      "fffd": 63,
+      "nonUtf8": 0,
+      "line": 2
+    },
+    "packages/ai-autonomous-tester/src/utils/path-resolver.js": {
+      "fffd": 41,
+      "nonUtf8": 0,
+      "line": 2
+    },
+    "packages/ai-autonomous-tester/src/verifier/requirements-verifier.js": {
+      "fffd": 326,
+      "nonUtf8": 0,
+      "line": 2
+    },
+    "packages/api-publish-engine/src/adapters/xiaohongshu.js": {
+      "fffd": 2,
+      "nonUtf8": 0,
+      "line": 8
+    },
+    "packages/shared-utils/src/__tests__/scheduler.test.js": {
+      "fffd": 3,
+      "nonUtf8": 0,
+      "line": 636
+    }
+  }
+}
