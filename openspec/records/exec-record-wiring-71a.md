@@ -2,9 +2,6 @@
 record: exec-record-wiring-71a
 task: 实测暴露 Gate 2c2 住在被 docs-only 短路的 job 里，把「搬家先于删参数」写进第 7 组；顺手回填 #2757 自己的记录
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：执行记录判据的接线位置审计（7.1a/7.1b/7.1c）+ #2757 记录销账（exec-record-wiring-71a，2026-10-02）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | 接线棘轮 | N/A | 本 PR 不新增测试文件、不改 workflow；`check-unwired-tests` / `check-step-failfast` / `check-max-lines` 作为既有锁复跑，rc 见补记 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/`、`packages/rpa-engine` 与任何 UI；改动面只有 `openspec/` |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`；AGENTS.md 对纯规格/文档变更不强制 QM-6，如实登记而非以自审冒充 |
-| 远程同步 | PENDING | 合并后由下一个会话回填：merge SHA 与时间取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，远端分支删除取 `git ls-remote --heads origin exec-record-wiring-71a` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段** |
+| 远程同步 | PASS | 已合并：squash 落地 `d70d7e7a32b7e26227eac45a0db48e17b62e1ade`（committer 2026-10-02T10:11:09Z，PR mergedAt 2026-10-02T10:11:10Z）。取证三条：① `git log origin/main --grep='(#2763)$' --format=%H|%cI` 唯一命中该 SHA 与时间；② `gh pr view 2763 --json mergeCommit` 的 oid **与上面同一个 SHA**（两源互证，不靠单侧）；③ `git ls-remote --heads origin exec-record-wiring-71a` 返回 **0 行**证远端分支已删。归属判据：分支名 == 记录文件名（`exec-record-wiring-71a`），且该 head 分支只命中这 1 个 PR（多 PR 复用会整条排除而不是取第一个）。本行改写与 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 
 ### 顺带完成的上一个会话欠账
 

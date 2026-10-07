@@ -2,9 +2,6 @@
 record: log-notify-w2-d2
 task: 日志契约迁移波次-2 刀-2——注入型 sink 三文件 51 处裸标签迁移为 log.notify 结构化契约
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 合并后的下一个会话
 ---
 
 ## 本次执行记录：日志契约迁移 波次-2 刀-2 注入型三文件（log-notify-w2-d2，2026-10-05）
@@ -23,7 +20,7 @@ sync_backfill_owner: 合并后的下一个会话
 | ESLint | ✅ 0 error | 37 warning 为既有基线，非本刀引入 |
 | QM-1 打包 | ✅ rc=0 | 本地 `electron-builder` 通过 |
 | QM-4 视觉 / QM-6 双模型评审 | 未执行 | 未触 UI 渲染面；本机无 `codeagent-wrapper`，如实写未执行，不以自审冒充 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#2947)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin log-notify-w2-d2` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `f7f022e529aea2605fc143dcab0726a02c55911f`（committer 2026-10-06T04:14:02Z，PR mergedAt 2026-10-06T04:14:03Z）。取证三条：① `git log origin/main --grep='(#2947)$' --format=%H|%cI` 唯一命中该 SHA 与时间；② `gh pr view 2947 --json mergeCommit` 的 oid **与上面同一个 SHA**（两源互证，不靠单侧）；③ `git ls-remote --heads origin log-notify-w2-d2` 返回 **0 行**证远端分支已删。归属判据：分支名 == 记录文件名（`log-notify-w2-d2`），且该 head 分支只命中这 1 个 PR（多 PR 复用会整条排除而不是取第一个）。本行改写与 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 
 ### 本刀的 CI 红灯不是本刀引入的（归因实录）
 
