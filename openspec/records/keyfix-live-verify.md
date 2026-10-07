@@ -4,7 +4,7 @@ task: 把 #3083 审核回写修复的真机端到端复验取证入库（含修�
 date: 2026-10-07
 sync_status: PENDING
 sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA——PR 号 #3100 由 gh pr list --repo Colinchiu007/mulpub --head keyfix-live-verify --json number 当场回读取得（不是凭印象）——回填本行并整段删除本 frontmatter 的三个 sync_* 字段）
+sync_backfill_owner: 下一个会话（本记录属 PR #3100；合并后按 git log origin/main --grep='(#3100)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除本 frontmatter 的三个 sync_* 字段。PR 号由 `gh pr list --repo Colinchiu007/mulpub --head keyfix-live-verify --json number` 当场回读取得，不是凭印象填的）
 ---
 
 ## 本次执行记录：真机端到端复验审核回写并入库（keyfix-live-verify，2026-10-07）【docs-only】
