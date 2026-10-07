@@ -2,9 +2,6 @@
 record: toutiao-schedule-fix
 task: 真机 E2E 验证定时发布，发现并修复「带定时意图却立即发布」等 5 个缺陷
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: PR 尚未合并，无法取证 merge SHA
-sync_backfill_owner: 本任务作者（合并后的回填 PR）
 ---
 
 # 执行记录：定时发布真机 E2E（toutiao-schedule-fix，2026-10-07）
@@ -23,7 +20,7 @@ sync_backfill_owner: 本任务作者（合并后的回填 PR）
 | 目标测试 | PASS | `packages/rpa-engine` 全量 rc=0（含 15/15 定时意图用例）；`apps/desktop` `src/features/publish` **206/206**、`src/composables`+`src/utils`+`src/locales` **1115/1115**；`eslint` rc=0 |
 | 结构性门禁 | PASS | `check-max-lines.js` rc=0；`check-renderer-cjs-boundary.js` rc=0（294 个渲染层文件）；`check-locale-sync.js` 四档（`--keys`/`--cjk`/`--pair-base origin/main`/`--py-cjk`）全 rc=0；`check-no-brand-residue.js` rc=0；`check-ipc-sender-guard.js` / `check-ipc-bridge.js` rc=0；`check-gate-record-debt.js` rc=0 |
 | QM-6 CCG 双模型评审 | 见 pre-commit | 提交时由 pre-commit 内 CCG 门禁实际执行并留痕 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，并删掉本文件 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | PASS | PR #3049 已 squash 合并入 main：merge SHA `6fb99307b09ff222f8df5acb3b26316102e98a26`（`git log origin/main --grep='(#3049)$'` 取证，提交时间 2026-10-07T15:20:58+08:00）。远端分支 `toutiao-schedule-fix` 已删除（`git ls-remote --heads origin toutiao-schedule-fix` 返回 0 行） |
 
 ### 验证边界声明（不可省略）
 
