@@ -2,9 +2,6 @@
 record: queue-publish-time-fix
 task: 修 R14——任务队列丢弃平台侧定时的核心字段 publishTime，导致「以为已排期、实际已发出」
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: PR 尚未合并，无法取证 merge SHA
-sync_backfill_owner: 本任务作者（合并后的回填 PR）
 ---
 
 # 执行记录：任务队列 publishTime 丢失（R14，2026-10-07）
@@ -22,7 +19,7 @@ sync_backfill_owner: 本任务作者（合并后的回填 PR）
 | 回归保护 | PASS | 新增 `packages/shared-utils/tests/task-queue-publish-time.test.js` 5 条：①入队后 entry 仍带 publishTime ②publishMode 与 publishTime 必须成对（只保前者即事故形态）③立即发布时两者皆 null（区分「没排期」与「排期被丢」）④执行器收到的 task 仍带 publishTime ⑤反证：源码字面量里 `_add` 与 `task-projection.js` 都必须同时出现 `publishMode` 与 `publishTime` |
 | 目标测试 | PASS | task-queue 系列 **53/53**（含既有 `task-queue.test.js` 的 publishMode 透传锁）；`packages/shared-utils` 全量 **742/742**（39 文件，10 skipped），较上一轮 642 新增用例 |
 | 结构性门禁 | PASS | `check-max-lines.js` rc=0；`check-renderer-cjs-boundary.js` rc=0；`check-no-brand-residue.js` rc=0；`check-gate-record-debt.js` rc=0；`check-locale-sync.js --keys` / `--cjk` 全 rc=0 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，并删掉本文件 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | PASS | PR #3077 已 squash 合并入 main：merge SHA `67b33b06f7e6faf6b48a8b21fd1f36dea87d75c1`（`git log origin/main --grep='(#3077)$'` 取证，提交时间 2026-10-07T20:15:35+08:00）。远端分支 `fix-queue-publish-time` 已删除（`git ls-remote --heads origin fix-queue-publish-time` 返回 0 行） |
 
 ### 验证边界声明（不可省略）
 
