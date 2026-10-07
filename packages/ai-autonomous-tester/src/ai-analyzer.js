@@ -18,6 +18,8 @@
  */
 
 const { AgentVisualJudge } = require("./agent/agent-visual-judge");
+// 2026-10-07：本地实现已抽出，三处调用方共用 `utils/infer-effort`（见该文件头注释）
+const { inferEffortFromText } = require("./utils/infer-effort");
 
 class AIAnalyzer {
   constructor(options = {}) {
@@ -326,14 +328,11 @@ class AIAnalyzer {
 
 // ===== 辅助函数 =====
 
-function inferEffortFromText(text) {
-  if (!text) return 'MEDIUM';
-  const s = String(text).toLowerCase();
-  if (/(import|export|批量|batch|自动化|automate|integrate|api|oauth|sso|jwt)/.test(s)) return 'HIGH';
-  if (/(显示|展示|提示|按钮|show|display|button|label|style)/.test(s)) return 'LOW';
-  return 'MEDIUM';
-}
-
+// 2026-10-07：本地这份实现已抽出为 `utils/infer-effort`，与
+// `verifier/requirements-verifier.js` 的 `_estimateEffort` 共用同一份。
+// 此前两份独立实现漂移——其中 verifier 那份的中文词已被写成 U+FFFD，
+// 导致中文需求的 effort 恒为 MEDIUM、`ai-analyzer.js` 的
+// `uncovered.filter(u => u.effort === 'HIGH')` 永远筛不出复杂需求。
 function verdictToFixes(verdict) {
   // 不重复 FixEngine.fromVerdict 的逻辑，但保持兼容
   const fixes = [];

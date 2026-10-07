@@ -1,6 +1,6 @@
 {
-  "$comment": "文本编码完整性基线（scripts/check-text-encoding-integrity.js 比对对象，清单只能缩小）。存量登记项均已在 openspec 或 CHANGELOG 记录成因与补救路径；新增即判红。收口一条就删对应条目并跑 --update-baseline。根因与事故复盘见 01-docs/learnings.md。",
-  "$measuredAt": "2026-10-07",
+  "$comment": "文本编码完整性基线（scripts/check-text-encoding-integrity.js 比对对象，清单只能缩小）。存量登记项均已在 openspec 或 CHANGELOG 记录成因与补救路径；新增即判红。收口一条就删对应条目并跑 --update-baseline。根因与事故复盘见 01-docs/learnings.md。\n# 2026-10-07 更新：ai-autonomous-tester 三个文件（requirements-verifier.js / feature-detector.js / path-resolver.js）已修复至 U+FFFD=0 并从基线移除，棘轮重新咬紧——这些文件今后出现任何一处损坏立即判红。",
+  "$measuredAt": "2026-10-07T13:05:00+08:00",
   "entries": {
     ".ccg/tasks/archive/2026-08/member-center-avatar-entry/analysis-claude.md": {
       "fffd": 2,
@@ -51,21 +51,6 @@
       "fffd": 2,
       "nonUtf8": 0,
       "line": 36
-    },
-    "packages/ai-autonomous-tester/src/detectors/feature-detector.js": {
-      "fffd": 63,
-      "nonUtf8": 0,
-      "line": 2
-    },
-    "packages/ai-autonomous-tester/src/utils/path-resolver.js": {
-      "fffd": 41,
-      "nonUtf8": 0,
-      "line": 2
-    },
-    "packages/ai-autonomous-tester/src/verifier/requirements-verifier.js": {
-      "fffd": 326,
-      "nonUtf8": 0,
-      "line": 2
     },
     "packages/api-publish-engine/src/adapters/xiaohongshu.js": {
       "fffd": 2,
