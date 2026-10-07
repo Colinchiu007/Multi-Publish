@@ -10,7 +10,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { splitEntries, analyze, dedupe, collect, main } = require('./check-changelog-duplicate-entries.js')
+const { splitEntries, analyze, dedupe, collect, countByTitle, compareByTitle, main } = require('./check-changelog-duplicate-entries.js')
 
 function tmpDir () {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `cde-${process.pid}-${Math.random().toString(16).slice(2)}-`))
@@ -105,6 +105,46 @@ test('analyze 报的 kept 与 dedupe 实际保留的那一份必须是同一个�
   assert.equal(d.text.includes('the longest body of all'), true, 'dedupe 真留了同一份')
   assert.equal(d.text.includes('medium body'), false)
   assert.equal(d.text.includes('short'), false)
+})
+
+test('棘轮判据：base 已有的标题多一份即红；副本变少为绿；新标题允许出现一次', () => {
+  const base = `${E('A', 'a1')}${E('A', 'a1b')}${E('B', 'b')}`
+  assert.deepEqual(compareByTitle(base, base).grew.map((g) => [g.title, g.from, g.to]), [], '同一份内容自身为绿')
+  const grew = compareByTitle(base, `${base}${E('A', 'a1c')}`)
+  assert.deepEqual(grew.grew.map((g) => [g.title, g.from, g.to]), [['# [未发布] A', 2, 3]], 'A 被多插一份必须被抓')
+  assert.deepEqual(compareByTitle(base, `${E('A', 'a1')}${E('B', 'b')}`).grew, [], '把副本削少（去重方向）必须为绿')
+  assert.deepEqual(compareByTitle(base, `${base}${E('NEW', 'n')}`).grew, [], '本 PR 新增一条自己的条目是正常形状')
+  assert.deepEqual(
+    compareByTitle(base, `${base}${E('NEW', 'n')}${E('NEW', 'n again')}`).grew.map((g) => [g.title, g.from, g.to]),
+    [['# [未发布] NEW', 0, 2]], '新标题被插两遍也要抓（只遍历 base 标题就会漏掉这种）',
+  )
+})
+
+test('main --base 走真 git：base=head 判绿，ref 不存在必须 fail-closed 判红', () => {
+  const { execFileSync } = require('node:child_process')
+  const root = execFileSync('node', ['-e', 'process.stdout.write(process.cwd())'], { encoding: 'utf8' }).trim()
+  const log = []
+  const origLog = console.log
+  const origErr = console.error
+  try {
+    console.log = (...a) => log.push(a.join(' '))
+    console.error = (...a) => log.push('ERR:' + a.join(' '))
+    assert.equal(main([`--root=${root}`, '--base=HEAD', '--head=HEAD']), 0, '同一份内容自比必须为绿')
+    assert.equal(main([`--root=${root}`, '--base=no-such-ref-abcdef', '--head=HEAD']), 1, '取不到 base 不得判绿')
+  } finally {
+    console.log = origLog
+    console.error = origErr
+  }
+})
+
+test('countByTitle 与 analyze 用的是同一套切块与标题口径', () => {
+  const text = `P\n${E('A', 'x')}${E('B', 'y')}${E('A', 'z')}`
+  const counts = countByTitle(text)
+  const a = analyze(text)
+  assert.equal(counts.get('# [未发布] A'), 2)
+  assert.equal(counts.get('# [未发布] B'), 1)
+  assert.equal(a.entries, [...counts.values()].reduce((s, n) => s + n, 0), '两处的条目数必须一致')
+  assert.equal(a.redundant, a.entries - counts.size)
 })
 
 test('collect 对「文件缺失 / 空文件 / 没有任何条目」三种取数失败都抛错（不把失败读成干净）', () => {

@@ -407,23 +407,25 @@ test('docs-only 短路：quality-gate 的 changes job 存在且产出 docs-only 
 
 // 「进了 docs-only 白名单的数据文件，它的校验必须先待在不会被短路的 job 里」这条前提锁，
 // 此前只对 gate-record-debt-ledger.json 成立。CHANGELOG.md 命中的是根级 `*.md`，
-// 而 static-gates 整个 job 被 docs-only 门控 ⇒ 重复条目门禁若只接在那边，
+// 而 static-gates 整个 job 被 docs-only 门控 ⇒ 副本棘轮若只接在那边，
 // "只改 CHANGELOG 的 PR"（也就是唯一会把文件写坏的那类 PR）恰好一次都不被检测。
-// 反证已实跑：从 classify 正文删掉任一行、或把它挪到非 PR 早退之后，本组断言变红。
-test('CHANGELOG 重复条目门禁必须接线在 changes job 的 classify 步骤、且在非 PR 早退之前', () => {
+// 反证已实跑（M5/M6）：从该步骤正文删掉任一行 ⇒ 本组断言变红。
+test('CHANGELOG 副本棘轮必须与 growth 同进步骤、同在 changes job，并共用 merge-base 口径', () => {
   const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
   const changes = wf.jobs.changes;
-  assert.ok(changes, 'changes job 必须存在');
-  const step = changes.steps.find((s) => s.id === 'classify');
-  assert.ok(step, 'classify 步骤必须存在');
+  assert.ok(changes, 'changes job 必须存在（它是 docs-only 判定的宿主，不会被自己短路）');
+  const step = (changes.steps || []).find((s) => /CHANGELOG growth/.test(s.name || ''));
+  assert.ok(step, 'Gate 2c3 CHANGELOG growth 步骤必须存在');
   const body = step.run;
   const iTest = body.indexOf('node --test scripts/check-changelog-duplicate-entries.test.js');
   const iGate = body.indexOf('node scripts/check-changelog-duplicate-entries.js');
-  const iEarly = body.indexOf('!= "pull_request"');
-  assert.ok(iEarly >= 0, '非 PR 早退锚点必须找得到（锚点失效即红，禁止静默跳过）');
-  assert.ok(iTest >= 0, 'changes job 必须跑本门禁的回归测试——不接线等于不跑');
-  assert.ok(iGate >= 0, 'changes job 必须跑门禁本体（只接测试不接门禁，坏文件照样进 main）');
-  assert.ok(iTest < iEarly && iGate < iEarly, '必须在非 PR 早退之前：main push 那一档同样要覆盖');
+  const iGrowth = body.indexOf('node scripts/check-changelog-growth.js');
+  assert.ok(iTest >= 0, '该步骤必须跑副本棘轮的回归测试——不接线等于不跑');
+  assert.ok(iGate >= 0, '该步骤必须跑副本棘轮本体（只接测试不接门禁，坏文件照样进 main）');
+  assert.ok(iGrowth >= 0, 'growth 判据不得被顺手摘掉——两把锁是一前一后，不是二选一');
+  assert.ok(iGate > iGrowth, '棘轮必须排在 growth 之后（先保"条目不许丢"，再判"不许复制"）');
+  assert.match(body.slice(iGate), /--base=\$\{MB:-\$BASE_REF\}/, '必须复用同一步骤算出的 merge-base，不得自己再算一遍 base');
+  assert.doesNotMatch(body.slice(iGate), /--base=\s*$/, '不得漏传 --base（漏了会退回默认 HEAD^，在合并提交上等于拿错的父提交比）');
 });
 
 test('docs-only 短路：全部重型 job 挂 needs: [changes] 且条件为 docs-only != true', () => {

@@ -18,13 +18,24 @@
  * 同一标题出现 >1 次即判重复；文件缺失/读不动一律判失败，不静默通过。
  *
  * CLI：
- *   node scripts/check-changelog-duplicate-entries.js [--root=<dir>] [--path=CHANGELOG.md] [--json]
- *   node scripts/check-changelog-duplicate-entries.js --dedup [--apply] [--path=...]
- * 退出码：0 干净；1 发现重复或取不到文件；2 用法错误。
+ *   node scripts/check-changelog-duplicate-entries.js --base=<ref> [--head=HEAD]   # CI 判据：本 PR 是否增加了副本数
+ *   node scripts/check-changelog-duplicate-entries.js [--root=<dir>] [--path=CHANGELOG.md] [--json]   # 绝对态：现在有多少重复
+ *   node scripts/check-changelog-duplicate-entries.js --dedup [--apply] [--path=...]                    # 修复子命令
+ * 退出码：0 通过；1 判红（副本变多 / --strict 下存在重复 / 取不到文件）；2 用法错误。
+ *
+ * ⚠️ 为什么 CI 判据是"副本数不得变多"而不是"存在重复即红"（2026-10-07 与并发门禁的实测冲突）：
+ *   main 上的 `scripts/check-changelog-growth.js` 刻意用**标题多重集包含**判"条目不许丢"
+ *   （动因是 #2884 把 1133 条整份删空），而 main 的历史里本就存在数百份重复副本（实测 base 冗余 828 份）。
+ *   ⇒「存在重复即红」会要求删副本，而 growth 要求保留每一份副本，两把锁在现有历史上**互斥**：
+ *   谁都不可能同时绿，去重因此落不了地。本门禁只守自己那份不变量——**一次 PR 不得把任何标题的副本数变大**
+ *   （这正是 re-sync 乘法型污染的形状），并允许变好；把绝对态判据留给 `--strict`/`--dedup` 自行核对。
+ *   历史副本的清理需要同时改 growth 的口径（加"允许把同题副本削到 1 份，且保留的那份必须逐字节等于 base 的某一份"
+ *   这一条例外），属另一次改动，见对应 issue。
  */
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { execFileSync } = require('node:child_process')
 
 const HEADING = '# [未发布]'
 
@@ -107,7 +118,48 @@ function dedupe (text) {
   return { text: repaired, removed: blocks.length - order.length, entriesBefore: blocks.length, entriesAfter: order.length }
 }
 
-/** 读目标文件；缺失或空内容一律抛错（fail-closed，不把"取不到"读成"没问题"） */
+/** 比较两版的重复度：返回每个标题副本数的变化（只关心"变多"）。 */
+function compareByTitle (baseText, headText) {
+  const bc = countByTitle(baseText)
+  const hc = countByTitle(headText)
+  const grew = []
+  // 遍历两侧标题的并集：只遍历 base 会漏掉"本 PR 自己新增的条目被插了两遍"（base 里根本没这标题）。
+  // 容许量：base 已有的标题一份都不许多（n>0 ⇒ 上限 n）；base 没有的新标题允许出现 1 次（正常加条目的形状）。
+  for (const t of new Set([...bc.keys(), ...hc.keys()])) {
+    const n = bc.get(t) || 0
+    const m = hc.get(t) || 0
+    const allowed = n === 0 ? 1 : n
+    if (m > allowed) grew.push({ title: t, from: n, to: m })
+  }
+  grew.sort((a, b) => (b.to - b.from) - (a.to - a.from) || a.title.localeCompare(b.title))
+  return {
+    grew,
+    baseRedundant: [...bc.values()].reduce((s, n) => s + (n - 1), 0),
+    headRedundant: [...hc.values()].reduce((s, n) => s + (n - 1), 0),
+  }
+}
+
+function countByTitle (text) {
+  const m = new Map()
+  for (const b of splitEntries(text).blocks) {
+    const t = titleOf(b)
+    m.set(t, (m.get(t) || 0) + 1)
+  }
+  return m
+}
+
+/** 读某个 ref 上的 CHANGELOG 文本；读不到一律抛，不返回空串（空串会被下游读成"零条目"）。
+ * 用 cat-file blob 取**原始 blob**，避免任何 checkout 期的行尾转换干扰两侧比较（与 growth 门禁同法）。 */
+function readRef (ref, rel, root) {
+  const out = tryGit(['-C', root, 'cat-file', 'blob', `${ref}:${rel}`])
+  if (out === null) throw new Error(`读不到 ${ref}:${rel}（ref 或文件不存在，不得判为"没有重复"）`)
+  return out.toString('utf8')
+}
+
+function tryGit (args) {
+  try { return execFileSync('git', args, { maxBuffer: 1 << 28 }) } catch (e) { return null }
+}
+/** 读工作区目标文件；缺失/空/无条目一律抛错（fail-closed，不把"取不到"读成"没问题"） */
 function collect (opts = {}) {
   const root = opts.root || process.cwd()
   const rel = opts.path || 'CHANGELOG.md'
@@ -128,9 +180,36 @@ function main (argv) {
   const wantDedup = argv.includes('--dedup')
   const apply = argv.includes('--apply')
   const asJson = argv.includes('--json')
+  const root = get('root') || process.cwd()
+  const rel = get('path') || 'CHANGELOG.md'
+  const baseRef = get('base')
+
+  // ── CI 判据（棘轮）：本 PR 不得把任何标题的副本数变大 ──
+  if (baseRef && !wantDedup) {
+    let cmp
+    try {
+      cmp = compareByTitle(readRef(baseRef, rel, root), readRef(get('head') || 'HEAD', rel, root))
+    } catch (e) {
+      console.error(`FAIL: ${e.message}`)
+      return 1
+    }
+    const grewTotal = cmp.grew.reduce((s, g) => s + (g.to - g.from), 0)
+    console.log(`[changelog-dup-ratchet] base=${baseRef} head=${get('head') || 'HEAD'}`)
+    console.log(`  冗余份数 ${cmp.baseRedundant} -> ${cmp.headRedundant}；本 PR 新增副本=${grewTotal}`)
+    for (const g of cmp.grew.slice(0, 15)) console.log(`  ${g.from}x -> ${g.to}x  ${g.title.slice(0, 78)}`)
+    if (cmp.grew.length > 15) console.log(`  …另有 ${cmp.grew.length - 15} 个标题副本变多`)
+    if (grewTotal > 0) {
+      console.error(`FAIL: 本 PR 新增了 ${grewTotal} 份重复副本（${cmp.grew.length} 个标题被复制）。`
+        + '正解：只在文件顶部插入你自己那一条；不要用「我的块 = mine − base」整段 prepend——base 滞后时那会把上游已有内容当新增再插一遍。')
+      return 1
+    }
+    console.log('OK: 本 PR 未增加任何标题的副本数')
+    return 0
+  }
+
   let loaded
   try {
-    loaded = collect({ root: get('root') || process.cwd(), path: get('path') || undefined })
+    loaded = collect({ root, path: rel })
   } catch (e) {
     console.error(`FAIL: ${e.message}`)
     return 1
@@ -177,4 +256,4 @@ function main (argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)))
 
-module.exports = { splitEntries, analyze, dedupe, collect, titleOf, HEADING, main }
+module.exports = { splitEntries, analyze, dedupe, collect, countByTitle, compareByTitle, titleOf, readRef, HEADING, main }
