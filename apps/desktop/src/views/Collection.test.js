@@ -1566,16 +1566,27 @@ describe("CollectionView 文案库合并标签", () => {
     return mount(CollectionView, { global: { plugins: [i18n, createPinia()] } });
   }
 
-  it("renders two tabs only and the copy library tab switches to records", async () => {
+  it("renders three tabs and the copy library tab switches to records", async () => {
     const w = mountWithI18n();
     await nextTick();
     expect(w.find('[data-testid="collection-tab-library"]').exists()).toBe(true);
     expect(w.text()).toContain("文案库");
     // 原独立「文案库」第三个标签已移除（tabLibrary 不再出现在标签栏）
-    expect(w.findAll(".collection-tab-btn").length).toBe(2);
+    // 采集页原有采集/文案库两个 tab，加入博主监控后共三个。
+    // 断言数量是为了让「多加/少加 tab」必须显式改测试，不能悄悄发生。
+    expect(w.findAll(".collection-tab-btn").length).toBe(3);
     await w.find('[data-testid="collection-tab-library"]').trigger("click");
     await nextTick();
     expect(w.vm.activeTab).toBe("records");
+  });
+
+  it("switches to the creator monitor tab", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    expect(w.find('[data-testid="collection-tab-creator"]').exists()).toBe(true);
+    await w.find('[data-testid="collection-tab-creator"]').trigger("click");
+    await nextTick();
+    expect(w.vm.activeTab).toBe("creator");
   });
 
   it("keeps ignoring invalid tab names after merge", async () => {
