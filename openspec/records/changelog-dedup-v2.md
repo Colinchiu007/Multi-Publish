@@ -2,9 +2,6 @@
 record: changelog-dup-gate
 task: CHANGELOG 副本数棘轮门禁（拦 re-sync 乘法型复制；与 growth 多重集判据的冲突收敛）
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由下一个会话回填 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：CHANGELOG 副本数棘轮门禁（changelog-dup-gate，2026-10-07）
@@ -15,7 +12,7 @@ sync_backfill_owner: 下一个会话
 
 ### ⚠️ 本 PR 的判据被一次实测改写过（先记下，免得下一个会话以为一开始就是这么设计的）
 
-第一版判据是「**存在重复条目即红**」，并已实跑去重 main 的 1157 → 329 条。CI 跑完 `QG Changes` 红，但红的不是我接的那一步——日志显示红在 main 上另一把并发会话新加的 `scripts/check-changelog-growth.js`（`base 1183 条 -> head 344 条`）。读它的实现后确认这是**设计层面的互斥**，不是 bug：
+第一版判据是「**存在重复条目即红**」，并已实跑去重 main 的 1157 → 329 条。CI 跑完 `QG Changes` 红，但红的不是我接的那一步——日志显示红在 main 上另一会话新加的 `scripts/check-changelog-growth.js`，现场逐字为 `[changelog-growth] FAIL：CHANGELOG.md 少了 269 种条目（标题多重集不再包含 base：base 1183 条 -> head 344 条，字节 7589653 -> 2068123）`（run `37568163417` / job `112620550470`；同日志里我的门禁是 `条目=330 去重后应为=330 冗余份数=0 最坏重复=1x / OK`、`# tests 11 # pass 11 # fail 0`）。读它的实现后确认这是**设计层面的互斥**，不是 bug：
 
 - growth 的判据刻意是**标题多重集包含**（动因是 #2884 把 1133 条整份删空），并在注释里明说"用多重集而不是集合，是为了不把『把 4 份副本删到 3 份』读成通过"；
 - 而 main 的历史里本就有数百份重复副本（实测冗余 828 份）；
@@ -37,13 +34,14 @@ sync_backfill_owner: 下一个会话
 | 其他本地门禁 | PASS | 新门禁单测 14 passed；`workflow-contract.test.js` 33 passed；`check-gate-record-debt.js` OK + 其 29 例；`check-unwired-tests.js` OK；`check-step-failfast.js` OK；`check-max-lines.js` OK；`verify-worktree-deps.js` OK |
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`，改动是仓库工具脚本、workflow 正文与台账文本，不产生运行时代码路径变化 |
 | QM-4 视觉 | N/A | 未触任何 `.vue`/样式/布局 |
-| CI 流水线 | PENDING | 本 PR 首轮（head `0826f2883`，判据为绝对重复 + 实跑去重）**红**：`QG Changes` 失败、`Gate Result` 连带失败；取 `actions/jobs/<id>/logs` 定责到 growth 那一步（`base 1183 -> head 344`），而非我接的行（同日志里我的门禁 `条目=330 冗余=0 OK`、11 例 pass）。按上表收敛后重推，结论以本 PR 最终 head 的运行为准 |
+| 反事实回放（新判据对既有事故的作用域） | PASS | 把 #2792 那两个真实 blob 喂给新棘轮：`node scripts/check-changelog-duplicate-entries.js --base=4647f21b --head=1dd05b12` ⇒ `冗余份数 9 -> 828；本 PR 新增副本=819`，末行 `FAIL: 本 PR 新增了 819 份重复副本（266 个标题被复制）`，**rc=1**（最坏单标题 `4x -> 16x`，另报 `…另有 251 个标题副本变多`）。同一判据对本 PR 自己的 head 为 `828 -> 828／新增副本=0`、rc=0 ⇒ 方向正确：拦乘法、放纯前插。⚠️ 这条只证明「事后抓得到」，不是「事前拦下了」——那次复制当时已经进了 main |
+| CI 流水线 | PASS | 本分支上**恰有 2 个** `quality-gate` run（`gh api .../workflows/quality-gate.yml/runs?branch=changelog-dedup-v2` 实测；`35e47edca`/`d6732e175` 两次推送与后一次同批合并、未各自成 run，所以不是四轮）。① `37568163417` head `0826f2883` **completed/failure**，失败步骤按 `runs/<id>/jobs` 逐步骤读 `conclusion` 定责：`QG Changes :: Gate 2c3 - CHANGELOG growth (changes job, 只可增长棘轮)` ＋ `Gate Result :: Gate result`（传导）⇒ 红的是 main 上另一会话的 **growth** 下界锁，不是我接的上界棘轮；② `37569260939` head `209914a19` **completed/success**，`gh pr checks 3034` 实测 20 项 pass、`release` skipping、零 pending 零 fail，`mergeStateStatus=CLEAN`。②那次 run 的 `QG Changes` 作业日志（`actions/jobs/112623962992/logs`，`--allow-escape-sequences`）里现场逐字为：`# tests 14 / # pass 14 / # fail 0`（新门禁单测确在 CI 执行过，非"文件存在"）、`[changelog-growth] PASS：base 1183 条（342 种标题）全部在 head 1184 条（343 种）里，字节 7589653 -> 7595055`、紧随其后 `[changelog-dup-ratchet] base=8a68203021ec8aafb96fa5d2a22b31451b2da831 head=HEAD` ＋ `冗余份数 828 -> 828；本 PR 新增副本=0` ＋ `OK: 本 PR 未增加任何标题的副本数` |
 | 依赖与配置 | PASS | 未新增第三方依赖、未改 lockfile（`pnpm install --frozen-lockfile` 仅补装本 worktree 的 node_modules） |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后由下一个会话取证回填：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA 与时间，`git ls-remote --heads origin changelog-dedup-v2` 返回 0 行证远端分支已删；回填成 PASS 后**必须整段删除文件头部三个 `sync_*` 字段**（留下即报「已回填却仍留登记字段」） |
+| 远程同步 | PASS | 已合并：merge SHA `03e268ccfed18c155f92a1874b6a0b96bd154912`（2026-10-07T12:32:29+08:00，PR #3034 squash 进 main；取证 `git log origin/main --grep='(#3034)$' --format=%H\|%cI`）。按**内容**而非 blob 相等复核落地：`git show --name-status 03e268ccf` 实测 A=3 M=4 七个文件全在（`check-pr-exec-record` 同一口径），`git cat-file -e origin/main:scripts/check-changelog-duplicate-entries.js` 与 `.../openspec/records/changelog-dedup-v2.md` 均可取。远端分支已删（`git ls-remote --heads origin changelog-dedup-v2` = 0 行）。合并动作**前**重取的判据（不引用早先快照，因 main 在等待期间又从 `e0f788501` 走到 `c643a1937`）：`git merge-tree --write-tree --name-only origin/main 209914a19` 输出单个 tree OID、冲突文件 0；`check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` OK（7 文件 A=3 M=4 / 新增记录 1 篇）；两把锁对新 merge-base `2ceceb1eb` 复跑仍为棘轮 `828 -> 828／新增副本=0` rc=0、growth `PASS：base 1183 -> head 1184` rc=0。本行的回填与文件头三个 `sync_*` 字段的删除发生在**同一次提交**内 |
 
 ### 遗留（不假装已闭合）
 
-- **main 上那 828 份历史副本没有被清理**，本 PR 只保证"不再变多"。清理需要一次同时修改 growth 口径的 PR（窄例外：允许削到每标题 1 份，且保留那份必须逐字节等于 base 中该标题的某一份），我已把冲突与方案写成 issue 交给决策，不在本 PR 里擅自改别人的门禁判据。
+- **main 上那 828 份历史副本没有被清理**，本 PR 只保证"不再变多"。清理需要一次同时修改 growth 口径的 PR（窄例外：允许削到每标题 1 份，且保留那份必须逐字节等于 base 中该标题的某一份），我已把冲突与方案写成 **issue #3037** 交给决策，不在本 PR 里擅自改别人的门禁判据。#3037 的评论里另记一条取证：growth 的单测自己就钉住了多重集口径（`多重集口径：4 份副本删到 3 份必须报丢`、`整份重写（等条数、换内容）也必须报丢`），所以清理 PR 必须**同时**改实现与这两条断言，只改实现会让 `check-changelog-growth.test.js` 当场红。
 - 棘轮**拦乘法不拦重抄**：换个标题把同一段内容再抄一遍仍是漏口；副本"减到比 base 少"本判据也不管（那是 growth 的地盘）。
 - 事前拦未做：把「本 PR 对 CHANGELOG 必须是纯前插」这条聚合式判据固化进 re-sync 工具（`.tools/mp-ci/` 不在仓库内）。
 - `01-docs/learnings.md`（尾部追加型台账）没有同类上界判据。
