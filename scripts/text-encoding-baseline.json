@@ -1,6 +1,6 @@
 {
-  "$comment": "文本编码完整性基线（scripts/check-text-encoding-integrity.js 比对对象，清单只能缩小）。存量登记项均已在 openspec 或 CHANGELOG 记录成因与补救路径；新增即判红。收口一条就删对应条目并跑 --update-baseline。根因与事故复盘见 01-docs/learnings.md。\n# 2026-10-07 更新：ai-autonomous-tester 三个文件（requirements-verifier.js / feature-detector.js / path-resolver.js）已修复至 U+FFFD=0 并从基线移除，棘轮重新咬紧——这些文件今后出现任何一处损坏立即判红。",
-  "$measuredAt": "2026-10-07T13:05:00+08:00",
+  "$comment": "文本编码完整性基线（scripts/check-text-encoding-integrity.js 比对对象，清单只能缩小）。存量登记项均已在 openspec 或 CHANGELOG 记录成因与补救路径；新增即判红。收口一条就删对应条目并跑 --update-baseline。根因与事故复盘见 01-docs/learnings.md。\n# 2026-10-07 更新：ai-autonomous-tester 三个文件（requirements-verifier.js / feature-detector.js / path-resolver.js）已修复至 U+FFFD=0 并从基线移除，棘轮重新咬紧——这些文件今后出现任何一处损坏立即判红。\n# 2026-10-07 第二次收紧：staggered-reveal.css / Collection.polish.css（GBK→UTF-8 整文件转码，零内容损失）、decision-log.md（删除 L296-300 共 5 行与 L292-295 纯重复的 GBK 残留，条目本体已是干净 UTF-8）、minimax-tts.test.js（删除与 includes('\\uFFFD') 语义等价的冗余字符类正则，检测能力不变）已修复并从基线移除。剩余 8 项均因受损字符无法从历史唯一确定而保留登记，其中 01-docs/learnings.md 为 7212 处/546 行的行内部分损。",
+  "$measuredAt": "2026-10-07T13:40:00+08:00",
   "entries": {
     ".ccg/tasks/archive/2026-08/member-center-avatar-entry/analysis-claude.md": {
       "fffd": 2,
@@ -17,11 +17,6 @@
       "nonUtf8": 0,
       "line": 143
     },
-    "01-docs/decision-log.md": {
-      "fffd": 141,
-      "nonUtf8": 0,
-      "line": 296
-    },
     "01-docs/learnings.md": {
       "fffd": 7212,
       "nonUtf8": 0,
@@ -31,21 +26,6 @@
       "fffd": 2,
       "nonUtf8": 0,
       "line": 444
-    },
-    "apps/desktop/electron/services/adapters/minimax-tts.test.js": {
-      "fffd": 1,
-      "nonUtf8": 0,
-      "line": 361
-    },
-    "apps/desktop/src/styles/staggered-reveal.css": {
-      "fffd": 0,
-      "nonUtf8": 11,
-      "line": 1
-    },
-    "apps/desktop/src/views/Collection.polish.css": {
-      "fffd": 0,
-      "nonUtf8": 1,
-      "line": 1
     },
     "openspec/specs/creator-monitor/spec.md": {
       "fffd": 2,
