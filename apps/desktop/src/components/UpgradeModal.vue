@@ -112,6 +112,20 @@
       <div v-if="!showPaymentFlow && !isPro" class="activate-section">
         <div class="cohere-divider"></div>
         <div style="padding:var(--space-md)">
+          <!--
+            2026-10-07：正式包不再提供本地激活码输入。
+            实测 `licenseManager.activate()` 只对 key 做 trim()，任意字符串
+            （含 "   "）都能拿到 type=pro + expiresAt=null 永久 + 8 项全功能；
+            而本节在 #3064 里被特意保留，恰好成了漏洞入口。
+            正式包的激活码已迁移至账号核销（服务端 `POST /api/v1/redeem`，
+            带 durationDays 与事务化到期结算），本地入口同时被
+            `license:activate` 的 `app.isPackaged !== false` 拒收。
+            这里如实说明去向，而不是留一个必然失败的输入框。
+          -->
+          <div v-if="!activationCodeAvailable" class="payment-unavailable">
+            {{ t('memberCenter.activationCodeMigrated') }}
+          </div>
+          <template v-else>
           <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">已有激活码？</div>
           <div style="display:flex;gap:8px;margin-bottom:var(--space-md)">
             <input
@@ -133,6 +147,7 @@
               {{ trialLoading ? '激活中...' : '🎁 免费试用 7 天' }}
             </button>
           </div>
+          </template>
         </div>
       </div>
 
@@ -194,6 +209,28 @@ const simulatedPaymentAvailable = import.meta.env.DEV
  * **不给组件开测试注入口**——能传给测试的开关同样能传给误用者。
  */
 const purchaseAvailable = import.meta.env.DEV
+
+/**
+ * 激活码输入框的可见性（2026-10-07）：**正式构建默认关闭**。
+ *
+ * 背景是一次 P0 权限泄漏——`licenseManager.activate(key)` 原本只对 key 做
+ * `trim()`，**没有任何有效性校验**，实测输入 `a` / `随便什么字符串` / `"   "`
+ * 一律返回 true，并写入 `type=pro` + `expiresAt=null`（**永不过期**）+
+ * 8 项 `PRO_FEATURES`。而本输入框在正式包可见 ⇒ 任意字符串即可白嫖永久 Pro。
+ *
+ * 根因不是"少了个校验"，而是**本地存在一条不经服务端核销的授权路径**：
+ * 服务端 `POST /api/v1/redeem` 已带 `durationDays` 与事务化到期结算
+ * （`subscription-service.js`），本地这条把它绕开了。故按「业务权益是服务端
+ * 权威」的口径，正式包停用本地激活码，IPC 侧同步以
+ * `app.isPackaged !== false` 拒收（见 `ipc-handlers/license.js`）。
+ *
+ * **免费试用（`doTrial` → `activateTrial()`）不受影响**：它有 `TRIAL_DAYS=7`
+ * 的期限且带 `type === 'free'` 前置校验，是安全的，两侧都保留。
+ *
+ * 口径与 `purchaseAvailable` 一致：只读 `import.meta.env.DEV`，
+ * **不给组件开测试注入口**。
+ */
+const activationCodeAvailable = import.meta.env.DEV
 
 const store = useLicenseStore()
 const showPaymentFlow = ref(false)
