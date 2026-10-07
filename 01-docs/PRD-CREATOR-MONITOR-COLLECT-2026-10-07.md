@@ -450,6 +450,46 @@ COMMIT
 
 **预检测试**：上表每行至少一条用例，断言 (a) 解析出的 `channelId` 正确、(b) units 消耗符合预期、(c) 失败文案正确。
 
+#### 6.2.1 `claim_token` 的精确协议（CCG 评审 i3 补缺）
+
+只说「按 token CAS」不够——实现时极易在某条 UPDATE 上漏掉条件，造成过期写覆盖。定义如下：
+
+| 项 | 定义 |
+|---|---|
+| 类型 | 单调递增整数 `generation`，**只在 claim 时 `+1`**，其余操作绝不改动 |
+| 签发 | `claim` 时 `claim_token = claim_token + 1` 并随 `UPDATE ... RETURNING` 返回 |
+| 持有者身份 | `claimed_by` 与 `claim_token` **同时**校验。token 递增即代表代次变更，旧持有者自动失效 |
+| 过期抢占 | 租约到期后新 worker claim ⇒ token 再次递增 ⇒ **旧 worker 全部后续写入被拒** |
+
+**必须带 `AND claim_token = ?` 的全部语句**（一张表，漏一条即失效）：
+
+```sql
+-- 1) 续租
+UPDATE creator_discoveries SET lease_expires_at=?, updated_at=?
+ WHERE id=? AND claim_token=? AND claimed_by=? AND collect_state='collecting';
+-- 2) 进度写入（同样受 fencing 约束：旧 worker 不得覆盖新持有者的进度）
+UPDATE creator_discoveries SET updated_at=?, last_error=?
+ WHERE id=? AND claim_token=? AND collect_state='collecting';
+-- 3) 成功提交
+UPDATE creator_discoveries SET collect_state='collected', collected_at=?, claimed_by='',
+       lease_expires_at=NULL, retry_after_at=NULL, last_error='', updated_at=?
+ WHERE id=? AND claim_token=? AND collect_state='collecting';
+-- 4) 失败提交
+UPDATE creator_discoveries SET collect_state='failed', last_error=?, claimed_by='',
+       lease_expires_at=NULL, retry_after_at=?, updated_at=?
+ WHERE id=? AND claim_token=? AND collect_state='collecting';
+```
+
+**`changes()===0` 的统一处置**：以上任一语句返回 0 ⇒ 本 worker 已过期，**立即放弃后续所有写操作**（含 outbox 入队），
+并把本地缓存的结果丢弃——绝不把「我算出来的正文」写进采集库。
+
+**跨表副作用必须同事务**：`claim_token` 只存在于 `creator_discoveries`，而采集库写入在 `viral_library`。
+「先查 token 再插另一表」存在 TOCTOU 窗口（查完到插入之间 token 可能已被新持有者提升）。
+故校验 + 跨表插入 MUST 在**同一个 `BEGIN IMMEDIATE` 事务**内完成，见 §8.3.1。
+
+**续租的前提**：续租本身也带 token 条件，因此**只有仍在推进的持有者能续租**；
+同时续租必须以**有进展**为前提（字节回调 / 阶段边界 / 阶段内心跳，满足其一），
+无进展仍续租会让挂死任务永不过期，占着 claim 不放。
 ### 6.3 关注状态机（CCG 评审 v2-i3 修订：区分「真故障暂停」与「不可自愈暂停」）
 
 ```
