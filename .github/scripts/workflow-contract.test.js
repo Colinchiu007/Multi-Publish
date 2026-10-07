@@ -405,6 +405,27 @@ test('docs-only 短路：quality-gate 的 changes job 存在且产出 docs-only 
   assert.match(step.run, /github\.event_name.*pull_request/, '非 PR 事件必须显式 false（全量执行）');
 });
 
+// 「进了 docs-only 白名单的数据文件，它的校验必须先待在不会被短路的 job 里」这条前提锁，
+// 此前只对 gate-record-debt-ledger.json 成立。CHANGELOG.md 命中的是根级 `*.md`，
+// 而 static-gates 整个 job 被 docs-only 门控 ⇒ 重复条目门禁若只接在那边，
+// "只改 CHANGELOG 的 PR"（也就是唯一会把文件写坏的那类 PR）恰好一次都不被检测。
+// 反证已实跑：从 classify 正文删掉任一行、或把它挪到非 PR 早退之后，本组断言变红。
+test('CHANGELOG 重复条目门禁必须接线在 changes job 的 classify 步骤、且在非 PR 早退之前', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const changes = wf.jobs.changes;
+  assert.ok(changes, 'changes job 必须存在');
+  const step = changes.steps.find((s) => s.id === 'classify');
+  assert.ok(step, 'classify 步骤必须存在');
+  const body = step.run;
+  const iTest = body.indexOf('node --test scripts/check-changelog-duplicate-entries.test.js');
+  const iGate = body.indexOf('node scripts/check-changelog-duplicate-entries.js');
+  const iEarly = body.indexOf('!= "pull_request"');
+  assert.ok(iEarly >= 0, '非 PR 早退锚点必须找得到（锚点失效即红，禁止静默跳过）');
+  assert.ok(iTest >= 0, 'changes job 必须跑本门禁的回归测试——不接线等于不跑');
+  assert.ok(iGate >= 0, 'changes job 必须跑门禁本体（只接测试不接门禁，坏文件照样进 main）');
+  assert.ok(iTest < iEarly && iGate < iEarly, '必须在非 PR 早退之前：main push 那一档同样要覆盖');
+});
+
 test('docs-only 短路：全部重型 job 挂 needs: [changes] 且条件为 docs-only != true', () => {
   const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
   const heavy = [
