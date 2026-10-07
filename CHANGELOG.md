@@ -1,3 +1,13 @@
+# [unreleased] fix(bilibili): 发布侧作品标识 aid/bvid 采集（PR #2968，2026-10-06，docs-only 收口）
+
+- B 站 RPA 投稿成功后 `postId` 恒取不到（实测四种 URL/响应体形态全部 null），于是发布被判「缺少平台作品 ID」；而上一轮（#2927）落地的审核回查按 `bvid`/`aid` 精确比——**拿不到键就永不被触发**。根因追溯到 `57082ddec`（2026-08-24 写路径段关键词表时只覆盖图文/管理页形态），`d424c245c` 拆分纯函数时原样搬迁。
+- 新增按**值形态 + 主机**的正向判据：`BV…`/`av` + 数字、query 的 `bvid`/`aid` 须值合形态、响应体链须带 B 站端点上下文；通用命名表与路径关键词表一律不动。
+- 明确拒绝「把 `video` 裸加进路径段关键词表」这条看似最省的改法：投稿页自身 URL `/platform/upload/video/frame` 会产出假 id `frame`，把失败判成成功。已由单测负例 + 消费者装配负控两条锁钉住，并用变异实跑证明它们真会红。
+- QM-6：codex / nemotron-3-ultra-free / ling-3.1-flash-free 三通道独立命中同一条 Critical（响应体链缺主机门，会波及快手/百家号这类 strict 平台），已全部处置。详见 `docs/PRD-BILIBILI-PUBLISH-ID-EXTRACT-2026-10-06.md` §六·五。
+- 仍未观测（不假装已闭合）：B 站投稿提交后浏览器实际落在哪个 URL、真机「已发布」徽标联动——需一次真实投稿，消耗授权前须再经用户确认。
+
+---
+
 # [unreleased] fix(desktop): 覆盖率门禁纳入 Vue SFC —— 146 个 .vue 此前对覆盖率贡献恒为 0
 
 ### 缺陷
