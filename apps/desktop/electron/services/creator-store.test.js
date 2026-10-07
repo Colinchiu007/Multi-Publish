@@ -26,11 +26,17 @@ function makeDb (rows = {}) {
       return {
         sql,
         get: () => one,
-        all: () => all,
+        // single 同时喂 all()：生产代码统一走 all(...)[0] 取单行，
+        // 只让 get 有值会让「取单行」路径静默拿到 null。
+        all: () => (one ? [one] : all),
         run: () => (typeof run === 'function' ? run(sql) : { changes: 1 }),
       }
     },
     exec (sql) { log.push(sql) },
+    // 事务控制走 db.run（sql.js 的接口），不进 prepare。
+    // 刻意不返回 changes：事务语句没有行数概念，误当行数用会把「BEGIN 成功」
+    // 读成「改了 0 行」而误判 fencing 失败。
+    run (sql) { log.push(sql); return { changes: 0 } },
   }
   return db
 }
@@ -79,6 +85,11 @@ describe('creator-store · claim 互斥', () => {
 })
 
 describe('creator-store · fencing（迟到提交必须被拒）', () => {
+  // 契约变更（2026-10-07）：markCollected 不再是布尔，而是经 finalizeCollected
+  // 返回**分类型终局**——因为「代次不符」有两种截然不同的后续动作：
+  // superseded（他人已接手，不重试）与 claim_lost（代次莫名丢失）。
+  // 压成一个布尔时，上层无法区分，只能把所有失败都当 superseded
+  // （"已被接手"文案永不出现）或都不当（用户点重采永远 busy）。
   it('完成提交的 UPDATE 必须带 AND claim_token = ?', () => {
     const db = makeDb({ run: () => ({ changes: 1 }) })
     const store = createCreatorStore(db, { now: () => NOW })
@@ -87,16 +98,21 @@ describe('creator-store · fencing（迟到提交必须被拒）', () => {
     expect(sql).toMatch(/AND\s+claim_token\s*=/)
   })
 
-  it('token 不匹配（changes=0）时返回 false，旧 worker 不得覆盖', () => {
+  it('token 不匹配（changes=0）时不得返回 collected', () => {
     const db = makeDb({ run: () => ({ changes: 0 }) })
     const store = createCreatorStore(db, { now: () => NOW })
-    expect(store.markCollected('d1', 3)).toBe(false)
+    expect(store.markCollected('d1', 3).outcome).not.toBe('collected')
   })
 
-  it('token 匹配（changes=1）时返回 true', () => {
-    const db = makeDb({ run: () => ({ changes: 1 }) })
+  it('token 匹配（changes=1）时返回 collected', () => {
+    // happy path 必须给一行发现记录：置终态成功后要靠它取 external_id/url 去写资产，
+    // 取不到就按 claim_lost 收尾（宁可保守也不产出指向未知行的 outbox）。
+    const db = makeDb({
+      run: () => ({ changes: 1 }),
+      single: { id: 'd1', platform: 'youtube', external_id: 'v1', creator_id: 'c1', url: 'https://y/watch?v=v1' },
+    })
     const store = createCreatorStore(db, { now: () => NOW })
-    expect(store.markCollected('d1', 7)).toBe(true)
+    expect(store.markCollected('d1', 7).outcome).toBe('collected')
   })
 
   it('失败提交的 UPDATE 同样必须带 token 条件（不能只保护成功路径）', () => {

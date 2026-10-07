@@ -1,5 +1,5 @@
 /**
- * creator-store.js — 博主采集数据访问层
+ * creator-store.js — 博主采集数据访问层（组合门面）
  *
  * 只封装**并发安全与幂等**相关的写操作；读路径保持薄封装。
  * 之所以把这些集中在一处：它们各自都是「写错不报错、只在下个请求才显形」
@@ -12,14 +12,31 @@
  * 会把新持有者的结果覆盖掉（lost update），且两人都可能往 viral_library 插入。
  * 因此所有行内变更与副作用提交都必须带 `AND claim_token = ?`，
  * changes=0 即表示「代次已过期，放弃提交」。
+ *
+ * ## 为什么拆成三个文件
+ *
+ * 接线要补 14 个方法，全堆在本文件必破 `check-max-lines` 的 500 行硬限
+ * （`NEW_OVER_LIMIT` 对新代码是阻断，不接受挂账）。
+ * 现状：账号/关注 → `creator-store.accounts.js`；发现项 + 事务 + 配额 →
+ * `creator-store.discoveries.js`；本文件只做组合、共享工具与对外门面。
+ * `BEGIN/COMMIT` **只在 discoveries 模块内**（事务边界不可跨文件），
+ * accounts 模块自己开的那段事务自成一体。
+ *
+ * ## 方法面完整性有机器锁
+ *
+ * `creator-store-surface.test.js` 从两个消费方（`ipc-handlers/creator.js` 与
+ * `creator-runtime.js`）的源码里剥掉注释后解析 `store.x(` 调用点，与本文件的
+ * 实际导出做集合比对。2026-10-07 的整条接线缺失 14 个方法却「全绿」，
+ * 根因就是没有任何锁校验**消费方真正调用了什么**——
+ * 那轮锁立刻抓出了手工枚举漏掉的 `recordFailure`/`recordSuccess`/`getClaimToken`。
  */
 
 'use strict'
 
 const crypto = require('crypto')
 
-const DEFAULT_LEASE_MS = 300000        // 5 分钟
-const DEFAULT_COOLDOWN_MS = 600000     // 10 分钟
+const { createAccountStore } = require('./creator-store.accounts')
+const { createDiscoveryStore } = require('./creator-store.discoveries')
 
 function nowMs () { return Date.now() }
 
@@ -33,102 +50,31 @@ function newId (prefix) {
  */
 function createCreatorStore (db, opts = {}) {
   const now = typeof opts.now === 'function' ? opts.now : nowMs
+  const idFactory = typeof opts.newId === 'function' ? opts.newId : newId
   const exec = (sql, params) => {
     const st = db.prepare(sql)
     if (Array.isArray(params) && typeof st.run === 'function') return st.run(...params)
     return st.run()
   }
 
-  /** 抢占采集权。互斥靠单条 UPDATE 完成，绝不先查后改。 */
-  function claimDiscovery (discoveryId, workerId, leaseMs = DEFAULT_LEASE_MS) {
-    const sql = `UPDATE creator_discoveries
-        SET collect_state   = 'collecting',
-            claim_token     = claim_token + 1,
-            claimed_by      = ?,
-            lease_expires_at= ?,
-            attempt_count   = attempt_count + 1,
-            updated_at      = ?
-      WHERE id = ?
-        AND collect_state IN ('pending', 'failed')
-        AND (claimed_by IS NULL OR lease_expires_at IS NULL OR lease_expires_at < ?)
-        AND (retry_after_at IS NULL OR retry_after_at <= ?)`
-    const r = exec(sql, [
-      workerId, now() + leaseMs, now(), discoveryId, now(), now(),
-    ])
-    return changesOf(r) > 0
-  }
-
-  /** 提交采集成功。**必须**匹配 claim_token，否则拒绝覆盖新持有者。 */
-  function markCollected (discoveryId, claimToken, extra = {}) {
-    const sql = `UPDATE creator_discoveries
-        SET collect_state  = 'collected',
-            collected_at   = ?,
-            claimed_by     = '',
-            lease_expires_at = NULL,
-            retry_after_at = NULL,
-            last_error     = '',
-            updated_at     = ?
-      WHERE id = ? AND claim_token = ? AND collect_state = 'collecting'`
-    const r = exec(sql, [now(), now(), discoveryId, claimToken])
-    void extra
-    return changesOf(r) > 0
-  }
-
   /**
-   * 提交采集失败。同样必须匹配 claim_token。
-   * 失败后写 retry_after_at 形成冷却，避免坏内容被自动流程无限重试。
+   * 事务控制。**必须抛错**，不能用 exec()。
+   *
+   * 生产的 `sqlite-wrapper` 没有 `db.run()`，只有 `exec()`，而 `exec()` 会
+   * 吞掉异常只记日志 —— 那意味着 `BEGIN IMMEDIATE` 失败时后续所有写入
+   * 都会跑在事务外，原子性静默消失，正好毁掉 finalizeCollected 存在的理由。
+   * 依次尝试 execOrThrow → exec → run，覆盖真实 wrapper 与裸 sql.js 两种句柄。
    */
-  function markFailed (discoveryId, claimToken, message, o = {}) {
-    const cooldown = typeof o.cooldownMs === 'number' ? o.cooldownMs : DEFAULT_COOLDOWN_MS
-    const sql = `UPDATE creator_discoveries
-        SET collect_state   = 'failed',
-            last_error      = ?,
-            claimed_by      = '',
-            lease_expires_at= NULL,
-            retry_after_at  = ?,
-            updated_at      = ?
-      WHERE id = ? AND claim_token = ? AND collect_state = 'collecting'`
-    const r = exec(sql, [String(message || '').slice(0, 500), now() + cooldown, now(), discoveryId, claimToken])
-    return changesOf(r) > 0
+  const txn = (sql) => {
+    if (typeof db.execOrThrow === 'function') return db.execOrThrow(sql)
+    if (typeof db.exec === 'function') return db.exec(sql)
+    if (typeof db.run === 'function') return db.run(sql)
+    throw new Error('当前 db 句柄不支持事务控制（缺 execOrThrow / exec / run）')
   }
+  const ctx = { now, newId: idFactory, exec, changesOf, txn }
 
-  /**
-   * 续租。**必须**匹配 claim_token：否则旧 worker 能给新持有者的租约续命，
-   * 让真正在干活的新 worker 反而被判定为租约过期。
-   */
-  function renewLease (discoveryId, workerId, claimToken, leaseMs = DEFAULT_LEASE_MS) {
-    const sql = `UPDATE creator_discoveries
-        SET lease_expires_at = ?, updated_at = ?
-      WHERE id = ? AND claim_token = ? AND claimed_by = ? AND collect_state = 'collecting'`
-    const r = exec(sql, [now() + leaseMs, now(), discoveryId, claimToken, workerId])
-    return changesOf(r) > 0
-  }
-
-  /**
-   * 批量写入发现项。**必须**依赖唯一索引 (platform, external_id) 的
-   * INSERT OR IGNORE，而不是「先查后插」——后者在并发探测下必然插入重复行。
-   * @returns {number} 本次真正新增的行数（changes 之和）
-   */
-  function upsertDiscoveries (items) {
-    const list = Array.isArray(items) ? items : []
-    let inserted = 0
-    for (const it of list) {
-      const sql = `INSERT OR IGNORE INTO creator_discoveries
-          (id, creator_id, platform, external_id, title, url, thumbnail_url,
-           published_at, discovered_at, collect_state, transcript_source,
-           content_quality, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
-      const t = now()
-      const r = exec(sql, [
-        it.id || newId('cd'), it.creatorId, it.platform, it.externalId,
-        it.title || '', it.url, it.thumbnailUrl || '', it.publishedAt || null, t,
-        it.transcriptSource || '', it.contentQuality || 'unknown',
-        it.summary || '', t, t,
-      ])
-      inserted += changesOf(r)
-    }
-    return inserted
-  }
+  const accounts = createAccountStore(db, ctx)
+  const discoveries = createDiscoveryStore(db, ctx)
 
   /** 待采集计数（角标）。空结果归一为 0，避免 UI 收到 undefined。 */
   function countPending (creatorId) {
@@ -140,14 +86,62 @@ function createCreatorStore (db, opts = {}) {
     return row && Number.isFinite(Number(row.n)) ? Number(row.n) : 0
   }
 
+  /**
+   * 批量写入发现项。**必须**依赖唯一索引 (platform, external_id) 的
+   * INSERT OR IGNORE，而不是「先查后插」——后者在并发探测下必然插入重复行。
+   * @returns {number} 本次真正新增的行数（changes 之和）
+   */
+  function upsertDiscoveries (items) {
+    const list = Array.isArray(items) ? items : []
+    let inserted = 0
+    for (const it of list) {
+      const t = now()
+      const r = exec(`INSERT OR IGNORE INTO creator_discoveries
+          (id, creator_id, platform, external_id, title, url, thumbnail_url,
+           published_at, discovered_at, collect_state, transcript_source,
+           content_quality, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+      [it.id || idFactory('cd'), it.creatorId, it.platform, it.externalId,
+        it.title || '', it.url, it.thumbnailUrl || '', it.publishedAt || null, t,
+        it.transcriptSource || '', it.contentQuality || 'unknown',
+        it.summary || '', t, t])
+      inserted += changesOf(r)
+    }
+    return inserted
+  }
+
   return {
-    claimDiscovery,
-    markCollected,
-    markFailed,
-    renewLease,
+    // ── 账号与关注 ──
+    listCreators: accounts.listCreators,
+    listFollowsForQuota: accounts.listFollowsForQuota,
+    upsertCreator: accounts.upsertCreator,
+    upsertFollow: accounts.upsertFollow,
+    getFollow: accounts.getFollow,
+    deleteFollow: accounts.deleteFollow,
+    setFollowEnabled: accounts.setFollowEnabled,
+    recordSuccess: accounts.recordSuccess,
+    recordFailure: accounts.recordFailure,
+
+    // ── 发现项与 claim 状态机 ──
     upsertDiscoveries,
+    listDiscoveries: discoveries.listDiscoveries,
+    getDiscovery: discoveries.getDiscovery,
+    skipDiscovery: discoveries.skipDiscovery,
+    getClaimToken: discoveries.getClaimToken,
+    inspectClaim: discoveries.inspectClaim,
+    claimDiscovery: discoveries.claimDiscovery,
+    markCollected: discoveries.markCollected,
+    markFailed: discoveries.markFailed,
+    renewLease: discoveries.renewLease,
+    finalizeCollected: discoveries.finalizeCollected,
+
+    // ── 配额 ──
+    canSpend: discoveries.canSpend,
+    spend: discoveries.spend,
+    usedUnits: discoveries.usedUnits,
+
     countPending,
-    newId,
+    newId: idFactory,
   }
 }
 
@@ -159,4 +153,4 @@ function changesOf (r) {
   return 0
 }
 
-module.exports = { createCreatorStore, DEFAULT_LEASE_MS, DEFAULT_COOLDOWN_MS }
+module.exports = { createCreatorStore, DEFAULT_LEASE_MS: 300000, DEFAULT_COOLDOWN_MS: 600000 }

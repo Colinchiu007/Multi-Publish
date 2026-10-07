@@ -229,6 +229,35 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     splitterBridge, promptBridge,
     riskSuspender,
   }
+
+  // ─── 博主监控依赖（PRD-CREATOR-WIRING-2026-10-07 §1）────────
+  // 为什么在这里组、而不是容器装配期：
+  //   ① 门面依赖 store.db，而容器装配期 sql.js 尚未就绪（db 为 null）；
+  //   ② 本注册点的时机保证 store 已 ready，与门面同源取值。
+  // 容器只注册 creatorStore / creatorCollector / creatorRuntime 三个；
+  // creatorMonitor 是**门面**（恰 4 个方法），creatorQuota 包 store 的账本方法。
+  // 任何一项缺失都只记警告并留 undefined —— handler 侧对依赖缺失有降级路径，
+  // 在这里抛错会让整个 IPC 注册连带失败，波及所有其他通道。
+  const creatorDeps = (() => {
+    try {
+      const { createCreatorMonitorFacade, createCreatorQuota } = require('../services/creator-wiring')
+      const get = (n) => (context && typeof context.get === 'function' ? context.get(n) : undefined)
+      const creatorStore = get('creatorStore')
+      const creatorRuntime = get('creatorRuntime')
+      const creatorCollector = get('creatorCollector')
+      const facade = creatorRuntime ? createCreatorMonitorFacade({ creatorRuntime }) : undefined
+      const quota = creatorStore ? createCreatorQuota(creatorStore) : undefined
+      if (!facade || !quota) {
+        log && log.warn && log.warn('[IPC] 博主监控依赖不完整，creator 通道将走降级')
+      }
+      return { creatorStore, creatorCollector, creatorMonitor: facade, creatorQuota: quota }
+    } catch (e) {
+      log && log.warn && log.warn('[IPC] 博主监控依赖组装失败，creator 通道将走降级', e && e.message)
+      return {}
+    }
+  })()
+  Object.assign(handlerDependencies, creatorDeps)
+
   let state = registrationStates.get(context)
   if (!state) {
     state = { completed: false, pending: null }
