@@ -47,9 +47,9 @@ main 上曾同时挂着 **6 篇** `sync_status: PENDING` 的新载体记录，�
 | 行尾 | PASS | 逐行 `split('\n')`，替换行按原行尾补回 `\r`；六个文件写回后实测 `crlf=true` 保持。**这里有一条要记的自纠**：我第一版收尾断言写成 `b[4] === '---'`，而 frontmatter 闭合行带着 `\r` ⇒ 六个文件全报 `frontmatter_intact=false`。这不是文件坏了，是**我的判据没考虑行尾**；改用 `/^---\r?\n([\s\S]*?)\r?\n---/` 重测，keys 全为 `record/task/date`。同族坑见 [[project-mulpub-eol-and-topdoc-merge]] |
 | `--grep` 的 `#` 漏写（**本仓已记第四次，我又踩了一次**） | 已纠正 | 枚举脚本第一版写 `--grep=(' + pr.number + ')$`，**漏了 `#`** ⇒ 六条全部 `GREP_MISS`，脚本据此判「未合并」。这次行为是 fail-closed（判不成而不回填），但结论是错的。`01-docs` 记忆里这条已经写过（"漏掉 `#` 会静默返回空"），仍复发 ⇒ 落笔时不能凭手感，`--grep` 的模式必须与被匹配标题**逐字对照一次**；修好以后六条全部取到 SHA。见 [[project-mulpub-merge-gates]] |
 | Gate 2c | PASS | `node scripts/check-gate-record-debt.js` ⇒ `OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留`；现场 `远程同步行 251 / 执行记录 452（## 标题 460）/ 已登记欠账 8 / 记录文件 88`（绑 base `f844f1751`，本 PR 未新增 ledger 键 —— 新载体的登记随文件走） |
-| classify-docs-only | PASS | 提交后跑 ⇒ 见本行末尾现场（`docs-only=true`，文件清单为本 PR 的 7 个：6 篇记录 + 本记录） |
+| classify-docs-only | PASS | **提交后**跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=true`、`files=7`（6 篇被回填的记录 + 本记录）。未提交时该脚本会 fail-closed 判 `false`，所以这一行的证据只能在 commit 之后取（与 [[project-mulpub-docs-sync-gate]] 同源） |
 | check-pr-exec-record（enforce） | PASS | 本 PR 携带 `openspec/records/gate-record-backfill-09.md`（文件名 == head 分支名） |
-| 品牌残留 / 文档同步 | PASS | 均**提交后**复跑（域不符的教训见 #3089 那批：未提交时 `listRecordFiles` 数不到本篇新记录，跑出来的 `OK` 对自己的新增文件失明） |
+| 品牌残留 / 文档同步 / Gate 2c 现场 | PASS | 均**提交后**复跑：`check-no-brand-residue.js` ⇒ `PASS（扫描 7238 个 tracked 文件，无品牌残留…）`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`；`check-gate-record-debt.js` ⇒ 顶部 `OK` 且现场 `远程同步行 251 / 执行记录 452（## 标题 460）/ 已登记欠账 8 / 记录文件 89`。**记录文件 89 是上一步 88 加本篇** —— 用差值而不是绝对数留证，因为绝对数会随 base 漂（[[project-mulpub-gate-record-debt-blindspot]]） |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道，零运行时文件 |
 | 远程同步 | PENDING | 本条自己的欠账：合并后由下一批回填 PR 改写为 PASS + merge SHA（取证同本表上方三源判据），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 `gate-record-debt-ledger.json` 建键。（这一行是**表格行**而不是 bullet —— `ROW_RE = /^\|\s*远程同步\s*\|/` 只认表格行，#3089 那批就因写成 bullet 被 CI 当场报红） |
 
