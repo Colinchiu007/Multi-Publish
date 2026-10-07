@@ -56,11 +56,17 @@ _is_wsl() {
   [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
   [ -n "${WSL_INTEROP:-}" ] && return 0
   # 兜底：环境变量被 wrapper 清洗过时，只剩内核版本串可认。
+  #
+  # ⚠⚠ 判据必须**同时**满足「行首是 Linux 内核串」**且**「含 microsoft/WSL」——
+  # 不能单看 Microsoft。Git Bash 也有虚拟 /proc 且**可读**（实测本机读到
+  # `MINGW64_NT-10.0-26200 version 3.6.9-...`，见 QM-6 评审 i1）：
+  # 只认 Microsoft 就可能把 **Git Bash 判成 WSL 而 exit 2**，
+  # 恰好打死本闸要保护的那个平台。两者取交集才是无歧义判据。
   # shell 内建 read + 重定向，不经 cat —— 入口不得依赖 PATH 里的工具目录。
   if [ -r /proc/version ]; then
     while IFS= read -r _wsl_line || [ -n "$_wsl_line" ]; do
       case "$_wsl_line" in
-        *[Mm]icrosoft*|*[Ww][Ss][Ll]*) return 0 ;;
+        "Linux version "*[Mm]icrosoft*|"Linux version "*[Ww][Ss][Ll]*) return 0 ;;
       esac
       break
     done < /proc/version

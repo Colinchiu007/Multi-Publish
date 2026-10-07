@@ -63,6 +63,15 @@ function ConvertTo-BashPath([string]$p) {
     return $q
 }
 
+# POSIX 单引号包裹，与 run-bash-gate.ps1 同一套转义（单引号内一切字面）。
+#
+# ⚠ 不要只给用户参数包一层就完事（QM-6 评审 i2）：仓库路径与脚本路径**同样含空格**
+# （C:\Program Files 下必中招），`cd <路径> && sh <脚本>` 一旦不包，整条命令会被拆段。
+# 首版只给 $scriptArgs 加了引号、路径裸拼，属不一致。
+function Quote-Bash([string]$s) {
+    return "'" + ($s -replace "'", "'\''") + "'"
+}
+
 # ---- 定位 Git for Windows Bash（探测链与 run-bash-gate.ps1 / start-mp-task.ps1 同一套）----
 # 身份校验：Git for Windows 的 bash.exe 必在 <GitRoot>\usr\bin\bash.exe 或
 # <GitRoot>\bin\bash.exe，且同根 usr\bin\dirname.exe 存在。
@@ -122,8 +131,10 @@ Write-Host "GitBash:  $bash"
 Write-Host "Script:   $([System.IO.Path]::GetFileName($target)) $($scriptArgs -join ' ')"
 Write-Host ""
 
-$quoted = ($scriptArgs | ForEach-Object { "'" + ($_ -replace "'", "'\\''") + "'" }) -join ' '
-$inner  = 'cd ' + (ConvertTo-BashPath $repoRoot) + ' && sh ' + (ConvertTo-BashPath $target)
+$quoted = ($scriptArgs | ForEach-Object { Quote-Bash $_ }) -join ' '
+# 路径与参数走同一个 Quote-Bash，避免「参数包了、路径没包」的不一致（QM-6 评审 i2）。
+$inner  = 'cd ' + (Quote-Bash (ConvertTo-BashPath $repoRoot)) +
+          ' && sh ' + (Quote-Bash (ConvertTo-BashPath $target))
 if ($quoted) { $inner += ' ' + $quoted }
 
 & $bash -lc $inner

@@ -111,7 +111,14 @@ test("WSL 环境下 deep-review.sh --check-deps 必须拦下并指向 Git Bash�
     "WSL 下最误导的动作就是建议设 CCG_ARL_DIR；该变量本机三级作用域都不存在，追它是死路",
   )
   // 更强的一格：必须**主动劝退**这个死路，否则排查者仍会先去试它。
-  assert.match(out, /不要|无需|不必|不是环境变量/, "必须主动劝退追 CCG_ARL_DIR 的错误方向")
+  //
+  // ⚠ 判据只认「不要 / 无需 / 不必」，**不能**写「不是环境变量」：
+  // 实际文案是 `这**不是**环境变量没传进来`，中间夹了 Markdown 粗体星号，
+  // 正则 `/不是环境变量/` 匹配不到，那条分支就是永不触发的死代码
+  //（QM-6 评审 i6 点名）。要让断言真的活着，要么去掉文案里的星号，
+  // 要么让正则容忍星号 —— 这里选后者，不动用户可见文案。
+  assert.match(out, /不要|无需|不必/, "必须主动劝退追 CCG_ARL_DIR 的错误方向")
+  assert.match(out, /不是\s*\**\s*环境变量/, "必须明说这不是环境变量没传进来（容忍 Markdown 星号）")
 })
 
 // ② 同一道闸必须装在 plan-review.sh 上。
@@ -138,9 +145,12 @@ test("无 WSL 标记时不得拦下（不得误伤真 Linux / ubuntu CI）", () 
 // ④ 检测手段必须覆盖 /proc/version 这条兜底。
 //
 // WSL_DISTRO_NAME 不是在所有调用形态下都在（例如某些非交互 -c 启动方式、
-// 或经由某些 wrapper 时环境被清洗过），此时只剩 /proc/version 里那句
-// "Linux version ... microsoft-standard-WSL2" 可认。结构锁在此处是合理的：
-// 该文件在 Windows 上根本不存在，无法在单测里伪造。
+// 或经由某些 wrapper 时环境被清洗过），此时只剩 /proc/version 可认。
+//
+// ⚠ 该文件**并非 Windows 上不存在**——Git Bash 有虚拟 /proc 且可读
+//（本机实测读到 `MINGW64_NT-10.0-26200 version 3.6.9-...`）。
+// 这正是 QM-6 评审 i1 顺带查出的注释事实错误，也是本锁存在的理由：
+// 检测在 Git Bash 上真的会被执行到，判据必须能区分二者，不能只认 Microsoft。
 test("必须保留 /proc/version 兜底检测（结构锁）", () => {
   for (const script of [DEEP_REVIEW, PLAN_REVIEW]) {
     const src = fs.readFileSync(script, "utf8")
@@ -158,19 +168,30 @@ test("必须保留 /proc/version 兜底检测（结构锁）", () => {
 // deep-review-deps.test.js ⑦ 记着一次真实事故：入口用 dirname 算 ROOT，
 // 于是 PATH 坏掉时 --check-deps 自己先以 `dirname: command not found` 死掉 ——
 // 一个「查别人坏没坏」的命令自己先坏了。WSL 闸同样不许引入 cat/grep/uname。
-test("WSL 检测不得依赖外部命令（结构锁：不得出现 cat/grep/uname）", () => {
-  // 必须先剥掉注释再判：本仓对结构锁已有成例（AGENTS.md「注释行里的 `2>&1`
-  // 不算捕获点」）——否则「# 不经 cat」这句说明本身会把锁变成永远红。
-  const stripComments = (s) =>
-    s
-      .split("\n")
-      .filter((l) => !/^\s*#/.test(l))
-      .map((l) => l.replace(/\s+#.*$/, ""))
-      .join("\n")
+// 剥掉注释再判结构：本仓对结构锁已有成例（AGENTS.md「注释行里的 `2>&1`
+// 不算捕获点」）——否则「# 不经 cat」这句说明本身会把锁变成永远红。
+const stripComments = (s) =>
+  s
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .map((l) => l.replace(/\s+#.*$/, ""))
+    .join("\n")
 
+// 截取 _is_wsl 函数体。
+//
+// ⚠ 不能用 /_is_wsl[\s\S]*?\n}/ —— 它撞上**第一个**独占一行的 `}` 就停
+// （QM-6 评审 i4）。将来函数里若为多行 while/do 块加一个收尾的 `}`，
+// 截取会提前结束、只剩半截，检查要么失守要么误报。改为锚定函数末尾那行
+// 裸 `return 1` + `}`，它与「检测失败」的语义绑定，不会被内层块抢走。
+function extractGuard(src) {
+  const m = src.match(/_is_wsl\(\)\s*\{([\s\S]*?\n\s*return 1\n\})/)
+  return m ? m[1] : ""
+}
+
+test("WSL 检测不得依赖外部命令（结构锁：不得出现 cat/grep/uname）", () => {
   for (const script of [DEEP_REVIEW, PLAN_REVIEW]) {
     const src = fs.readFileSync(script, "utf8")
-    const guardBlock = (src.match(/_is_wsl[\s\S]*?\n}/) || [""])[0]
+    const guardBlock = extractGuard(src)
     assert.ok(guardBlock, `${path.basename(script)} 应有 _is_wsl 检测函数`)
     const code = stripComments(guardBlock)
     for (const bad of ["cat", "grep", "uname"]) {
@@ -180,6 +201,34 @@ test("WSL 检测不得依赖外部命令（结构锁：不得出现 cat/grep/una
         `${path.basename(script)} 的 WSL 检测里不得调用外部命令 ${bad}`,
       )
     }
+  }
+})
+
+// 截取 _is_wsl 函数体已提到模块顶层（stripComments / extractGuard）。
+
+// ⑧ WSL 判据必须**同时**要求 Linux 内核特征，不能单凭 Microsoft。
+//
+// 这条是 QM-6 评审 i1 的落点。评审报的「Git Bash 已被误杀」经实测**不成立**
+// —— 本机 Git Bash 的 /proc/version 是 `MINGW64_NT-10.0-26200 ...`，不含
+// Microsoft。但它顺带查出两个真问题，本锁各钉一条：
+//   ① 注释曾断言「Windows 上无 /proc/version」，**与事实相反**——MSYS 有
+//      虚拟 /proc 且可读（本仓测试③在 Git Bash 上正是走这条分支通过的）；
+//   ② 只认 Microsoft 的判据过宽：别的 MSYS/Cygwin 发行版版本串可能带厂商
+//      字样，单看 Microsoft 就会把 Git Bash 判成 WSL 而 exit 2，
+//      恰好打死本闸要保护的平台。真 WSL 的判据是
+//      `Linux version ...-microsoft-standard-WSL2`，两者取交集才无歧义。
+test("WSL 判据必须要求 Linux 内核串（不得单凭 Microsoft 误杀 Git Bash）", () => {
+  for (const script of [DEEP_REVIEW, PLAN_REVIEW]) {
+    const src = fs.readFileSync(script, "utf8")
+    const code = stripComments(extractGuard(src))
+    assert.match(code, /"Linux version "\*/, `${path.basename(script)} 的判据必须以 Linux 内核串为前缀`)
+    // 剥掉带前缀的那两个分支后，剩下的不得再有裸的 Microsoft 判据
+    const rest = code.replace(/"Linux version "\*\[Mm\]icrosoft\*/g, "").replace(/"Linux version "\*\[Ww\]\[Ss\]\[Ll\]\*/g, "")
+    assert.doesNotMatch(
+      rest,
+      /\*\[Mm\]icrosoft\*|\*\[Ww\]\[Ss\]\[Ll\]\*/,
+      `${path.basename(script)} 不得存在脱离 Linux 内核前缀的裸 Microsoft/WSL 判据`,
+    )
   }
 })
 

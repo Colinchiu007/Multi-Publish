@@ -80,12 +80,22 @@ _is_wsl() {
   [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
   [ -n "${WSL_INTEROP:-}" ] && return 0
   # 兜底：WSL_DISTRO_NAME 不是在所有调用形态下都在（例如环境被 wrapper 清洗过），
-  # 此时只剩内核版本串里那一句 "microsoft-standard-WSL2" 可认。
+  # 此时只剩内核版本串可认。
+  #
+  # ⚠⚠ 判据必须**同时**满足「行首是 Linux 内核串」**且**「含 microsoft/WSL」——
+  # 不能单看 Microsoft。Git Bash 也有虚拟 /proc 且**可读**（实测本机读到
+  # `MINGW64_NT-10.0-26200 version 3.6.9-...`，见 QM-6 评审 i1）：
+  #   · MSYS/Cygwin 系发行版的 /proc/version 同样可能带厂商字样，
+  #     只认 Microsoft 就会把 **Git Bash 判成 WSL 而 exit 2**，
+  #     恰好打死本闸要保护的那个平台。
+  #   · 真 WSL 的版本串形如
+  #     `Linux version 5.15.90.1-microsoft-standard-WSL2 (oe-user@oe-host) ...`
+  #     行首 Linux 与 microsoft 同时出现，两者取交集才是无歧义判据。
   # 用 shell 内建 read + 重定向读文件，不经 cat —— 见上方「不调用外部命令」。
   if [ -r /proc/version ]; then
     while IFS= read -r _wsl_line || [ -n "$_wsl_line" ]; do
       case "$_wsl_line" in
-        *[Mm]icrosoft*|*[Ww][Ss][Ll]*) return 0 ;;
+        "Linux version "*[Mm]icrosoft*|"Linux version "*[Ww][Ss][Ll]*) return 0 ;;
       esac
       break
     done < /proc/version
