@@ -81,10 +81,10 @@
   },
   "本次执行记录：#2903 远程同步回填 + 置顶件行尾前提更正（backfill-2903-record，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
   "本次执行记录：#2927 远程同步回填销账 + CHANGELOG 收口（bilibili-audit-backfill，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
-  "本次执行记录：B 站发布侧作品标识（aid/bvid）采集修复（bilibili-bvid-extract，2026-10-06）": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
   "本次执行记录：CCG 双模型评审后端按绝对路径解析（ccg-review-claude-path，2026-10-07）": {
     "reason": "本 PR 尚未合并、无法取证 merge SHA（待 CI 全绿后合并），合并后由后续回填 PR 在同一次提交里删除本登记",
     "status": "PENDING",
     "line": 22
-  }
+  },
+  "本次执行记录：#2968 远程同步回填销账（bilibili-bvid-backfill，2026-10-06）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
 }

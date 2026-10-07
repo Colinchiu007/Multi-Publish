@@ -2,9 +2,6 @@
 record: bilibili-bvid-extract
 task: B 站发布侧作品标识（aid/bvid）采集修复——发布成功判定与审核回查的前置条件
 date: 2026-10-06
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远端分支也未删除
-sync_backfill_owner: 下一个会话（docs-only 回填 PR，回填即删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：B 站发布侧作品标识（aid/bvid）采集修复（bilibili-bvid-extract，2026-10-06）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（docs-only 回填 PR，回填即删除本�
 | 接线棘轮 | PASS | 新测试文件由 workspace vitest `include` 收集（`check-unwired-tests.js` 的域不含 vitest workspace，但本文件被全量实跑过并出现在通过清单）；本记录文件即 PR 执行记录载体（`check-pr-exec-record.js --mode=enforce`） |
 | QM-1 打包 / QM-4 视觉 | PASS / N/A | `pnpm run build:dir` rc=0；asar `extractFile` 断言产物内 `rpa-publish-id-extract.js` 8385 字节、`endpoint_gate=true`、`host_gate_off=false`（提交的是评审后版本）、`path_table_has_video=false`；隔离 profile 启动本树 4 进程存活 10 秒、stderr 空、无 QM-1 禁止特征，并断言未影响其他会话实例。视觉：零 UI/样式变更 ⇒ N/A |
 | QM-6 CCG 双模型外部评审 | PASS | **通道偏差声明**：primary 前端 claude 静默空转（rc=2、`completed without agent_message output`、无产物）⇒ 按既有替代通道降级 opencode 免费模型两路（后端 nemotron-3-ultra-free、前端 ling-3.1-flash-free，产物 `.ccg/qm6-bvid-{backend,frontend}-findings.json`）；primary 后端 codex 的 `exec` 工具仍报 `missing field cmd`，结论落 stdout（`p33-qm6-backend.log`）。评审绑 commit `6a534bd82`，**三通道独立命中同一条 Critical**：响应体链的 `aid`/`bvid` 无主机门 ⇒ 非 B 站 2xx 发布响应里的数字 `aid` 会被采成 postId（strict 平台快手/百家号受影响最重，其 postId 唯一主来源正是该证据链），把失败判成成功。**处置**：Critical 已修 + 新增 A4b 负例；4 条 Warning 已修（判据整体后置、`pickBilibiliWorkId` 按形态择优与参数顺序无关、两条链同形、补消费者装配锁、变异留痕）；可扩展性建议（平台规则表）评估后不取并登记后续项；Info 条确认主机锚定、无双重放行、无未观测写成已验证、无凭证/日志新增面 |
-| 远程同步 | PENDING | PR 合并后回填 merge SHA 与远端分支删除证据，并删除本文件 frontmatter 的 `sync_status` / `sync_reason` / `sync_backfill_owner` 三字段 |
+| 远程同步 | PASS | 已合并：squash 落地提交 `f3aec57a03b0e7152dce0f15be3378b658ba0330`（2026-10-05T19:03:40Z）；取证 `git log origin/main --grep='(#2968)$' --format=%H|%cI` 唯一命中、`git ls-remote --heads origin bilibili-bvid-extract` 返回 0 行。上方三个 sync_* 登记字段已在本条从 PENDING 转 PASS 的同一次提交删除 |
 
 ### 遗留（不假装已闭合）
 
