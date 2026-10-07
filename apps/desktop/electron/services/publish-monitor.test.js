@@ -21,7 +21,18 @@ const BVID = 'BV1xx411c79D'
 // 必须在 vi.useFakeTimers() 之前抓住真实定时器句柄：轮询本身由假时钟驱动，
 // 但每次 poll 内部的两次 HTTP 是真实 I/O，需要真实事件循环回合才能落定
 const realSetTimeout = setTimeout
-const flush = (ms = 150) => new Promise(resolve => realSetTimeout(resolve, ms))
+const sleep = ms => new Promise(resolve => realSetTimeout(resolve, ms))
+// 正向结论一律等条件成立，不等固定毫秒数：CI runner 的真实 HTTP 往返比本机慢，写死 sleep 就是「慢就假红」。
+// 上限 8s（本机实测整轮 0.2s 内完成）；到点仍不成立就抛错并点名等待的条件，而不是继续往下断言。
+async function settle (label, predicate, timeoutMs = 8000) {
+  const startedAt = Date.now()
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) throw new Error('settle timeout: ' + label + '（' + timeoutMs + 'ms 内未成立）')
+    await sleep(10)
+  }
+}
+// 负向结论不能被「等得更久」证明，只能给显式上界：跑满这段真实时间仍无回调，才算该回调不会发生
+const negativeWindow = (ms = 600) => sleep(ms)
 
 let server = null
 let baseUrl = ''
@@ -75,7 +86,7 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
     const callback = vi.fn()
     const task = createMonitorTask({ platform: 'bilibili', postId: BVID, cookies: 'SESSDATA=abc', callback })
     await vi.advanceTimersByTimeAsync(10000)
-    await flush()
+    await settle('T1 回调应到达', () => callback.mock.calls.length > 0)
     task.stop()
 
     expect(callback).toHaveBeenCalledTimes(1)
@@ -101,7 +112,7 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
       const callback = vi.fn()
       const task = mod.createMonitorTask({ platform: 'bilibili', postId: BVID, cookies: 'SESSDATA=abc', callback })
       await vi.advanceTimersByTimeAsync(10000)
-      await flush()
+      await settle('T2 第二跳应发生', () => requests.length >= 2)
       task.stop()
       expect(requests[1].url).toContain('/x/other/archives')
       expect(callback.mock.calls[0][0].status).toBe('published')
@@ -119,9 +130,9 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
     const callback = vi.fn()
     const task = createMonitorTask({ platform: 'bilibili', postId: BVID, cookies: 'SESSDATA=abc', callback, maxRetries: 2 })
     await vi.advanceTimersByTimeAsync(10000)
-    await flush()
+    await settle('T3 首轮两跳', () => requests.length >= 2)
     await vi.advanceTimersByTimeAsync(10000)
-    await flush()
+    await settle('T3 耗尽后回调 timeout', () => callback.mock.calls.length > 0)
     task.stop()
 
     expect(callback).toHaveBeenCalledTimes(1)
@@ -133,7 +144,7 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
     const callback = vi.fn()
     const task = createMonitorTask({ platform: 'bilibili', postId: BVID, cookies: '', callback, maxRetries: 1 })
     await vi.advanceTimersByTimeAsync(10000)
-    await flush()
+    await settle('T4 无凭证耗尽后应回调 timeout', () => callback.mock.calls.length > 0)
     task.stop()
     expect(requests).toHaveLength(0)
     expect(callback.mock.calls[0][0].status).toBe('timeout')
@@ -145,7 +156,7 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
     const callback = vi.fn()
     const task = createMonitorTask({ platform: 'bilibili', postId: BVID, cookies: 'SESSDATA=abc', callback, maxRetries: 1 })
     await vi.advanceTimersByTimeAsync(10000)
-    await flush()
+    await settle('T5 nav 后应停止（无第二跳）', () => callback.mock.calls.length > 0)
     task.stop()
     expect(requests).toHaveLength(1)
     expect(callback.mock.calls[0][0].status).toBe('timeout')
@@ -157,7 +168,7 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
     const callback = vi.fn()
     const task = createMonitorTask({ platform: 'kuaishou', postId: 'x', cookies: 'c', callback })
     await vi.advanceTimersByTimeAsync(20000)
-    await flush()
+    await negativeWindow(100)
     task.stop()
     expect(callback.mock.calls[0][0].status).toBe('skipped')
     expect(requests).toHaveLength(0)
@@ -169,7 +180,7 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
     const callback = vi.fn()
     const task = createMonitorTask({ platform: 'weibo', postId: '987', cookies: 'SUB=x', callback })
     await vi.advanceTimersByTimeAsync(10000)
-    await flush()
+    await settle('T7 通用链应发一次请求', () => requests.some(r => r.url.indexOf('/ajax/statuses/mymblog') >= 0) && callback.mock.calls.length > 0)
     task.stop()
     const mine = requests.filter(r => r.url.includes('/ajax/statuses/mymblog'))
     expect(mine).toHaveLength(1)
@@ -187,8 +198,9 @@ describe('publish-monitor — B 站专用分派的装配锁', () => {
     const callback = vi.fn()
     const task = createMonitorTask({ platform: 'bilibili', postId: BVID, cookies: 'SESSDATA=abc', callback, maxRetries: 5 })
     await vi.advanceTimersByTimeAsync(10000)
+    await settle('T8 应观察到在途的 nav 请求', () => requests.length >= 1)
     task.stop()
-    await flush(300)
+    await negativeWindow()
     expect(callback).not.toHaveBeenCalled()
   })
 })
