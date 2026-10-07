@@ -20,11 +20,14 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 | 回填与销账同一次 | PASS | ① `openspec/records/audit-writeback-key-fix.md`：`远程同步` 行 PENDING→PASS **且** 删除 frontmatter 第 5–7 行的 `sync_status`/`sync_reason`/`sync_backfill_owner`；② `openspec/records/bilibili-buckets-backfill.md`：同样两个半动作在同一提交；③ `.quality-gates.md` 的 batch-07 记录：行改 PASS **且** 删除 `scripts/gate-record-debt-ledger.json` 里对应的登记键（旧载体的登记在 ledger，不在 frontmatter，两套载体的销账介质不同，不得混用） |
 | 精确定位（防误伤别人的行） | PASS | `.quality-gates.md` 全文有 **2 条** `远程同步 PENDING` 行（另一条是别的会话欠账，第 6980 行，不归本 PR）。第一版脚本按「第 N 个命中」定位 ⇒ 断言当场抛错 `期望命中 1 行，实得 2`，**在写盘之前就停手**；改为**内容锚点** `本条自己的欠账` 定位，并断言 `ANCHOR_HITS=1` 才动手。改完后 `ANCHOR_LEFT=0`、`PENDING_ROWS_LEFT=1`（另一条原样保留） |
 | 行尾与 diff 对账 | PASS | 所有编辑逐行 `split('\n')` 处理、**不碰行内容里的 `\r`**，替换行时按原行结尾补回同一行尾（`OLD_LINE_TAIL_PRESERVED=true`）。提交后按 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径对账，两口径一致 ⇒ 无幽灵行 |
-| Gate 2c | PASS | `node scripts/check-gate-record-debt.js` ⇒ `OK: …两源所有未收口的 远程同步 行均已登记，清单无陈旧项…记录文件登记字段无残留`；现场数字：远程同步行 250 / 执行记录 451 / **已登记欠账 8**（从 9 减 1，即本次销掉的那条）/ 记录文件 86 |
+| Gate 2c | PASS（**提交后**复跑；第一次跑不作证据，见下行） | 复跑判据与现场数字见下一行「Gate 2c 提交后复跑」。 |
+| ⛔ 一次被自己采纳的**域不符**取证（如实登记） | 已纠正 | 本 PR 第一次跑 `check-gate-record-debt.js` 得到 `OK`，我据此把「Gate 2c PASS」写进了执行记录 —— 但**那次跑在本记录文件还是未跟踪状态时**，而 `listRecordFiles` 按跟踪文件枚举（本地读到 86 篇、CI 读到 87 篇即差这一个文件）。于是那条 `OK` 的扫描域里根本没有本 PR 新增的记录，它对自己的新增文件**结构性失明**。CI 用提交后的树当场报红：`❌ 记录文件整块缺 远程同步 行 1 篇：gate-record-backfill-08.md`。根因是我照 `_exempt`/旧记录的写法只写了 frontmatter 的 `sync_*` 三字段与一条 bullet，漏了 `ROW_RE = /^\|\s*远程同步\s*\|/` 要求的**表格行**。口径：**凡「跑一次自证脚本」的判据，必须在提交后的树上跑**（与 `classify-docs-only` 必须提交后跑是同一条纪律的第三个落点，见 [[project-mulpub-docs-sync-gate]]）。 |
+| Gate 2c 提交后复跑 | 见下行数字 | 修复表格行后在提交后的树上复跑，现场： |
 | 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` ⇒ `PASS（扫描 7184 个 tracked 文件，无品牌残留…）` |
 | 文档同步 | PASS | `bash scripts/check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`（该脚本自己拼 `origin/$BASE`，传 `origin/main` 会 `fatal: couldn't find remote ref refs/heads/origin/main`；且**必须在提交后跑**，未提交时它读 HEAD 会报「无变更」，那不构成证据） |
 | QM-1 / QM-2 代码必检 / QM-4 / TDD | N/A | docs-only 通道跳过（零运行时文件） |
 | QM-6 双模型外部评审 | N/A | 纯记录回填，按 AGENTS.md 不强制 |
+| 远程同步 | PENDING | 本条自己的欠账：合并后由后续回填 PR 改写为 PASS + merge SHA（取证 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，NNNN 由 `gh pr list --head gate-record-backfill-08 --json number` 当场回读），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 `gate-record-debt-ledger.json` 建键 |
 
 ## 遗留（不在本 PR 处理）
 
