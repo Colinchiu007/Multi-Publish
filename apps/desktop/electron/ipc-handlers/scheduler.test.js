@@ -177,10 +177,32 @@ describe("scheduler IPC handlers", () => {
       expect(result.data).toBe(false);
     });
 
-    it("如实回传 cancel() 的 true", async () => {
+    it("如实回传 cancel() 的 true，取消成功", async () => {
       scheduler.cancel.mockReturnValue(true);
       const result = await ipcMain._callHandler("scheduler:cancel", "sched-ok");
       expect(result.data).toBe(true);
+    });
+
+    // R15（2026-10-07 真机 E2E）：平台侧定时创建后记录瞬时进入 executed，
+    // cancel() 按设计返回 false（平台无撤销接口，本地改判 cancelled 只会制造
+    // 「以为取消成功、平台照发」，契约锁见 scheduler.test.js）。
+    // 但发布页的「取消任务」入口照样挂着，用户点下去只得到一句不可操作的提示 ——
+    // 失败文案必须如实告知「已提交给平台、请到平台撤销」。
+    it("R15：取消失败时如实告知已提交给平台、需到平台撤销，而非含混的「可能已发布或已取消」", async () => {
+      scheduler.cancel.mockReturnValue(false);
+      const result = await ipcMain._callHandler("scheduler:cancel", "sched-executed");
+      expect(result.code).toBe(0);
+      expect(result.data).toBe(false);
+      expect(result.message).toContain("已提交给平台");
+      expect(result.message).toContain("撤销");
+      expect(result.message).not.toContain("可能已发布或已取消");
+    });
+
+    it("R15：取消成功的文案不受影响（回归）", async () => {
+      scheduler.cancel.mockReturnValue(true);
+      const result = await ipcMain._callHandler("scheduler:cancel", "sched-ok-2");
+      expect(result.data).toBe(true);
+      expect(result.message).toBe("定时任务已取消");
     });
   });
 });

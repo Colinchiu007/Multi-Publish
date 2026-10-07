@@ -398,6 +398,10 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger(),
     // 本地记录作废即可让本系统不再认为它会发布。⚠️ 已提交到平台的排期是否真正撤销
     // 取决于平台是否提供撤销接口（参考产品实测：不提供）。UI 需如实标注，
     // 不能让用户以为「取消了就一定不会发」。
+    // ⚠️ executed **刻意不可取消**（真机 E2E 曾误判此处，2026-10-07 复核）：平台侧定时
+    // 创建是 submitted→dispatching→executed 瞬时完成，取消确实总失败，但那是**正确**
+    // 行为 —— 本地改判 cancelled 只会制造「以为取消成功、平台照发」。要修的是 UI 文案
+    // （见 ipc-handlers/scheduler.js），契约锁见 __tests__/scheduler.test.js。
     const cancelled = updateStatus(id, 'cancelled', 'dispatching', owner)
       || updateStatus(id, 'cancelled', 'submitted', owner)
       || updateStatus(id, 'cancelled', 'pending', owner)
