@@ -2,9 +2,6 @@
 record: publish-monitor-assembly-lock
 task: 为 publish-monitor（发布后回查分派/终态/跳过）补第一个测试文件，运行态装配锁 + 五条变异反证
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远端分支也未删除
-sync_backfill_owner: 下一个会话（docs-only 回填 PR，回填即删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：publish-monitor 运行态装配锁（publish-monitor-assembly-lock，2026-10-07）
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话（docs-only 回填 PR，回填即删除本�
 | 接线棘轮 | PASS | 新文件由 `apps/desktop/vitest.config.js` 的 `include: electron/services/**/*.test.js` 收集；实跑日志出现该文件名且测试数 8 > 0（非只 `node --check`） |
 | QM-1 打包 / QM-4 视觉 | N/A | `apps/desktop/package.json` `build.files` 显式含 `"!**/*.test.js"` ⇒ 测试文件不进 asar；本 PR 零生产代码改动（`git diff --name-only` 只含测试与文档），产物字节不变。视觉：无 UI 变更 |
 | QM-6 CCG 双模型评审 | N/A（如实登记） | 触发条件均针对实现变更（主进程服务逻辑/IPC/引擎包）。本 PR 只新增测试文件，其正确性由上表五条变异反证承担；未跑外部模型评审，原因是变更面为零生产代码，非疏漏 |
-| 远程同步 | PENDING | 本条自己的欠账：PR 合并后由后续 docs-only PR 回填 merge SHA 与远端分支删除证据，并删除本文件 frontmatter 三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：squash 落地提交 `01c5875050c60d11a0418490d9bb8515dca5d92d`（committer date 2026-10-07T05:49:20Z）。取证：`git log origin/main --grep='(#3043)$' --format=%H|%cI` 唯一命中；`git merge-base --is-ancestor 01c587505 origin/main` 通过；`git ls-remote --heads origin publish-monitor-assembly-lock` 返回 0 行证远端分支已删。上方三个 sync_* 登记字段已在本条从 PENDING 转 PASS 的同一次提交删除 |
 
 ### 遗留（不假装已闭合）
 
