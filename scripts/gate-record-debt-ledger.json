@@ -86,5 +86,6 @@
     "reason": "本 PR 尚未合并、无法取证 merge SHA（待 CI 全绿后合并），合并后由后续回填 PR 在同一次提交里删除本登记",
     "status": "PENDING",
     "line": 22
-  }
+  },
+  "本次执行记录：博主监控与采集方案（CCG 评审修订）（blogger-collection，2026-10-07）【docs-only】": "待 PR 合并；合并成功后于同一 docs-only 回填 PR 中自动补齐 merge SHA 并删除本登记项"
 }

@@ -1,0 +1,57 @@
+{
+  "sha": "b8f89edeccc19afccf8e36135cc9c6081782749a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 0 行（≤ 200）但命中 auth/数据库/加密：敏感内容 10 处",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 10
+  },
+  "stagedDiffHash": "7a0b1808f1f0856d06bb3530e4cf45bae68cab78e3f6b31c1cc5b0402411da4d",
+  "decidedAt": "2026-10-06T17:55:34.802Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "opencode",
+    "objectType": "plan",
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 7,
+        "critical": 3,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 6,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 7
+        }
+      },
+      {
+        "round": 2,
+        "issues": 7,
+        "critical": 2,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 6,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 8
+        }
+      }
+    ],
+    "error": "输入超长：8098 字符，超过 opencode 后端上限 7800 字符（实测边界 (8125, 8145]，非文档承诺）。该后端会同步拒绝（~120ms、exit 1、无任何错误信息）。",
+    "validationErrors": null,
+    "note": "第 2 轮修订失败",
+    "artifacts": ".adversarial\\ccg-plan-plan-creator-monitor-review-target",
+    "at": "2026-10-06T17:55:54.354Z"
+  }
+}
