@@ -462,6 +462,18 @@ const { migrateViralPatternSchema: _migrateViralPattern, migratePerformanceLoopS
 function migrateViralPatternSchema(db) { _migrateViralPattern(db, execSchemaSql) }
 function migratePerformanceLoopSchema(db) { _migratePerformanceLoop(db, execSchemaSql) }
 
+// 博主监控同样受 500 行熔断约束，表 DDL 与跨表迁移均拆至独立文件。
+const { CREATOR_TABLE_SQL, migrateCreatorLinkageSchema: _migrateCreatorLinkage } = require('./creator-schema')
+SCHEMA_SQL.push(...CREATOR_TABLE_SQL)
+Object.assign(TABLE_NAMES, {
+  creator_accounts: 'creator_accounts',
+  creator_follows: 'creator_follows',
+  creator_discoveries: 'creator_discoveries',
+  collection_outbox: 'collection_outbox',
+  collection_quota_ledger: 'collection_quota_ledger',
+})
+function migrateCreatorLinkage(db) { _migrateCreatorLinkage(db, execSchemaSql) }
+
 module.exports = {
   TABLE_NAMES,
   SCHEMA_SQL,
@@ -478,4 +490,5 @@ module.exports = {
   migrateKnowledgeEvolutionSchema,
   migrateViralPatternSchema,
   migratePerformanceLoopSchema,
+  migrateCreatorLinkage,
 };
