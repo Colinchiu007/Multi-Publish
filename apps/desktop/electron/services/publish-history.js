@@ -179,15 +179,25 @@ function deleteRecords (ids, ownerSubject) {
  * ⛔ 单向证据规则：`auditStatus` 归一失败（无定论/非法值）直接不改任何字节——
  * 「没拿到新证据」不是反证，不得把既有审核结论抹掉（与 login-state 同族）。
  *
- * @param {string} id 目标记录 id
+ * 关联键：规范键是**发布任务 id**（`record.taskId`），不是 addRecord 生成的记录主键。
+ * 依据是仓库自己已确立的两处：读侧 `PublishHistory.vue` 按 `record.taskId || record.id` join；
+ * `phase4-events.js` 里明写「关联键的语义＝发布任务 id，存 addRecord() 返回的 entry.id
+ * 会让历史页表现列继续恒空」。生产调用点传的正是队列 id（`updateRecordAudit(task.id, …)`），
+ * 此前只按 `record.id` 匹配 ⇒ 恒 `updated:false` ⇒ 所有平台的审核结论静默写不回记录
+ * （真机现场见 docs/audit-requery-evidence-bilibili-2026-10-07.md §四）。
+ * 保留 `id` 作兜底：存量记录可能没有 taskId，且确有调用方持有记录主键。
+ * 两键格式天然不相交（`task_<n>_<ms>` vs `Date.now().toString(36)+4rand`），
+ * 匹配顺序为 taskId 优先，且仍只改**第一条**命中。
+ *
+ * @param {string} taskOrRecordId 目标记录的发布任务 id（规范键）；无 taskId 的记录可传其记录主键
  * @param {object} patch 审核增量（只取白名单键）
  * @param {string|undefined} ownerSubject
  * @returns {{ updated: boolean, record: object|null }}
  */
-function updateRecordAudit (id, patch, ownerSubject) {
+function updateRecordAudit (taskOrRecordId, patch, ownerSubject) {
   const owner = resolveOwnerSubject(ownerSubject)
   if (owner === null) return { updated: false, record: null }
-  const targetId = typeof id === 'string' ? id.trim() : ''
+  const targetId = typeof taskOrRecordId === 'string' ? taskOrRecordId.trim() : ''
   if (!targetId) return { updated: false, record: null }
 
   const source = patch && typeof patch === 'object' ? patch : {}
@@ -206,7 +216,9 @@ function updateRecordAudit (id, patch, ownerSubject) {
     try { record = JSON.parse(line) } catch { /* 保留无法解析的历史行 */ }
     if (
       record && updatedRecord === null &&
-      String(record.id || '') === targetId && matchesOwner(record, owner)
+      matchesOwner(record, owner) &&
+      // taskId 优先，id 兜底；两侧都做空值保护，避免 undefined 被 String() 成 "undefined" 误命中
+      (String(record.taskId || '') === targetId || String(record.id || '') === targetId)
     ) {
       updatedRecord = { ...record }
       for (const key of AUDIT_PATCH_KEYS) {

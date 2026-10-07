@@ -534,4 +534,72 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
   })
 })
 
+/**
+ * 跨模块契约锁（docs/PRD-AUDIT-WRITEBACK-TASKID-KEY-2026-10-07.md §4.3）
+ *
+ * 上方 P0-1 全部用例把 history 换成 vi.fn() 替身，且 updateRecordAudit 恒报
+ * {updated:true} —— 于是「键错配导致一条记录都没改到」在这套夹具下**结构性不可表示**，
+ * 真机却因此静默丢了全部审核徽标。本块注入**真** publish-history 实现，走完整链：
+ * task:success → 真 addRecord → 监控回调 → updateRecordAudit(task.id) → 独立回读 JSONL。
+ * 反证见执行记录 N1（匹配退回只按 record.id ⇒ 本条必须红）。
+ */
+describe('P0-1 审核回写链 × 真 publish-history（跨模块契约锁）', () => {
+  const fs = require('fs')
+  const os = require('os')
+  const path = require('path')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-xchain-'))
+  const jsonl = path.join(dir, 'publish-history.jsonl')
+  afterAll(() => {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 临时目录由系统回收 */ }
+  })
+  function freshHistory () {
+    vi.resetModules()
+    process.env.PH_TEST_DATA_DIR = dir
+    return require('../services/publish-history')
+  }
+  function onDisk () {
+    return fs.existsSync(jsonl)
+      ? fs.readFileSync(jsonl, 'utf-8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l))
+      : []
+  }
+
+  it('回查结论经真实现就地落到那条记录（不再静默 audit-update-skipped）', async () => {
+    if (fs.existsSync(jsonl)) fs.rmSync(jsonl)
+    const taskQueue = new EventEmitter()
+    const monitorCalls = []
+    wireTaskQueueEvents({
+      taskQueue,
+      history: freshHistory(),
+      publishMonitor: { createMonitorTask: (o) => { monitorCalls.push(o); return { stop: vi.fn() } } },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+      getMainWin: () => null,
+      auditRequery: {
+        resolveCookies: async () => ({ cookies: 'c=1', source: 'provided' }),
+        decide: () => ({ start: true, reason: 'candidate' }),
+      },
+    })
+
+    taskQueue.emit('task:success', {
+      id: 'task_x_1', owner_subject: 'user-a', platform: 'douyin',
+      article: { title: '跨模块锁' }, result: { postId: 'aweme-99' },
+    })
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+
+    // 前提自证：真 addRecord 生成的记录主键 ≠ 队列 id —— 相等本锁就测不出错配
+    const seeded = onDisk()
+    expect(seeded).toHaveLength(1)
+    expect(seeded[0].taskId).toBe('task_x_1')
+    expect(seeded[0].id).not.toBe('task_x_1')
+    expect(seeded[0].auditStatus).toBeUndefined()
+
+    monitorCalls[0].callback({ status: 'rejected', postId: 'aweme-99' })
+
+    const after = onDisk()
+    expect(after, '必须就地更新原记录，不得追加第二行').toHaveLength(1)
+    expect(after[0].auditStatus).toBe('deny')
+    expect(after[0].monitorStatus).toBe('rejected')
+    expect(after[0].platformWorkId).toBe('aweme-99')
+  })
+})
+
 

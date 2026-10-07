@@ -402,3 +402,119 @@ describe("publish-history", () => {
     });
   });
 });
+
+/**
+ * 关联键契约（docs/PRD-AUDIT-WRITEBACK-TASKID-KEY-2026-10-07.md）
+ *
+ * 真机现场：B 站投稿回查拿到 published，但 history 里 auditStatus 始终缺席，
+ * 日志只有 `audit-update-skipped`。根因是生产调用点传的是**队列任务 id**
+ * （phase4-events.js:91 `updateRecordAudit(task.id, ...)`），而实现只按 `record.id` 匹配。
+ * 规范键由读侧与注释共同确立：PublishHistory.vue:633 按 `record.taskId || record.id` join，
+ * phase4-events.js:151-153 明写「关联键的语义＝发布任务 id」。
+ *
+ * 上方既有用例调的是 `updateRecordAudit(rec.id, ...)` —— 走的是**生产从不使用**的那条键，
+ * 所以它全绿而真机红。本块补的正是 taskId 那条唯一被真实走到的路径。
+ */
+describe("updateRecordAudit 关联键契约（taskId 为规范键）", () => {
+  const keyDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-key-test-"));
+  afterAll(() => {
+    try { fs.rmSync(keyDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+  function fresh () {
+    vi.resetModules();
+    process.env.PH_TEST_DATA_DIR = keyDir;
+    return require("../services/publish-history");
+  }
+  function rawRecords () {
+    const p = path.join(keyDir, "publish-history.jsonl");
+    return fs.existsSync(p)
+      ? fs.readFileSync(p, "utf-8").split(/\r?\n/).filter(Boolean).map(l => JSON.parse(l))
+      : [];
+  }
+  function wipe () {
+    const p = path.join(keyDir, "publish-history.jsonl");
+    if (fs.existsSync(p)) fs.rmSync(p);
+  }
+  const PATCH = { auditStatus: "published", monitorStatus: "published", platformWorkId: "BV1HyHC6mExS", auditedAt: "2026-10-07T08:32:33.631Z" };
+
+  // K1：生产实际传的键是队列任务 id —— 这条路径此前完全没人测过
+  it("K1 生产实际传的键（taskId）必须能命中并真的落盘", () => {
+    wipe();
+    const ph = fresh();
+    const rec = ph.addRecord(
+      { platform: "bilibili", title: "取证稿", status: "success", taskId: "task_1_1791361909906" },
+      "user-a",
+    );
+    // 前提自证：addRecord 生成的主键与队列 id 确实不同（否则本用例测不出错配）
+    expect(rec.id).not.toBe("task_1_1791361909906");
+
+    const { updated, record } = ph.updateRecordAudit("task_1_1791361909906", PATCH, "user-a");
+    expect(updated, "传队列 task id 必须能命中 —— 真机现场就是这里恒 false").toBe(true);
+    expect(record.auditStatus).toBe("published");
+
+    // 独立回读落盘文件，而不是只看返回值（返回值可以由内存拼出来）
+    const onDisk = rawRecords().find(r => r.taskId === "task_1_1791361909906");
+    expect(onDisk.auditStatus).toBe("published");
+    expect(onDisk.monitorStatus).toBe("published");
+    expect(onDisk.auditedAt).toBe("2026-10-07T08:32:33.631Z");
+    expect(onDisk.status).toBe("success"); // 主流程字段不得被污染
+    expect(rawRecords()).toHaveLength(1); // 就地更新，不追加第二条
+  });
+
+  // K2：存量记录可能没有 taskId，id 路径必须继续可用（兜底不得被"修规范键"顺手删掉）
+  it("K2 记录无 taskId 时，仍可按 record.id 命中回写", () => {
+    wipe();
+    const ph = fresh();
+    const rec = ph.addRecord({ platform: "douyin", title: "无队列键", status: "success" }, "user-a");
+    const { updated } = ph.updateRecordAudit(rec.id, PATCH, "user-a");
+    expect(updated).toBe(true);
+    expect(rawRecords()[0].auditStatus).toBe("published");
+  });
+
+  // K3：夹具必须对不同输入返回不同内容，否则"按键区分"这一整类缺陷对它结构性免疫
+  it("K3 两条相邻记录：传 A 的 taskId 只改到 A，绝不串到 B", () => {
+    wipe();
+    const ph = fresh();
+    ph.addRecord({ platform: "weibo", title: "A", status: "success", taskId: "task-A" }, "user-a");
+    ph.addRecord({ platform: "weibo", title: "B", status: "success", taskId: "task-B" }, "user-a");
+
+    const { updated, record } = ph.updateRecordAudit("task-A", PATCH, "user-a");
+    expect(updated).toBe(true);
+    expect(record.taskId).toBe("task-A");
+
+    const all = rawRecords();
+    const a = all.find(r => r.taskId === "task-A");
+    const b = all.find(r => r.taskId === "task-B");
+    expect(a.auditStatus).toBe("published");
+    expect(b.auditStatus, "B 不得被串改").toBeUndefined();
+  });
+
+  // K4：修键不得顺手放宽归属边界
+  it("K4 taskId 命中但 owner 不符 ⇒ 不回写（多租户边界不因这次修键而失守）", () => {
+    wipe();
+    const ph = fresh();
+    ph.addRecord({ platform: "zhihu", title: "别人的", status: "success", taskId: "task-own" }, "user-a");
+    // 正向对照：同一记录、同一键，owner 正确时**必须**改到 ——
+    // 否则"owner 不符 ⇒ false"会因为"谁都改不到"而恒真，这条锁就没有区分力。
+    const ok = ph.updateRecordAudit("task-own", PATCH, "user-a");
+    expect(ok.updated, "owner 正确时必须命中（否则下面的负断言是恒真式）").toBe(true);
+    wipe();
+    const ph2 = fresh();
+    ph2.addRecord({ platform: "zhihu", title: "别人的", status: "success", taskId: "task-own" }, "user-a");
+    const { updated } = ph2.updateRecordAudit("task-own", PATCH, "user-b");
+    expect(updated).toBe(false);
+    expect(rawRecords()[0].auditStatus).toBeUndefined();
+  });
+
+  // K6：退化键 "undefined" 不得命中「没有 taskId」的记录 ——
+  // 空值保护（String(x || "")）唯一的可观测面就在这里，不测等于没锁。
+  it("K6 传入退化键 \"undefined\" 时不回写（否则 String(undefined) 会冒充缺字段记录）", () => {
+    wipe();
+    const ph = fresh();
+    ph.addRecord({ platform: "bilibili", title: "缺队列键", status: "success" }, "user-a");
+
+    const { updated } = ph.updateRecordAudit("undefined", PATCH, "user-a");
+    expect(updated, "调用方把 undefined 字符串化后传来的键，不得被当成有效匹配").toBe(false);
+    expect(rawRecords()[0].auditStatus).toBeUndefined();
+  });
+});
