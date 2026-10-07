@@ -13,14 +13,14 @@ sync_backfill_owner: 下一个会话
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | **本批次为纯文档**（PRD 特性文档 + openspec 能力契约 + 主 PRD §8.5 增补），运行时代码尚未动手；隔离 worktree `mp-blogger-collection`、裸分支 `blogger-collection`，共享根全程未被写入 |
+| 变更类型与隔离 | PASS | **混合 PR**：PRD 特性文档 + openspec 能力契约 + 主 PRD §8.5 增补 + **一个代码文件** `packages/python-backend/scripts/creator_p0_smoke.py`（P0 冒烟工具）。**特性运行时代码尚未开始**；隔离 worktree `mp-blogger-collection`、裸分支 `blogger-collection`，共享根全程未被写入 |
 | 第一性原因（QM-5 ①） | N/A | 新功能设计，非缺陷修复。但取证发现本仓**从无「博主」维度概念**（`author` 仅字符串、无关注表、无按账号列作品、无周期监控），故属引入新领域而非修补既有行为 |
 | 逃逸分析（QM-5 ②） | N/A | 同上，无既有缺陷可追溯 |
 | 修复 + 回归保护（QM-5 ④） | N/A | 运行时代码未写，无回归测试可加。方案层面已把 CCG 评审发现的 7 类设计缺陷写成 A15~A25 验收项，随实现落地 |
 | 防止再次发生（QM-5 ⑤） | PASS | 关键防复发措施已落进 openspec 契约：`openspec/specs/creator-monitor/spec.md` 把「配额约束七路径强制」「按 reason 而非状态码分类」「fencing token 提交」「canonical ID 不得用原始输入」「partial 唯一索引」等写成 SHALL，后续实现按此校验 |
 | 行尾与 diff 对账 | PASS | 自有变更（`git diff --numstat origin/main...HEAD`）= `1236/0` + `71/0`；`--ignore-cr-at-eol` 两口径**逐文件相等**，无 CRLF 噪声。`01-docs/PRD.md` 为 `37/1`：新增 36 行为 §8.5 新增小节，删除 1 行为头部「功能文档」索引行被就地改写（登记本特性文档），**删除数有归因、无内容丢失** |
 | 接线棘轮 | N/A | 本批次未新增 `*.test.js`（运行时代码未写） |
-| QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/` 或 `packages/rpa-engine/`，无打包面与视觉面变更 |
+| QM-1 打包 / QM-4 视觉 | N/A 未触碰 `apps/desktop/electron/` 或 `packages/rpa-engine/`（QM-1 的触发范围），故 QM-1 不适用；新增的 `packages/python-backend/scripts/*.py` 属工具脚本，不进桌面产物，无视觉面变更 |
 | QM-6 CCG 双模型外部评审 | **PASS（带降级声明）** | 实际执行 **8 轮**跨家族评审，proposer=`opencode` × critic=`codex`，产物落 `.adversarial/ccg-plan-plan-creator-monitor-review-target/`。累计 **约 78 条意见全部逐条响应并修订**，每一条 Critical/Warning 均在 PRD 与 openspec 契约中落为强制约束。**未形式收敛**，降级声明与未收敛证据见下节 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin blogger-collection` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
 
