@@ -23,7 +23,10 @@
 
         <div class="plan-card pro-card" :class="{ active: isPro }">
           <div class="plan-name">Pro 版</div>
-          <div class="plan-price">¥99 <span style="font-size: var(--font-size-xs);color:var(--muted)">/永久</span></div>
+          <div v-if="!purchaseAvailable" class="plan-price plan-price-soon">
+            {{ t('memberCenter.paymentChannelUnavailable') }}
+          </div>
+          <div v-else class="plan-price">¥99 <span style="font-size: var(--font-size-xs);color:var(--muted)">/永久</span></div>
           <ul class="feature-list">
             <li>✓ 全平台发布</li>
             <li>✓ 批量发布</li>
@@ -34,7 +37,10 @@
             <li>✓ API 开放平台</li>
           </ul>
           <div v-if="isPro" class="plan-badge active">已激活</div>
-          <button v-else-if="!showPaymentFlow" class="upgrade-btn" @click="startPayment">立即升级</button>
+          <button v-else-if="purchaseAvailable && !showPaymentFlow" class="upgrade-btn" @click="startPayment">立即升级</button>
+          <div v-else-if="!purchaseAvailable" class="plan-badge soon">
+            {{ t('memberCenter.paymentChannelUnavailable') }}
+          </div>
         </div>
       </div>
 
@@ -162,6 +168,32 @@ const { t } = useI18n()
  * 跑的就是生产同一条分支（见 UpgradeModal.test.js）。
  */
 const simulatedPaymentAvailable = import.meta.env.DEV
+
+/**
+ * 购买入口的可见性（2026-10-07）：**构建期常量，正式包默认关闭**。
+ *
+ * 背景是一处长期脱节——本组件显示的「¥99 /永久」与真正的定价毫无关系：
+ *
+ * | 层 | 位置 | 定价/授权模型 |
+ * |---|---|---|
+ * | 权威源 | `packages/api-publish-engine/src/auth/plan-matrix.js` | free ¥0 / standard ¥29月 ¥199年 / **pro ¥79月 ¥599年**（三档订阅） |
+ * | 后端下单 | `electron/services/payment-manager.js` `PLANS` | **只有 pro，amount: 99 一次性** |
+ * | 授权落库 | `electron/services/license-manager.js` `activate()` | **买断**（`expiresAt = null`），全文件零订阅概念 |
+ * | 本组件 | 此文件 | 写死「¥99 /永久」「确认支付 ¥99」 |
+ *
+ * 即：PR #3003 把 `plan-matrix.js` 与对外文档统一成了三档订阅，但这条
+ * 下单→授权链**一处未改**。正式包里模拟支付按钮早已被 `simulatedPaymentAvailable`
+ * 挡住（#3006），用户点不到；但价格文案仍在屏幕上对外宣称一个**不存在的套餐**。
+ *
+ * 本次只做**缓解**：正式包不再展示价格、也不再提供购买入口，改为如实说明
+ * 「付费通道筹备中，暂不支持购买」。**这不是修复**——真正的修复是让
+ * `payment-manager` / `license-manager` 接入 `plan-matrix` 的订阅制（需另立项，
+ * 涉及授权校验与续期逻辑）。在那之前，本组件的 ¥99 仅在开发态可达。
+ *
+ * 口径与 `simulatedPaymentAvailable` 一致：只读 `import.meta.env.DEV`，
+ * **不给组件开测试注入口**——能传给测试的开关同样能传给误用者。
+ */
+const purchaseAvailable = import.meta.env.DEV
 
 const store = useLicenseStore()
 const showPaymentFlow = ref(false)
@@ -335,6 +367,8 @@ defineExpose({ doActivate, doTrial, doDeactivate, licenseKey })
 .plan-badge { display: inline-block; font-size: var(--font-size-xs); padding: 2px 8px; border-radius: 4px; margin-top: var(--space-sm); }
 .plan-badge.current { background: var(--soft-stone); color: var(--muted); }
 .plan-badge.active { background: var(--success-bg, #d1fae5); color: var(--success, #059669); }
+.plan-badge.soon { background: var(--soft-stone); color: var(--muted); }
+.plan-price-soon { font-size: var(--font-size-sm); font-weight: 500; color: var(--muted); }
 .upgrade-btn {
   display: block;
   padding: 8px 16px;
