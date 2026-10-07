@@ -129,3 +129,65 @@ function updateRecordAudit (id, patch, ownerSubject) { ...
 1. **未**把 `-30`/`-1` 写进 `BILIBILI_OBSERVED_ONLINE_STATES` 之类的审核中映射 —— 本轮只观测了**一次**投稿，两个值是否覆盖全部「审核中」形态未知；且 `AUDIT_REQUERY_VERIFIED_PLATFORMS` 仍要求 published/inAudit/deny/无定论四类齐备，deny 仍缺。
 2. **未**改 `phase4-events.js:91` 的键错配 —— 独立变更，需 PRD + 注入真实现的契约锁 + 反证。
 3. **未**据「20 秒即过审」推断该账号免审或审核时长上界 —— 单次样本，不足以外推。
+
+## 八、真机端到端复验（2026-10-07 晚，`keyfix-live-verify`）—— 修复确实生效，且带一个天然对照组
+
+#3083 合并后补的这一次复验。**同一账号、同一条链路、同一份 profile**，只有一处不同：这次的运行代码含键对齐修复。于是上一次那篇稿子自然成了对照组。
+
+- 运行态：worktree `mp-audit-writeback-key-fix`（分支 `audit-writeback-key-fix` @ `aa196aba0`，同时含 #3065 分桶查询与 #3083 键修复），userData 用共享锚点 `D:\Data\projects\Mulpub\shared-user-data`，vite 6511 / CDP 10559（`MP_CDP_ALLOW_ALL_ORIGINS=1`）
+- **跑的虽不是 main tip，但等价于 main 的这条链路**（这条判据比"落后几个提交"硬）：`git rev-parse <tree>:<path>` 逐个比 blob，`publish-history.js` / `publish-monitor.js` / `bilibili-audit-check.js` / `phase4-events.js` **四个文件在 `aa196aba0` 与 `origin/main` 上逐字节相同**。中间那 14 个提交含一处 `fix(desktop)` 权限修复，但它不碰这四个文件 —— 所以本轮结论对 main 成立，不需要另跑一次。（当时的错误写法是"逐条查过均为无关功能/文档"，那没量 blob；已按实测改成 blob 同一性。）
+- 触发：经 CDP 在渲染层调 `publishBatch([{platform:'bilibili',accountId:'ca681b37'}], {title, content, video_path, category:21, copyright:1, aiGenerated:false})`
+- 载荷素材沿用上轮那份仓库内 E2E 产物（640×360 / h264+aac / 6.0s / 76,657 B），**`aiGenerated` 仍显式传 `false`**（素材是否 AI 生成未经核实，不主动声明）
+
+### 8.1 时间线（全部取自应用自记日志 `shared-user-data/logs/app-2026-10-07.log`）
+
+```
+13:53:34.186Z  队列 task_1_1791381214184 started
+13:53:35.617Z  success → url https://www.bilibili.com/video/BV1hhH16NEAZ  postId 同  mode:"api"
+13:53:45.988Z  poll-progress retries=1  status:pending  reason:"in-review-bucket"   ← 分桶扇出在真机上走到了
+13:53:56 / 13:54:06 / 13:54:17 / 13:54:27   retries=2..5 同上
+13:54:38.318Z  monitor-result {"platform":"bilibili","postId":"BV1hhH16NEAZ","status":"published"}
+               （此后本条任务没有任何 audit-update-skipped）
+```
+
+**对照（同一份日志、同一账号、修复前那次投稿）**：
+
+```
+08:32:33.631Z  monitor-result {"postId":"BV1HyHC6mExS","status":"published"}
+08:32:33.634Z  audit-update-skipped {"taskId":"task_1_1791361909906"}   ← 3 毫秒后就被判"键没命中"
+```
+
+### 8.2 落库回读（`historyList`，不看返回值看真源）
+
+| | 修复前那条 | 修复后这条 |
+| --- | --- | --- |
+| 记录 `id` / `taskId` | `muxumprdxpwj` / `task_1_1791361909906` | `muy64gaqnqg6` / `task_1_1791381214184` |
+| `auditStatus` | **缺席** | `published` |
+| `monitorStatus` | **缺席** | `published` |
+| `platformWorkId` | **缺席** | `BV1hhH16NEAZ` |
+| `auditedAt` | **缺席** | `2026-10-07T13:54:38.318Z` |
+
+四个字段恰好是 `AUDIT_PATCH_KEYS` 白名单的全集，且**值与日志里那次 `monitor-result` 的时间逐毫秒一致** —— 证明写回来自回查链路本身，不是别处填的。
+
+### 8.3 界面上真的看得见（DOM 层）
+
+导航到 `#/publish/history` 后读 `document.body.innerText`：
+
+- 整页徽标集合 `badgesPresent = ["已上线"]`（候选词表是 `已上线/审核中/待发布/审核未通过/未公开/已下线/转码失败` 七项），**只命中一项**；
+- 它出现在新稿那一行：`… 审核回写复验稿 请忽略 … 全部发布成功 | 已上线 | API 直连 | Bilibili …`；
+- 旧稿那一行是 `… 自动化取证测试稿 请忽略 稍后删除 … 全部发布成功 | API 直连 | Bilibili …`，**没有徽标位**。
+
+即 PRD 里那条“修完这条链才第一次真正通”在用户可见层面成立。注意口径：**只核到 DOM 文本层，没做像素级核对**，本轮不新增视觉基线（小控件徽标对像素门禁本就双向失明）。
+
+### 8.4 本轮仍不能下结论的四件事（不把单次样本外推）
+
+1. **审核时长**：上一轮投稿→收敛 44 秒，本轮 64 秒。两个样本不构成上界，也不支持“该账号免审”——事实上本轮前 5 轮轮询都在 `is_pubing` 桶里拿到了 `pending`，说明确实经过程审核中态。
+2. **`-30` / `-1` 仍不写进任何“审核中”映射**：本轮观测到的是“最终 published”，未新增不通过现场；10-05 §四.1 的“不通过”那一格仍空。
+3. **"未验证 main tip 的其余改动"**：本轮运行树与 main 的等价性只覆盖那四个链路文件（blob 逐字节相同，见 §八开头那条），不等于验证了 main 上的其它 14 个提交；那些由各自 PR 的 CI 覆盖。
+4. **没验证“不通过/驳回”分支的真机形态**：需要一条真会被驳回的稿件，本轮未做（也不拿“造一条违规内容”去换）。
+
+### 8.5 稿件处置与收尾
+
+- 本轮两篇稿件均**保留未删**（沿用上轮“已发的内容不用删”的指示）；标题已写明“请忽略”。
+- 上一轮那篇标题写着“稍后删除”但实际保留 —— 那是**已发布内容上的不实措词**，改标题要再写一次账号数据，**未擅自处理**，在此登记。
+- 收尾：停掉本实例后按“本实例独有端口标记”反查残留，`MINE_FOUND=0`、端口 6511 / 10559 `LISTENERS=0`；**未按镜像名 `taskkill`**（机器上常有别人会话的同一个 exe）。
