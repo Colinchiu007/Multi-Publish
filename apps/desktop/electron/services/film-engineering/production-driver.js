@@ -172,13 +172,20 @@ async function runProduction (opts) {
     throw new Error('production-driver: runOnlyBatch 必须为整数或 null')
   }
 
-  // 台账：磁盘已有且批次结构与本次计划一致 → 续跑复用；否则（缺失/损坏/不一致）重建
+  // 台账：磁盘已有且批次结构与本次计划一致 → 续跑复用；否则（缺失/损坏/不一致）重建。
+  //
+  // 一致性必须比对 shotId **本身**而非仅比每批数量：台账以 taskId 为键，而 taskId
+  // 是用户手输的（不是系统生成的），同一个 taskId 下换一组分镜、恰好每批数量相同
+  // 是完全可能的场景。只比数量会让台账被静默复用——新分镜被丢弃、系统继续跑台账里
+  // 的旧分镜且不告警。对「逐批确认后才计费」的产品语义，这是最危险的一类静默失真。
   let ledger = loadLedger(ledgerDir)
   const planShape = planBatches(shotIds, batchSize)
+  const sameShotIds = (a, b) =>
+    Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i])
   const sameShape = ledger
     && ledger.taskId === taskId
     && ledger.batches.length === planShape.length
-    && ledger.batches.every((b, i) => b.shotIds.length === planShape[i].shotIds.length)
+    && ledger.batches.every((b, i) => sameShotIds(b.shotIds, planShape[i].shotIds))
   if (!sameShape) {
     ledger = createLedger({ taskId, shotIds, batchSize })
     saveLedger(ledgerDir, ledger)

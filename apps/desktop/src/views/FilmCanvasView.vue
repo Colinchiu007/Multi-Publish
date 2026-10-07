@@ -70,8 +70,6 @@ async function onAdapt () {
   if (!r.ok) { ElMessage.error(errText(r.errorCode)); return }
   ElMessage.success(t('filmEngineering.canvas.adapt.done', { n: r.total }))
   if (r.warnings && r.warnings.length) ElMessage.warning(r.warnings.join('; '))
-  // 3.3 LLM 降级合同：用户勾选了润色但引擎未走 LLM（无 key/调用失败等），非阻断提示，分镜仍按内置规则产出
-  if (form.llmEnabled === true && r.llmEnhanced !== true) ElMessage.warning(t('filmEngineering.canvas.adapt.llmFallback'))
 }
 
 function pickFile (kind) {
@@ -168,10 +166,6 @@ function gotoClassic () { router.push('/film-engineering/classic') }
       <el-input v-model="form.script" type="textarea" :rows="3" :placeholder="t('filmEngineering.canvas.scriptPlaceholder')" data-testid="fcv-script" />
       <div class="fcv-script-meta">
         <span>{{ t('filmEngineering.canvas.adapt.scriptLimitHint') }}</span>
-        <label class="fcv-llm">
-          <input v-model="form.llmEnabled" type="checkbox" data-testid="fcv-llm" />
-          {{ t('filmEngineering.canvas.llmEnabled') }}
-        </label>
       </div>
     </div>
 
@@ -228,7 +222,6 @@ function gotoClassic () { router.push('/film-engineering/classic') }
 .fcv-file { display: none; }
 .fcv-script { padding: 10px 16px; border-bottom: 1px solid var(--el-border-color, #dcdfe6); }
 .fcv-script-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: var(--font-size-xs); color: var(--el-text-color-secondary, #909399); }
-.fcv-llm { display: flex; align-items: center; gap: 4px; }
 .fcv-alert { margin: 10px 16px; }
 .fcv-canvas { flex: 1; min-height: 0; position: relative; }
 .fcv-cost-hint { margin: 0; line-height: 1.6; }

@@ -83,7 +83,6 @@ export function useFilmEngineering () {
   const adapt = reactive({
     script: '',
     characterMap: { ROKO: '', JAXX: '', LULU: '', REIN: '' },
-    llmEnabled: false,
     adaptedShots: [],
     warnings: [],
     loading: false,
@@ -300,7 +299,6 @@ export function useFilmEngineering () {
       filmEngineering: {
         copyMode: COPY_MODES.includes(copyMode.value) ? copyMode.value : 'full',
         characterMap,
-        llmEnabled: adapt.llmEnabled === true,
       },
     }
   }
@@ -309,11 +307,14 @@ export function useFilmEngineering () {
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot) || snapshot.kind !== 'film-engineering') return false
     const config = snapshot.filmEngineering
     if (!config || typeof config !== 'object' || Array.isArray(config)) return false
-    if (!COPY_MODES.includes(config.copyMode) || typeof config.llmEnabled !== 'boolean') return false
+    // 2026-10-07：llmEnabled 已随「LLM 润色开关下线」一并移除。
+    // 快照结构变了，但**不能**因此让存量档案静默失效——旧档案带 llmEnabled 应当照常
+    // 套用（多余字段忽略），新档案不带它也必须通过校验。因此这里只校验 copyMode，
+    // 不对 llmEnabled 做存在性/类型断言（那正是本 bug 的形态：字段被删、断言还在）。
+    if (!COPY_MODES.includes(config.copyMode)) return false
     if (!config.characterMap || typeof config.characterMap !== 'object' || Array.isArray(config.characterMap)) return false
     const normalized = normalizeCharacterEntries(Object.entries(config.characterMap).map(([key, value]) => ({ key, value })))
     copyMode.value = config.copyMode
-    adapt.llmEnabled = config.llmEnabled
     adapt.characterMap = Object.fromEntries(normalized.map((entry) => [entry.key, entry.value]))
     if (Array.isArray(roleEntries)) {
       roleEntries.splice(0, roleEntries.length, ...normalized)
@@ -421,7 +422,7 @@ export function useFilmEngineering () {
     adapt.adaptedShots = []
     adapt.warnings = []
     try {
-      const res = await a.adaptScript({ script: adapt.script, characterMap, llmEnabled: adapt.llmEnabled })
+      const res = await a.adaptScript({ script: adapt.script, characterMap })
       if (res && res.code === 0) {
         adapt.adaptedShots = res.data.adaptedShots || []
         adapt.warnings = res.data.warnings || []

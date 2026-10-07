@@ -56,7 +56,8 @@ describe('runAdapt 初始拆分镜流', () => {
     expect(c.nodes.value.every((n) => n.type === 'shot')).toBe(true)
     const payload = mockApi.filmEngineering.adaptScript.mock.calls[0][0]
     expect(payload.characterMap).toEqual({ ROKO: '小强' })
-    expect(payload.llmEnabled).toBe(false)
+    // 2026-10-07：LLM 润色开关下线后，请求体不再携带 llmEnabled
+    expect(payload).not.toHaveProperty('llmEnabled')
   })
 
   it('重复执行不产生重复节点（同 shotId 保留原位）', async () => {

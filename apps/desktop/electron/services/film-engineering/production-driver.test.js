@@ -42,6 +42,18 @@ afterEach(() => { while (ledgerDirs.length) { const d = ledgerDirs.pop(); try { 
 
 function ids (n) { return Array.from({ length: n }, (_, i) => 'shot-' + i) }
 
+function mkDisk () {
+  const files = {}
+  return {
+    files,
+    probe: (runId, count) => ({
+      missing: Array.from({ length: count }, (_, i) => i).filter((i) => !(files[runId] || []).includes(i)),
+    }),
+    fill: (runId, count) => { files[runId] = Array.from({ length: count }, (_, i) => i) },
+  }
+}
+
+
 describe('planBatches（切批边界）', () => {
   it('批大小常量为 10', () => {
     expect(PRODUCTION_BATCH_SIZE).toBe(10)
@@ -157,16 +169,6 @@ describe('buildRenderManifest（全批收口自动生成，组 5 契约）', () 
 
 describe('runProduction（驱动：顺序、隔离、续跑、事件）', () => {
   // 可增长磁盘 mock：只有 runBatch 真实落盘后 probe 才算齐（新跑必 needRun）
-  function mkDisk () {
-    const files = {}
-    return {
-      files,
-      probe: (runId, count) => ({
-        missing: Array.from({ length: count }, (_, i) => i).filter((i) => !(files[runId] || []).includes(i)),
-      }),
-      fill: (runId, count) => { files[runId] = Array.from({ length: count }, (_, i) => i) },
-    }
-  }
 
   it('两批顺序执行 → 台账 done 收口 + renderManifest 产出', async () => {
     const dir = tmpLedgerDir()
@@ -333,5 +335,87 @@ describe('runProduction（驱动：顺序、隔离、续跑、事件）', () => 
   it('shotIds/ledgerDir 非法 → fail-closed 抛错（不静默）', async () => {
     await expect(runProduction({ taskId: '', shotIds: ['a'], ledgerDir: tmpLedgerDir() })).rejects.toThrow(/taskId/)
     await expect(runProduction({ taskId: 't', shotIds: [], ledgerDir: tmpLedgerDir() })).rejects.toThrow(/shotIds/)
+  })
+})
+
+/**
+ * 回归保护（2026-10-07）：台账复用判定必须比对 shotId 本身。
+ *
+ * Bug：sameShape 只比较「每批数量」，不比较 shotId。后果是——用户换一个
+ * taskId 复用同名任务、或在同一 taskId 下换了一组分镜但数量恰好相同，
+ * 台账被**静默复用**：新分镜被丢弃，系统继续跑台账里的旧分镜，且不告警。
+ * 对「逐批确认后才计费」的产品语义，这是最危险的一类静默失真。
+ *
+ * 反证纪律：拆掉下面任一断言对应的实现，本组必须变红。
+ */
+describe('台账复用：必须比对 shotId 本身而非仅比数量', () => {
+  it('同 taskId + 同 shotIds → 复用台账（不重建，保留已完成批次）', async () => {
+    const dir = tmpLedgerDir()
+    const disk = mkDisk()
+    const calls = []
+    const run = async () => runProduction({
+      taskId: 'reuse', shotIds: ids(4), ledgerDir: dir,
+      runBatch: async (b) => { calls.push(b.batchIndex); disk.fill(b.runId, b.shotIds.length) },
+      probe: disk.probe, emit: () => {},
+    })
+    const first = await run()
+    expect(first.ok).toBe(true)
+    const second = await run()
+    // 磁盘已齐 ⇒ 两批都跳过，零 provider 调用
+    expect(calls).toEqual([0])
+    expect(second.ok).toBe(true)
+    expect(loadLedger(dir).taskId).toBe('reuse')
+  })
+
+  it('同 taskId + 数量相同但 shotIds 不同 → 必须重建台账，不得静默复用', async () => {
+    const dir = tmpLedgerDir()
+    const original = ['a-1', 'a-2', 'a-3', 'a-4']
+    const swapped = ['x-1', 'x-2', 'x-3', 'x-4'] // 数量相同，成员完全不同
+
+    await runProduction({
+      taskId: 'swap', shotIds: original, ledgerDir: dir,
+      runBatch: async () => {}, probe: () => ({ missing: [0] }), emit: () => {},
+    })
+    expect(loadLedger(dir).batches[0].shotIds).toEqual(original)
+
+    // 第二轮换一组分镜，但每批数量刻意相同
+    const r = await runProduction({
+      taskId: 'swap', shotIds: swapped, ledgerDir: dir,
+      runBatch: async () => {}, probe: () => ({ missing: [0] }), emit: () => {},
+    })
+    // 判据落在台账内容上：必须是新分镜，而不是沿用旧的
+    expect(loadLedger(dir).batches[0].shotIds).toEqual(swapped)
+    expect(r.ok).toBe(false) // probe 恒报缺镜，收口不通过
+  })
+
+  it('同 taskId + 同数量但顺序不同 → 视为不同计划并重建', async () => {
+    const dir = tmpLedgerDir()
+    const fwd = ['s-1', 's-2', 's-3', 's-4']
+    const rev = fwd.slice().reverse()
+
+    await runProduction({
+      taskId: 'order', shotIds: fwd, ledgerDir: dir,
+      runBatch: async () => {}, probe: () => ({ missing: [0] }), emit: () => {},
+    })
+    await runProduction({
+      taskId: 'order', shotIds: rev, ledgerDir: dir,
+      runBatch: async () => {}, probe: () => ({ missing: [0] }), emit: () => {},
+    })
+    expect(loadLedger(dir).batches[0].shotIds).toEqual(rev)
+  })
+
+  it('同 taskId + 数量不同 → 仍按原行为重建（不得回归）', async () => {
+    const dir = tmpLedgerDir()
+    await runProduction({
+      taskId: 'cnt', shotIds: ids(4), ledgerDir: dir,
+      runBatch: async () => {}, probe: () => ({ missing: [0] }), emit: () => {},
+    })
+    await runProduction({
+      taskId: 'cnt', shotIds: ids(2), ledgerDir: dir,
+      runBatch: async () => {}, probe: () => ({ missing: [0] }), emit: () => {},
+    })
+    const back = loadLedger(dir)
+    expect(back.batches.length).toBe(1)
+    expect(back.batches[0].shotIds).toEqual(ids(2))
   })
 })

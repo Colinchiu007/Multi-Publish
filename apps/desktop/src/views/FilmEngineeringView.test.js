@@ -1,6 +1,6 @@
 // @ts-check
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { ref, reactive, nextTick } from 'vue'
+import { ref, reactive, nextTick, computed } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import FilmEngineeringView from './FilmEngineeringView.vue'
 import i18n from '@/i18n'
@@ -41,7 +41,7 @@ const composable = {
     schemaVersion: 1,
     capturedAt: '2026-08-29T00:00:00.000Z',
     kind: 'film-engineering',
-    filmEngineering: { copyMode: composable.copyMode.value, characterMap: Object.fromEntries((entries || []).map((entry) => [entry.key, entry.value])), llmEnabled: composable.adapt.llmEnabled },
+    filmEngineering: { copyMode: composable.copyMode.value, characterMap: Object.fromEntries((entries || []).map((entry) => [entry.key, entry.value])) },
   })),
   applyConfigProfileSnapshot: vi.fn(() => true),
   loadConfigProfiles: vi.fn().mockResolvedValue([]),
@@ -73,7 +73,6 @@ beforeEach(() => {
   composable.status.value = null
   composable.selectedShotIds.value = []
   composable.copyMode.value = 'full'
-  composable.adapt.llmEnabled = false
   composable.adapt.script = ''
   composable.adapt.characterMap = {}
   composable.scenes.value = []
@@ -190,5 +189,112 @@ describe('FilmEngineeringView configuration profiles', () => {
     const plain = w.find('span.fe-meta-link')
     expect(plain.exists()).toBe(true)
     expect(plain.text()).toBe('javascript:alert(1)')
+  })
+})
+
+/**
+ * 回归保护（2026-10-07）：全量出片「逐批确认」必须显示批次上下文。
+ *
+ * Bug：`production.batchCard`（含 {i}/{n}/{count}/{aspect}/{seconds} 五个占位符）
+ * 全仓零引用；而 `confirmBatch` 文案「确认执行本批」本身没有任何占位符，却被传了
+ * 那五个参数——结果是用户点确认前**看不到本批要出几镜、什么画幅、什么时长**，
+ * 而这是「逐批确认后才计费」里唯一的付费前核对信息。
+ *
+ * 反证纪律：删掉模板里那行 batchCard，本组必须变红。
+ */
+describe('FilmEngineeringView 全量出片 · 批次上下文（付费前核对）', () => {
+  function mkProduction (overrides = {}) {
+    return {
+      phase: ref('batching'),
+      busy: ref(false),
+      plan: ref(null),
+      taskId: ref('tk'),
+      shotIds: ref([]),
+      chosen: ref({ aspect: '16x9', seconds: 5 }),
+      batches: ref([
+        { batchIndex: 0, shotCount: 10, status: 'pending', error: null, doneShots: 0 },
+        { batchIndex: 1, shotCount: 4, status: 'pending', error: null, doneShots: 0 },
+      ]),
+      progress: ref({ doneCount: 0, totalCount: 14 }),
+      renderManifest: ref(null),
+      manifestError: ref(null),
+      failedBatches: ref([]),
+      confirmedShotCount: ref(0),
+      remainingBatchCount: ref(2),
+      recycled: ref(null),
+      finalPath: ref(null),
+      errorCode: ref(null),
+      errorText: ref(null),
+      batchCount: computed(() => 2),
+      planProduction: vi.fn(),
+      begin: vi.fn(),
+      confirmBatch: vi.fn(),
+      resume: vi.fn(),
+      retryShotInBatch: vi.fn(),
+      recycleAll: vi.fn(),
+      composeFinal: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+      ...overrides,
+    }
+  }
+
+  let productionMock = null
+
+  beforeEach(() => {
+    vi.resetModules()
+    productionMock = mkProduction()
+    vi.doMock('@/composables/useFilmProduction', () => ({ useFilmProduction: () => productionMock }))
+  })
+
+  async function mountBatching () {
+    const { mount: mountLocal, flushPromises: fp } = await import('@vue/test-utils')
+    const { default: View } = await import('./FilmEngineeringView.vue')
+    composable.status.value = { available: true, filmMeta: { title: 'F', logline: 'L', durationSec: 60 }, sceneCount: 1, shotCount: 1, referenceCount: 0 }
+    composable.selectedShotIds.value = ['shot-0001']
+    const wrapper = mountLocal(View, {
+      global: {
+        plugins: [i18n],
+        compilerOptions: { isCustomElement: (tag) => tag.startsWith('el-') },
+        stubs: { Teleport: { template: '<div><slot /></div>' }, Transition: { template: '<div><slot /></div>' }, 'el-tree': { template: '<div class="el-tree-stub"></div>' } },
+      },
+    })
+    await fp()
+    await wrapper.find('[data-testid="fe-production-entry"]').trigger('click')
+    await fp()
+    return wrapper
+  }
+
+  it('每个待确认批次都渲染批次上下文（批号/镜数/画幅/时长）', async () => {
+    const wrapper = await mountBatching()
+    const cards = wrapper.findAll('[data-testid="fe-production-batch-card"]')
+    expect(cards.length).toBe(2)
+    // 第 1 批：第 1/2 批 · 10 个分镜 · 16:9 · 5 秒
+    // 画幅必须显示**与画幅下拉逐字相同**的标签（"16:9 横屏"），而不是原始枚举 "16x9"
+    expect(cards[0].text()).toContain('1/2')
+    expect(cards[0].text()).toContain('10')
+    expect(cards[0].text()).toContain('16:9 横屏')
+    expect(cards[0].text()).not.toContain('16x9')
+    expect(cards[0].text()).toContain('5s')
+    // 第 2 批镜数不同，必须各按自己的数量渲染
+    expect(cards[1].text()).toContain('2/2')
+    expect(cards[1].text()).toContain('4')
+  })
+
+  it('确认按钮保持纯文案，不把批次参数塞进按钮（避免超长按钮）', async () => {
+    const wrapper = await mountBatching()
+    const btn = wrapper.find('[data-testid="fe-production-confirm-0"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toBe('确认执行本批')
+  })
+
+  it('批次上下文随画幅/时长选择实时变化', async () => {
+    const wrapper = await mountBatching()
+    expect(wrapper.findAll('[data-testid="fe-production-batch-card"]')[0].text()).toContain('16:9 横屏')
+    productionMock.chosen.value = { aspect: '9x16', seconds: 8 }
+    await wrapper.vm.$nextTick()
+    const after = wrapper.findAll('[data-testid="fe-production-batch-card"]')[0].text()
+    expect(after).toContain('9:16 竖屏')
+    expect(after).toContain('8s')
   })
 })

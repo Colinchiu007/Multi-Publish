@@ -123,6 +123,10 @@ function registerFilmEngineeringStages (pipelineEngine) {
         script,
         characterMap,
         templateShots: template.shots,
+        // 2026-10-07：LLM 润色开关已整体下线（UI 无入口，且 ScriptAdapter 唯一生产
+        // 构造点传 llm: null，启用判定恒 false）。此处保持显式 false 而非透传
+        // params.llmEnabled——流水线阶段永远不允许隐式启用一条用户看不见的能力。
+        // 上游若将来真接线，需同时改这里与 container.setup.js 的 llm: null。
         llmEnabled: false,
       })
       if (!result.ok) {
