@@ -2,9 +2,6 @@
 record: spec-purpose-tbd-gate-archive
 task: 归档 spec-purpose-tbd-gate 并把 1 条 Requirement 同步进主规格（Gate 12d 交付收尾）
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填把本行改成 PASS 并整段删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 ---
 
 ## 本次执行记录：归档 spec-purpose-tbd-gate（spec-purpose-tbd-gate-archive，2026-10-08）【docs-only】
@@ -67,7 +64,7 @@ tasks 5.4 当初写的是「归档后本 change 自己会写 `TBD` 到新增规�
 | 主规格 Purpose（Gate 12d 本体） | PASS | `node scripts/check-spec-purpose.js` → `扫描 151 份主规格，违规 0`；23 条锁 `23/23` |
 | OpenSpec 校验 | PASS | `openspec validate --all --strict` → 164 passed / 10 failed，`✗ spec/` **0 项**，10 项全是他人的 `change/…`（与归档前同一集合） |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道：未触运行时代码、未改门禁判据本身（本轮只归档与同步规格文本） |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后取证：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`、`git ls-remote --heads origin spec-purpose-tbd-gate-archive` 返回 0 行；改 PASS 的同一次提交内删除本段三个 `sync_*` 字段 |
+| 远程同步 | PASS | PR #3114 已 squash 合并，merge SHA `cd5ba8e486d51312e2dd37bf94bffc91a4a4324c`（committer 时间 `2026-10-07T16:21:44Z`，取自 `git log origin/main --grep='(#3114)$' --format=%H\|%cI`）；`git ls-remote origin refs/heads/spec-purpose-tbd-gate-archive` 返回 **0 行**。main 上按行级包含复核（squash 后分支 head 不是 main 的祖先）：`git grep -ac "^### Requirement:" origin/main -- openspec/specs/openspec-integration/spec.md` = **12**、`git grep -ao "共 12 条"` 命中、`openspec/changes/archive/2026-10-08-spec-purpose-tbd-gate` 在树内、活跃 `openspec/changes/spec-purpose-tbd-gate` 计数 **0**、那条 `### Requirement: 主规格的 Purpose 完整性必须有门禁` 在 main 上。回填与销账（删除本记录 frontmatter 三个 `sync_*`）发生在同一次提交 |
 
 ### 遗留（不假装已闭合）
 
