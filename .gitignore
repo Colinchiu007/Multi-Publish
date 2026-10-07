@@ -160,6 +160,8 @@ scripts/*.js
 # !scripts/*.test.js 兜住，但脚本本体必须逐条放行，否则 git add 当场报错、CI 永远看不见它
 !scripts/check-pr-exec-record.js
 !scripts/check-changelog-growth.js
+# 主规格 Purpose 去 TBD 门禁（change: spec-purpose-tbd-gate）；测试文件由下面 !scripts/*.test.js 兜住
+!scripts/check-spec-purpose.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.

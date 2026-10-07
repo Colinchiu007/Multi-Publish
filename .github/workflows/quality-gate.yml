@@ -165,6 +165,22 @@ jobs:
           echo "[doc-abs-paths] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
           node scripts/check-doc-abs-paths.js --base="${MB:-$BASE_REF}" --head=HEAD
 
+      # --- Gate 12d：主规格 Purpose 去 TBD 门禁 ---
+      # 动因（2026-10-07 实测）：openspec 归档器会在 specs 文件里留下
+      # `TBD - created by archiving change <name>. Update Purpose after archive.`，而全仓
+      # **零门禁**在看它（`git grep -l Purpose -- scripts .github` = 0 命中），于是 151 份主规格里
+      # 积压了 43 份。PR #3084 一次性填平存量，本条保证不再静默积累。
+      # 判据是**全量扫描**而非改动集：Purpose 缺失由"归档"这个动作引入，与后续谁改了哪个文件无关。
+      # 落点必须是本 job 且排在 classify 之后：输入 `openspec/**` 命中 docs-only 白名单，
+      # 放进被 `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验（同族 #2718 / #2745 / #3000）；
+      # 而摆在 classify 之前时本 step 一红会让 docs-only 输出整条消失、下游重型 job 全部跑满。
+      # 位置与"测试同 step 点名"两处前提由 scripts/check-spec-purpose.test.js 的结构锁钉住。
+      - name: "Gate 12d - Spec Purpose presence (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-spec-purpose.test.js
+          node scripts/check-spec-purpose.js
+
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。
