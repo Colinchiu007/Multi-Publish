@@ -52,6 +52,81 @@ glob 展开用 `fs.globSync`（Node 22 自带，vitest 底层同一套引擎）�
 
 反证：撤掉 `src/**/*.vue` → 门禁 exit 1 并点名「146 个 .vue 未被覆盖」；恢复 → PASS
 （146/146）。
+# [未发布] feat(xiaohongshu): 打通小红书草稿箱发布——真实 XYW_ 签名 + 三步上传链路（xhs-draft-publish，2026-10-07）
+
+### 起因：7 个平台里唯一一条走不通的链路
+热门选题 E2E 要求「能发的都发，小红书只需放草稿箱」。此前小红书发布链**从未真正可用**，
+三处实证缺陷：
+
+| # | 缺陷 | 证据 |
+| --- | --- | --- |
+| 1 | 签名是占位实现 | `getXiaohongshuSign` = `md5(ts + "MirAR" + body)`，与平台算法无关 |
+| 2 | 签名被塞进 query | `params = { sign: {X-s, X-t} }` ⇒ 序列化成 `sign=[object Object]` |
+| 3 | 端点不存在 | adapter 打 `/api/publish`，平台无此端点 |
+
+`signer-assembly.js` 亦标着 `verified: false` / `moduleId: -1`，注释「x-s 依赖外包签名服务，
+本波只留 provider 槽不激活链」——该链路从未启用。
+
+### 关键发现：X-s 是纯 AES-128-CBC，不需要浏览器
+
+公开资料（Cloxl/xhshow，MIT；Go 版 tamnd/xiaohongshu-cli 独立复现同常量）显示：
+
+```
+X-s = "XYW_" + hex(AES-128-CBC(
+         base64("x1={md5('url='+fullUri)};x2={envFlags};x3={a1};x4={ts};"),
+         key = 7cc4adla5ay0701v, iv = 4uzjr7mbsibcaldp))
+```
+
+纯本地计算即可，**故不走隐藏浏览器抽签**：不开窗即不引入 `wechat_mp` / `baijiahao`
+那类隐藏窗口原生崩溃面，同时不受 `verified` 闸门约束。
+
+**只实现 `XYW_`，不实现 `XYS_`** —— 老 `XYS_` 形态已被小红书数据接口以 HTTP 406 拒绝。
+
+### 实现
+
+- `signer-local.js`：真实 XYW_ 实现（替换 md5 占位）+ `x-s-common` / traceid / `x-rap-param`
+- `publish/platforms/xiaohongshu-draft.js`（新增）：三步链路
+  `permit → ros-upload PUT → web_api/sns/v2/note`，**默认 `draft: true`**（落创作者中心草稿箱）
+- `adapters/xiaohongshu.js`：重写 —— 修端点、修签名结构（改独立 header）、加草稿语义
+- `signer-assembly.js`：小红书新增 `localAlgorithm` 求签形态（不开窗口）
+
+### 交叉校验抓到的真实 bug
+
+实现后专门写了 `signer-local-xyw-crosscheck.js`：**刻意不复用**实现里的任何常量与函数，
+照 Python 源码独立复算一遍再比对。首轮即抓到两处隐蔽错误：
+
+1. **填充时机错** —— 参考实现是 `base64(message)` **之后**才 PKCS#7 填充；
+2. **双重填充** —— `createCipheriv('aes-128-cbc')` 默认 `autoPadding=true` 会再补一次，
+   密文多出整整一个块。
+
+修复后交叉校验输出 `OK cross-check passed (JS output == Python reference output)`。
+
+### fail-closed 原则（贯穿实现）
+
+缺 `a1` / 缺 `Authorization` ⇒ 抛错且**不发请求**；无图片 ⇒ 抛错（平台不支持纯文字笔记）；
+`code != 0` ⇒ 如实抛错；签名不可用 ⇒ 抛错，**绝不退回占位签名**。
+
+### 测试
+
+| 文件 | 用例 | 结果 |
+| --- | --- | --- |
+| `signer-local-xyw.test.js` | 7 | ✅ 全绿 |
+| `xiaohongshu-draft-chain.test.js` | 6 | ✅ 全绿 |
+| `electron/tests/signer-xhs-local.test.js` | 4 | ✅ 全绿 |
+| `signer-local-xyw-crosscheck.js` | 交叉校验 | ✅ 与参考实现逐字节等价 |
+
+包内全量：`2 failed / 32 passed`（279 用例）—— 两个失败文件在 **main 上同样失败**
+（`describe is not defined`，vitest/mocha 混用的既有环境问题），**非本次引入**。
+
+### 遗留（不假装已闭合）
+
+- **草稿箱真机写入未验证**：本 PR 完成实现 + 契约测试 + 交叉校验，真机验证前不得宣称可用
+- 平台改签名算法 / 指纹常量需同步维护（已集中单点）
+- 草稿箱接口无官方公开文档，端点形态依据多个公开实现，真机响应为最终判据
+
+---
+
+
 
 # [未发布] fix(queue): 频控等待任务（_delayed）纳入可观测与持久化——修批量发布队列饿死（queue-delayed-observability，2026-10-06）
 
