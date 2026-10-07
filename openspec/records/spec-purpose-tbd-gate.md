@@ -214,5 +214,9 @@ step [8] "Gate 12d - Spec Purpose presence (changes job)" -> completed/success
   但那属上游 openspec CLI 行为，本仓不 fork 它；当前顺序（先归档、CI 立刻红）已能把账留在台面上。
 - 归档本 change 后，它会给自己新增的主规格写 TBD —— 这正是本门禁的活体测试场景，
   归档时必须确认产出的 `openspec/specs/openspec-integration/spec.md` Purpose 已填（tasks 5.4 已记）。
+- **`tasks.md` 的 5.3/5.4 复选框留待归档 PR**：回填 PR 若同时改 `openspec/changes/**/tasks.md`
+  就不再是「纯回填」（`check-pr-exec-record.js` 的定义要求变更集**全部**是载体文件），会被判
+  「未携带执行记录」而红。本记录即该次交付的现场（合并事实、CI 逐字取证、红格定性），
+  勾选状态与事实之间的差异到此为止：读到 `tasks.md` 未勾 5.3 时，以本节为准。
 - 流程面的一条方法论遗留（本轮最贵的一课）：**给脚本加参数化行为时，反证必须有一条从进程入口打进去**。
   `process.exit(main())` 丢 argv 那个缺陷，前 7 格反证全部失明 —— 它们只调导出函数，从不经过 CLI。
