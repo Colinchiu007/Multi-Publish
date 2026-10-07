@@ -69,7 +69,10 @@
       </nav>
 
       <div class="member-center-main" :data-testid="`member-center-${activeKey}`">
-        <p v-if="errorMessage" class="member-center-error" role="alert">{{ errorMessage }}</p>
+        <div v-if="errorMessage" class="member-center-error-box">
+          <p class="member-center-error" role="alert">{{ errorMessage }}</p>
+          <IdentityDiagnostics />
+        </div>
         <component :is="activeView" />
       </div>
     </div>
@@ -87,6 +90,7 @@ import { useIdentityStore } from '@/stores/identity'
 import { useLicenseStore } from '@/stores/license'
 import { useMemberStore } from '@/stores/member'
 import { resolveIdentityErrorMessageKey } from '@/utils/identity-error-messages'
+import IdentityDiagnostics from '@/components/IdentityDiagnostics.vue'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import { MEMBER_VIEWS } from './member-center/views'
 

@@ -22,11 +22,14 @@ const MemberViewsStub = new Proxy({}, {
 })
 vi.mock('./member-center/views', () => ({ MEMBER_VIEWS: MemberViewsStub }))
 
-async function mountMemberCenter() {
+async function mountMemberCenter(identityState = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const { useIdentityStore } = await import('@/stores/identity')
   const identityStore = useIdentityStore()
+  // 必须在挂载前注入：组件 setup 时已通过 storeToRefs 建立响应式依赖，
+  // 挂载后再改 store 字段容易因 pinia 实例/解包路径不一致而不触发更新。
+  Object.assign(identityStore, identityState)
   identityStore.load = vi.fn()
   identityStore.signIn = vi.fn(async () => true)
   identityStore.switchAccount = vi.fn(async () => true)
@@ -170,5 +173,25 @@ describe('MemberCenter', () => {
     useLicenseStore().info = { type: 'pro', isPro: true, isTrial: false, features: [], daysRemaining: 0 }
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(false)
+  })
+
+  it('错误态挂载诊断入口，且默认收起（与 ProfileMenu 同一组件）', async () => {
+    // 诊断入口挂在 member-center-main 内，而该区域只在「已登录」分支渲染，
+    // 所以这里必须同时给出 user.sub —— 只设 status: 'error' 会落到未登录空态。
+    const { wrapper } = await mountMemberCenter({
+      status: 'error',
+      user: { sub: 'sub-1', name: '用户甲', username: 'user-a', picture: '' },
+      error: { code: 'IDENTITY_NETWORK_UNAVAILABLE', message: '网络暂时不可用' },
+    })
+    await wrapper.vm.$nextTick()
+    const toggle = wrapper.find('[data-testid="identity-diagnostics-toggle"]')
+    expect(toggle.exists()).toBe(true)
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+  })
+
+  it('无错误时不渲染诊断入口', async () => {
+    const { wrapper } = await mountMemberCenter({ status: 'authenticated', error: null })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="identity-diagnostics-toggle"]').exists()).toBe(false)
   })
 })

@@ -118,9 +118,12 @@
         <span>{{ t('memberCenter.upgradePro') }}</span>
       </button>
 
-      <p v-if="errorMessage" class="profile-menu-error" role="alert">
-        <CircleCloseFilled class="profile-menu-error-icon" aria-hidden="true" />{{ errorMessage }}
-      </p>
+      <div v-if="errorMessage" class="profile-menu-error-box" role="alert">
+        <p class="profile-menu-error">
+          <CircleCloseFilled class="profile-menu-error-icon" aria-hidden="true" />{{ errorMessage }}
+        </p>
+        <IdentityDiagnostics />
+      </div>
     </div>
   </div>
 </template>
@@ -133,6 +136,7 @@ import { ArrowUp, CircleCloseFilled, Key, Medal, Refresh, Setting, SwitchButton,
 import { useIdentity } from '@/composables/useIdentity'
 import { useLicenseStore } from '@/stores/license'
 import { useDropdownBehavior } from '@/composables/useDropdownBehavior'
+import IdentityDiagnostics from '@/components/IdentityDiagnostics.vue'
 import {
   resolveIdentityErrorMessageKey,
   resolveIdentityStatusNoteKey,
@@ -145,8 +149,8 @@ const { t } = useI18n()
 const licenseStore = useLicenseStore()
 const { status, user, displayName, loading, error, signIn, signInOrSwitch, switchAccount, signOut } = useIdentity()
 const { open, root, trigger, panel, toggle, close, openAndFocusFirst, handleMenuKeydown } = useDropdownBehavior()
-
 const pendingAction = ref(null)
+
 // 点击登录到认证窗口真正可见之间存在网络 discovery / 授权页加载的空窗期，
 // 用本地 busy 立刻给出反馈并禁用触发器，避免重复点击与「点了没反应」的错觉。
 const busy = ref(false)
@@ -580,14 +584,19 @@ function handleUpgrade() {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  margin: 10px 0 0;
+  margin: 0;
   padding: 8px 10px;
-  border-left: 3px solid var(--error);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--error) 10%, var(--surface));
   color: var(--error);
   font-size: var(--font-size-xs);
   line-height: 1.5;
+}
+
+/* 边框与底色提到外层：让诊断文本用中性底色，不和错误红底叠在一起 */
+.profile-menu-error-box {
+  margin: 10px 0 0;
+  border-left: 3px solid var(--error);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--error) 10%, var(--surface));
 }
 
 .profile-menu-error-icon {
@@ -596,6 +605,7 @@ function handleUpgrade() {
   flex: 0 0 auto;
   margin-top: 1px;
 }
+
 
 @media (max-width: 900px) {
   .mp-profile-copy {
