@@ -2,9 +2,6 @@
 record: creator-monitor-impl
 task: 博主监控与采集特性实现（8 个模块 + 312 项测试），YouTube 首批
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：博主监控与采集实现（creator-monitor-impl，2026-10-07）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话
 | QM-1 打包 | PASS | `electron-builder --win --dir --publish never` rc=0；asar 145,257,509 字节；6 个 creator 模块全部在包内；解包后逐个 require 成功；产物启动 8 秒存活且无本特性相关致命 stderr（详见下方小节） |
 | QM-4 视觉 | N/A | 新增 tab 为列表 + 徽章 + 空态，未引入自定义布局/主题色；沿用 `.collection-tab-btn` 等既有类，无新视觉面 |
 | QM-6 CCG 双模型外部评审 | PASS（带降级声明） | 决策层评审已执行 4 轮跨家族（`opencode` × `codex`，约 78 条意见全部修订）；验证层 diff 评审未执行——本次为纯新增模块 + 少量既有文件增量，人工评审已覆盖。降级声明见 `openspec/records/blogger-collection.md` |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填，删除上方三个 sync_* 字段与 ledger 登记项 |
+| 远程同步 | PASS | PR #3053 已合并，merge SHA `6bc65b3be3dfa4717cbdc941a30616389576b7ad`（2026-10-07T20:42:21+08:00）；上方三个 `sync_*` 字段与 `scripts/gate-record-debt-ledger.json` 登记项已在同一次提交中删除 |
 
 ### 测试规模（312 项全绿）
 
