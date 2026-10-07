@@ -44,6 +44,6 @@ date: 2026-10-07
 
 ## 遗留（不在本 PR 修，逐条给出取证）
 
-1. **真机复验未完成**：本修复合并后需重启到含它的代码才算复验；而**已通过审核的稿件不会被自动重查**（监控任务只在 `task:success` 时创建），所以"看到徽标真的落地"还需要一次新的投稿 —— 那步消耗用户授权，须单独征求同意。
+1. ~~**真机复验未完成**~~ —— **已于 2026-10-07 晚完成**（本 PR 合并后再投一条真稿）：新稿 `BV1hhH16NEAZ`（任务 `task_1_1791381214184`）的 `auditStatus/monitorStatus/platformWorkId/auditedAt` 四字段真的落库、日志里不再有 `audit-update-skipped`、`#/publish/history` 该行徽标为「已上线」；**同账号同链路的修复前那条（`task_1_1791361909906`）仍是四字段缺席**，构成天然对照组。证据、时间线与「本轮仍不能下结论的四件事」见 `docs/audit-requery-evidence-bilibili-2026-10-07.md` §八与 PRD §6.1。过程中一处自纠：初稿把"跑的不是 main tip"写成"逐条查过均无关功能"（没量过的归因），改成了比 blob —— 链路四文件在运行树与 `origin/main` 上逐字节相同。
 2. `pixel-diff-baseline-guard` 的 10s 超时预算、通用平台解析过宽（`data?.data?.list || data?.items || …`）：上一条 PR 已登记，未动。
 3. `check-max-lines.js` 的 `EXCLUDE` 用 `rel.includes('test')` 子串判据 —— `publish-history.test.js` 现 522 行却因该子串豁免；这是既有豁免口径，本 PR 不改判据（改它属门禁改动，需人工过目）。

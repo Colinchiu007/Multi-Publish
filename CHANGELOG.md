@@ -1,3 +1,30 @@
+# [未发布] docs(creator): B 站审核回写修复的真机端到端复验入库（带一个天然对照组）（2026-10-07，keyfix-live-verify）
+
+### 为什么还要专门跑一次
+
+#3083 把「回查结论写不回发布历史」的键错配修完并合并后，本地四层测试与变异反证都成立，但**没有任何一条证据证明真机上那条链通了** —— 因为审核回查只在 `task:success` 时建监控任务，已通过审核的旧稿不会被自动重查。经用户明确授权后再投一条真稿做端到端复验。
+
+### 结果：通了，而且对照组是天然形成的
+
+| | 修复前那条 | 修复后这条 |
+| --- | --- | --- |
+| 稿件 | `BV1HyHC6mExS` / 任务 `task_1_1791361909906` | `BV1hhH16NEAZ` / 任务 `task_1_1791381214184` |
+| 回查日志 | `monitor-result published` 之后 **3 ms** 就是 `audit-update-skipped` | 5 轮 `poll-progress reason:"in-review-bucket"` → `monitor-result published`，**之后没有 skipped** |
+| 真源四字段（`auditStatus`/`monitorStatus`/`platformWorkId`/`auditedAt`） | **全部缺席** | 全部落库，`auditedAt` 与那条日志时间**逐毫秒一致** |
+| 历史页徽标（`#/publish/history` 的 `innerText`） | 无徽标位 | 整页徽标集合恰好 `["已上线"]`，且只挂在这一行 |
+
+同一账号、同一 profile、同一条链路，唯一差别是运行代码是否含修复 ⇒ 不需要构造对照，上一轮那篇稿子就是对照组。
+
+### 顺手把一条"没量过的归因"改成量过的
+
+初稿写「运行的是修复所在分支，落后 main 10 个提交，**逐条查过均为无关功能/文档**」—— 这句话当时只数了 ahead/behind，没逐条查过任何东西。正解是比 blob：`git rev-parse <tree>:<path>` 逐个比 `publish-history.js` / `publish-monitor.js` / `bilibili-audit-check.js` / `phase4-events.js`，四个文件在运行树与 `origin/main` 上**逐字节相同** ⇒ 本轮结论对 main 成立，且不需要为此再跑一次。归因句的取证口径跟着改掉：**"某集合都与本链路无关"必须换成"这几个文件相同"**。
+
+### 本轮仍不能下结论的（写清楚，不外推）
+
+审核时长上界（两轮样本 44 s / 64 s）、`-30`/`-1` 是否可写成「审核中」映射（仍缺「不通过」现场）、main 上其它 14 个提交的改动（由各自 PR 的 CI 覆盖，不属本轮）。另如实登记一处遗留：上一轮稿件标题写着「稍后删除」但按后续指示保留了，改标题要再写一次账号数据，未擅自处理。
+
+见 `docs/audit-requery-evidence-bilibili-2026-10-07.md` §八、`docs/PRD-AUDIT-WRITEBACK-TASKID-KEY-2026-10-07.md` §6.1、`openspec/records/audit-writeback-key-fix.md` 遗留第 1 条。
+
 # [未发布] fix(desktop): 审核回查结论此前一条都写不回发布历史 —— 关联键错配（2026-10-07，audit-writeback-key-fix）
 
 ### 症状与第一性原因

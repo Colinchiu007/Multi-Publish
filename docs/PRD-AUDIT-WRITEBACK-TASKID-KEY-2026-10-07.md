@@ -123,6 +123,17 @@ expect(id).toBe('task-audit-1')                                           // ②
 - 不改数据格式、不迁移存量：存量记录缺 `auditStatus` 就继续缺，回查再跑一次才会补上（**不擅自回填**）。
 - `AUDIT_REQUERY_VERIFIED_PLATFORMS` 的准入判据不受本修复影响（仍按四类状态是否实测齐备）。
 
+### 6.1 真机复验（2026-10-07 晚，合并之后补的）
+
+已用一次真实投稿端到端验过，且**同一份日志里天然带着修复前的对照组**：
+
+- 新稿 `BV1hhH16NEAZ`（任务 `task_1_1791381214184`）：5 轮 `poll-progress` 报 `reason:"in-review-bucket"` → `monitor-result published` → 记录上 `auditStatus/monitorStatus/platformWorkId/auditedAt` **四个字段全部落库**，`auditedAt` 与那条日志时间逐毫秒一致；
+- 修复前那条 `task_1_1791361909906`（同账号同链路）：`monitor-result published` 之后 3 毫秒就是 `audit-update-skipped`，四个字段至今缺席；
+- 界面层：`#/publish/history` 整页徽标集合实测 `["已上线"]` 且只挂在新稿行上，旧稿行无徽标位。
+
+完整时间线、回读表与「本轮仍不能下结论的四件事」见 `docs/audit-requery-evidence-bilibili-2026-10-07.md` §八。
+一处方法学自纠同时写在那里：初稿我曾写「落后 main 10 个提交，逐条查过均无关」——那是**没量过的归因**；正解是比 blob（链路四文件在运行树与 main 上逐字节相同）。
+
 ## 七、范围外
 
 - 视觉门禁 `pixel-diff-baseline-guard` 的 10s 超时预算（另一会话域，且属"给他人测试调预算"的独立变更）。
