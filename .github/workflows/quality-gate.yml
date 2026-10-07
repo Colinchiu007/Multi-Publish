@@ -169,6 +169,15 @@ jobs:
           MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
           echo "[changelog-growth] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
           node scripts/check-changelog-growth.js --base="${MB:-$BASE_REF}" --head=HEAD
+          # ── 同一步骤里的第二把锁：副本数棘轮（2026-10-07）──
+          # growth 管"条目不许丢"，本门禁管"条目不许被复制"。两条判据刻意不同：
+          #   · 用**每标题副本数不得变多**（新标题容许出现 1 次 = 正常加条目），而不是"存在重复即红"。
+          #   · 原因：main 的历史里已有数百份重复副本（实测 base 冗余 828），而 growth 的多重集包含判据
+          #     要求每一份副本都不许少 —— 两把锁若在"绝对重复"上取红，任何去重都永远落不了地，
+          #     等于把污染钉死。这里只拦"本次 PR 让副本变多"，把清理留给配套改 growth 口径的另案。
+          # 实测形状：1dd05b12（#2792）把 277 条目/1.86MB 复制成 1097 条目/7.37MB，最坏同一标题 16 次。
+          node --test scripts/check-changelog-duplicate-entries.test.js
+          node scripts/check-changelog-duplicate-entries.js --base="${MB:-$BASE_REF}" --head=HEAD
 
   static-gates:
     name: QG Static
