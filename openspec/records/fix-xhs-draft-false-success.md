@@ -2,6 +2,9 @@
 record: fix-xhs-draft-false-success
 task: 小红书草稿假成功修复——内容未写入却报 success:true
 date: 2026-10-07
+sync_status: PENDING
+sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
+sync_backfill_owner: "backfill-xhs-draft-false-success"
 ---
 
 ## 本次执行记录：小红书草稿假成功修复（fix-xhs-draft-false-success，2026-10-07）
@@ -18,7 +21,7 @@ date: 2026-10-07
 | 变异反证 | PASS | 注入 `if (hardFailures.length > 0 && false)` ⇒ **恰好 3 例转红**（标题失配 / 正文未找到 / 填入抛错，三条都落在 `expect(res.success).toBe(false)`），其余 4 例仍绿；还原后 **7/7 全绿**，核验 `mutation_present=false`、`hardFailures_guard=true` |
 | 覆盖边界 | PASS | 7 例同时钉住正反两面：内容未写入必须失败（1/2/3）、内容写入必须放行（4）、标签失配降级不阻断（5）、文章本就无正文时不误判（6）、落库正则不含裸「草稿」（7）。**第 4 例尤其重要**——只写「必须失败」的闸门会把真成功也打成失败 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面；改的是 RPA 填词后的成功判定 |
-| 远程同步 | PASS | PR #3038 已 squash 合并，merge SHA `04ed6aac5f5dad7e8c3d90c36a5e7f8f6a454917`，2026-10-07T13:37:09+08:00。取证 `git log origin/main --grep='(#3038)$' --format=%H|%cI`；`git ls-remote --heads origin fix-xhs-draft-false-success` 返回 0 行，证远端分支已删 |
+| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账 |
 
 ### 本次只解决假成功，不解决「API链从未执行」
 
