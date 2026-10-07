@@ -1053,19 +1053,51 @@ jobs:
           Push-Location $desktopDir
           try {
             Write-Host "=== Gate 7c: dark mode contrast audit ==="
-            node tests/visual-testing/scripts/contrast-audit.js
+            # 诊断前置条件：前两轮 CI 在此处 exit 1 且 GitHub 只给一句
+            # "exit code 1"，无法定位。把可观测事实全部打出来，下次红时直接看这里。
+            Write-Host "[diag] cwd       = $((Get-Location).Path)"
+            Write-Host "[diag] TEST_URL  = $env:TEST_URL"
+            Write-Host "[diag] HEADLESS  = $env:HEADLESS"
+            Write-Host "[diag] DEV_FLAG  = $env:VITE_MP_DEV_FLAG_OVERRIDE"
+            Write-Host "[diag] node      = $(node --version)"
+
+            $probe = $env:TEST_URL
+            try {
+              $r = Invoke-WebRequest -Uri $probe -UseBasicParsing -TimeoutSec 5
+              Write-Host "[diag] probe $probe -> HTTP $($r.StatusCode)"
+            } catch {
+              Write-Host "[diag] probe $probe -> FAIL: $($_.Exception.Message)"
+              Write-Host "[diag] 前序 Gate 7 的 vite 进程已在本 step 之前被 taskkill；"
+              Write-Host "[diag] 端口释放可能有延迟。若此处 FAIL，需在 Gate 7 与本 step 之间等端口释放。"
+            }
+
+            try {
+              $pc = node -e "console.log(require.resolve('playwright-core'))"
+              Write-Host "[diag] playwright-core -> $pc"
+            } catch {
+              Write-Host "[diag] playwright-core -> FAIL: $($_.Exception.Message)"
+            }
+
+            $bl = "apps/desktop/tests/visual-testing/reports/contrast-audit-baseline.json"
+            if (Test-Path $bl) {
+              Write-Host "[diag] baseline 存在, sha=$((Get-FileHash $bl -Algorithm SHA256).Hash)"
+              Write-Host "[diag] baseline 内容: $(Get-Content $bl -Raw)"
+            } else {
+              Write-Host "[diag] baseline 缺失: $bl"
+            }
+
+            node tests/visual-testing/scripts/contrast-audit.js 2>&1 | Tee-Object -Variable contrastOut
             $contrastExit = $LASTEXITCODE
             Write-Host "[GATE-7c] contrast-audit exit: $contrastExit"
             if ($contrastExit -ne 0) {
-              Write-Host "[GATE-7c] 低对比退化或门禁自身故障 (exit=$contrastExit)"
-              # 报告写在 visual-testing 根下（不在 reports/ 的 gitignore 范围内），
-              # 否则 upload-artifact v4 会因尊重 .gitignore 而传不上来。
+              Write-Host "[GATE-7c] ---- 脚本输出 ----"
+              $contrastOut | ForEach-Object { Write-Host $_ }
               $reportPath = Join-Path $desktopDir "tests/visual-testing/contrast-audit-report.json"
               if (Test-Path $reportPath) {
-                Write-Host "--- contrast-audit-report.json (前 200 行) ---"
+                Write-Host "[GATE-7c] ---- 报告前 200 行 ----"
                 Get-Content $reportPath -TotalCount 200
               } else {
-                Write-Host "未生成 contrast-audit-report.json —— 多半是 fail-closed（dev server / 浏览器不可用）"
+                Write-Host "[GATE-7c] 未生成报告 —— 脚本在写报告前退出，看上方 [diag] 行"
               }
               Pop-Location
               exit $contrastExit
