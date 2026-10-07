@@ -2,10 +2,6 @@
 record: hide-upgrade-purchase-entry
 task: 正式包隐藏 UpgradeModal 购买入口 + 移除「¥99/永久」不实口径 + 修掉 3 处恒真/条件断言
 date: 2026-10-07
-# 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：隐藏购买入口（hide-upgrade-purchase-entry，2026-10-07）
@@ -126,5 +122,5 @@ PR #3003 只统一了 `plan-matrix.js` 与对外文档，**这条下单→授权
 **未做的事**：没有对本次测试做变异验证（需要能跑 vitest）。
 断言本身全部锚定可见文本与 mock 调用，属可变异形态，但**未实测**。
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS —— PR #3064 已合并为 `origin/main` ff9b4b93（2026-10-07T17:42:11+08:00，squash merge，quality-gate 11/11 job 全绿含两个 Desktop Shard、覆盖本 PR 的 13 条 UpgradeModal 用例；首轮 QG Coverage 因 ensure-electron 下载 Electron 二进制瞬时失败，rerun 后通过）；远端分支 hide-upgrade-purchase-entry 随合并自动删除 |
 |---|---|
