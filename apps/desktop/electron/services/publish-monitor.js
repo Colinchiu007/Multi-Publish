@@ -35,11 +35,13 @@ const CHECK_URLS = {
 /**
  * 创建发布监控任务
  * 
- * @param {object} task - { postId, platform, accountId, cookies, callback }
+ * @param {object} task - { postId, platform, accountId, cookies, callback, axios }
+ *   axios 为可选的传输层注入（默认 require('axios')）—— 测试禁止真实出站（AGENTS.md QM-3），
+ *   且没有它就无法在装配层（而不是服务层）驱动 B 站分桶查询的日志出口。
  * @returns {object} { taskId, stop } — stop() 取消监控
  */
 function createMonitorTask (task) {
-  const { postId, platform, cookies, callback, maxRetries = MAX_RETRIES } = task
+  const { postId, platform, cookies, callback, maxRetries = MAX_RETRIES, axios } = task
   const pollUrl = CHECK_URLS[platform]
   
   if (!pollUrl) {
@@ -56,7 +58,7 @@ function createMonitorTask (task) {
     if (cancelled) return
     
     try {
-      const result = await checkPublishStatus(platform, postId, cookies, pollUrl)
+      const result = await checkPublishStatus(platform, postId, cookies, pollUrl, { axios })
       
       if (cancelled) return
       
@@ -73,14 +75,39 @@ function createMonitorTask (task) {
       // still pending
       retries++
       if (retries >= maxRetries) {
-        log.notify('PublishMonitor', 'monitor-timeout', { level: 'WARN', params: { platform, postId, maxRetries, lastReason: result.reason || '' } })
+        // 超时恰是最需要「一行定场」的时刻：只带 lastReason 就得让人回头翻 poll 历史行
+        // 才能知道当时探到哪个桶、平台回报了什么 state（QM-6 前端轴 I2）
+        log.notify('PublishMonitor', 'monitor-timeout', {
+          level: 'WARN',
+          params: {
+            platform, postId, maxRetries, lastReason: result.reason || '',
+            lastBucket: result.bucket || '', lastState: result.state ?? '', lastStateDesc: result.stateDesc || '',
+            lastBucketsProbed: Array.isArray(result.bucketsProbed) ? result.bucketsProbed.join(',') : '',
+          },
+        })
         callback && callback({ status: 'timeout', postId, message: '状态查询超时', reason: result.reason || '' })
         return
       }
       
-      // pending 无定论：把 reason 带进日志（no-cookies/nav-not-established/envelope-not-ok/state-unobserved…），
-      // 否则「会话未建立 / 风控信封 / 列表缺字段」在排障时无法区分
-      log.notify('PublishMonitor', 'poll-progress', { level: 'INFO', params: { retries, maxRetries, platform, postId, status: result.status, reason: result.reason || '' } })
+      // pending 无定论：把 reason 带进日志（no-cookies/nav-not-established/envelope-not-ok/state-unobserved
+      // /not-in-list/in-review-bucket/in-not-pubed-bucket…），
+      // 否则「会话未建立 / 风控信封 / 列表缺字段 / 稿件在审核桶里」在排障时无法区分。
+      // bucket/state/primaryState/stateDesc 必须一并带出：B 站「审核中/不通过的 state 取值」
+      // 在平台侧是未观测的，日志是它唯一的现场来源（服务层分桶了而日志不打＝等于没分桶）。
+      // 回退口径统一用 `?? ''`：logger 只收 string/number/boolean，裸透传 undefined 会让
+      // 键**整个消失**，同一事件的日志 schema 于是时有时无（QM-6 前端轴 I5）。
+      // classCounts 是桶计数本身——「为什么没扇出」的现场，不记就等于留了个没人读的字段。
+      log.notify('PublishMonitor', 'poll-progress', {
+        level: 'INFO',
+        params: {
+          retries, maxRetries, platform, postId, status: result.status, reason: result.reason || '',
+          bucket: result.bucket || '', state: result.state ?? '', primaryState: result.primaryState ?? '',
+          stateDesc: result.stateDesc || '',
+          bucketsProbed: Array.isArray(result.bucketsProbed) ? result.bucketsProbed.join(',') : '',
+          classCounts: result.classCounts ? JSON.stringify(result.classCounts) : '',
+          bucketsTruncated: result.bucketsTruncated === true,
+        },
+      })
       timerId = setTimeout(poll, POLL_INTERVAL)
       // R28 修复：unref 让定时器不阻止进程退出
       if (timerId && timerId.unref) timerId.unref()
@@ -112,6 +139,17 @@ function createMonitorTask (task) {
 
 /**
  * 检查发布状态
+ *
+ * @param {string} platform 平台标识
+ * @param {string} postId 平台作品标识
+ * @param {string} cookies 账号分区解出的 Cookie 串
+ * @param {string} [pollUrl] 轮询端点；缺省时由调用方（createMonitorTask）从 CHECK_URLS 取。
+ *   取证过的平台会把它透传成自己的 listUrl（B 站＝checkBilibiliAuditStatus 的主桶 URL），
+ *   所以这张表**确实载重**，不是装饰性参数（回归锁 T15/M1）。
+ * @param {object} [opts]
+ * @param {object} [opts.axios] 注入的传输层；缺省回落 require('axios')。测试禁止真实出站
+ *   （AGENTS.md QM-3），且本仓没有 nock/msw。
+ * @returns {Promise<{status: string, postId?: string, reason?: string, message?: string, bucket?: string, state?: *, primaryState?: *, stateDesc?: *, bucketsProbed?: string[], classCounts?: object|null, bucketsTruncated?: boolean, raw?: object}>}
  */
 async function checkPublishStatus (platform, postId, cookies, pollUrl, opts) {
   // 取证过的平台走专用实现，不再套「GET + params:{id}」的通用猜测

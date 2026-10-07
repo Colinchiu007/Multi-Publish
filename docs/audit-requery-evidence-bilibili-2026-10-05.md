@@ -97,3 +97,39 @@ Cookie 会话（账号分区内的 B 站登录态）即可，**无需签名、�
 3. 单测夹具用本文件第二节的**真实响应片段**（已脱敏：只保留字段名与本机账号自有值）；另配「未观测 state 不得产出结论」「传错 status 不得被当成生效」两条反例。
 4. 候选表 ↔ `CHECK_URLS` 键集的 parity 锁不受影响（bilibili 本来就在候选表里）。
 5. `AUDIT_REQUERY_VERIFIED_PLATFORMS` **保持不含 bilibili**，待补齐 §四 的 1、2 两项（需要一次真实投稿才能观测审核中/被拒态）——这是「需用户授权的外部写操作」，与本轮只读取证分属两个决定。
+
+---
+
+## 六、2026-10-07 只读复测附录（同机同账号，仍全程只读）
+
+复测动机不是怀疑本文结论，而是**投稿前必须先确认「投了稿能不能被现在的实现观测到」**。结论：观测不到，原因在 §一① 那条 URL 里。
+
+### 6.1 本文的三条核心结论全部复现
+
+| 项 | 10-05 | 10-07 复测 |
+| --- | --- | --- |
+| 端点与容器 | `member.bilibili.com/x/web/archives` → `data.arc_audits[]` | 同 |
+| `data.archives` | 空对象 | 空对象（`typeof` 非 array） |
+| `status` 是真过滤 | `not_pubed`/`is_pubing` → `count:0` 且无 `arc_audits` | **复现**：两者各 1076 字节 / `count:0` / 字段缺席 |
+| 未知 `status` 静默回落 | `status=zzz_not_a_status` → 返回默认列表 | **复现并加强**：哨兵值与 `status=pubed` **逐字节同形**（30977 字节、同 7 条） |
+| 已上线取值 | `state=0 / primary_state=0 / "开放浏览"` | **复现**：7 篇全部同值 |
+
+⇒ 桶名词表不必猜：它就是响应自己回报的 `data.class` 的三个键 `pubed` / `not_pubed` / `is_pubing`。这条直接催生了 `docs/PRD-BILIBILI-AUDIT-BUCKET-QUERY-2026-10-07.md`。
+
+### 6.2 纠正本文一处归因（不是结论错，是原因写错了）
+
+本文 §取证方式 一节记录的 `code:-302 风控拦截` 曾被我自己在别处转述成「该端点会风控」。10-07 用**同账号、同端点**在应用自己的分区内同源 `fetch` 稳定拿到 `code:0` ⇒ **`-302` 是站外 node/axios 客户端的产物，不是端点行为**。
+
+口径改为：判 B 站创作中心接口能不能读，必须先说明「从哪个运行时读」。站外裸 HTTP 的失败**不构成**「该端点不可用」的证据，反之应用内成功也不构成「站外可用」的证据 —— 两者是两个被测对象。
+
+### 6.3 §四.1 仍未闭合，且原因变了
+
+`class={"pubed":7,"not_pubed":0,"is_pubing":0}` ⇒ 本账号当前没有任何审核中/被拒稿件，非零 `state` 取值**依旧本机无现场**。已发布数 6→7（期间有过一次发布，那篇同样 `state=0`，对本项无影响）。
+
+但 10-07 新增一条更硬的判定：**即使投稿，现实现也观测不到** —— 轮询 URL 写死 `status=pubed`，审核中的稿件不在该桶，只会得到与「稿件不存在」同形的 `not-in-list`。所以「先补分桶查询、再花投稿授权」是顺序依赖，不是两件事。
+
+### 6.4 顺带实测到、但不属本文范围的两项
+
+- `Archive` 字段集含 **`is_only_self`** ⇒ B 站在稿件层建模了「仅自己可见」。但本仓对 bilibili **没有任何可见性写入路径**：`publish-capabilities.json` 的 bilibili 条目只有 `titleMode`/`limits`，实测 `mapVisibilitySemantic('bilibili','private') === null`；`publisher-router.js` 的 bilibili 分支只解析 `category`/`copyright`；RPA 选择器表内 `privacy` 0 命中。⇒ **经应用发布链投稿必然是公开的**，这条是投稿方式的前置事实。
+- `config/platforms.yaml` 里 bilibili 是 `publishMode: api-then-dom` ⇒ 走 API 轨时可能根本不产生「浏览器落点 URL」。
+
