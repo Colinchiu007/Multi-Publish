@@ -4,6 +4,7 @@ const {
   isNetworkError,
   isSessionRejected,
   logIdentityFailure,
+  networkErrorCode,
 } = require('./auth-diagnostics')
 
 class AuthService {
@@ -23,10 +24,7 @@ class AuthService {
       ? Math.max(0, options.offlineGraceSeconds)
       : 7 * 24 * 60 * 60
     this._state = { status: 'signed_out', user: null, entitlement: null, error: null }
-    this._accessTokenPromise = null
-    this._signInPromise = null
-    this._signOutPromise = null
-    this._switchAccountPromise = null
+    this._accessTokenPromise = this._signInPromise = this._signOutPromise = this._switchAccountPromise = null
     this._activeCallbackServer = null
     this._operationId = 0
     this._sessionMutationQueue = Promise.resolve()
@@ -60,14 +58,16 @@ class AuthService {
 
   /**
    * 诊断日志（scope + code + 完整 cause 链），实现见 auth-diagnostics.js。
-   * @param {string} scope
-   * @param {unknown} error
-   * @param {Record<string, unknown>} [extra]
+   * 顺带保留最后一次原始错误：state.error 只有 {code,message}，排障根因（如 TLS 特征码）
+   * 藏在 cause 链上；只存引用不深拷贝。getLastError() 供诊断报告取用，删掉即永久丢链。
+   * @param {string} scope @param {unknown} error @param {Record<string, unknown>} [extra]
    */
   _logFailure(scope, error, extra = {}) {
+    this._lastError = error
     logIdentityFailure(this._logger, scope, error, extra)
   }
 
+  getLastError () { return this._lastError || null }
   async getAccessToken(options = {}) {
     if (this._accessTokenPromise) return this._accessTokenPromise
     const operationId = this._operationId
@@ -88,7 +88,7 @@ class AuthService {
           if (operationId === this._operationId && this._state.user) {
             this._setState({ status: 'offline_authenticated', error: null })
           }
-          throw new IdentityError('IDENTITY_NETWORK_UNAVAILABLE', '网络暂时不可用', error)
+          throw new IdentityError(networkErrorCode(error), '网络暂时不可用', error)
         }
         if (isSessionRejected(error)) {
           this._logFailure('getAccessToken.sessionRejected', error)
@@ -248,7 +248,7 @@ class AuthService {
         this._logFailure('restore', error)
         const code = error && error.code === 'IDENTITY_SECURE_STORAGE_UNAVAILABLE'
           ? error.code
-          : 'IDENTITY_NETWORK_UNAVAILABLE'
+          : networkErrorCode(error)
         this._setState({
           status: 'error',
           error: {

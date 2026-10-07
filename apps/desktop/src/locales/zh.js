@@ -1,4 +1,5 @@
 import accountsCloudSyncZh from './accounts-cloud-sync/zh'
+import identityDiagnosticsZh from './identity-diagnostics/zh'
 
 export default {
   signer: {
@@ -3039,6 +3040,7 @@ export default {
   },
 
   memberCenter: {
+    ...identityDiagnosticsZh,
     title: '会员中心',
     menuEntry: '会员中心',
     subtitle: '账号、版本与会员权益一站式管理',
