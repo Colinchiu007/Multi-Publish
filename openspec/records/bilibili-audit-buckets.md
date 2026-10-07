@@ -2,9 +2,6 @@
 record: bilibili-audit-buckets
 task: B 站发布后回查由「只查 status=pubed」改为按端点自报的 data.class 分桶扇出，并把命中桶的真实 state 带进结果与日志
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='(#NNNN)$' 回填，并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：B 站回查分桶查询（bilibili-audit-buckets，2026-10-07）
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 | QM-1 打包 | PASS（base 已标注） | 跑在**第二轮提交 `d855dfd89`（rebase 前）** 上：`pnpm run build:vue && electron-builder --dir` ⇒ `BUILD_DIR_RC=0`（electron 43.7.7 / win32-x64，asar integrity 已更新）。产物内容判据走 `@electron/asar` 的 `extractFile` API（不用整树 `extract`，避免历史「字节挂到别的文件名」陷阱）：两个被改模块在 asar 内与源文件**逐字节相同**（10280 / 7955），`BILIBILI_BUCKET_REASONS`/`withStatusParam`/`stateDesc: result.stateDesc` 三个新符号均在产物中出现；`listPackage` 全清单内 `.test.js` 计数 0 ⇒ 测试未进 asar。启动实测：隔离 userData 拉起 `Multi-Publish.exe`，`ALIVE_AFTER_10S=True`，AGENTS.md 三条禁用标记（`Failed to load platform config` / `ENOTDIR.*app.asar` / `PluginLoader.*mkdir failed`）计数 **0**。<br>**如实列出观测到的其它错误行**（均与本改动无因果路径，且属 smoke 环境所致）：`PythonBridge Failed to start: spawn python ENOENT`（smoke 脚本未设 `MP_PYTHON`）、两条 `许可证权限不足，无法调用 setShellMode/setSidebarWidth`（空 profile 无许可证，按设计）、一条 `HotKeys Failed to register CmdOrCtrl+Comma`（既有问题）。**rebase 到 `db51cc163` 后未重打包** —— 上游 11 个提交经 `git log -- <paths>` 证实**未触碰这两个模块**，且复核 asar 内两文件与 rebase 后源文件仍 `identical=true`；但产物整体（renderer bundle 等）对应的是 rebase 前的树，最终 head 的打包由 CI 覆盖 |
 | QM-4 视觉 | N/A | 零 UI 文件改动（`git diff --name-only` 仅 2 个主进程服务 + 1 个测试 + 1 个文档） |
 | QM-6 CCG 双模型外部评审 | PASS（走替代通道，偏差如实登记） | 触发条件命中（改主进程服务）。两轴均已回并逐条处置，见下两节。前端轴 `opencode run --model opencode/ling-3.1-flash-free` ⇒ Critical 0 / Warning 1 / Info 8（`.ccg/review/findings-frontend.md`，已入库留证）；后端轴 `opencode/nemotron-3-ultra-free` ⇒ Critical 4 / Warning 6 / Info 10（`.ccg/review/findings-backend.md`）。**偏差**：配置里的两个 primary（`codex` / `claude`）本轮都不可用——`codeagent-wrapper --backend codex` 停在 `Reading additional input from stdin...` 永久挂起（第 4 种死法，已 kill），`claude` 前几轮已定性为长任务静默空转；两轴同经 `opencode` 一个 harness ⇒ 跨家族独立性打折。复现原通道：`~/.claude/.ccg/config.toml` 的 `[routing]` + `codeagent-wrapper --backend <primary> --lite` |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin bilibili-audit-buckets` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `9ce3375034d524ca476e09a97532fc49c0677d5a`（committer 2026-10-07T18:15:35+08:00）。取证 `git log origin/main --grep='(#3065)$' --format=%H\|%cI` 唯一命中该 SHA 与时间；`git ls-remote --heads origin bilibili-audit-buckets` 返回 **0 行**证远端分支已随合并删除。CI 侧：首轮 `QG Coverage` 红在 `pixel-diff-baseline-guard.test.js > 空白截图拒绝入库`，报的是 `Test timed out in 10000ms`（非断言不等），且本 PR diff 不含任何 `tests/visual-testing/` 文件、main 上最近三次 push run 全 success ⇒ 判为串行 coverage 满载末尾的资源饥饿型 flaky；`gh run rerun --failed` 后**零代码改动**转绿（21 次观测 pass=20 fail=0 pending=0），9 项 required 逐个核为 pass。上方三个 `sync_*` 登记字段已在本条由 PENDING 转 PASS 的**同一次提交**内整段删除 |
 
 ### QM-6 后端轴逐条处置（Critical 4 / Warning 6 / Info 10）
 

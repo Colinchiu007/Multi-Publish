@@ -133,3 +133,14 @@ Cookie 会话（账号分区内的 B 站登录态）即可，**无需签名、�
 - `Archive` 字段集含 **`is_only_self`** ⇒ B 站在稿件层建模了「仅自己可见」。但本仓对 bilibili **没有任何可见性写入路径**：`publish-capabilities.json` 的 bilibili 条目只有 `titleMode`/`limits`，实测 `mapVisibilitySemantic('bilibili','private') === null`；`publisher-router.js` 的 bilibili 分支只解析 `category`/`copyright`；RPA 选择器表内 `privacy` 0 命中。⇒ **经应用发布链投稿必然是公开的**，这条是投稿方式的前置事实。
 - `config/platforms.yaml` 里 bilibili 是 `publishMode: api-then-dom` ⇒ 走 API 轨时可能根本不产生「浏览器落点 URL」。
 
+### 6.5 后续（同日稍晚，2026-10-07）：投稿已发生，§四.1 的「审核中」那一格已填
+
+本文 §四.1 与 §五.5 都写着「需要一次真实投稿才能观测审核中/被拒态」。**该投稿已于 2026-10-07 执行**（用户授权「要发，接受公开」），结果落在
+`docs/audit-requery-evidence-bilibili-2026-10-07.md`，要点：
+
+- **「审核中」的 `state` 不是单一值**：同一次投稿的 20 秒窗口内先后实测到 `-30` 与 `-1`，两者 `state_desc` 均为 `"审核中"`，且 `primary_state` 与 `state` 同值 ⇒ 任何 `state === 固定值` 的写法都会漏。本文 §四.1 那句「非零取值本机无现场」**自该文档起失效**，但作为当时的历史事实保留、不改写。
+- **「审核不通过」仍无现场**（该账号 20 秒内过审，`not_pubed` 始终为 0）⇒ §四.1 的这一半**继续成立**，`AUDIT_REQUERY_VERIFIED_PLATFORMS` 仍不含 bilibili。
+- 投稿落点 URL 实测为 `https://www.bilibili.com/video/BV<id>`（路径段承载），且 `mode:"api"` ⇒ §2.3 关于「API 轨可能不产生浏览器落点」的担忧部分兑现：本次确实没走浏览器导航，DOM/RPA 轨的落点**仍未观测**。
+- 第 3 轮轮询实测到 `class.pubed` 已变 8 而 `pubed` 列表仍查不到该稿件（约 10 秒窗口）⇒ 本文 §三 那条「不得拿 `page.count`/`class` 计数当命中证据」的硬约束**由推测升级为有现场支撑**。
+- 另跑出一条与本清单同族的 P0 断链（回查结论写不回发布历史，键错配），详见该文档 §四。
+
