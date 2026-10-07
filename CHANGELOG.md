@@ -21,6 +21,8 @@
 - **存量记录无需迁移**：解析发生在渲染期，`result.postId` / 审核回写的 `platformWorkId` 早已落库，既有记录即刻恢复正确。
 - **消除真源分裂**：`electron/services/platform-metrics/index.js` 此前自持一份 URL 模板而渲染端不用它（正确的那份没被复用）。四个 parser 一律委托共享解析器，对既有四平台**逐字 no-op**（由新测试 M1-M4 逐字锁死）。顺带修掉该目录**完全缺失的测试覆盖**及其两处既有缺陷：`https://zhihu.com/p/published-lz3k9x`、`https://m.gifshow.com/fw/photo/true` 这类必然失败的地址不再产出；快手不再忽略已是公开内容页的 `resultUrl`。
 - **判据分层不合并**（三层分工见 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md` 新增补丁）：目的地语义（新增）→ 协议白名单 `safeHttpUrl`（既有）→ 主进程 `isAllowedExternalUrl`（既有，更严兜底）。`href-scheme-contract.test.js` 的「`:href` 必须字面被 `safeHttpUrl` 包裹」与「`v-if` 与 `:href` 必须取同一判据表达式」两条锁均保持通过。
+- **渲染层 ESM 孪生的接线**：`apps/desktop/vite.config.js` 的 `resolve.alias` 登记 `@multi-publish/shared-utils/src/published-content-url` → `published-content-url.browser.js`。渲染层一律从**不带 `.browser` 后缀**的模块名导入（与 `safe-http-url` / `publish-audit-status` 同约定）——首轮 CI `QG Static` 红在此处：直接写 `.browser` 后缀会被 `scripts/check-renderer-cjs-boundary` 判为「未登记的 CJS 跨边界导入」。未登记 alias 时渲染层会拉到主进程 CJS 版，浏览器无法执行 `module.exports`。
+- **抽出 composable `usePublishHistoryContentLink`**：`PublishHistory.vue` 已 1457 行，逐文件行数门禁（limit=500 / growthAllowance=200）按账本登记值比对本 PR 触碰文件的增长——判据与打开通道留在视图里会触发 `LEDGER_GREW`（较登记值 1205 膨胀 253 行 > 200）。拆出后视图降至 1363 行，**未用 `--update` 抬高账本基线绕过门禁**。附带收益：抽出 `window.open` 后契约测试立刻报出陈旧登记（`OPEN_SITES_GUARDED_IN_MAIN` 仍指旧文件），于是顺带把 `window.open` 的扫描域从仅 `.vue` 扩到 `.vue` + `src` 下非测试 `.js`——否则该 `window.open` 会**静默退出扫描域**，既不用登记也不被看见。
 
 ## 显示项与文案（zh/en 成对）
 
@@ -42,6 +44,8 @@
 **变异反证**：把内容页白名单临时退化为「`safeHttpUrl` 通过即算内容页」（= 精确复刻旧判据），跑测试必须转红——实测 `published-content-url.test.js` 69 例转红、`PublishHistory.test.js` 的 V2/V3/V4/V5/V6/V11 精确转红（V11 报出 `expected 'https://creator.xiaohongshu.com/publish/publish' to be 'https://www.xiaohongshu.com/explore/6530a1b2c3d4e5f600112233'`，正是本 Bug）。还原后 `isPublicContentUrl` 两端函数体逐字一致、203 例全绿。
 
 > 第一次尝试的变异只改了「协议非法」分支（`if (!safe) return false` → `true`），对「协议合法但不是内容页」毫无影响，desktop 侧 96 例**全绿**——**差点用一个恒不触发的变异骗过门禁**。教训：变异必须精确对应被锁的不变量，跑完要看**哪几个**用例转红，而不是只看「有没有红」。
+
+> 另记一个同类陷阱：在块注释里写 glob 形态的路径，其中的「星号 + 斜杠」组合会**提前终止注释**，其后内容被当成代码，报出的却是 esbuild 的「invalid JS syntax / 是不是该用 .jsx 后缀」这种与真实原因毫无关系的假象报错。（第一次写下这条提醒时，提醒本身又踩了同一个坑。）
 
 ## 文档
 

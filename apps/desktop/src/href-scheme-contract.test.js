@@ -53,9 +53,9 @@ const OPEN_RE = /window\.open\(\s*([^,)]+)/g
 const DYNAMIC_ARG_RE = /(?::\[href\]|v-bind:\[href\])/
 const OBJECT_BIND_HREF_RE = /v-bind\s*=\s*\{[^}]*\bhref\b/
 
-function scan (re, pick) {
+function scan (re, pick, files = VUE_FILES) {
   const hits = []
-  for (const file of VUE_FILES) {
+  for (const file of files) {
     const text = fs.readFileSync(file, 'utf8')
     for (const m of text.matchAll(re)) {
       hits.push({
@@ -67,8 +67,25 @@ function scan (re, pick) {
   return hits
 }
 
+/**
+ * `window.open` 的扫描域必须含 `src` 下的 `.js`（排除测试文件）。
+ *
+ * 2026-10-07 实测教训：卡片点击的 `createTab → window.open` 降级通道被抽进
+ * `src/composables/usePublishHistoryContentLink.js`（PublishHistory.vue 已 1457 行，
+ * 逐文件行数门禁 growthAllowance=200 不容留）。若 OPEN_HITS 仍只扫 `.vue`，
+ * 这个 `window.open` 会**静默退出扫描域** —— 既不用登记、也不被任何断言看见，
+ * 正是本文件头警告的「静默失明」。搬代码不会让判据失效，只会让判据看不见。
+ *
+ * 写法提醒：本注释里**不能**出现 glob 形态的路径 —— 其中的「星号 + 斜杠」组合
+ * 会提前终止块注释，其后内容被当成代码，表现为 esbuild 的
+ * 「invalid JS syntax / make sure to name the file with the .jsx extension」假象报错。
+ */
+const OPEN_SCAN_FILES = VUE_FILES.concat(
+  SRC_JS_FILES.filter(f => !/\.(test|spec)\.js$/.test(f))
+)
+
 const HREF_HITS = scan(HREF_RE, m => m[1] ?? m[2] ?? m[3])
-const OPEN_HITS = scan(OPEN_RE, m => m[1])
+const OPEN_HITS = scan(OPEN_RE, m => m[1], OPEN_SCAN_FILES)
 
 /**
  * 抽取开始标签的属性串。**不能**用 `<a[^>]*>` —— 属性值里就带 `>`
@@ -110,7 +127,11 @@ const RENDERER_PROTOCOL_REGEX_ALLOWED = [
  */
 const OPEN_SITES_GUARDED_IN_MAIN = [
   'src/views/Accounts.vue', // openPlatform() 打开运营中心配置的 dashboard URL，由主进程层更严判据兜
-  'src/views/PublishHistory.vue', // 发布记录卡片点击打开平台链接：首选 tabStore.createTab 应用内新标签；
+  // 2026-10-07 随 PRD-PUBLISH-HISTORY-PUBLIC-LINK 的拆分迁移：发布记录卡片点击的
+  // createTab → window.open 降级通道已整体移入 composable（该视图 1457 行，逐文件行数
+  // 门禁 growthAllowance=200 不容留在这里）。登记随之改指新位置——本断言正是为拦住
+  // 「文件删了/搬走了，登记还留着」这种陈旧白名单。
+  'src/composables/usePublishHistoryContentLink.js', // 发布记录卡片点击打开平台链接：首选 tabStore.createTab 应用内新标签；
   // createTab 失败降级 window.open(url,'_blank')，URL 已过渲染端 safeHttpUrl，
   // window.open 再由主进程 setWindowOpenHandler → isAllowedExternalUrl 更严判据兜底（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）
 ]

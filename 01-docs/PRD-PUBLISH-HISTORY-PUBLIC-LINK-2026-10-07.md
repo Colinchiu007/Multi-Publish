@@ -231,6 +231,9 @@ postId 通过 §4.2 闸门？        →  { url: buildFromTemplate(platform, pos
 | `packages/shared-utils/src/published-content-url.browser.js` | **新增**（ESM 孪生） | 与 CJS **逐字同源**的判据；由 parity 用例比对 `source` + `flags` 拦截漂移（沿用 `safe-http-url` / `publish-audit-status` 的既有孪生范式） |
 | `packages/shared-utils/src/__tests__/published-content-url.test.js` | **新增** | 解析矩阵 + 边界 + parity（详见 §8） |
 | `apps/desktop/src/views/PublishHistory.vue` | 修改 | ① 新增 `publicContentLink(record)` 统一解析入口；② `cardLinkUrl` / 详情锚点 / 可点性判断**全部**改走它（消除「显示 A、打开 B」）；③ 详情弹窗「作品链接」行按 `source` 三态渲染 + 原因说明；④ 新增 `linkSourceHint` |
+| `apps/desktop/vite.config.js` | 修改 | `resolve.alias` 登记 `@multi-publish/shared-utils/src/published-content-url` → `published-content-url.browser.js`。渲染层一律从**不带 `.browser` 后缀**的模块名导入（与 `safe-http-url` / `publish-audit-status` 同约定）；直接写 `.browser` 后缀会被 `scripts/check-renderer-cjs-boundary` 判为「未登记的 CJS 跨边界导入」而红（首轮 CI `QG Static` 即栽在此处）。未登记 alias 时渲染层会拉到主进程 CJS 版，浏览器无法执行 `module.exports` |
+| `apps/desktop/src/composables/usePublishHistoryContentLink.js` | **新增** | 上述判据与打开通道的**唯一**实现，从视图抽出。**原因**：该视图已达 1457 行，逐文件行数门禁（`.github/scripts/check-max-lines.js`，limit=500 / growthAllowance=200）按账本登记值比对本 PR 触碰文件的增长，逻辑留在视图里会超容差（实测 LEDGER_GREW：较登记值 1205 膨胀 253 行 > 容差 200）。拆出后视图降至 1363 行（增长 158 < 200），门禁无需 `--update` 抬高基线 |
+| `apps/desktop/src/href-scheme-contract.test.js` | 修改 | ① `OPEN_SITES_GUARDED_IN_MAIN` 登记从 `src/views/PublishHistory.vue` 改指 `src/composables/usePublishHistoryContentLink.js`（`window.open` 已随之迁移；「登记表里的站点必须真的还存在」断言正是为拦这种陈旧登记）；② `window.open` 扫描域从仅 `.vue` 扩到 `.vue` + `src` 下非测试 `.js`——否则 `window.open` 一旦被抽进 composable 就**静默退出扫描域**（既不用登记也不被看见），即本文件头警告的「静默失明」 |
 | `apps/desktop/electron/services/platform-metrics/index.js` | 修改 | 四个 parser 的 `resolveContentUrl` 委托 `resolvePublishedContentUrl`（**逐字 no-op**，见 §6.4） |
 | `apps/desktop/electron/services/platform-metrics/index.test.js` | **新增** | 补上该目录**完全缺失**的测试；锁死四个平台既有模板串 + 「后台页不得被当作内容页」 |
 | `apps/desktop/src/views/PublishHistory.test.js` | 修改 | 新增 describe + 修正 T1 正例（见 §8.3） |
@@ -435,6 +438,8 @@ postId 通过 §4.2 闸门？        →  { url: buildFromTemplate(platform, pos
 | `platform-metrics` 委托后行为变化 | 仅 `kuaishou` 一处（§6.4），且是修正；AC-9 + M6 双锁 |
 | 与既有 `PRD-…-CARD-OPEN-LINK` 的 T1 用例冲突 | 已在 §8.3 V10/T1 修正处显式声明修改内容与理由，不静默改测试 |
 | 未来新增平台忘记加规则 | `R7`/`R8` 锁住「不在表内 → `none`」这一**安全默认**：漏加的后果是「不给链接」而非「给错链接」 |
+| **视图文件已达 1457 行，行数门禁容差仅 200** | 已把判据与打开通道抽成 composable（§5 表），视图降至 1363 行（较登记值增长 158 < 200）；**未用 `--update` 抬高账本基线来绕过门禁**。拆分的附带收益：抽出 `window.open` 后契约测试立刻报出陈旧登记，于是顺带补上了 `window.open` 扫描域的 `.js` 盲区（§5 表末行） |
+| **`max-lines` 账本已陈旧**（`PublishHistory.vue` 登记 1205，而 main 实际已是 1379） | 本 PR 未改该账本（那等于把一个 1363 行文件的基线抬得更高）。陈旧的成因是：该门禁按 **diff 作用域**检查，从不被本 PR 触碰的文件其基线漂移不会被发现。已如实记入执行记录「遗留」，交由配套改门禁口径的另案处理 |
 
 ---
 

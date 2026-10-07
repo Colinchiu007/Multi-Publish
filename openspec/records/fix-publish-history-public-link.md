@@ -18,6 +18,8 @@ sync_backfill_owner: 合并本 PR 的会话（回填与销账必须同一次提�
 | 防止再次发生（QM-5 ⑤） | ✅ | ① 目的地判据成为**单一真源**（渲染端 + 指标回采端共用），并新增 `platform-metrics` 的测试文件消除「正确实现未被复用」的漂移面；② `href-scheme-contract.test.js` 的两条既有锁（`:href` 必须字面被 `safeHttpUrl` 包裹、`v-if` 与 `:href` 必须取同一判据表达式）保持通过并顺带加固本变更的 sink；③ `PRD-HREF-SCHEME-GUARD` 增补三层判据分层补丁，协议判据与目的地判据的分工从此有文档锚点；④ CHANGELOG 完整记录三层根因、逃逸链与变异反证 |
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径一致（见下方「行尾对账」小节实测） |
 | 接线棘轮 | ✅ | 新增两个 `*.test.js` 均在既有 vitest include 覆盖内：`packages/shared-utils/src/__tests__/*.test.js`（包内 `vitest run`）、`electron/services/**/*.test.{js,ts}`（`apps/desktop/vitest.config.js` include 已含该 glob）。实测均被 runner 收集并执行（91 / 26 例） |
+| 渲染层 CJS 边界（`QG Static` Gate 2c） | ✅ | 首轮 CI 红：`[renderer-cjs-boundary] FAIL：渲染层有 1 处未登记的 CommonJS 跨边界导入`。**成因**：渲染层写的是 `import … from '@multi-publish/shared-utils/src/published-content-url.browser'`（带 `.browser` 后缀）。**修法**：① `apps/desktop/vite.config.js` 的 `resolve.alias` 登记不带后缀的模块名 → `.browser.js`（alias 登记 7 项）；② 导入侧去掉 `.browser` 后缀，与 `safe-http-url` / `publish-audit-status` 既有约定一致。复跑 `check-renderer-cjs-boundary.js` rc=0（扫 295 个渲染层文件），其变异反证 `check-renderer-cjs-boundary.test.js` 3/3 绿 |
+| 逐文件行数门禁 | ✅ | 首轮 CI 红：`LEDGER_GREW: apps/desktop/src/views/PublishHistory.vue 较登记值 1205 膨胀 253 行（容差 200）`。**处置选拆分而非 `--update` 抬高基线**——判据与打开通道抽成 `apps/desktop/src/composables/usePublishHistoryContentLink.js`，视图 1457 → 1363 行（增长 158 < 200），门禁复跑 rc=0。附带修掉两处：`OPEN_SITES_GUARDED_IN_MAIN` 仍指旧文件（契约测试「登记表里的站点必须真的还存在」立刻报红）；`window.open` 扫描域原本只扫 `.vue`，代码搬进 `.js` 后会**静默退出扫描域**（既不用登记也不被看见），已把扫描域扩到 `.vue` + `src` 下非测试 `.js` |
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/` 下的**构建产物**路径与 `packages/rpa-engine/`；`node scripts/verify-worktree-deps.js` 通过（11 个 workspace 消费方全部指向本 worktree） |
 | QM-4 视觉 | ⚠️ 见遗留 | 本变更改详情弹窗「作品链接」行渲染形态（单锚点 → 三态）。`test:visual:pixel` 需 dev server 与基线，本机未执行；**未刷新任何基线** |
 | 品牌残留 | ✅ | `node scripts/check-no-brand-residue.js` → PASS（扫描 7127 tracked 文件） |
@@ -49,5 +51,6 @@ sync_backfill_owner: 合并本 PR 的会话（回填与销账必须同一次提�
 - **QM-6 未执行**：本机无 `codeagent-wrapper`。
 - **结构性不可派生的 7 个平台**（微信公众号、视频号、微博、TikTok、Twitter、Instagram、Facebook）本次**明确不给链接**。这是如实降级而非遗漏；后续若某平台能从发布结果取到第二成分（如公众号的 `__biz`），只需在 `PUBLIC_CONTENT_URL_RULES` 增一条规则，无需改视图。
 - **`main` 上 CHANGELOG 828 份重复副本**属既有污染，本 PR 未触碰；按 `quality-gate.yml:173-180` 的注释，清理由配套改 growth 口径的另案处理。
+- **`max-lines` 账本对 `PublishHistory.vue` 的登记值已陈旧**：登记 1205，而 main 实际已是 1379 行。本 PR 通过拆分把该文件压到 1363 行（增长 158 < 200）从而合规，**未改账本**（改账本等于把一个 1363 行文件的基线抬到 1457）。陈旧成因是该门禁按 **diff 作用域**检查：不被 PR 触碰的文件，其基线漂移永远不会被发现。这条口径问题需配套改门禁的另案处理。
 - **`zhihu` 派生模板沿用 `https://zhihu.com/p/{id}`**（无 `www.`），与 `platform-metrics` 既有输出逐字一致以保证 no-op；两种形式均可解析。
 - **小红书笔记 ID 形态闸门为 `^[0-9a-f]{16,32}$`**：十进制数字本身即合法 hex，该正则**无法也不该**区分二者。已锁的可判定不变量是「含非 hex 字符 ⇒ 拒绝」与「长度不足 ⇒ 拒绝」。若日后确认笔记 ID 恒为 24 位，可收紧为 `{24}`。
