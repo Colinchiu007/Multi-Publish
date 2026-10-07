@@ -36,6 +36,7 @@ import {
   applyPlatformContentConversion,
   APP_ARTICLE_CONTENT_MAX,
   buildPublishTargets,
+  getPlatformLabel,
   normalizePublishFile,
   normalizePublishFiles,
   normalizePublishMentions,
@@ -478,11 +479,20 @@ export function usePublishFlow(options) {
         const scheduleCheck = validateScheduleEntries(
           targets.map(target => ({ ...target, publishTime: article.publishTime })),
           // 注入 i18n：校验提示走 locales（en 用户不再看到中文硬编码字面量）
-          { translate: (key, params) => progressText(`publishPage.scheduleValidation.${key}`, params) },
+          // 注入 platformLabel：提示里显示「百家号」而非内部 id「baijiahao」
+          // （2026-10-07 真机 E2E，PR #3033）
+          {
+            translate: (key, params) => progressText(`publishPage.scheduleValidation.${key}`, params),
+            platformLabel: (id) => getPlatformLabel(id),
+          },
         )
         if (!scheduleCheck.valid) {
           addProgress(progressText('publishPage.publishFlow.scheduleInvalidProgress', { message: scheduleCheck.message }), 'danger')
           result.value = { success: false, message: scheduleCheck.message }
+          // 2026-10-07 真机 E2E（PR #3033）：此前这里只写进度面板（页面底部），
+          // 点「一键发布」后**当场没有任何反馈**，用户要滚动到页面最下方才知道被拦，
+          // 与「无标题」「缺正文」等兄弟分支的行为不一致。统一补 toast。
+          notifyWarning('publishPage.publishFlow.scheduleInvalidToast', { message: scheduleCheck.message })
           return
         }
       }
