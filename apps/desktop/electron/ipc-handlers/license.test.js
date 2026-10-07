@@ -164,7 +164,10 @@ describe('license:activate 打包态拒收（P0 权限泄漏）', () => {
       activateTrial: vi.fn(),
     }
     registerLicenseHandlers(
-      { handle: vi.fn(), on: (ch, h) => { listeners[ch] = h } },
+      // license.js 用 `ipcMain.handle(...)` 注册业务通道，只有 `auth:get-access-level`
+      // 走 `on(...)`。两个都要接到 listeners，否则 `listeners['license:activate']`
+      // 是 undefined（首次 CI 就是这么红的：TypeError: handler is not a function）。
+      { handle: (ch, h) => { listeners[ch] = h }, on: (ch, h) => { listeners[ch] = h } },
       { app: { isPackaged }, licenseManager, identityService: undefined },
     )
     return { handler: listeners['license:activate'], licenseManager }

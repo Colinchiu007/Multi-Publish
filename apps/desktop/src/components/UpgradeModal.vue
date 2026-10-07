@@ -123,7 +123,7 @@
             这里如实说明去向，而不是留一个必然失败的输入框。
           -->
           <div v-if="!activationCodeAvailable" class="payment-unavailable">
-            激活码已迁移至账号核销，请登录后在会员中心使用
+            {{ t('memberCenter.activationCodeMigrated') }}
           </div>
           <template v-else>
           <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">已有激活码？</div>

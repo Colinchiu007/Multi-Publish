@@ -108,3 +108,45 @@ IPC `license:activate` — 3 档全对：
 
 | 远程同步 | PENDING |
 |---|---|
+
+---
+
+## 首轮 CI 失败与修复（2026-10-07）
+
+首轮 4 个 job 红（`QG Static` / `QG Coverage` / `QG Desktop Shards 1/2、2/2`），
+**全部同一根因**，不是 4 个独立问题。
+
+### ① 我新增的 4 条测试全红：`TypeError: handler is not a function`
+
+`license.js` 用 `ipcMain.handle(...)` 注册业务通道，只有 `auth:get-access-level`
+走 `on(...)`。我的 `makeHandlers` 写的是 `{ handle: vi.fn(), on: ... }` ——
+`handle` 是**空实现**，handler 从未进 `listeners`。
+
+**这个坑我在 node 验证脚本 `.git/v4.js` 里已经踩过并当场修了，却没把修复带回测试文件** ——
+验证脚本与被验证代码不一致，方向反了：改了脚本，忘了改测试。
+⇒ **本地「验证通过」不能替代对测试文件本身的复核**。
+
+修法：`{ handle: (ch, h) => { listeners[ch] = h }, on: (ch, h) => { listeners[ch] = h } }`。
+
+### ② `check-locale-sync` 抓到我的硬编码中文
+
+```
+[locale-sync] FAIL：渲染端新增 1 处硬编码中文字符串
+  UpgradeModal.vue:124  "激活码已迁移至账号核销，请登录后在会员中心使用"
+```
+
+新加的提示文案写成了**硬编码中文**。规范是用户可见文案必须走 locale：
+补 `memberCenter.activationCodeMigrated`（zh/en 成对），组件改用 `t()`。
+
+**值得注意的是：抓出这个问题的是 `check-locale-sync.test.js` 这个「门禁自测」** ——
+我一直把它当成元测试（测门禁脚本本身的），这次它作为 `QG Static` 的一部分
+在**真实门禁实跑**中报出了真缺陷。**门禁自测不只测门禁，也会挡住真实回归。**
+
+修完本地立即复核：`node .github/scripts/check-locale-sync.js --cjk` →
+`PASS（基线 1489 条，当前 1333 条，无新增硬编码）`；`node --test check-locale-sync.test.js` → 16/16。
+**不必再送一轮 CI 才发现。**
+
+### 方法教训
+
+4 个 job 红时，我按 job 逐个下载日志。**失败用例数「4 条 / 1 个文件」已经指明同一根因** ——
+应先看聚合数收敛假设，再定位文件，而不是逐 job 查。逐个查多花了 4 次日志拉取。
