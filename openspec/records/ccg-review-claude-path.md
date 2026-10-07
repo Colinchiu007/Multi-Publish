@@ -2,9 +2,6 @@
 record: ccg-review-claude-path
 task: 修复 CCG 深度双模型审查（QM-6）后端解析：claude 在本机报「不在 PATH」，引擎静默降级成单后端
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并且无法取证 merge SHA（原因由 CI 与门禁决定），合并后由后续 docs PR 在同一次提交里删除本字段
-sync_backfill_owner: 下一次会话（随本 PR 的回填 PR）
 ---
 
 ## 本次执行记录：CCG 双模型评审后端按绝对路径解析（ccg-review-claude-path，2026-10-07）
@@ -26,7 +23,7 @@ sync_backfill_owner: 下一次会话（随本 PR 的回填 PR）
 | 跨平台回归 | PASS | `Gate 2b - Desktop dev scripts (node --test)` 在 **ubuntu CI 实跑 success**（job 112477662300，step 单独 `success`）——测试桩已改为「按平台命名 + `chmod 0755`」，两种平台夹具语义都成立 |
 | docs-only 判定 | PASS | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=false`（4 个文件含 `.github/workflows/` 与 `scripts/`）⇒ 走完整门禁，全量 job 正常执行。`release` job 的 `skipped` 与本判定无关：其条件是 `startsWith(github.ref, 'refs/tags/v')`，只在版本 tag 触发 |
 | 计数/对账类门禁 | PASS | 行尾对账：`Compare-Object` 两口径零差异（`deep-review.sh` 保持 LF 0/400，测试与文档保持 CRLF 316/0、457/0）；`check-no-brand-residue` 6994 tracked 文件 0 残留；`check-gate-record-debt` / `check-debt-budget` / `check-step-failfast` / `check-changelog-growth` / `check-unwired-tests` 全 rc=0；`workflow-contract.test.js` 32/32；`bash -n` rc=0；`check-docs-sync` rc=0 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3005)$' --format=%H\|%cI` 取 merge SHA 与时间；`git ls-remote --heads origin ccg-review-claude-path` 返回 0 行证远端分支随合并删除；**回填与销账必须在同一次提交**：改写本行状态列 + 删除本文件 frontmatter 的 `sync_*` 三字段 + 删除 `scripts/gate-record-debt-ledger.json` 中本条登记 |
+| 远程同步 | PASS | 已合并：#3005 = `2955482d1`（committer 2026-10-06T21:52:20Z）；取证 `gh pr view --json mergeCommit,mergedAt` + `git merge-base --is-ancestor <sha> origin/main`；远端分支 `git ls-remote --heads origin ccg-review-claude-path` 返回 0 行。上方三个 sync_* 字段已在本条转 PASS 的同一次提交删除 |
 
 ### 意图偏离登记（如实登记）
 
