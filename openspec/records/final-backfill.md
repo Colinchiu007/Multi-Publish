@@ -2,9 +2,6 @@
 record: final-backfill
 task: 把本会话五个已合并 PR 的台账一次收口（5 篇记录销账 + 3 条 CHANGELOG 条目）
 date: 2026-10-05
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；回填者＝下一个会话。这是一条**一行机械改写**的欠账：把下面「远程同步」行改成 PASS 并填入 `git log origin/main --grep='(#<本 PR 号>)$' --format=%H|%cI` 现取的 SHA 与时间，同时整段删除本段三个 sync_* 字段（留着不删会被门禁判「已回填却仍留登记字段」）。
-sync_backfill_owner: 下一个会话（同分支名 final-backfill；`git ls-remote --heads origin final-backfill` 返回 0 行即证远端分支已删）
 ---
 
 ## 本次执行记录：五个已合并 PR 的台账收口（final-backfill，2026-10-05）【docs-only】
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（同分支名 final-backfill；`git ls-rem
 | 三条新增 CHANGELOG 条目 | ✅ | #2904（第三扫描域 + 挂账可闭合判据 + `DOMAIN_NOT_WIRED`）、#2905（`>=`→`^` + 整表上界棘轮 + 锁一致性）、#2910（QM-6 七条发现处置 + 竞态代价 + 十一次变异反证）。**#2901 不重复建条目**：它的落地已由 #2908 那条（`changelog-restore / changelog-growth-gate`）覆盖，实测 main 的 H1 里含「只可增长」的恰是那条 |
 | 刻意不做的事 | ✅ 划界 | 不碰其他会话的五条 PENDING 记录（`exec-record-wiring-71a` / `fix-settings-roundtrip` / `gate2c2-landing-correction` / `publish-frequency-control` / `qm6-agents-dedup`）与 `_TEMPLATE.md`；不改写任何已合并的 CHANGELOG 条目（那是历史事实快照，改写必然制造新的置顶冲突并篡改记录） |
 | QM-1 打包 / QM-2 代码必检 / QM-4 视觉 / TDD / QM-6 双模型评审 | 跳过（docs-only） | 与运行时无关：无代码、无依赖区间、无 UI 文件。QM-6 的评审对象是 #2910 那批判据代码，已在那一侧执行并如实记「部分执行（三路两败一成，7 条处置）」；本 PR 只动台账文字 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#<本 PR 号>)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin final-backfill` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `5e62a1bc6b13ec808346760524bf691272070a49`（committer 2026-10-05T05:12:35Z，PR mergedAt 2026-10-05T05:12:36Z）。取证三条：① `git log origin/main --grep='(#2915)$' --format=%H|%cI` 唯一命中该 SHA 与时间；② `gh pr view 2915 --json mergeCommit` 的 oid **与上面同一个 SHA**（两源互证，不靠单侧）；③ `git ls-remote --heads origin final-backfill` 返回 **0 行**证远端分支已删。归属判据：分支名 == 记录文件名（`final-backfill`），且该 head 分支只命中这 1 个 PR（多 PR 复用会整条排除而不是取第一个）。本行改写与 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 
 ### 一条方法论（写下来是因为它本轮真的差点漏掉）
 

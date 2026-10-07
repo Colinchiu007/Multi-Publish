@@ -2,9 +2,6 @@
 record: gate-record-backfill-08
 task: 批量回填三条「已合并但远程同步仍 PENDING」的执行记录（#3039 / #3078 / #3083）并销账
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA——NNNN 由 `gh pr list --head gate-record-backfill-08 --json number` 当场回读取得，不得凭印象填——回填本行并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：批量回填远程同步欠账（gate-record-backfill-08，2026-10-07）【docs-only】
@@ -29,7 +26,7 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 | 文档同步 | PASS | `bash scripts/check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`（该脚本自己拼 `origin/$BASE`，传 `origin/main` 会 `fatal: couldn't find remote ref refs/heads/origin/main`；且**必须在提交后跑**，未提交时它读 HEAD 会报「无变更」，那不构成证据） |
 | QM-1 / QM-2 代码必检 / QM-4 / TDD | N/A | docs-only 通道跳过（零运行时文件） |
 | QM-6 双模型外部评审 | N/A | 纯记录回填，按 AGENTS.md 不强制 |
-| 远程同步 | PENDING | 本条自己的欠账：合并后由后续回填 PR 改写为 PASS + merge SHA（取证 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，NNNN 由 `gh pr list --head gate-record-backfill-08 --json number` 当场回读），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 `gate-record-debt-ledger.json` 建键 |
+| 远程同步 | PASS | 已合并：squash 落地 `f844f175125a5fc71448afd79b630490e00c3594`（committer 2026-10-07T12:59:56Z，PR mergedAt 2026-10-07T12:59:57Z）。取证三条：① `git log origin/main --grep='(#3089)$' --format=%H|%cI` 唯一命中该 SHA 与时间；② `gh pr view 3089 --json mergeCommit` 的 oid **与上面同一个 SHA**（两源互证，不靠单侧）；③ `git ls-remote --heads origin gate-record-backfill-08` 返回 **0 行**证远端分支已删。归属判据：分支名 == 记录文件名（`gate-record-backfill-08`），且该 head 分支只命中这 1 个 PR（多 PR 复用会整条排除而不是取第一个）。本行改写与 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 
 ## 遗留（不在本 PR 处理）
 
