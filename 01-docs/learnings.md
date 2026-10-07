@@ -17642,3 +17642,50 @@ YouTube Data API 的 `quotaExceeded` / `rateLimitExceeded` 返回 **403（4xx）
 `app.isPackaged = false` 钉死，全部分支只验证开发态，
 `grep -c "isPackaged = true"` = **0** ⇒ `payment.js:66` 那道生产拦截**从未被测过**。
 **凡是把环境量写死在 `beforeEach` 的测试，等于放弃了另一半世界。**
+
+## 五类「本地复现不了、只能从 CI 产物取证」的门禁红（2026-10-07，PR #3053 博主采集）
+
+这轮四个 job 同时红（债务熔断 / QG Static / QG Coverage + 两个 Desktop Shards / QG Visual），
+本地全绿的检查器在 CI 上全红。逐条复盘后发现**没有一个是逻辑 bug**，而是四类
+「本机环境与 CI 运行环境不同构」的门禁。共性教训：**门禁红先问「这台机器能不能复现」**，
+不能复现就直接去 CI 产物里取证，不要靠猜。
+
+1. **preload 注释里的通道样例会被当真通道提取**（`ipc-contract.test.js` 红）
+   `electron/tests/ipc-contract.test.js` 扫的是 preload 源文件**全文文本**，
+   我在 `preload/creator.js` 头注里写了 `ipcRenderer.invoke('creator:xxx', ...)` 当反例说明，
+   结果 `creator:xxx` 被提取成真通道，主进程没有同名 handler → 断言红。
+   同一个坑本地 `check-ipc-bridge` 是绿的（它只认**调用点**，注释不是调用点），
+   所以本地复现不出来。**写「不要这样写」的反例时，不要用会被提取器命中的形状**。
+
+2. **`container.setup.js` 顶到 500 行触发 `NEW_OVER_LIMIT`**（债务熔断门禁红）
+   博主采集接线 +24 行，文件从 476 涨到 500，`check-max-lines` 的口径是 `>= 500` 即阻断。
+   注意本地 `Get-Content .Count` 报 499、门禁报 500 —— 差在**末尾换行**，
+   判定以门禁口径为准。仓库对这条红线的既定处方是**拆兄弟模块**（本轮拆出
+   `core/container.setup.creator.js`，主文件回到 479），**禁止 `--update` 挂账**：
+   挂账等于承认「接受漂移」，而这个文件是全仓主进程服务的注册总表。
+   记这条是因为它和「`store-schema.js` 500 行熔断」是同一类约束的两次现身。
+
+3. **新增 preload 模块后必须重跑 `node scripts/build-preload.js`**
+   契约锁 `build-preload.test.js` 会核对「提交的 bundle 与源码暴露的 API 路径数完全相同」，
+   我加了 `preload/creator.js` 却没重算 bundle → 493 vs 494。
+   这个也是本地容易漏的：单测跑的是 `electron/tests/**`，bundle 产物在仓库里已提交，
+   不重算不会自动报错。**凡是新增/删除 preload 模块，提交前必须重算 bundle。**
+
+4. **视觉基线只能取自 CI 产物**（QG Visual Gate 7b 红）
+   给采集页加了「博主监控」页签 → `/collection` 的 `collection.png` 确定性漂移 237px
+   （两轮渲染 SHA256 逐字节相同，排除 flake）。这是**预期 UI 变更**，处方是更新基线，
+   但**必须从 `quality-gate-visual-reports` 产物里取 CI 渲染图**，
+   **不能在本机 `UPDATE_BASELINE=1` 重捕** —— 本机字体/滚动条/抗锯齿的环境差会被烘进基线，
+   抬高此后所有 PR 的 CI 误报（`01-docs/PRD-CLOUD-ACCOUNT-SYNC-2026-09-27.md` §17.4、
+   `PRD-AVATAR-EXPIRED-MASK-2026-09-24.md` §7.3 都有前车记录）。
+   另注：`--max-drift-px=0` 是零容忍口径，0.011% 的真实变更照样红；
+   而常规视觉套件用 6% 阈值，同一张图在 Gate 7 是过的 —— **同一个改动两个门禁结论相反**，
+   别拿 Gate 7 绿去推断 Gate 7b 也会绿。
+
+5. **`check-changelog-duplicate-entries` 在 CI 里是棘轮，本地不带参数必红**
+   该门禁的 CI 调用是 `--base=<merge-base> --head=HEAD`，只拦「本次 PR 让副本变多」；
+   不带参数本地跑，它会拿全量历史当现状，main 上 **828 份存量重复**直接判红。
+   记这条是为了避免下次误判成「是我 re-sync 时把 CHANGELOG 插重了」而去跑 `--dedup --apply` ——
+   那是**上游 1dd05b12（#2792）留下的历史债**，本 PR 副本数 828 → 828、新增 0，
+   跑 dedup 反而会在一个 PR 里夹带 828 处无关改动。**判棘轮类门禁必须先看 workflow 里
+   传了什么参数**，不能想当然用默认调用。

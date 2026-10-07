@@ -18,6 +18,7 @@ const {
   migrateKnowledgeEvolutionSchema,
   migrateViralPatternSchema,
   migratePerformanceLoopSchema,
+  migrateCreatorLinkage,
 } = require('../store-schema')
 const log = require('../logger')
 
@@ -89,6 +90,7 @@ class BaseStore {
       migrateKnowledgeEvolutionSchema(this.db)
       migrateViralPatternSchema(this.db)
       migratePerformanceLoopSchema(this.db)
+      migrateCreatorLinkage(this.db)
       this._ready = true
       // Stage -1.1：数据库就绪后立即迁移存量明文账号凭证（主密钥已注入时）。
       if (this._accountCrypto && typeof this.migrateAccountCredentials === 'function') {

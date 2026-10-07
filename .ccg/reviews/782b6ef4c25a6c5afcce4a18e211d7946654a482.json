@@ -1,0 +1,36 @@
+{
+  "sha": "782b6ef4c25a6c5afcce4a18e211d7946654a482",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 730 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 730,
+    "fileCount": 30,
+    "codeFileCount": 28,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 10
+  },
+  "stagedDiffHash": "d84f76ecd2ae1f395e191322e8151d21dbf3e86cb85732fe17537e7bbcf099fe",
+  "decidedAt": "2026-10-07T11:06:43.653Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-c7b300d3\\adjudication.json",
+    "note": "裁决尚未填写：8/8 条未定（i1, i2, i3, i4, i5, i6, i7, i8）",
+    "at": "2026-10-07T11:15:03.538Z"
+  }
+}

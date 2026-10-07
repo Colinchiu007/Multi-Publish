@@ -275,6 +275,15 @@ class AutomationScheduler {
    * @returns {Promise<{status: string, error?: string, failedSteps?: string[]}>}
    */
   async _executeWithPolicy (task) {
+    // 新增任务类型 MUST 在此显式分发。未知类型走 _quarantineUnknownType，
+    // 既不 fallback 到 pipeline（会静默跑错链路），也不 throw
+    // （throw 发生在调度循环里，一条脏任务就会让其余任务全部不再触发）。
+    const type = task.action && task.action.type
+    if (type && type !== 'fullAutoPipeline') {
+      if (type === 'creatorMonitor') return this._executeCreatorMonitor(task)
+      return this._quarantineUnknownType(task)
+    }
+
     const attempts = (task.maxRetries || 0) + 1
     let lastError = ''
     for (let i = 0; i < attempts; i++) {
@@ -294,6 +303,49 @@ class AutomationScheduler {
     }
     // skip 策略：重试耗尽仍失败
     return { status: 'failed', error: lastError }
+  }
+
+  /**
+   * 博主监控巡检：逐个探测到期博主。
+   * 单个博主探测失败 MUST NOT 中断整轮 —— runtime.probeCreator 本身已不抛异常，
+   * 这里再兜一层，保证「一个坏博主不会拖垮当轮其余博主」。
+   */
+  async _executeCreatorMonitor (task) {
+    const rt = this._creatorRuntime
+    if (!rt || typeof rt.probeCreator !== 'function') {
+      return { status: 'failed', error: '博主监控运行时未装配' }
+    }
+    const ids = (task.action && task.action.config && task.action.config.followIds) || []
+    let ok = 0
+    let skipped = 0
+    for (const followId of ids) {
+      try {
+        const r = await rt.probeCreator(followId)
+        if (r && r.ok) ok += 1
+        else skipped += 1
+      } catch (e) {
+        skipped += 1
+      }
+    }
+    if (this._log && this._log.warn && skipped > 0) {
+      this._log.warn('[automation] 博主巡检', `${skipped}/${ids.length} 个未成功探测`)
+    }
+    return { status: ok > 0 || ids.length === 0 ? 'completed' : 'failed', skipped }
+  }
+
+  /** 未知任务类型：挂起并保留原始载荷，绝不执行任何链路 */
+  async _quarantineUnknownType (task) {
+    const type = task.action && task.action.type
+    if (this._log && this._log.warn) {
+      this._log.warn('[automation] 未知任务类型已隔离', `task=${task.id} type=${type}`)
+    }
+    if (typeof this._quarantine === 'function') {
+      try { await this._quarantine(task) } catch (_) { /* 隔离失败不得影响调度 */ }
+    }
+    if (typeof this._markTaskPaused === 'function') {
+      try { await this._markTaskPaused(task.id, 'unknown_type', `未知自动化任务类型: ${type}`) } catch (_) { /* 同上 */ }
+    }
+    return { status: 'failed', error: `未知自动化任务类型: ${type}` }
   }
 
   /**

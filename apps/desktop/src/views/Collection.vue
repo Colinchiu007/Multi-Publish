@@ -5,6 +5,7 @@
         <div class="collection-tabs" role="tablist">
           <button role="tab" :aria-selected="activeTab === 'collect'" class="collection-tab-btn" :class="{ active: activeTab === 'collect' }" @click="switchTab('collect')">{{ $t('collection.tabCollect') }}</button>
           <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" data-testid="collection-tab-library" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
+          <button role="tab" :aria-selected="activeTab === 'creator'" class="collection-tab-btn" :class="{ active: activeTab === 'creator' }" data-testid="collection-tab-creator" @click="switchTab('creator')">{{ $t('collection.creatorTab') }}<span v-if="creatorPendingTotal > 0" class="collection-tab-badge" data-testid="collection-tab-creator-badge">{{ creatorPendingTotal }}</span></button>
         </div>
         <div class="page-subtitle">从各平台采集内容，或快速创建草稿</div>
       </div>
@@ -445,6 +446,8 @@
     </div>
 
     <!-- 文案库标签页（2026-09-16 合并：原「采集记录」+「文案库」两标签合一，以采集记录卡片为准） -->
+    <!-- 博主监控：独立组件，避免把 2700+ 行的采集页继续堆胖 -->
+    <CreatorMonitor v-else-if="activeTab === 'creator'" />
     <div v-else-if="activeTab === 'records'" class="cohere-content" role="tabpanel" :aria-label="$t('collection.recordsTitle')">
       <div class="cohere-section-title col-section-title col-section-title--flex">
         <span>{{ $t('collection.recordsTitle') }} · {{ $t('collection.libraryCount', { count: libraryItems.length }) }}</span>
@@ -685,6 +688,7 @@ import { setRewriteHandoff } from '@/utils/rewrite-handoff'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { normalizeCollectedItem, normalizeItemTags, itemTags } from '@/features/collection/collected-item'
 import { mapFavBatchResultsToItems, countOriginalFallback } from '@/features/collection/collection-batch'
+import CreatorMonitor from '@/features/collection/CreatorMonitor.vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { useCollectionBatchPublish } from '@/composables/useCollectionBatchPublish'
@@ -2280,7 +2284,7 @@ async function saveCollectedItems () {
 }
 
 /** 合法标签页：采集 / 文案库（2026-09-16 原三个标签合并为两个） */
-const TAB_KEYS = ['collect', 'records']
+const TAB_KEYS = ['collect', 'records', 'creator']
 
 function switchTab (tab) {
   if (!TAB_KEYS.includes(tab)) return

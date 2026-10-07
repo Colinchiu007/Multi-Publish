@@ -215,6 +215,9 @@ function createContainer(options) {
   // 注意：目录在装配时快照式定型（与 app-*.log 同源）；若未来支持运行时切换日志目录，
   // 需同步评估审计日志是否跟随（当前生产无 setLogOptions 调用，契约稳定）。
   container.register("urlCollector", function(c) { return new UrlCollector({ auditDir: c.get("logger").getLogsDir() }); });
+  // 博主监控与采集：装配顺序有依赖（store → collector → runtime），拆到兄弟模块是为了
+  // 不让本文件撞上 500 行硬限，详见 container.setup.creator.js 头注。
+  require('./container.setup.creator').registerCreatorServices(container);
   // 知乎正文图片本地化（2026-10-03 PRD-ZHIHU-FAV-BATCH C1）：zhimg 防盗链 → Referer 伪装下载到 userData
   container.register("zhihuImageLocalizer", function(c) {
     const ZhihuImageLocalizer = require('../services/zhihu-image-localizer');
