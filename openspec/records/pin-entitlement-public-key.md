@@ -92,6 +92,35 @@ packaged+真实公钥通过、**packaged+仅 CRLF 差异仍通过**（防止写�
 **现有 15 个用例零破坏**：node 直驱复现其 fixture 形态
 （`keyId=entitlement-key-1` + 未传 `isPackaged`）确认仍放行。
 
+## CCG 判定与 SELF-REVIEW
+
+`node scripts/ccg-review-decider.js` → **DUAL**（变更 163 行但命中 auth/加密敏感内容 3 处）。
+落地 `.ccg/reviews/630767d76999abecc80a8e702d9a20bd64f9c9e1.json`。
+
+**双模型后端（claude + opencode）在沙箱内均不可用**，按判定器自身指示降级为
+SELF-REVIEW，结论记入 `.quality-gates.md`。
+
+### SELF-REVIEW 抓出的一处真问题（已修复）
+
+原判定写作 `isPackaged !== true`，会被 `1` / `'true'` / `{}` 这类**非布尔真值静默降级为宽松**，
+与 `license:activate`(#3085) 的 `!== false` 严格不等口径不一致。
+
+已改为显式白名单：只有 `false` / `undefined` / `null` 放行，其余非布尔真值抛
+`IDENTITY_CONFIG_INVALID`。取舍是**误拒的代价是启动失败（可查可修），
+误放行的代价是验签被绕过**。
+
+补 4 条 `it.each` 回归（`1` / `'true'` / `{}` / `[]`），node 直驱 7/7 全对。
+
+### 评估后不修改的两项
+
+- 公钥前导空格/尾部换行被放行：`trim()` 造成的空白等价，非安全问题（`trim` 正为 CRLF 而设）
+- 配置文件不存在时跳过校验：该分支直接返回，身份未启用时本就无公钥，**既有设计非本 PR 引入**
+
+### 诚实声明
+
+**双模型外部评审未能实际执行**，本次结论全部来自 agent 自审 + 变异验证，
+**不等价于外部交叉审查**。有可用后端时应补跑。
+
 ## 过程中一处自身失误
 
 验证脚本第一次跑抛 `logtoScopes 缺少 profile` —— 那是我**脚本漏字段**，

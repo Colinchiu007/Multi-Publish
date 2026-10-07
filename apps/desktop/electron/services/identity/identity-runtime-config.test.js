@@ -265,6 +265,12 @@ describe('发行公钥不可被替换（2026-10-07 加固）', () => {
     expect(env.ENTITLEMENT_PUBLIC_KEY).toBe(forged)
   })
 
+  // 2026-10-07 SELF-REVIEW 发现：原判定 `isPackaged !== true` 会被 1 / 'true'
+  // 这类真值静默降级为「宽松」，与 license:activate(#3085) 的严格不等口径不一致。
+  it.each([[1], ['true'], [{}], [[]]])('isPackaged=%j 非布尔真值 ⇒ 抛错而非静默放宽', (bogus) => {
+    expect(() => load({ isPackaged: bogus })).toThrow(/必须是布尔值/)
+  })
+
   it('身份未启用时不因缺公钥而抛错（不越权拦截）', () => {
     const { loadIdentityRuntimeEnv } = require('./identity-runtime-config')
     const env = loadIdentityRuntimeEnv({

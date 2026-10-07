@@ -226,7 +226,17 @@ function loadIdentityRuntimeEnv(options = {}) {
 // 2026-10-07：packaged 模式下要求发行公钥与编译期锚点逐字节一致。
 // 详见 PINNED_ENTITLEMENT_PUBLIC_KEYS 上方注释。
 function assertPinnedEntitlementPublicKey(merged, isPackaged) {
-  if (isPackaged !== true) return
+  // 严格布尔判定：`!== true` 意味着 `1` / `'true'` 这类真值会**静默降级为宽松**，
+  // 与 `license:activate`(#3085) 的 `app.isPackaged !== false` 口径不一致。
+  // 宁可「非严格 true 就当作打包态从严」——误拒的代价是启动失败（可查、可修），
+  // 误放行的代价是签名校验被绕过。
+  if (isPackaged === true) {
+    // 继续
+  } else if (isPackaged === false || isPackaged === undefined || isPackaged === null) {
+    return // 明确的开发态 / 未指定
+  } else {
+    throw invalidConfig(`isPackaged 必须是布尔值，收到 ${typeof isPackaged}: ${String(isPackaged)}`)
+  }
   const keyId = merged.ENTITLEMENT_KEY_ID
   const publicKey = merged.ENTITLEMENT_PUBLIC_KEY
   // 身份未启用时本就没有公钥，不在此处越权拦截
