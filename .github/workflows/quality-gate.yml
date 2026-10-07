@@ -143,6 +143,28 @@ jobs:
           node --test scripts/check-text-encoding-integrity.test.js
           node scripts/check-text-encoding-integrity.js
 
+      # --- Gate 12c：文档绝对路径有效性门禁（#3000 逃逸分析逼出） ---
+      # 动因：仓库根 2026-10-06 改名后，文档里的**绝对路径**不会跟着改，于是静默失效
+      # （运维手册里 `cd D:\...\<旧名>\apps\desktop` 照着敲必然失败）。此前**零门禁**
+      # 检查「文档写的路径是否还存在」——check-no-brand-residue.js 只管品牌词。
+      # 落点必须是本 job：输入是文档（01-docs/**、*.md 全在 docs-only 白名单），
+      # 放进被 `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验。
+      # 口径与 Gate 2c3 同族：base 取 **merge-base**（不是 PR base sha，也不是 origin/main），
+      # 问的是「本 PR 相对自己的起点改了哪些文档、里面有没有失效路径」。
+      # 该脚本按改动集判定 —— 全量扫描会命中 100+ 处历史引用（已删除的临时 worktree、
+      # CI runner 路径等），那些不是缺陷，逐条"修好"等于篡改历史。
+      # 编号取 12c 而非 12b：#3032 的文本编码完整性门禁已占用 12b。
+      - name: "Gate 12c - Doc abs-path validity (changes job)"
+        shell: bash
+        env:
+          DP_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/check-doc-abs-paths.test.js
+          BASE_REF="${DP_BASE:-HEAD^}"
+          MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+          echo "[doc-abs-paths] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
+          node scripts/check-doc-abs-paths.js --base="${MB:-$BASE_REF}" --head=HEAD
+
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。
