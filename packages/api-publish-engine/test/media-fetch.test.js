@@ -260,7 +260,6 @@ async function main () {
     // leg2 patch dns.lookup（答 127.0.0.1，即 rebinding 答案），
     // 内网受害者是本机假服务器。判别标准是「内网收到几个请求」——
     // 撤掉地址钉住时应读到内部数据，保留时应 0 请求。
-    const net = require("net")
     const realDnsLookup = dns.promises.lookup
     const realNodeLookup = require("dns").lookup
     let internalHits = 0
@@ -269,8 +268,14 @@ async function main () {
       res.writeHead(200, { "Content-Type": "text/plain" })
       res.end("SECRET-INTERNAL-DATA")
     })
-    await new Promise((r) => internal.listen(0, "127.0.0.1", r))
-    const internalPort = internal.address().port
+    // ⚠️ 必须用**固定端口**：出站台账的键含端口（基线里既有 blocked::example.com:8099
+    // 之类），用 listen(0) 的临时端口会让每次运行的键都不同，CI 的「新增键即红」
+    // 判定随之变成不确定。既有出站类测试统一用 8099（见 network-egress-guard.test.js）。
+    const internalPort = 8099
+    await new Promise((r, rj) => {
+      internal.once("error", rj)
+      internal.listen(internalPort, "127.0.0.1", r)
+    })
 
     // leg2：连接那次的解析答内网
     const rebound = (host, opts, cb) => {
