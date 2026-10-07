@@ -75,6 +75,25 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 
 另记一条本轮踩到的坐标错：我一度用 `--base=$(git rev-parse origin/main)` 跑 growth，而 main 在几分钟内又前进 ⇒ 报「269 种条目缺失」rc=1。**growth 的坐标系必须是 `merge-base`，不是 `origin/main` tip**（这正是 Gate 2c3 那条 CI 接线锁 `CI 接线锁：Gate 2c3 必须以 merge-base 为坐标系，且不得退回 origin/main` 守的东西，本地手跑同样适用）。
 
+
+#### 第四次 re-sync（上一 head 的 CI 已全绿之后，main 又合了 4 个提交）
+
+上一 head `35adfb239` 的 CI **实测收敛为 19 pass / 0 fail / 1 skipping（`release`）**，看守脚本却以 rc=8 收口，报的是 `GREEN_BUT_UNMERGEABLE` —— 因为 `mergeable` 同时变成 `CONFLICTING/DIRTY`：main 新合的 #3057 在 CHANGELOG 顶部插了一条条目。**本 change 要消灭的那个形态，第四次发生在我自己身上。**
+
+| 项 | 值（base `23822b73f`） |
+|----|------------------------|
+| base | 65,890 行 / 7,612,532 字节；**1,189 条 / 348 种 / 冗余 841 / 最坏 16** |
+| head | **349 条 / 349 种 / 18,094 行**，`redundant=0`；行级 `+133 / −47,929`（净减 47,796 行，与前几轮同一个数） |
+| 授权 | `applies_to_base=23822b73f…`、`expected_titles_reduced=269`、`expected_entries_after=349`（全部由 regen 同一次计算写出） |
+| 三把锁 | growth rc=0 出声「条目 1189 -> 349」；棘轮 `841 -> 0／新增副本=0`；对账器 A1–A5 全过，`kept_byte_identical=348` |
+| 回归锁 | 两文件合跑 **49 / 49 / 0**；本地 10 条门禁（exec-record / classify / debt / unwired / failfast / maxlines / growth / dup / reconcile / docs-sync）**全部 rc=0** |
+
+解法照设计走：不手解 4.8 万行冲突，`git merge origin/main` 后由 `changelog-dedup-regen.js` 从 merge-base 的 blob 重建「我的条目 + dedupe(base)」并同批改写授权；合并提交前跑**逐字节冲突标记普查**。
+
+**这次普查暴露了自己的一个缺陷（值得单独记）**：`git diff --name-only` 会把非 ASCII 文件名 C 引号化 —— main 本轮带进来的 `01-docs/UX-前端交互与用户体检研究方案-2026-10-07.md` 在输出里变成 `"01-docs/UX-\345\211…"`，我把它原样喂给 `git show :<path>` ⇒ `ambiguous argument`。普查按设计 **fail-closed**（`UNREADABLE=1` ⇒ 打印 `PROBE_INCOMPLETE` ⇒ 拒绝提交、rc=2），改成 `git diff -z` + `-c core.quotePath=off` 后得到 `TARGETS=22 UNREADABLE=0 DIRTY=0` 才落合并提交。**覆盖面口径要如实写**：上一轮普查报的 `TARGETS=39 UNREADABLE=0` 那批文件名确实全是 ASCII，那次结论仍成立；但 `UNREADABLE` 是这个探针**唯一能自证覆盖面**的字段，缺了它，"我以为扫过了"就会被当成证据。
+
+**另一条同轮新证（口径分裂的代价是活的）**：本轮合入的 `# [未发布] fix(publish-history)…` 用中文前缀，前缀口径数得到（1,158 → 1,159）；上一轮合入的 `# [unreleased] gate(docs): …Gate 12c…` 用小写英文，前缀口径**数不到**。⇒ 两种写法在同一份台账并存且都算一条条目，收敛为单一实现后两侧同为 1,189。
+
 ### 反证（新加的守卫必须被"拆掉它"证伪过）
 
 驱动脚本每条都跑四步：**从 pristine 快照还原 → 基线必须全绿 → 应用变异（断言锚点命中恰好 1 次）→ 目标用例必须变红 → 逐字节还原并断言与备份 `equals`**。
