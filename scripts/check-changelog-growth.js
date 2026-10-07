@@ -225,6 +225,10 @@ function checkDedupShape(baseRawText, headRawText) {
     if (ho.length > bo.length) { problems.push({ title: t, kind: '副本变多', from: bo.length, to: ho.length }); continue; }
     if (ho.length !== 1) { problems.push({ title: t, kind: '只削一半', from: bo.length, to: ho.length }); continue; }
     const kept = hBlocks[ho[0].index];
+    // 注意：对"被削减到 1 份"的标题，下面那条 A3（必须等于 pickKeeper 选的那份）**逻辑上蕴含**这里的 A2
+    // （pickKeeper 选的那份本身就是 base 的一块）。保留 A2 不是为了更强，而是为了报错可读 ——
+    // "保留份与 base 任何一份都不逐字节相同"比"留下的不是 pickKeeper 选定的那份"更贴近人真正做的事。
+    // 反证 M2 因此不能拿"保留份被改写过"那档当命中目标（A3 会兜住），它唯一的隔离用例是"只差一个 CR"那条。
     if (!bo.some((o) => bBlocks[o.index] === kept)) { problems.push({ title: t, kind: '保留份与 base 任何一份都不逐字节相同', from: bo.length, to: 1 }); continue; }
     const expected = entries.pickKeeper(bo).index;
     if (ho[0].index !== undefined && bBlocks[expected] !== kept) {
