@@ -2,9 +2,6 @@
 record: ccg-git-bash-entry
 task: CCG 评审入口加 WSL 环境闸与 PowerShell 统一入口，消除误导性排查建议
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 回填 PR 的会话
 ---
 
 ## 本次执行记录：CCG 评审入口 WSL 环境闸 + PowerShell 统一入口（ccg-git-bash-entry，2026-10-07）
@@ -118,7 +115,7 @@ sync_backfill_owner: 回填 PR 的会话
 
 **双向实测取真实退出码**（⚠ 不可用 `cmd | Select-Object` 取 rc，管道会吃掉真值）：WSL 场景 `rc=2`、Git Bash 场景 `rc=0`，`deep-review.sh` 与 `plan-review.sh` 两个脚本均正确。
 
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3107)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin ccg-git-bash-entry` 返回 0 行证远端分支已删。⚠ **本载体（`openspec/records/`）的登记走 frontmatter，不进 `gate-record-debt-ledger.json`** —— 后者的键必须匹配 `.quality-gates.md` 的 `## 标题`（`check-gate-record-debt.js:191` 的 `stale` 判据），给文件源载体登记会被判「陈旧登记」而恒红。首版正是踩了这个坑，已撤销 |
+| 远程同步 | PASS | PR #3107 squash 合并为 `origin/main` `aad3f303c9b274feed828613699332c302f45d3a`（2026-10-08T00:43:35+08:00，squash merge，CI 全绿：19 success / 0 failure / 0 pending）；`git ls-remote --heads origin ccg-git-bash-entry` 返回 0 行证远端分支已删。回填与销账在同一次提交内完成：删 frontmatter `sync_status`/`sync_reason`/`sync_backfill_owner` 三字段。⚠ 文件源载体（`openspec/records/`，本文件）的未收口登记走 frontmatter，不进 `gate-record-debt-ledger.json` —— 后者键必须匹配 `.quality-gates.md` 的 `## 标题`，给本文件登记会被判「陈旧登记」恒红 |
 
 ### ⚠️ 过程中自查抓到的真实缺陷
 
