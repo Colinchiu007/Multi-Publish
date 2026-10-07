@@ -1057,12 +1057,15 @@ jobs:
             $contrastExit = $LASTEXITCODE
             Write-Host "[GATE-7c] contrast-audit exit: $contrastExit"
             if ($contrastExit -ne 0) {
-              Write-Host "[GATE-7c] 低对比退化或基线异常 - 见 reports/contrast-audit-report.json"
-              # 报告作为工件上传，便于 PR 上直接看
-              $reportPath = Join-Path $desktopDir "tests/visual-testing/reports/contrast-audit-report.json"
+              Write-Host "[GATE-7c] 低对比退化或门禁自身故障 (exit=$contrastExit)"
+              # 报告写在 visual-testing 根下（不在 reports/ 的 gitignore 范围内），
+              # 否则 upload-artifact v4 会因尊重 .gitignore 而传不上来。
+              $reportPath = Join-Path $desktopDir "tests/visual-testing/contrast-audit-report.json"
               if (Test-Path $reportPath) {
-                Write-Host "--- contrast-audit-report.json ---"
-                Get-Content $reportPath -Raw
+                Write-Host "--- contrast-audit-report.json (前 200 行) ---"
+                Get-Content $reportPath -TotalCount 200
+              } else {
+                Write-Host "未生成 contrast-audit-report.json —— 多半是 fail-closed（dev server / 浏览器不可用）"
               }
               Pop-Location
               exit $contrastExit
@@ -1156,6 +1159,7 @@ jobs:
           name: quality-gate-visual-reports
           path: |
             apps/desktop/tests/visual-testing/reports/**
+            apps/desktop/tests/visual-testing/contrast-audit-report.json
             apps/desktop/tests/visual-testing/screenshots/**
             apps/desktop/tests/visual-testing/screenshots-round1/**
             apps/desktop/vite-visual.*.log

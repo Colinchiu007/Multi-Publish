@@ -18,7 +18,14 @@ const MIN_RATIO = Number(process.env.MIN_RATIO || 3) // 低于 3:1 视为可疑
 // 基线按「视图」记录低对比样本数。CI 判据是**不许增长**：
 // 存量是已知债务，一次性清零会让所有后续 PR 全红；逐波下降才是可执行的判据。
 // 修好某视图后跑 `node contrast-audit.js --update-baseline` 重写基线。
+//
+// 基线必须入库（reports/.gitignore 里对 !contrast-audit-baseline.json 显式放行），
+// 否则 CI 上缺基线会直接 exit 2。
 const BASELINE_FILE = path.resolve(__dirname, '../reports/contrast-audit-baseline.json')
+// 详细报告放在 visual-testing 根下而非 reports/：upload-artifact v4 尊重
+// .gitignore，而 reports/*.json 全部被忽略 → 门禁失败时工件里看不到报告。
+// 这个路径不在任何 ignore 规则内。
+const REPORT_FILE = path.resolve(__dirname, '../contrast-audit-report.json')
 const UPDATE_BASELINE = process.argv.includes('--update-baseline')
 
 const ROUTES = [
@@ -120,7 +127,6 @@ async function main () {
 
   const outDir = path.dirname(BASELINE_FILE)
   fs.mkdirSync(outDir, { recursive: true })
-
   const counts = {}
   let total = 0
   for (const r of report) {
@@ -136,8 +142,24 @@ async function main () {
     affected.forEach(r => console.log('  ' + r.view + ': ' + r.lowContrast.length))
   }
 
-  const detailFile = path.join(outDir, 'contrast-audit-report.json')
+  const detailFile = REPORT_FILE
   fs.writeFileSync(detailFile, JSON.stringify(report, null, 2))
+
+  // ── 门禁自身故障必须 fail closed ──
+  // 全部视图都 ERROR（dev server 没起/浏览器没装/路由全 404）时，
+  // counts 全是 0 —— 直接往下走会被当成「0 处问题」而报绿，
+  // 那是「没跑成」被当成「跑过了」。判据不存在时不得改变结论。
+  const errored = report.filter(r => r.error)
+  if (errored.length === report.length && report.length > 0) {
+    console.error('\n[contrast-audit] 全部 ' + report.length + ' 个视图都失败 —— 门禁自身故障，按 fail-closed 处理')
+    errored.forEach(r => console.error('   - ' + r.view + ': ' + r.error))
+    console.error('  排查：TEST_URL 指向的 dev server 是否在跑、playwright 浏览器是否已 install')
+    process.exit(2)
+  }
+  if (errored.length) {
+    console.warn('[contrast-audit] 警告：' + errored.length + ' 个视图未采集成功，其低对比数按 0 计入基线（可能低估）')
+    errored.forEach(r => console.warn('   - ' + r.view + ': ' + r.error))
+  }
 
   if (UPDATE_BASELINE) {
     fs.writeFileSync(BASELINE_FILE, JSON.stringify({ minRatio: MIN_RATIO, counts }, null, 2) + '\n', 'utf8')
