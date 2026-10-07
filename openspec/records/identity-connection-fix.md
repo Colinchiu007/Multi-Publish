@@ -2,11 +2,6 @@
 record: identity-connection-fix
 task: 修复企业网络下连接失败的分类、文案归因与诊断可外发
 date: 2026-10-07
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-#   留下不删 = 门禁报「已回填却仍留登记字段」。登记随文件走，不存在外部清单要记得同步删条目。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 合并后的收尾会话
 ---
 
 ## 本次执行记录：企业网络连接失败修复（identity-connection-fix，2026-10-07）
@@ -22,7 +17,7 @@ sync_backfill_owner: 合并后的收尾会话
 | 接线棘轮 | PASS | 新增 `src/components/IdentityDiagnostics.test.js` **无需改 workflow**：已核 `apps/desktop/vitest.config.js` 的 `include` 含 `src/**/*.test.{js,ts}` 通配，文件自动纳入；桌面测试由 `QG Desktop Shards` / `QG Coverage` 整目录收集执行（`electron-ci.yml` 注释已注明其桌面 vitest 收敛为仅 main push，PR 上实际执行者是 QG 系列）。该文件本地独立跑 9/9 通过 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（`packages/python-backend`、`ops-center`）故 QM-1 无打包对象；无 UI 布局/主题改动（新增组件在既有 `.member-center-error-box` 内，样式沿用既有 token），QM-4 视觉回归 N/A |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`（AGENTS.md 允许如实写未执行）。**不以自审冒充通过**；另 `agent-judge` check 在 CI 中已通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3051)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin identity-connection-fix` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | merge `7c92e6d254df280dbbca248591f9cbf3797874ba` @ `2026-10-07T15:33:36+08:00`（`git log origin/main --grep='(#3051)$'` 实测）；`git ls-remote --heads origin identity-connection-fix` 返回 0 行，远端分支已删；三个 `sync_*` 字段已随本次回填删除 |
 
 ### CI 结果（3cacb259）
 
