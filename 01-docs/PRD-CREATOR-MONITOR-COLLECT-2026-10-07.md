@@ -1511,10 +1511,14 @@ const digest = JSON.stringify(body || {}).slice(0, 200).replace(/[A-Za-z0-9_-]{2
 
 | 要求 | 定义 |
 |---|---|
+| **复用既有模式（不是新造）** | ⚠ 本仓**已经为 `faster-whisper` 完整解决了同类问题**，博主监控 MUST 复用该模式而非另造轮子：`electron/services/asr-installer.js`（带进度上报 + **pip 国内镜像源 fallback**）→ `aggregation.js:53` 错误码 `-6` 内嵌确切命令 → `src/utils/collect-error.js:74` 前端分类 `retryable:false` → `zh.js:2648`/`en.js:2642` 中英文案 → `Collection.vue:629-633` 的 `<code>` 块 + `data-testid` → `Collection.test.js:848` 回归锁 |
 | 启动即探测 | 后端健康检查阶段探测 `content_aggregator` 是否可导入，结果纳入既有 `/health` 响应 |
 | 状态透出 UI | `creator:list` 返回 `platformAvailability: { youtube: 'ready' \| 'missing_dependency' }` |
-| **明确文案 + 修复指引** | `creatorErrDependencyMissing`：**「博主监控需要额外的采集依赖，未检测到 content-aggregator。请在运行本应用的 Python 环境中执行：pip install content-aggregator」**（给出确切命令，而不是只说「依赖缺失」） |
+| **明确文案 + 修复指引** | 文案 MUST 含确切命令，并**给出国内镜像写法**（沿用 asr 的 `pip install <pkg> -i https://pypi.tuna.tsinghua.edu.cn/simple`），否则国内用户按默认源装不上，等于没提示 |
+| 安装引导 | 复用/扩展 `asr-installer` 的进度 UI 形态，别另做一套 |
 | 禁止静默降级 | MUST NOT 在缺依赖时把「博主监控」tab 显示为正常可用；该 tab 应置灰并说明原因 |
 | 设置页可见 | 依赖状态在设置 → 服务状态面板中常驻可见（复用既有 `PRD-SERVICE-STATUS-PANEL` 的展示位） |
+
+**为什么这一条比我原本设计的更重要**：我在 §16.1 初稿里只写了"给出确切 pip 命令"，**漏掉了国内镜像源**。而 `asr-installer.js` 已经踩过并解决了这个问题——国内用户用默认 PyPI 源装大包经常超时失败。既有实现里有 `pip install faster-whisper -i https://pypi.tuna.tsinghua.edu.cn/simple` 这类写法，说明这不是理论顾虑而是已发生的事实。复用它的收益不只是省代码，更是**继承已验证的踩坑经验**。
 
 **回退方案**：若判定该依赖的分发不可接受（安装门槛过高），则改为**本仓内自实现 YouTube 采集**——官方 Data API 本身不复杂（`channels` + `playlistItems` + 字幕拉取，约 200 行），且能随应用分发。代价是要自己维护字幕获取（`youtube-transcript-api` 仍需 pip）。**此决策需在 P0 冒烟后按实际安装体验定。**
