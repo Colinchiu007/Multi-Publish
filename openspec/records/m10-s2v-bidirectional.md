@@ -2,10 +2,6 @@
 record: m10-s2v-bidirectional
 task: 为 S2V 父子契约补双向交叉校验回归锁，堵住「已登记但父级已删」这一唯一缺口
 date: 2026-10-07
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 ---
 
 ## 本次执行记录：S2V 父子契约双向交叉校验（M-10，m10-s2v-bidirectional，2026-10-07）
@@ -21,7 +17,7 @@ sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 | 接线棘轮 | PASS | 未新增目录，在既有 `src/views/video-creation/` 下；`vitest.config.js` 的 `include` 已含 `src/**/*.test.{js,ts}`，无需改 workflow |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面：纯新增测试，零生产代码改动 |
 | QM-6 CCG 双模型外部评审 | 未能执行 | 与 #3012 / #3029 同因：`codeagent-wrapper` 只有 `codex`/`gemini`/`claude`，`opencode` 不在其中，三者实测均失败 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3054 于 2026-10-07 15:05:09 +08:00 squash 合并，merge SHA `dd822d7f447d853755a4c3e07ec6a63c575f7387`，origin/main 已核验；`git ls-remote --heads origin m10-s2v-bidirectional` 返回 0 行，远端分支已删。CI 19 pass / 1 skipping / 零失败 |
 
 ### 关键结论：这是潜伏陷阱，不是现行 Bug
 
