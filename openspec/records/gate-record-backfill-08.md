@@ -22,8 +22,10 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 | 行尾与 diff 对账 | PASS | 所有编辑逐行 `split('\n')` 处理、**不碰行内容里的 `\r`**，替换行时按原行结尾补回同一行尾（`OLD_LINE_TAIL_PRESERVED=true`）。提交后按 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径对账，两口径一致 ⇒ 无幽灵行 |
 | Gate 2c | PASS（**提交后**复跑；第一次跑不作证据，见下行） | 复跑判据与现场数字见下一行「Gate 2c 提交后复跑」。 |
 | ⛔ 一次被自己采纳的**域不符**取证（如实登记） | 已纠正 | 本 PR 第一次跑 `check-gate-record-debt.js` 得到 `OK`，我据此把「Gate 2c PASS」写进了执行记录 —— 但**那次跑在本记录文件还是未跟踪状态时**，而 `listRecordFiles` 按跟踪文件枚举（本地读到 86 篇、CI 读到 87 篇即差这一个文件）。于是那条 `OK` 的扫描域里根本没有本 PR 新增的记录，它对自己的新增文件**结构性失明**。CI 用提交后的树当场报红：`❌ 记录文件整块缺 远程同步 行 1 篇：gate-record-backfill-08.md`。根因是我照 `_exempt`/旧记录的写法只写了 frontmatter 的 `sync_*` 三字段与一条 bullet，漏了 `ROW_RE = /^\|\s*远程同步\s*\|/` 要求的**表格行**。口径：**凡「跑一次自证脚本」的判据，必须在提交后的树上跑**（与 `classify-docs-only` 必须提交后跑是同一条纪律的第三个落点，见 [[project-mulpub-docs-sync-gate]]）。 |
-| Gate 2c 提交后复跑 | 见下行数字 | 修复表格行后在提交后的树上复跑，现场： |
-| 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` ⇒ `PASS（扫描 7184 个 tracked 文件，无品牌残留…）` |
+| Gate 2c 提交后复跑 | PASS | 现场：`远程同步行 250 条 / 执行记录 451 篇（全部 ## 标题 459 个）/ 已登记欠账 8 条 / 记录文件 87 篇` + `OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留`。**87** 这一格就是与本地未提交那次（86）的差 —— 差的正是本 PR 新增的这篇记录 |
+| classify-docs-only（提交后） | PASS | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=true`，files=5 |
+| check-pr-exec-record（提交后，enforce） | PASS | `本 PR 变更文件 5 个（A=1 M=4 D=0）｜ 新增记录 1 篇 …｜ 载体M=4` + `OK: 本 PR 携带执行记录或带原因的豁免`（注意 `载体M=4` —— 回填型 PR 改的正是别人的记录，这条数字就是那个「没有合法出路」的形状） |
+| 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` ⇒ `PASS（扫描 7185 个 tracked 文件，无品牌残留…）`（提交后复跑；提交前那次是 7184，差的就是本篇新记录） |
 | 文档同步 | PASS | `bash scripts/check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`（该脚本自己拼 `origin/$BASE`，传 `origin/main` 会 `fatal: couldn't find remote ref refs/heads/origin/main`；且**必须在提交后跑**，未提交时它读 HEAD 会报「无变更」，那不构成证据） |
 | QM-1 / QM-2 代码必检 / QM-4 / TDD | N/A | docs-only 通道跳过（零运行时文件） |
 | QM-6 双模型外部评审 | N/A | 纯记录回填，按 AGENTS.md 不强制 |
