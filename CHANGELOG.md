@@ -2,27 +2,27 @@
 
 ### 为什么不能直接把副本删掉（本条最关键）
 
-- main 上 `CHANGELOG.md` 实测（canonical 口径，`origin/main`=`cbce32541` 的 blob）：**1185 条 / 344 种标题 / 冗余 841 份 / 最坏同一标题重复 16 次**，65,715 行 / 7,596,728 字节。副本全部来自 re-sync 型解冲突，不是真实历史。
+- main 上 `CHANGELOG.md` 实测（canonical 口径，本 PR 的 merge-base `6fb99307b` 的 blob）：**1187 条 / 346 种标题 / 冗余 841 份 / 最坏同一标题重复 16 次**，65,818 行 / 7,602,769 字节。副本全部来自 re-sync 型解冲突，不是真实历史。
 - 但 `scripts/check-changelog-growth.js` 判「base 标题**多重集**被 head 包含」，其测试里有一条**有意选定**的不变量：`真仓库四档…副本删一份=红`，注释原文 `// 只删重复副本中的一份 -> 仍须报丢（集合口径会漏，这条就是为它写的）`。
 - ⇒ 「削到 1 份」与「削到 3 份」在这位 owner 的语义里是同一类操作，区别只在数量，而数量是这条门禁唯一能区分的信号。**实测**：把「允许削到 1 份」写成自动例外，`node --test` 立即 `tests 11 / pass 10 / fail 1`，红的正是那条断言（随后按备份逐字节还原，基线回到 11 pass）。
-- 所以本条**没有**改宽默认判据，而是加一条**需要书面授权**的一次性通路：仅当 head 相对 base **新增** `scripts/changelog-dedup-authorization.json` 且其 `applies_to_base` 等于本次 base 的 sha 时，才额外接受清理形状（每个被减少的标题恰好剩 1 份 ∧ 保留块逐字节等于 base 中同标题的某一块 ∧ 一个标题都不许消失 ∧ 声明的 `expected_titles_reduced=269` / `expected_entries_after=345` 与实际相符）。授权文件在 base 已存在则不生效，后续 PR 蹭不到这张通行证；例外生效时**必须出声**打印减少量，不许静默放行。
+- 所以本条**没有**改宽默认判据，而是加一条**需要书面授权**的一次性通路：仅当 head 相对 base **新增** `scripts/changelog-dedup-authorization.json` 且其 `applies_to_base` 等于本次 base 的 sha 时，才额外接受清理形状（每个被减少的标题恰好剩 1 份 ∧ 保留块逐字节等于 base 中同标题的某一块 ∧ 一个标题都不许消失 ∧ 声明的 `expected_titles_reduced=269` / `expected_entries_after=347` 与实际相符）。授权文件在 base 已存在则不生效，后续 PR 蹭不到这张通行证；例外生效时**必须出声**打印减少量，不许静默放行。
 
 ### 结果（清理后当场独立回读，不走去重脚本自己的结论）
 
-- 台账由 65,715 行 / 7,596,728 字节 → **17,917 行 / 2,070,569 字节**（345 条条目 / 345 种标题）。
+- 台账由 65,818 行 / 7,602,769 字节 → **18,022 行 / 2,077,240 字节**（347 条条目 / 347 种标题，净减 47,796 行）。
 - **无损的性质在「块」这一层**：base 里每个标题至少还剩一份；留下的每一块都**逐字节**等于 base 中的同源块，且就是 `pickKeeper` 会选的那一份；再跑一次 `--dedup` 报 `removed=0`（幂等）。
-- 行级 diff 是 `+131 / −47,929`，其中只有 **26 行**来自本 PR 新增的那条台账，其余新增行是被**重排**的幸存块造成的位置移动（去重把「同题留最长」那份挪到该标题首次出现的槽位）。**所以这次改动不能被称为"纯删除"** —— 这是独立对账器 `changelog-dedup-reconcile.js` 判红后纠正过来的一句过度声明。
+- 行级 diff 是 `+133 / −47,929`，其中只有 **28 行**是本 PR 新增的那条台账自身（含其后的 `---` 分隔行），其余新增行是被**重排**的幸存块造成的位置移动（去重把「同题留最长」那份挪到该标题首次出现的槽位）。**所以这次改动不能被称为"纯删除"** —— 这是独立对账器 `changelog-dedup-reconcile.js` 判红后纠正过来的一句过度声明。
 - **12 种标题的几份副本内容互不相同**（说明其中某份曾被就地改写过），保留的是正文最长那份；该数字由门禁与对账器一起打印，属需要人工过目的清单，不是无害折叠。
 
 ### 顺带闭合的一处口径分裂
 
-- 两把锁原先各写一遍「什么是一条条目」：growth 按 `HEADING_RE`（一级标题排除节标题），副本棘轮按 `# [未发布]` 前缀 ⇒ 同一份 blob 上数出 **1,184 vs 1,158** 条（收敛后为 1,185，因 base 又前进了一个提交）。任何一侧的清理都可能落在另一侧盲区。
+- 两把锁原先各写一遍「什么是一条条目」：growth 按 `HEADING_RE`（一级标题排除节标题），副本棘轮按 `# [未发布]` 前缀 ⇒ 同一份 base blob（`6fb99307b`）上实测数出 **1,187 vs 1,158** 条，差 29 条全在「非 `[未发布]` 前缀的一级标题」这一段——任何一侧的清理都可能落在另一侧盲区。收敛为单一实现后两侧同为 1,187。
 - 新增 `scripts/changelog-entries.js` 作为**唯一实现**（`HEADING_RE / splitEntries / titleOf / pickKeeper / groupByTitle / analyze / dedupe / countByTitle`），两个门禁都改为 require 它；副本棘轮的条目域随之与 growth 对齐。`.gitignore` 补 `!scripts/changelog-entries.js`（第 106 行 `scripts/*.js` 会把新建的判据本体静默挡在仓库外，CI 与本地就会跑两份不同的东西）。
 
 ### 回归保护
 
-- `scripts/check-changelog-growth.test.js` 新增 10 条：授权成立⇒过且出声；四类负控各红（标题消失 / 保留份被改写 / 只削一半 / `applies_to_base` 与本次坐标系不符）；授权文件非本次新增⇒不生效；JSON 坏⇒fail-closed 且文案点名「授权」；声明数字不符⇒红；**无授权文件时行为与现状逐字相同**；以及「两把锁在同一份文本上条目总数必须相等」的单一实现锁。
-- 实跑：growth `21 tests / 21 pass`（含 owner 原有 11 条全绿），副本棘轮 `14 / 14`。
+- `scripts/check-changelog-growth.test.js` 由 main 上的 11 条增至 30 条（+19）：授权成立⇒过且必须出声（两条）；四类负控各红（标题消失 / 保留份被改写 / 只削一半 / `applies_to_base` 与本次坐标系不符）；授权文件非本次新增⇒不生效；JSON 坏与三种残缺形态⇒fail-closed 且文案点名「授权」；声明数字不符⇒红；**无授权文件时行为与现状逐字相同**；「两把锁在同一份文本上条目总数必须相等」的单一实现锁（含 `HEADING_RE` 的 `source`/`flags` parity）；`readBlobOrNullText`「存在却读不出」与 `resolveSha` 形状校验两个单元；raw 字节档（只差一个 CR 不算同源）；head 独有新标题被插两份；head 零条目；多空格/制表符后的一级标题也算条目；授权通路下 preamble 被改写⇒红。`scripts/check-changelog-duplicate-entries.test.js` 由 14 条增至 19 条（+5，对账器 A1–A5 与其负控）。
+- 实跑：growth `30 tests / 30 pass`（含 owner 原有 11 条全绿），副本棘轮 `19 / 19`。
 - 见 `openspec/changes/dedup-changelog-history/` 与 `openspec/records/changelog-history-dedup.md`；冲突背景与规模数字在 issue #3037。
 
 ---
