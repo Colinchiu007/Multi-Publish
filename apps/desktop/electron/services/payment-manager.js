@@ -16,6 +16,23 @@ const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
 
+/**
+ * 本地模拟订单的档位表（**不是定价权威源**）。
+ *
+ * ⚠️ 这里只认 `pro` 且是一次性 ¥99，与真正的定价体系脱节：
+ *   - 权威源 `packages/api-publish-engine/src/auth/plan-matrix.js` 是
+ *     free ¥0 / standard ¥29月 ¥199年 / **pro ¥79月 ¥599年**（三档订阅）
+ *   - `license-manager.activate()` 落库时写 `expiresAt = null`，即**买断**，
+ *     全文件零订阅/续期概念
+ *
+ * PR #3003 只统一了 `plan-matrix.js` 与对外文档，这条下单→授权链未动。
+ * 2026-10-07 起 `UpgradeModal.vue` 的购买入口在正式构建下不再渲染
+ * （`purchaseAvailable = import.meta.env.DEV`），正式包用户创建不了订单；
+ * 本表仅在开发态可达。
+ *
+ * **待办（需另立项）**：让本表与 `license-manager` 接入 `plan-matrix` 的
+ * 订阅制——涉及金额来源、授权有效期校验与续期逻辑，不能顺手改。
+ */
 const PLANS = {
   pro: { amount: 99, licenseType: 'pro', features: 'all' },
 }
