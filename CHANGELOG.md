@@ -1,3 +1,32 @@
+# [未发布] fix(ci): CHANGELOG 副本数棘轮门禁——一次 PR 不得让任何标题的副本数变大（2026-10-07，changelog-dup-gate）
+
+### 事故与判据
+
+- main 上 `CHANGELOG.md` 被 re-sync 型解冲突反复放大：`1dd05b12`（#2792）把 277 条目 / 1.86MB 变成 **1097 条目 / 7.37MB**（最坏同一标题重复 16 次）；#2844 去重到 278 之后，到 `2ceceb1eb` 又涨回 **1157 条目 / 828 份冗余**。所以这不是"修一次就完"，是**没有东西在拦"变多"**。
+- 成因口径：解冲突时以**陈旧的 base** 算"我的块"（`myBlock = mine − oldBase`），oldBase 滞后 ⇒ 把上游已经前进的那一大段也算成"我新增的"，再 prepend 到 theirs 全文上 ⇒ 整份文件被复制一遍。
+- 新增 `scripts/check-changelog-duplicate-entries.js`：条目 = 以 `# [未发布]` 标题行起始到下一标题行之前的**整段原文**（逐字节搬运，不重新生成、不改行尾）；`文件缺失 / 空文件 / 一条条目都没有` 一律 fail-closed 抛错；另带 `--dedup [--apply]` 修复子命令（同题保留**正文最长**那份、按首次出现排序、**幂等**）。
+
+### 为什么 CI 判据是「副本数不得变多」而不是「存在重复即红」（本条最关键）
+
+- main 上另有一把 **`scripts/check-changelog-growth.js`**（2026-10-05 因 #2884 把 1133 条整份删空而加），判据刻意是**标题多重集包含**：base 里某标题有 N 份，head 就至少要有 N 份。
+- 于是「存在重复即红」与它**互斥**：main 历史里本就有数百份重复副本（实测 base 冗余 828），绝对判据要求删副本、growth 要求每份都不许少 ⇒ 谁都不可能同时绿，**去重永远落不了地，污染被钉死在原地**。这不是推演：本 PR 第一版按绝对判据接进去后，`QG Changes` 当场红在 growth 那一步（报 `base 1183 条 -> head 344 条`）。
+- 收敛做法＝两把锁各守自己那份不变量：growth 管「条目不许丢」，本门禁管「**一次 PR 不得把任何标题的副本数变大**」（base 已有的标题一份都不许多；base 没有的新标题允许出现 1 次，即正常加条目的形状）。它允许"变好"，所以不挡未来的清理；同时精确拦住乘法型污染（#2792 那种一次加几百份）。绝对态判据保留为本地/`--strict` 用。
+- 接线落点：与 growth **同进步骤**（`quality-gate.yml` 的 `changes` job → Gate 2c3），并复用该步骤已算出的 merge-base，不在第二处重算。原因：`CHANGELOG.md` 命中 docs-only 白名单里的根级 `*.md`，而 `static-gates` 整个 job 被 docs-only 门控 ⇒ 放那边等于给自己关掉校验（AGENTS.md 的"进白名单前提锁"）。
+- 配套：`.gitignore` 补两条 `!scripts/check-changelog-duplicate-entries.js` / `.test.js` 反选——`scripts/*.js` 会把门禁本体静默忽略，出现"测试进了仓库、被测门禁没进"的 CI `Cannot find module`，而本地全绿。
+- **历史副本的清理没有放在本 PR**：它需要同时给 growth 加一条窄例外（允许把同题副本削到 1 份，且保留的那份必须逐字节等于 base 里该标题的某一份）。改别人的判据属"改谁来守门"，另案处理并留 issue。
+
+### 回归锁与反证
+
+- `scripts/check-changelog-duplicate-entries.test.js`（node:test + `os.tmpdir()` 下带 PID 的真实临时文件，不 mock fs）：切块逐字节还原、CRLF 文本不动字节、干净不误报、重复按份数报出、保留最长正文、**幂等**、不吃掉唯一条目、`analyze.kept` 与 `dedupe` 实际保留同一份、**棘轮四种形状**（旧标题多一份即红 / 副本变少为绿 / 新标题出现 1 次为绿 / 新标题出现 2 次为红）、三种取数失败抛错、`main --base` 走真 git 且 ref 取不到必须判红。
+- 反证逐条「先跑基线全绿 → 应用变异 → 跑同一测试文件 → 逐字节还原」：M1 `analyze` 恒 `ok` ⇒ 2 failed；M2 `collect` 把"文件缺失"吞成正常返回 ⇒ 2 failed；M3 保留规则改成"留第一份" ⇒ 2 failed；M4 去重丢掉 preamble ⇒ 1 failed；M5 从 workflow 正文删掉棘轮那行 ⇒ `workflow-contract` 1 failed；M6 删掉 `--test` 那行 ⇒ 同锁 1 failed；M7 把棘轮改成"只遍历 base 标题"（漏掉"新标题被插两遍"）⇒ 1 failed。
+- M3 第一轮**没红**，挖出的不是驱动问题而是真缺陷：`analyze` 用 `pickKeeper` 算"保留哪份"，`dedupe` 另写了一份内联比较（同一规则两份实现，测试只钉住后者）⇒ 已收敛为单一实现（`groupByTitle` + `pickKeeper` 共用）并补交叉断言，重跑后变红。另记一条：摘掉接线时 `check-unwired-tests.js` **不会**红——它守的是"测试文件有没有被点名"，门禁脚本的接线只能由 workflow 结构契约守，所以补的是 `workflow-contract.test.js` 的断言。
+
+### 未覆盖（如实标注）
+
+- 允许"新标题最多 1 份"，因此它**拦乘法**，不拦语义级重抄：换个标题把同一段内容再抄一遍仍是漏口。
+- main 已有的 828 份冗余本 PR **不清理**，只保证不再变多；清理需与 growth 口径一并改（见对应 issue）。
+- 事前拦（把「本 PR 对 CHANGELOG 必须是纯前插」这条聚合式判据固化进 re-sync 工具）未做，`.tools/mp-ci/` 不在仓库内。
+
 # [unreleased] fix(bilibili): 发布侧作品标识 aid/bvid 采集（PR #2968，2026-10-06，docs-only 收口）
 
 - B 站 RPA 投稿成功后 `postId` 恒取不到（实测四种 URL/响应体形态全部 null），于是发布被判「缺少平台作品 ID」；而上一轮（#2927）落地的审核回查按 `bvid`/`aid` 精确比——**拿不到键就永不被触发**。根因追溯到 `57082ddec`（2026-08-24 写路径段关键词表时只覆盖图文/管理页形态），`d424c245c` 拆分纯函数时原样搬迁。
@@ -7,6 +36,39 @@
 - 仍未观测（不假装已闭合）：B 站投稿提交后浏览器实际落在哪个 URL、真机「已发布」徽标联动——需一次真实投稿，消耗授权前须再经用户确认。
 
 ---
+# [unreleased] fix(desktop): reportError 的异步失败兜底不可达 —— 错误既不上报也不落控制台
+
+### 缺陷
+
+`apps/desktop/src/utils/report-error.js` 的 `api.logError(...)` 走
+`ipcRenderer.invoke`，**返回 Promise**；但外层 `try/catch` 只能兜**同步**抛错。
+Promise 的**异步拒绝**直接逃出去变成 `unhandledrejection`。
+
+更糟的是 `logError` 成功后有早退 `return`，于是 `:21` 的 `console.error` 兜底在这种
+失败下**永远不可达** —— 错误既没进主进程日志、也没进控制台，**彻底丢失**。
+而 `reportError` 是全应用 catch 块的统一出口（`main.js` 全局 error /
+unhandledrejection 监听、`router.onError`、6 处组件 catch）。
+
+### 为什么既有测试没发现
+
+`report-error.test.js` 的三条用例全部用 `logError: vi.fn()` —— **同步返回 undefined**，
+从未构造过 thenable。try/catch 的能力边界从来没被测到。
+
+### 修复
+
+抽出 `toConsole` 兜底函数，对 `logError` 的返回值判定
+`typeof ret.catch === 'function'` 后挂 `ret.catch(toConsole)`。
+
+### 回归保护
+
+既有测试文件补 3 条用例（共 6 条）。**TDD 红灯先行**：修复前新用例稳定报
+`expected 0 to be greater than 0`（console 一个字都没收到）。**反证**：撤掉
+`ret.catch(toConsole)` ⇒ 转红；恢复 ⇒ 6/6 绿。
+
+第三条用例锁的是反向劣化：正常 resolve 时**不得**写 console —— 防止为了让前两条
+通过而给成功路径也加 catch，把每次成功上报变成一行控制台噪音。
+
+消费方回归：`report-error.test.js` + `useExpiredAccountsBanner.test.js` 合计 11/11 通过。
 
 # [unreleased] fix(desktop): 覆盖率门禁纳入 Vue SFC —— 146 个 .vue 此前对覆盖率贡献恒为 0
 

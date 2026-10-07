@@ -1,33 +1,34 @@
 /**
- * RequirementsVerifier - ������֤������ʵ�ɼ�����
+ * RequirementsVerifier - 需求验证器（事实采集器）
  *
- * ��Ҫ����ģ�鲻���� PRD-vs-����ƥ���ж�
- * ����������������Ӧ���� Agent �� LLM ��ɡ�
+ * 重要：此模块不进行 PRD-vs-代码匹配判断
+ * 那是语义推理任务，应该由 Agent 用 LLM 完成。
  *
- * ��ģ��ֻ����ʵ�ɼ���
- * 1. �� PRD ��ȡ������Ŀ��fact extraction��
- * 2. �Ӵ�����ȡ���ܵ㣨fact extraction��
- * 3. �����ߵ�"��ʵ"���� Agent���� Agent ������
- *    - ��Щ������ʵ�֣�
- *    - ��Щ����ȱʧ��
- *    - ȱʧ�Ĺ�������Σ�
+ * 本模块只做事实采集：
+ * 1. 从 PRD 提取需求条目（fact extraction）
+ * 2. 从代码提取功能点（fact extraction）
+ * 3. 把两边的"事实"交给 Agent，由 Agent 决定：
+ *    - 哪些需求已实现？
+ *    - 哪些需求缺失？
+ *    - 缺失的工作量如何？
  *
- * ʹ�÷�ʽ:
+ * 使用方式:
  *   const verifier = new RequirementsVerifier();
  *   const facts = await verifier.collectFacts({
  *     prdPath: "./PRD.md",
  *     srcDir: "./src"
  *   });
- *   // facts ���� prdItems + implItems + evidence
- *   // �� facts ���� Agent���� Agent �ж� coverage
+ *   // facts 包含 prdItems + implItems + evidence
+ *   // 把 facts 交给 Agent，由 Agent 判断 coverage
  *
- *   // ����ʹ�ø��������� Agent �Լ����� LLM:
+ *   // 或者使用辅助方法让 Agent 自己调用 LLM:
  *   const coverage = await verifier.assessCoverage(facts, llmFn);
- *   // llmFn ǩ��: async (prompt) => string (LLM ��� JSON)
+ *   // llmFn 签名: async (prompt) => string (LLM 输出 JSON)
  */
 
 const { PRDParser } = require("../parsers/prd-parser");
 const { FeatureDetector } = require("../detectors/feature-detector");
+const { inferEffortFromText } = require("../utils/infer-effort");
 
 class RequirementsVerifier {
   constructor(options = {}) {
@@ -39,7 +40,7 @@ class RequirementsVerifier {
   }
 
   /**
-   * �ɼ�˫����ʵ������ƥ���ж�
+   * 采集两侧事实，不做匹配判断
    */
   async collectFacts(context = {}) {
     const prdItems = context.prdPath
@@ -53,7 +54,7 @@ class RequirementsVerifier {
     }
     const implItems = await detector.detect();
 
-    // ��ȡ֤�ݣ�ÿ��ʵ�ֹ��ܵ�����ļ�·�������� Agent ��һ���Ķ�
+    // 采集证据：每条事实带源码路径，便于 Agent 引用判断
     const evidence = implItems.map(f => ({
       feature: f.name,
       type: f.type,
@@ -75,9 +76,9 @@ class RequirementsVerifier {
   }
 
   /**
-   * �� Agent �����жϣ����� LLM ������
+   * 让 Agent 基于事实自由判断，LLM 负责裁决
    *
-   * @param {Object} facts - collectFacts �����
+   * @param {Object} facts - collectFacts 采集到的事实
    * @param {Function} llmFn - async (prompt) => string
    * @returns {Object} coverage result
    */
@@ -88,7 +89,7 @@ class RequirementsVerifier {
   }
 
   /**
-   * �����ݣ������ API������ȷ���Ϊ deprecated
+   * 硬编码关键词匹配的旧 API，内部实现有缺陷，标记为 deprecated
    * @deprecated Use collectFacts() + assessCoverage() instead
    */
   async verify(prdPath, appContext = {}) {
@@ -125,7 +126,7 @@ class RequirementsVerifier {
   }
 
   /**
-   * �򵥵Ĺؼ��ֶ���ƥ�䣨����Ϊռλ������ʵƥ���� Agent ��ɣ�
+   * 简化的关键词字段匹配（仅为占位；真实判断交给 Agent 完成）
    */
   _keywordFallback(prdName, implItems) {
     const tokens = this._keywords(prdName);
@@ -156,15 +157,19 @@ class RequirementsVerifier {
   }
 
   _estimateEffort(featureName) {
-    const s = (featureName || "").toLowerCase();
-    if (/(import|export|����|batch|�Զ���|automate)/.test(s)) return "HIGH";
-    if (/(��ʾ|չʾ|��ʾ|��ť|show|display)/.test(s)) return "LOW";
-    return "MEDIUM";
+    // 2026-10-07 修复：此处原本是**独立的第二份**关键词实现，其中文词在
+    // d52dcc0（v0.8.0）提交时已被写成 U+FFFD，导致中文需求恒被判 MEDIUM
+    // ——英文分支仍正常，故缺陷静默（实测 9 例 5 例不一致，全为中文）。
+    // 收敛到 `../utils/infer-effort` 的共享实现：该处中文完好，且词表更全
+    // （另含 integrate/api/oauth/sso/jwt、button/label/style）。
+    // 关键词原文取自本文件 v0.5.0（9b29306，U+FFFD=0）：`批量|batch|自动化|automate`
+    // 与 `显示|展示|提示|按钮|show|display`。
+    return inferEffortFromText(featureName);
   }
 }
 
 /**
- * Ϊ Agent �����ṹ�� prompt
+ * 为 Agent 生成结构化 prompt
  */
 function buildCoveragePrompt(facts) {
   return `You are a requirements coverage auditor. Given a PRD list of features and a list of detected code features, decide which PRD features are covered by the code.
@@ -176,7 +181,7 @@ Implemented Features (${facts.implItems.length}):
 ${facts.implItems.map((f, i) => `${i+1}. [${f.type}] ${f.name}${f.path ? ` (route: ${f.path})` : ""}${f.file ? ` (file: ${shortPath(f.file)})` : ""}`).join("\n")}
 
 Evidence (file paths):
-${facts.evidence.map(e => `- ${e.feature} �� ${shortPath(e.file)}`).join("\n")}
+${facts.evidence.map(e => `- ${e.feature} → ${shortPath(e.file)}`).join("\n")}
 
 For each PRD feature, decide:
 - COVERED: implemented in code (provide matched impl feature)

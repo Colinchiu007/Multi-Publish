@@ -2,8 +2,6 @@
 record: disable-simulated-payment-in-prod
 task: 正式包不渲染「模拟支付成功（开发模式）」入口——主进程两道拦截本就 fail-closed，这是 UI 层的诚实性修复
 date: 2026-10-07
-sync_reason: "PR #3006 合并后回填：远程同步行改写 PASS + merge SHA、删 sync_reason/sync_backfill_owner 两字段、删除 ledger 登记项，须同一次提交完成。"
-sync_backfill_owner: "agent / Mavis"
 ---
 
 ## 本次执行记录：正式包不渲染模拟支付入口（disable-simulated-payment-in-prod，2026-10-07）
@@ -23,7 +21,7 @@ sync_backfill_owner: "agent / Mavis"
 | QM-1 打包 | ➖ N/A | `git diff --name-only origin/main...HEAD` 无 `apps/desktop/electron/**`、无 `packages/rpa-engine/**` —— 改的是渲染进程组件 |
 | QM-4 视觉 | ➖ N/A | `apps/desktop/tests/visual-testing/` **无 UpgradeModal 视觉基线**（`find` 全仓 `*upgrade*png/snap/spec` 为空）⇒ 该组件不在 `QG Visual` 覆盖范围，无基线可回归 |
 | 依赖漏洞审计 | 待 CI | 本 PR 未改任何依赖 / manifest / lockfile |
-| 远程同步 | PENDING | 合并后回填：`.quality-gates.md` 状态列改 `PASS` + merge SHA、删 `sync_*` 三字段、删 `scripts/gate-record-debt-ledger.json` 登记项，**同一次提交** |
+| 远程同步 | PASS —— PR #3006 已合并为 `origin/main` d83fe33（2026-10-07T11:21:25+08:00，squash merge）；远端分支 disable-simulated-payment-in-prod 随合并自动删除 |
 
 ### 严重度修正（本次执行中发现的判断错误，如实登记）
 

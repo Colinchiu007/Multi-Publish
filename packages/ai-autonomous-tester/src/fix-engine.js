@@ -339,13 +339,10 @@ Output JSON: { "files": [{ "path": "...", "content": "..." }], "notes": "..." }`
 
 // ===== 辅助函数 =====
 
-function inferEffort(text) {
-  if (!text) return 'MEDIUM';
-  const s = String(text).toLowerCase();
-  if (/(import|export|批量|batch|自动化|automate|integrate|api|oauth|sso|jwt|crypt|oauth)/.test(s)) return 'HIGH';
-  if (/(显示|展示|提示|按钮|show|display|button|label|rename|style|css|color)/.test(s)) return 'LOW';
-  return 'MEDIUM';
-}
+// 2026-10-07：抽出为 `utils/infer-effort` 的共享实现。
+// 此前本组件、`ai-analyzer.js`、`verifier/requirements-verifier.js` 各有一份，
+// 三份词表已经漂移，且其中一份的中文词被写成 U+FFFD（静默失效）。
+const { inferEffortFromText: inferEffort } = require('./utils/infer-effort');
 
 function estimateImpact(fix) {
   if (fix.priority === 'HIGH') return 'HIGH';

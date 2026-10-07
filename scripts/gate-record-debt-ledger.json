@@ -1,28 +1,8 @@
 {
-  "本次执行记录：日志契约迁移波次-1/2（log-notify-migration，2026-10-05）【合并后补写】": {
-    "reason": "三 PR 已合并（#2922/#2924 已取证，#2947 待 CI 后补取证）；本条随下一个 docs PR 同一次提交删除。",
-    "status": "PENDING",
-    "line": 1
-  },
-  "本次执行记录：远程同步回填销账（sync-backfill-2917，2026-10-05）【docs-only】": {
-    "reason": "本 PR 自身尚未合并，无法取证 merge SHA；回填者＝后续 docs PR，同一次提交删除本条。",
-    "status": "PENDING",
-    "line": 17
-  },
-  "本次执行记录：真实生产 manager 契约修复与音色001 E2E（fix-run-voice-clone-production-contract，2026-08-22）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "OPEN（已记录）",
-    "line": 1958
-  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "执行中",
     "line": 2118
-  },
-  "本次执行记录：提示词引擎共享内核重构 + Higgsfield 导演工作流机制落地（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics）（2026-08-14）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "PENDING",
-    "line": 2636
   },
   "本次执行记录：多语言内容同步机制文档与规划（i18n-content-sync）（2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
@@ -44,11 +24,6 @@
     "status": "待 PR 合并后核验",
     "line": 4431
   },
-  "本次执行记录：learnings 仓库复盘沉淀（2026-08-13）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "待 PR 合并后核验",
-    "line": 4452
-  },
   "本次执行记录：调度模拟器并发推进升级（scheduler_simulator 串行 → 离散事件仿真，2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "待 PR 合并后核验",
@@ -59,32 +34,6 @@
     "status": "待 PR 合并后核验",
     "line": 4489
   },
-  "本次执行记录：分支守卫自动化（隔离 worktree 自动声明，2026-08-13）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "待 PR",
-    "line": 4511
-  },
-  "本次执行记录：提示词引擎自进化 P0 反馈管道（2026-08-13）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "待 PR",
-    "line": 4528
-  },
-  "本次执行记录：提示词引擎自进化 P1b 主题指纹（2026-08-13）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "待 PR",
-    "line": 4544
-  },
-  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": {
-    "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
-    "status": "PENDING",
-    "line": 4654
-  },
-  "本次执行记录：#2903 远程同步回填 + 置顶件行尾前提更正（backfill-2903-record，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
-  "本次执行记录：#2927 远程同步回填销账 + CHANGELOG 收口（bilibili-audit-backfill，2026-10-05）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
-  "本次执行记录：CCG 双模型评审后端按绝对路径解析（ccg-review-claude-path，2026-10-07）": {
-    "reason": "本 PR 尚未合并、无法取证 merge SHA（待 CI 全绿后合并），合并后由后续回填 PR 在同一次提交里删除本登记",
-    "status": "PENDING",
-    "line": 22
-  },
-  "本次执行记录：#2968 远程同步回填销账（bilibili-bvid-backfill，2026-10-06）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记"
+  "本次执行记录：批量回填已合并未销账的远程同步欠账（sync-backfill-batch-07，2026-10-07）【docs-only】": "本 PR 在途：合并后由后续 docs-only PR 回填合并 SHA 与远端分支删除证据，并删除本条登记",
+  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。"
 }
