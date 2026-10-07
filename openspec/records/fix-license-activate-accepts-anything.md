@@ -2,10 +2,7 @@
 record: fix-license-activate-accepts-anything
 task: 修复 P0 权限泄漏——license:activate 任意字符串即可获得永久 Pro
 date: 2026-10-07
-# 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
+merged: PR #3085 → squash `f5b18dab`（2026-10-07，quality-gate 11/11 全绿）
 ---
 
 ## 本次执行记录：修复 license 激活码权限泄漏（fix-license-activate-accepts-anything，2026-10-07）
@@ -106,8 +103,7 @@ IPC `license:activate` — 3 档全对：
 激活码的**服务端核销入口尚未接进桌面端 UI**（`/api/v1/redeem` 服务端已就绪）。
 本次只把本地路径关掉并如实说明去向。接线属于后续功能项，需登录态打通后再做。
 
-| 远程同步 | PENDING |
-|---|---|
+| 远程同步 | ✅ PR #3085 → squash `f5b18dab`，quality-gate 11/11 全绿，远端分支已删除 |---|
 
 ---
 
