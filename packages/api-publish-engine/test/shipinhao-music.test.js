@@ -21,7 +21,7 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) test'
 
 let p = 0, f = 0
 // ⚠️ t() 必须 await：传进来的若是 async 用例而这里同步调用，失败会变成
-// unhandled rejection 直接崩进程——不计入 f、也不打印是��条失败，整个套件
+// unhandled rejection 直接崩进程——不计入 f、也不打印是哪一条失败，整个套件
 // 就没法用来定位问题。同步用例传进来也照常工作（await 非 Promise 返回自身）。
 async function t (name, fn) {
   try { await fn(); p++; console.log('  ✅ ' + name) }

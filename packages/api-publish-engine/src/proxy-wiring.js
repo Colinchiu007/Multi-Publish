@@ -5,7 +5,7 @@
  * 为什么需要：平台链以 `fs.readFileSync(taskData.video.path)` 读文件、
  * 以 axios 收发请求，**全程不经过 Electron 的 BrowserWindow session**。
  * 因此桌面侧 `rpa-view-manager._configureProxy()` 里的 `session.setProxy()`
- * 对 API 轨无效——这正是该处同时写��
+ * 对 API 轨无效——这正是该处同时写下了
  *   `hasAccountProxy ⇒ 关闭 API 轨、强制退回 RPA` 的原因（宁可慢也不假装走了代理）。
  *
  * 本模块只做一件事：把**调用方传入的代理配置**转成 HTTP(S) agent，塞进
