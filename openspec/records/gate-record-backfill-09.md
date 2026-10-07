@@ -4,7 +4,7 @@ task: 批量回填 6 篇「PR 已合并但远程同步仍 PENDING」的新载体
 date: 2026-10-07
 sync_status: PENDING
 sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（NNNN 由 `gh pr list --repo Colinchiu007/mulpub --head gate-record-backfill-09 --json number` 当场回读；再按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除本 frontmatter 的三个 sync_* 字段）
+sync_backfill_owner: 下一个会话（本记录属 PR #3092；合并后按 git log origin/main --grep='(#3092)$' --format=%H|%cI 取 merge SHA，回填「远程同步」行为 PASS 并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：批量回填 6 篇新载体记录的远程同步欠账（gate-record-backfill-09，2026-10-07）【docs-only】
