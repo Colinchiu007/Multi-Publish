@@ -1,0 +1,74 @@
+[
+  {
+    "severity": "CRITICAL",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "readBlobOrNullText (lines 90-98)",
+    "issue": "Overly broad regex `/does not exist|path|not found|fatal/i` classifies ANY git fatal error as \"file not exists\"",
+    "why_it_matters": "If git fails to read the authorization file from base (corrupt object, bad ref, permission denied, disk error, etc.), the error message will contain 'fatal' or 'path', causing the function to return null. This makes evaluateAuthorization think the auth file is NEWLY ADDED in head (since authBaseText === null), potentially granting the exception for an auth file that already exists in base. This defeats the \"no freeriding\" guarantee (Decision D1).",
+    "suggested_fix": "Use precise git exit codes or stderr patterns: only treat 'does not exist' / 'not found' as missing file. Check e.stderr for exact patterns like \"fatal: path 'scripts/changelog-dedup-authorization.json' does not exist in\". Re-throw on any other error (fail closed).",
+    "confidence": 9
+  },
+  {
+    "severity": "MAJOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "checkDedupShape (lines 152-180)",
+    "issue": "Exception path does not validate copy-count growth for NEW titles introduced in head",
+    "why_it_matters": "The checkDedupShape loop only iterates titles from base (bg). If head introduces a brand-new title with 100 copies, it passes the shape check. The only guard is expected_entries_after in the auth file, but a malicious PR can simply inflate that number to match. This allows sneaking in massive duplication under the cover of a legitimate cleanup.",
+    "suggested_fix": "After the base-title loop, iterate head titles (hg) and for any title not in base, verify its count === 1 (or at most the number declared in auth). Or require auth file to declare expected_new_titles and their counts.",
+    "confidence": 8
+  },
+  {
+    "severity": "MAJOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "collect / compareMultisets / checkDedupShape (lines 199-266)",
+    "issue": "Preamble (content before first entry) is completely ignored by both default and exception criteria",
+    "why_it_matters": "splitEntries separates preamble from blocks. Neither compareMultisets (which only counts headings) nor checkDedupShape (which only compares blocks) examines the preamble. An attacker could replace the entire preamble (e.g., remove license header, inject malicious content) and both gates would pass. The CHANGELOG.md preamble often contains project metadata, license, or links that should be protected.",
+    "suggested_fix": "Add preamble comparison in checkDedupShape: require head preamble === base preamble (byte-for-byte). For default criteria, either include preamble hash in the gate or document that preamble is intentionally unguarded.",
+    "confidence": 8
+  },
+  {
+    "severity": "MAJOR",
+    "file": "changelog-entries.js",
+    "symbol_or_line": "HEADING_RE (line 21): /^# (?!CHANGELOG(?:\s|$))\S/i",
+    "issue": "Regex only matches EXACTLY ONE space after '#', rejecting valid markdown headings with multiple spaces or tabs",
+    "why_it_matters": "Markdown allows any number of spaces after '#'. Headings like '#  Title' (two spaces) or '# \t Title' (tab) are valid but will NOT be recognized as entries. This means: (1) they won't be protected by the growth gate (deletion won't be detected), (2) they won't be counted by the duplicate gate, (3) the canonical entry model diverges from markdown spec. Both locks share this regex via the single implementation.",
+    "suggested_fix": "Change regex to `/^# +(?!CHANGELOG(?:\s|$))\S/i` (one or more spaces). Add test cases for '#  Title', '# \t Title', '#    Title' to ensure they're recognized.",
+    "confidence": 9
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "readBlobText (lines 73-82) vs readBlobOrNullText (lines 90-98)",
+    "issue": "Inconsistent error handling: readBlobText throws on ANY error, readBlobOrNullText tries to classify \"file not exists\"",
+    "why_it_matters": "If CHANGELOG.md read fails transiently (network, disk), the gate fails closed (good). But if auth file read fails for same reason, it's silently treated as \"file not exists\", potentially changing gate behavior. The asymmetry is confusing and the classification in readBlobOrNullText is unreliable (see CRITICAL finding).",
+    "suggested_fix": "Unify error handling: both should fail closed on any read error. If \"file not exists\" is a legitimate state for auth file, check git ls-tree or git cat-file --type first to distinguish missing vs unreadable.",
+    "confidence": 7
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "checkDedupShape (line 160): for (const [t, bo] of bg)",
+    "issue": "No validation that head doesn't swap which copy is kept when count stays equal (ho.length === bo.length path continues silently)",
+    "why_it_matters": "The code at line 163 `if (ho.length === bo.length) continue;` silently accepts equal counts. But if base has 2 copies and head has 2 copies, but they're DIFFERENT copies (content changed), the byte-identical check at line 167 only runs when ho.length !== bo.length. A PR could swap which copy is kept without reducing count, and the exception would not detect it. The default multiset gate would catch count changes but not content swaps at same count.",
+    "suggested_fix": "Even when counts are equal, verify that the kept copy in head is byte-identical to some copy in base. Or document that same-count swaps are intentionally allowed (but then the \"byte-identical\" guarantee only applies to reduced titles).",
+    "confidence": 6
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "evaluateAuthorization (line 135): String(obj.applies_to_base).toLowerCase() !== String(baseSha).toLowerCase()",
+    "issue": "applies_to_base comparison is case-insensitive but doesn't handle abbreviated SHAs",
+    "why_it_matters": "If the auth file contains an abbreviated SHA (e.g., 7 chars) but baseSha is full 40 chars from rev-parse, the comparison will fail even if they refer to the same commit. The code does String(obj.applies_to_base).toLowerCase() vs String(baseSha).toLowerCase() - a 7-char prefix won't equal 40 chars. The test uses full SHA from rev-parse, but a human-edited auth file might use short SHA.",
+    "suggested_fix": "Normalize both to full SHA before comparison: resolve obj.applies_to_base via git rev-parse if it's a valid ref/prefix, or require full 40-char SHA in the auth file schema and validate length.",
+    "confidence": 5
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.test.js",
+    "symbol_or_line": "Test '无授权时行为必须与现状逐字相同：副本删一份仍红' (lines 338-347)",
+    "issue": "This test asserts the core invariant but its assertion `assert.equal(r.lost.length, 1)` would pass even if the implementation were completely broken",
+    "why_it_matters": "The test only checks that lost.length === 1, not WHICH title is lost or that the count mismatch is correct. A broken implementation that always reports exactly one lost title would pass this test. The test should verify the specific lost title and wanted/got counts.",
+    "suggested_fix": "Strengthen assertions: check r.lost[0].heading === '# [未发布] B', r.lost[0].wanted === 2, r.lost[0].got === 1. This ensures the multiset comparison logic is actually being exercised.",
+    "confidence": 6
+  }
+]

@@ -207,3 +207,88 @@ test('main --dedup --apply 写盘后独立回读为干净；且无重复时不�
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+/*
+ * ── changelog-dedup-reconcile.js 的锁（QM-6 F-A）─────────────────────────
+ * 对账器存在的意义就是"产生清理的那个脚本不能自己给自己开证明"，
+ * 所以这里的每一条反向用例都必须让**对账器**红，而不是让 dedupe 红。
+ * 一律用真 git 仓库（os.tmpdir 下独立目录 + 隔离 GIT_CONFIG_GLOBAL），blob 形态与 CI 一致。
+ */
+const { execFileSync } = require('node:child_process')
+const { reconcile, main: reconcileMain } = require('./changelog-dedup-reconcile.js')
+
+function makeGitRepo () {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `rec-${process.pid}-${Math.random().toString(16).slice(2)}-`))
+  const cfg = path.join(dir, 'empty-gitconfig')
+  fs.writeFileSync(cfg, '')
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: cfg, GIT_CONFIG_SYSTEM: cfg, HOME: dir, USERPROFILE: dir }
+  const g = (args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', env, maxBuffer: 1 << 26 })
+  g(['init', '-q', '-b', 'main'])
+  return { dir, g }
+}
+
+function commit (repo, content, msg) {
+  fs.writeFileSync(path.join(repo.dir, 'CHANGELOG.md'), content)
+  repo.g(['add', '--', 'CHANGELOG.md'])
+  repo.g(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', msg])
+}
+
+test('对账器：合法清理（同题削到 1 份 + 留 pickKeeper 那份 + 新增一条自己的台账）⇒ 过', () => {
+  const repo = makeGitRepo()
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b1')}${E('B', 'b2 更长那份')}${E('C', 'c1')}`, 'base with duplicates')
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b2 更长那份')}${E('C', 'c1')}${E('D', '本 PR 自己那条')}`, 'dedup + own new entry')
+  const r = reconcile({ base: 'HEAD^', head: 'HEAD', root: repo.dir })
+  assert.deepEqual(r.failures, [], '合法清理不该被判红：' + r.failures.join(' ; '))
+  assert.equal(r.ok, true)
+  assert.equal(r.base_redundant, 1)
+  assert.equal(r.head_redundant, 0)
+  assert.equal(reconcileMain(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 0)
+  fs.rmSync(repo.dir, { recursive: true, force: true })
+})
+
+test('对账器负控一：某个标题一份都不剩 ⇒ 红（这才是 #2884 那种事故，不能被"削副本"的说法洗白）', () => {
+  const repo = makeGitRepo()
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b1')}${E('B', 'b2 更长')}`, 'base')
+  commit(repo, `---\n${E('B', 'b2 更长')}`, 'A 整条不见了')
+  const r = reconcile({ base: 'HEAD^', head: 'HEAD', root: repo.dir })
+  assert.match(r.failures.join('\n'), /标题整条消失/)
+  assert.equal(reconcileMain(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1)
+  fs.rmSync(repo.dir, { recursive: true, force: true })
+})
+
+test('对账器负控二：保留块被人改写过（只差一个 CR 也算）⇒ 红', () => {
+  const repo = makeGitRepo()
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b1')}${E('B', 'b2 更长')}`, 'base')
+  // 正文与 base 的任一副本都不逐字节相同：这里把最长那份的结尾行尾改成了 \r\n
+  const edited = `---\n${E('A', 'a1')}${E('B', 'b2 更长').replace('\n\n', '\r\n\r\n')}`
+  commit(repo, edited, 'kept copy edited')
+  const r = reconcile({ base: 'HEAD^', head: 'HEAD', root: repo.dir })
+  assert.match(r.failures.join('\n'), /逐字节|pickKeeper/, '必须点名是同源性坏了：' + r.failures.join(' ; '))
+  assert.equal(reconcileMain(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1)
+  fs.rmSync(repo.dir, { recursive: true, force: true })
+})
+
+test('对账器负控三：head 里仍有同题多份 ⇒ 红（幂等性质与"每标题恰好一块"都被守住）', () => {
+  const repo = makeGitRepo()
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b1')}${E('B', 'b2 更长')}`, 'base')
+  // 必须让 head 与 base 有实际差异，否则 git 不产生提交（第一版夹具就是"完全相同"，直接 commit 失败）
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b1')}${E('B', 'b2 更长')}${E('D', '新加一条但没削旧副本')}`, '加了新条目却没削重复')
+  const r = reconcile({ base: 'HEAD^', head: 'HEAD', root: repo.dir })
+  // 分别钉住两条：A4 幂等 与 A5「每标题恰好一块」。合成一条正则会让"只剩一条还在工作"看不出来。
+  const all = r.failures.join('\n')
+  assert.match(all, /幂等不成立/, 'A4 必须报：' + r.failures.join(' ; '))
+  assert.match(all, /结果里仍有同题多份/, 'A5 必须报：' + r.failures.join(' ; '))
+  // 反向一半：A3 只适用于"被削减成恰好一份"的标题。没削干净的档位报 A4/A5 就够了，
+  // 若把它也算成"留错了份"，报错文案会把人往"pickKeeper 挑错了"的方向带走 —— 误报不是判据的一部分。
+  assert.doesNotMatch(all, /留下的不是 pickKeeper/, 'A3 不得对未削减的标题开火：' + r.failures.join(' ; '))
+  assert.equal(r.ok, false)
+  fs.rmSync(repo.dir, { recursive: true, force: true })
+})
+
+test('对账器 fail closed：head 零条目 ⇒ 抛并判红，不得读成"零丢失"', () => {
+  const repo = makeGitRepo()
+  commit(repo, `---\n${E('A', 'a1')}`, 'base')
+  commit(repo, '---\n这段正文里没有任何一级标题\n', 'head has no entries')
+  assert.equal(reconcileMain(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1)
+  fs.rmSync(repo.dir, { recursive: true, force: true })
+})
