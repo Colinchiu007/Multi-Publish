@@ -1,3 +1,18 @@
+# [unreleased] gate(docs): 文档绝对路径有效性门禁（Gate 12c）+ 清理 python-backend 死脚本
+
+### 新增
+
+- `scripts/check-doc-abs-paths.js` — 文档绝对路径有效性门禁（Gate 12c，接入 `changes` job）。
+  只检查**本次改动**的受管文档里，是否存在指向本机不存在目录的 Windows 绝对路径；
+  豁免归档快照、占位符、CI runner 路径与非本机盘符。编号取 12c 是因为 #3032 的
+  文本编码完整性门禁已占用 12b。
+- `scripts/check-doc-abs-paths.test.js` — 13 个用例，含 6 个误伤回归与变异反证锁。
+
+### 移除
+
+- `packages/python-backend/scripts/update_account_isolation.py` — 一次性死代码。其作用
+  （给 `douyin.py` 注入 `_get_browser_data_dir`）已由 `publishers/base.py:405` 正式承接；
+  脚本本身硬编码云端沙箱路径、本机不可运行，且无任何引用。
 # [未发布] fix(ci): CHANGELOG 副本数棘轮门禁——一次 PR 不得让任何标题的副本数变大（2026-10-07，changelog-dup-gate）
 
 ### 事故与判据
