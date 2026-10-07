@@ -36,6 +36,57 @@
 - 仍未观测（不假装已闭合）：B 站投稿提交后浏览器实际落在哪个 URL、真机「已发布」徽标联动——需一次真实投稿，消耗授权前须再经用户确认。
 
 ---
+# [unreleased] test(desktop): S2V 父子契约补双向交叉校验 —— 堵住「已登记但父级已删」这一缺口
+
+### 缺陷
+
+`s2v-panel-contract.js` 的契约注释声称「未登记键访问显式抛错，防止拼错的键静默返回
+undefined 而丢失配置」，但这个守卫**只覆盖一个方向**：
+
+- `createS2VPanel` 先用 `Object.defineProperty` 把**每个** `S2V_PANEL_STATE` 键预置到
+  `state` 上
+- 随后 guard 用 `if (!(prop in target))` 判存在性 —— 对白名单内键该表达式**恒为假**
+
+于是：
+
+| 情形 | 结果 |
+|---|---|
+| 未登记键（拼错） | 抛错 —— **防住了** |
+| **已登记但父级已改名/删除** | `prop in target` 为真 → 返回 `undefined`，**面板控件静默退化为空值或默认值** |
+
+在 `CreateView.vue` 里重命名或删除任一 data / computed / methods 键，S2V 配置面板对应
+控件零报错地退化 —— 正是注释声称要防的那类 Bug，却恰好落在它唯一的缺口上。
+
+既有 `S2vConfigPanels.test.js` 结构上发现不了：它拿 `S2V_PANEL_STATE` **自身**构造 mock
+`vm`，白名单与真实 `CreateView` 之间零交叉校验。
+
+### 处置
+
+**未改生产代码** —— 缺陷是「防线的缺口」而非「防线的错误」，补断言即可。新增
+`s2v-panel-contract.parent-keys.test.js`（5 用例）：用 `@vue/compiler-sfc` + `@babel/parser`
+静态解析 `CreateView.vue`（5600+ 行，正则切嵌套块会静默给出错误键集合），取出
+data / computed / methods 真实键集合，与两份白名单双向对账。
+
+**反证**：向白名单注入一个父级不存在的键 ⇒ 转红并点名该键 + 说明后果 + 给出两条修法；
+撤销后 5/5 绿。`video-creation/` 全量 8 文件 73 用例通过。
+
+另加 2 条**防装饰**用例：提取器规模下限（data>80 / computed>30 / methods>100），以及
+断言一个必然不存在的键确实被判为缺失。这两条不是凑数 —— 本轮开发中提取器真的坏过一次
+（`data` 是 `ObjectMethod` 而非 `ObjectProperty`、`computed`/`methods` 成员是方法简写
+同样是 `ObjectMethod`），一度推出「48 条中 43 条缺失」的**假漂移**结论。若当时信了，
+就会为了自己的 bug 去动 5600 行的 `CreateView.vue`。
+
+### 当前状态：无漂移
+
+```
+CreateView：data 154 键 / computed 75 键 / methods 243 键
+S2V_PANEL_STATE  48 条，父级无对应键 0
+S2V_PANEL_METHODS 27 条，父级 methods 无对应键 0
+```
+
+白名单与父级当前完全一致，这条测试今天是绿的。价值在于把不变量钉住：今后任何对
+`CreateView` 的 data/computed/methods 删改，只要碰了白名单里的键，CI 立刻红并点名是哪一个。
+
 # [unreleased] fix(desktop): reportError 的异步失败兜底不可达 —— 错误既不上报也不落控制台
 
 ### 缺陷
