@@ -1,0 +1,7 @@
+{
+  "applies_to_base": "cbce3254158fbfe4ed3237040f6e7910e52de43c",
+  "reason": "清理 re-sync 型解冲突造成的历史副本（canonical 口径实测冗余 841 份 / 最坏同一标题 16 份），见 issue #3037 与 openspec/changes/dedup-changelog-history/",
+  "owner_pr": "branch:changelog-history-dedup (issue #3037)",
+  "expected_titles_reduced": 269,
+  "expected_entries_after": 345
+}

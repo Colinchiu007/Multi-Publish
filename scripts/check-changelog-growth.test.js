@@ -150,6 +150,195 @@ test('真仓库四档：顶插=过 / 截断=红 / 副本删一份=红 / 恢复=�
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// ══════════════════════════════════════════════════════════════════════
+// 一次性书面授权例外（openspec change: dedup-changelog-history）
+//
+// 动因是实测，不是推测：把「同题削到 1 份」写成**自动**例外时，本文件第 112 行那条
+// `真仓库四档…副本删一份=红` 当场翻绿（本机跑过 ⇒ tests 11 / pass 10 / fail 1，随后逐字节还原）。
+// 那条断言的注释明写「只删重复副本中的一份 -> 仍须报丢（集合口径会漏，这条就是为它写的）」，
+// 属于 owner 有意选定的不变量，不由清理 PR 改宽。所以例外只在「head 相对 base 新增授权文件」时才存在。
+// ══════════════════════════════════════════════════════════════════════
+
+const AUTH_PATH = 'scripts/changelog-dedup-authorization.json';
+
+function commitFiles(repo, files, msg) {
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = path.join(repo.dir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, content);
+    repo.g(['add', '--', rel]);
+  }
+  repo.g(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', msg]);
+}
+
+function authJson(over = {}) {
+  return JSON.stringify(Object.assign({
+    applies_to_base: 'REPLACED',
+    reason: '清理 re-sync 型历史副本',
+    owner_pr: '#0000',
+    expected_titles_reduced: 1,
+    expected_entries_after: 3,
+  }, over), null, 2) + '\n';
+}
+
+// 把 applies_to_base 改成"本次真的 merge-base"，坐标系必须由 git 给，不许手抄 sha。
+function headMergeBase(repo, base, head) {
+  return repo.g(['merge-base', base, head]).trim();
+}
+
+test('授权例外：削到恰好 1 份 + 保留份逐字节同源 + distinct 齐全 ⇒ 过，且必须出声', () => {
+  const repo = makeRepo();
+  // base：B 有两份（b / b2），A 一份 —— 这就是待清理的"乘法型污染"形状
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  // head：新增授权文件 + B 削到 1 份，且留下的是 base 里逐字节存在的那一份（b，不是 b2）
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 2 }),
+  }, 'dedup with authorization');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.deepEqual(r.lost, [], '授权成立时削到 1 份不得报丢');
+  assert.ok(r.authorization, '结果必须携带授权凭据，否则"过"是不可解释的');
+  assert.equal(r.authorization.titlesReduced, 1);
+  assert.equal(r.authorization.copiesRemoved, 1);
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 0);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('授权例外负控一：distinct 标题少一个，授权也救不了（#2884 形态的兜底）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    // A 整条不见了 —— 这正是 growth 存在的唯一理由
+    'CHANGELOG.md': '# [未发布] B\n\nb\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 1 }),
+  }, 'lost a distinct title');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  // 默认多重集判据先算，所以 A（消失）与 B（削份）都会进 lost；本用例关心的是：
+  // 授权即使被核对，也**绝不能**把"某个标题一份都不剩"洗成通过。
+  const a = r.lost.find((l) => l.heading === '# [未发布] A');
+  assert.ok(a, 'A 整条消失必须出现在 lost 里');
+  assert.equal(a.got, 0, 'got=0 才是 #2884 那种"标题不见了"的形状');
+  assert.match(r.authorizationError || '', /标题消失/, '授权核对必须点名是"标题消失"挡住了，而不是只报一句丢了');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('授权例外负控二：保留份被改写过 ⇒ 红（授权只覆盖删副本，不覆盖顺便改正文）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb-改过了\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 2 }),
+  }, 'kept copy is not byte-identical to any base copy');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.lost.length, 1, '逐字节同源判据必须真的在跑');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('授权例外负控三：只削一半（4 份削到 2 份）不算清理 ⇒ 红', () => {
+  const repo = makeRepo();
+  const four = '# [未发布] A\n\na\n' + '# [未发布] B\n\nb1\n# [未发布] B\n\nb2\n# [未发布] B\n\nb3\n# [未发布] B\n\nb4\n';
+  commitFiles(repo, { 'CHANGELOG.md': four }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb1\n# [未发布] B\n\nb2\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 2 }),
+  }, 'reduced to 2 copies, not 1');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.lost.length, 1, '例外只承认"削到恰好 1 份"');
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('授权例外负控四：applies_to_base 与本次 merge-base 不等 ⇒ 红，且不得静默退回默认判据', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n',
+    [AUTH_PATH]: authJson({ applies_to_base: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', expected_titles_reduced: 1, expected_entries_after: 2 }),
+  }, 'auth pinned to a wrong base');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.lost.length, 1, '坐标系不符 ⇒ 例外不生效，于是这份削减就是普通丢失');
+  assert.match(r.authorizationError || r.lostReason || '', /applies_to_base/, '必须点名是坐标系不符，不能只报"丢了"');
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('授权不可被后续 PR 白蹭：base 里已存在授权文件 ⇒ 例外不生效', () => {
+  const repo = makeRepo();
+  const mb0 = '# [未发布] A\n\na\n';
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n',
+    [AUTH_PATH]: authJson({ applies_to_base: 'whatever-not-newly-added' }),
+  }, 'base already carries an authorization file');
+  commitFiles(repo, {
+    'CHANGELOG.md': mb0 + '# [未发布] B\n\nb\n',
+    [AUTH_PATH]: authJson({ applies_to_base: 'whatever-not-newly-added' }),
+  }, 'auth present in base too => not newly added');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.lost.length, 1, '"相对 base 新增"这一条必须真的在判');
+  assert.match(r.authorizationError || '', /新增/, '要点名"不是本次新增"');
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('授权损坏一律 fail closed：JSON 不可解析 ⇒ rc=1 且文案点名授权（不得读成"没有授权"后按普通红混过去）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n',
+    [AUTH_PATH]: '{ this is not json',
+  }, 'broken auth');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.match(r.authorizationError || '', /授权/, '坏授权必须单独出声');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('期望数与实际不符 ⇒ 红（授权文件里的数字不是注释，是判据）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 7, expected_entries_after: 99 }),
+  }, 'auth numbers do not match reality');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.lost.length > 0 || !!r.authorizationError, true, '数字对不上时不得判过');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('无授权时行为必须与现状逐字相同：副本删一份仍红（这条是本 change 的核心不变量）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n' }, 'dedup WITHOUT authorization');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.lost.length, 1);
+  assert.equal(r.authorization, undefined, '没有授权文件时结果里不得出现授权凭据');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+// ── 单一实现锁：两把锁不得各有「什么是条目」（实测曾 1,184 vs 1,158 并存）──
+test('条目模型只有一份实现：growth 与副本棘轮在同一份文本上数出的条目总数必须相等', () => {
+  const entries = require('./changelog-entries.js');
+  const growth = require('./check-changelog-growth.js');
+  const dup = require('./check-changelog-duplicate-entries.js');
+  const t = '# CHANGELOG\n\n# [未发布] A\n\na\n# fix(自检门禁): fifo（#2648）\n\nb\n## 二级不算\n# [未发布] B\n\nb2\n';
+  const viaHeadings = growth.headingsOf(t).length;
+  const viaSplit = entries.splitEntries(t).blocks.length;
+  const viaDup = dup.analyze(t).entries;
+  assert.equal(viaSplit, viaHeadings, 'splitEntries 与 headingsOf 必须同口径');
+  assert.equal(viaDup, viaHeadings, '副本棘轮的条目域必须与 growth 一致（1,158≠1,184 那次分裂就是在这里被钉住的）');
+  assert.equal(viaHeadings, 3, '节标题与二级标题不算条目，无括号形算');
+  // canonical 口径的判据必须逐字来自 growth 现有的那条被实测纠正过的正则
+  assert.equal(entries.HEADING_RE.source, growth.HEADING_RE.source);
+  assert.equal(entries.HEADING_RE.flags, growth.HEADING_RE.flags);
+});
+
 test('判据文件的扫描域不得为 0（防「解析退化成空集合」式假绿）', () => {
   const t = fs.readFileSync(path.join(__dirname, 'check-changelog-growth.js'), 'utf8');
   assert.ok(t.includes("Buffer.byteLength"), '必须同时留字节证据');

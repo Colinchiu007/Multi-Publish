@@ -14,7 +14,9 @@
  * 而 static-gates 整个 job 被 `docs-only != 'true'` 门控 ⇒ 放那边的话，
  * 「只改 CHANGELOG 的 PR」恰恰在它最该管的那一轮不会被检测（AGENTS.md 的进白名单前提锁）。
  *
- * 判据（fail-closed）：一个条目 = 以 `# [未发布]` 开头的标题行到下一个标题行之前的整段原文。
+ * 判据（fail-closed）：一个条目 = 一条一级标题（排除节标题 `# CHANGELOG`）到下一个一级标题之前的整段原文。
+ * 该口径与 `check-changelog-growth.js` 共用同一份实现（`scripts/changelog-entries.js`），
+ * 不再各自定义 —— 否则两把锁对"什么是一条条目"会长期口径分裂（2026-10-07 实测 1,158 vs 1,184）。
  * 同一标题出现 >1 次即判重复；文件缺失/读不动一律判失败，不静默通过。
  *
  * CLI：
@@ -37,86 +39,21 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 
-const HEADING = '# [未发布]'
+/*
+ * 条目模型不在本文件里定义 —— 单一实现是 ./changelog-entries.js。
+ * 本文件原先自带一份 `HEADING = '# [未发布]'` 的切块口径，而 growth 用
+ * `HEADING_RE`（一级标题排除节标题），实测同一份 origin/main blob 上两者数出 1,158 vs 1,184 条，
+ * ⇒ 本 PR 里做的清理与检测都可能落在对方的盲区。现在两把锁共用同一份切块 / 取标题 / 分组 / 选保留份 / 去重。
+ */
+const entries = require('./changelog-entries.js')
 
-/** 把原文切成 [preamble, entry1, entry2, ...]，逐字节保留（含各自行尾与孤立 CR）。 */
-function splitEntries (text) {
-  const starts = []
-  // 逐行扫偏移，避免依赖 \r\n / \n / \r 哪一种行尾
-  let pos = 0
-  while (pos <= text.length) {
-    const nl = text.indexOf('\n', pos)
-    const end = nl === -1 ? text.length : nl + 1
-    const line = text.slice(pos, end)
-    if (line.replace(/\r+$/, '').startsWith(HEADING)) starts.push(pos)
-    if (nl === -1) break
-    pos = end
-  }
-  if (!starts.length) return { preamble: text, blocks: [], starts: [] }
-  const preamble = text.slice(0, starts[0])
-  const blocks = []
-  for (let i = 0; i < starts.length; i++) {
-    const from = starts[i]
-    const to = i + 1 < starts.length ? starts[i + 1] : text.length
-    blocks.push(text.slice(from, to))
-  }
-  return { preamble, blocks, starts }
-}
-
-function titleOf (block) {
-  return block.split('\n')[0].replace(/\r+$/, '').trim()
-}
-
-/** 同题多份时保留正文最长的那一份；等长则保留首次出现（顺序稳定，可重跑）。
- * 这一条规则 MUST 只有一份实现：analyze 报的 kept 与 dedupe 实际保留的那一份必须是同一个，
- * 否则「门禁说会留哪份」和「修复真留了哪份」就是两套口径（2026-10-07 反证 M3 抓到的正是这种分裂）。 */
-function pickKeeper (occurrences) {
-  return occurrences.reduce((best, cur) => (cur.bytes > best.bytes ? cur : best), occurrences[0])
-}
-
-/** 标题 -> 出现列表（index + bytes），analyze 与 dedupe 共用；顺序即首次出现顺序。 */
-function groupByTitle (blocks) {
-  const groups = new Map()
-  blocks.forEach((b, i) => {
-    const t = titleOf(b)
-    if (!groups.has(t)) groups.set(t, [])
-    groups.get(t).push({ index: i, bytes: Buffer.byteLength(b) })
-  })
-  return groups
-}
-
-/** 检测结果：entries / distinct / redundant（多出来的份数）/ worst / 重复标题明细 */
-function analyze (text) {
-  const { blocks } = splitEntries(text)
-  const groups = groupByTitle(blocks)
-  const dups = [...groups.entries()].filter(([, g]) => g.length > 1)
-    .map(([t, g]) => ({ title: t, count: g.length, kept: pickKeeper(g).index }))
-    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title))
-  return {
-    entries: blocks.length,
-    distinct: groups.size,
-    redundant: blocks.length - groups.size,
-    worst: dups.length ? dups[0].count : 1,
-    duplicateTitles: dups,
-    ok: dups.length === 0,
-  }
-}
-
-/** 去重：每个标题只留一份（按 pickKeeper），顺序按"首次出现的标题顺序"；preamble 原样在最前。幂等。 */
-function dedupe (text) {
-  const { preamble, blocks } = splitEntries(text)
-  const groups = groupByTitle(blocks)
-  const order = []
-  const keepIndexByTitle = new Map()
-  for (const [t, occurrences] of groups) {
-    order.push(t)
-    keepIndexByTitle.set(t, pickKeeper(occurrences).index)
-  }
-  const out = [preamble]
-  for (const t of order) out.push(blocks[keepIndexByTitle.get(t)])
-  const repaired = out.join('')
-  return { text: repaired, removed: blocks.length - order.length, entriesBefore: blocks.length, entriesAfter: order.length }
-}
+const HEADING_RE = entries.HEADING_RE
+const splitEntries = entries.splitEntries
+const titleOf = entries.titleOf
+const pickKeeper = entries.pickKeeper
+const groupByTitle = entries.groupByTitle
+const analyze = entries.analyze
+const dedupe = entries.dedupe
 
 /** 比较两版的重复度：返回每个标题副本数的变化（只关心"变多"）。 */
 function compareByTitle (baseText, headText) {
@@ -139,14 +76,7 @@ function compareByTitle (baseText, headText) {
   }
 }
 
-function countByTitle (text) {
-  const m = new Map()
-  for (const b of splitEntries(text).blocks) {
-    const t = titleOf(b)
-    m.set(t, (m.get(t) || 0) + 1)
-  }
-  return m
-}
+function countByTitle (text) { return entries.countByTitle(text) }
 
 /** 读某个 ref 上的 CHANGELOG 文本；读不到一律抛，不返回空串（空串会被下游读成"零条目"）。
  * 用 cat-file blob 取**原始 blob**，避免任何 checkout 期的行尾转换干扰两侧比较（与 growth 门禁同法）。 */
@@ -168,7 +98,7 @@ function collect (opts = {}) {
   const text = fs.readFileSync(abs, 'utf8')
   if (!text.trim()) throw new Error(`目标文件为空：${abs}（空文件不是"没有重复"，是取数失败）`)
   const { blocks } = splitEntries(text)
-  if (!blocks.length) throw new Error(`目标文件里一条 \`${HEADING}\` 条目都没有：${abs}（判据前提已失效）`)
+  if (!blocks.length) throw new Error(`目标文件里一条条目都没有（判据口径：一级标题排除节标题 \`# CHANGELOG\`）：${abs}（判据前提已失效）`)
   return { abs, text, blocks: blocks.length }
 }
 
@@ -256,4 +186,4 @@ function main (argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)))
 
-module.exports = { splitEntries, analyze, dedupe, collect, countByTitle, compareByTitle, titleOf, readRef, HEADING, main }
+module.exports = { splitEntries, analyze, dedupe, collect, countByTitle, compareByTitle, titleOf, readRef, HEADING_RE, pickKeeper, main }
