@@ -2,10 +2,6 @@
 record: fix-autonomous-tester-encoding-defect
 task: 修复 ai-autonomous-tester 三个文件的 U+FFFD——其中 _estimateEffort 的中文关键词损坏导致中文需求恒判 MEDIUM
 date: 2026-10-07
-# 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：修复 ai-autonomous-tester 编码缺陷（fix-autonomous-tester-encoding-defect，2026-10-07）
@@ -23,7 +19,7 @@ sync_backfill_owner: 下一个会话
 | `tests/infer-effort.test.js` | PASS | 10/10；变异 3 组全部变红 |
 | `tests/*.test.js` 全量 | PASS（零回归） | 162 例 152 pass → 172 例 162 pass；fail 恒 9 且集合前后一致（缺网络/LLM 依赖的既有环境失败） |
 
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-autonomous-tester-effort-regex` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS —— PR #3042 已合并为 `origin/main` 33875a9b（2026-10-07T13:25:54+08:00，squash merge，CI 21 success / 1 skipped / 0 failure）；远端分支 fix-autonomous-tester-effort-regex 随合并自动删除 |
 |---|---|
 
 ## 背景
