@@ -40,7 +40,19 @@ function registerHandlers(ipcMain, deps) {
     //   2) usePublishFlow.scheduleTargets 的回滚失败判定（`data === false`）永不成立 ——
     //      部分定时任务取消失败却提示已回滚，留下到点仍会发布的幽灵排期。
     const cancelled = ownerSubject === undefined ? scheduler.cancel(id) : scheduler.cancel(id, ownerSubject)
-    return { code: 0, data: cancelled === true, message: cancelled === true ? '定时任务已取消' : '定时任务无法取消（可能已发布或已取消）' }
+    // 2026-10-07 真机 E2E：平台侧定时创建后记录瞬时进入 executed，此时 cancel 按设计
+    // 返回 false（平台无撤销接口，本地改判 cancelled 只会制造「以为取消成功、平台照发」，
+    // 见 __tests__/scheduler.test.js 的契约锁）。但用户看到的是发布页那个「取消任务」
+    // 入口 —— 点下去只得到一句「可能已发布或已取消」，既不成立也不可操作。
+    // 改为**如实告知去哪撤销**，让用户知道下一步该做什么，
+    // 而不是对着一个永远点不动的按钮猜。
+    return {
+      code: 0,
+      data: cancelled === true,
+      message: cancelled === true
+        ? '定时任务已取消'
+        : '该排期已提交给平台，本应用无法撤销（平台未提供撤销接口）。请到对应平台的「定时/草稿管理」中撤销。'
+    }
   }, { label: 'scheduler:cancel' })))
 }
 
