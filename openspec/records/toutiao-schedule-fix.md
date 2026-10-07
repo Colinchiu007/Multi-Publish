@@ -23,6 +23,7 @@ sync_backfill_owner: 本任务作者（合并后的回填 PR）
 | 目标测试 | PASS | `packages/rpa-engine` 全量 rc=0（含 15/15 定时意图用例）；`apps/desktop` `src/features/publish` **206/206**、`src/composables`+`src/utils`+`src/locales` **1115/1115**；`eslint` rc=0 |
 | 结构性门禁 | PASS | `check-max-lines.js` rc=0；`check-renderer-cjs-boundary.js` rc=0（294 个渲染层文件）；`check-locale-sync.js` 四档（`--keys`/`--cjk`/`--pair-base origin/main`/`--py-cjk`）全 rc=0；`check-no-brand-residue.js` rc=0；`check-ipc-sender-guard.js` / `check-ipc-bridge.js` rc=0；`check-gate-record-debt.js` rc=0 |
 | QM-6 CCG 双模型评审 | 见 pre-commit | 提交时由 pre-commit 内 CCG 门禁实际执行并留痕 |
+| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，并删掉本文件 frontmatter 的 `sync_*` 三字段 |
 
 ### 验证边界声明（不可省略）
 
