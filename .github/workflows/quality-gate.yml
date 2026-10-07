@@ -286,6 +286,13 @@ jobs:
           # **静默降级成单后端**（评审照跑、结论照出，只少一路跨家族交叉验证），
           # 旧实现只有一句被动 ⚠ 告警。判据与假 HOME 复现方式见该测试头注释。
           node --test scripts/deep-review-deps.test.js
+          # CCG 评审入口的「跑在哪个 shell」锁：本机**裸 bash 解析到 WSL shim**
+          # （C:\windows\system32\bash.exe），此时 $HOME 是 WSL 的 /home/<user>，
+          # 脚本会抛出「找不到 codeagent-wrapper」并建议「设置 CCG_ARL_DIR」——
+          # 而该变量三级作用域本就不存在，把排查者引到一个幻影变量上。
+          # 本锁要求入口先自证跑在对的 shell 里，且**只拦 WSL 不拦真 Linux**
+          # （后者含 ubuntu runner，拦了等于打死 CI）。
+          node --test scripts/ccg-bash-entry.test.js
           # 质量节拍 vendored 契约镜像（.quality-rhythm/）与 openspec 真源的漂移锁
           node --test scripts/quality-rhythm-spec-mirror.test.js
           # Windows PowerShell 5.1 读**无 BOM** 的 .ps1 时按 ANSI 码页解码，中文注释/字符串可让

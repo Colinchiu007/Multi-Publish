@@ -37,6 +37,61 @@ done
 
 say() { printf '%s\n' "$1"; }
 
+# ==========================================================================
+#  环境闸：拒绝 WSL
+# ==========================================================================
+# 与 deep-review.sh 同源的一道闸，防的是**报错文案把人带偏**：
+# 本机裸 bash 解析到 WSL shim（C:\windows\system32\bash.exe）时，$HOME 变成
+# WSL 的 /home/<user>，Windows 侧的 node / 后端 CLI / codeagent-wrapper 全不可见，
+# 本脚本于是打印「找不到 ccg-review-decider.js」并建议设置 CCG_ARL_DIR ——
+# 而该变量在 Process/User/Machine 三级作用域**都不存在**，追它是死路。
+#
+# 决策层（plan）比验证层（code）更没有退路：它还缺 --check-deps 这个诊断入口，
+# 真出事时连一条能问的命令都没有，所以更需要在入口就把根因说破。
+#
+# ⚠ 只拦 WSL，不拦真 Linux（含 GitHub Actions ubuntu runner）——
+#   POSIX 分支在真 Linux 上是能工作的，判据写成「必须是 Git Bash」会打死 CI。
+#   判据与检测手段的取舍见 deep-review.sh 同名段落（此处不重复展开）。
+_is_wsl() {
+  [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
+  [ -n "${WSL_INTEROP:-}" ] && return 0
+  # 兜底：环境变量被 wrapper 清洗过时，只剩内核版本串可认。
+  #
+  # ⚠⚠ 判据必须**同时**满足「行首是 Linux 内核串」**且**「含 microsoft/WSL」——
+  # 不能单看 Microsoft。Git Bash 也有虚拟 /proc 且**可读**（实测本机读到
+  # `MINGW64_NT-10.0-26200 version 3.6.9-...`，见 QM-6 评审 i1）：
+  # 只认 Microsoft 就可能把 **Git Bash 判成 WSL 而 exit 2**，
+  # 恰好打死本闸要保护的那个平台。两者取交集才是无歧义判据。
+  # shell 内建 read + 重定向，不经 cat —— 入口不得依赖 PATH 里的工具目录。
+  if [ -r /proc/version ]; then
+    while IFS= read -r _wsl_line || [ -n "$_wsl_line" ]; do
+      case "$_wsl_line" in
+        "Linux version "*[Mm]icrosoft*|"Linux version "*[Ww][Ss][Ll]*) return 0 ;;
+      esac
+      break
+    done < /proc/version
+  fi
+  return 1
+}
+
+if _is_wsl; then
+  say "✗ 当前 shell 是 WSL（Windows Subsystem for Linux），不是 Git Bash —— 本脚本在这里跑不动。"
+  say ""
+  say "  WSL 的 \$HOME 是 /home/<user>，Windows 侧的 node、后端 CLI、"
+  say "  codeagent-wrapper 全部不可见，所以下面任何「找不到」都是假象。"
+  say ""
+  say "  根因通常是「裸 bash 解析到了 WSL shim」："
+  say "    C:\\windows\\system32\\bash.exe  ← WSL 入口（裸 bash 命中的是它）"
+  say "    <Git 安装目录>\\usr\\bin\\bash.exe ← Git Bash（要用的是这个）"
+  say ""
+  say "  正确跑法（推荐：PowerShell 入口会自动定位 Git Bash 并校验身份）："
+  say "    .\\scripts\\ccg-review.ps1 -Mode Plan -Proposal <方案文件>"
+  say ""
+  say "  最后一句：这**不是**环境变量没传进来。不要去查、不要去设 CCG_ARL_DIR ——"
+  say "  该变量在 Process/User/Machine 三级作用域本来就不存在，追它是死路。"
+  exit 2
+fi
+
 [ -n "$PROPOSAL" ] || {
   say "用法: sh scripts/plan-review.sh <方案文件> [--dry-run] [--force]"
   say ""

@@ -47,6 +47,85 @@ done
 say() { printf '%s\n' "$1"; }
 
 # ==========================================================================
+#  0. 环境闸：拒绝 WSL
+# ==========================================================================
+# 这道闸防的不是「环境坏掉」，而是**报错文案把人带偏**。
+#
+# 实测事故（2026-10-07 另一会话）：在 PowerShell 里敲 `bash scripts/deep-review.sh`，
+# 而本机**裸 bash 解析到 WSL shim**（C:\windows\system32\bash.exe），不是 Git Bash。
+# 于是 $HOME 变成 WSL 的 /home/<user>，Windows 侧装的 node、后端 CLI、
+# codeagent-wrapper 全部不可见，脚本接着抛出：
+#     ✗ 找不到 ccg-deep-review.js
+#       a) vendor 到本仓库 scripts/ 下      b) 安装技能
+#       c) 设置 CCG_ARL_DIR 指向引擎目录    ← 这条是元凶
+# 排查者真的去查/去设 CCG_ARL_DIR，而该变量在 Process/User/Machine
+# **三级作用域全都不存在** —— 它是「从来没被设置过」，不是「没穿透到 Git Bash」。
+# 整个会话因此在追一个幻影变量上耗掉多轮，真实根因（用错 shell）始终没被说破。
+#
+# 所以本闸的正确职责是：**先证明自己跑在对的 shell 里**，而不是在错环境里
+# 输出一堆指向错误的建议。
+#
+# ⚠ 只拦 WSL，**不拦真 Linux**。
+#   · WSL：Windows 的 Linux 子系统，本脚本的整套后端解析（.exe/.cmd/npm prefix -g/
+#     无扩展名 sh shim）在这里没有意义，Windows 侧资源一概不可见 ⇒ 必须拦。
+#   · 真 Linux（含 GitHub Actions 的 ubuntu runner）：同一套 POSIX 分支**是能工作的**，
+#     deep-review-deps.test.js 每天都在 ubuntu 上跑本脚本 ⇒ 拦了就等于打死 CI。
+#   把判据写成「必须是 Git Bash」是这条闸最容易写坏的方向。
+#
+# 检测只用 WSL 自己必然设置的环境变量 + /proc/version 兜底，且**不调用任何外部命令**：
+# 本脚本的既有教训（见 deep-review-deps.test.js ⑦）是入口自己不能依赖 PATH 里的
+# 工具目录 —— `dirname: command not found` 已经坑过一次，
+# 一个「查别人坏没坏」的命令自己先坏掉是最坏的失败形态。
+_is_wsl() {
+  [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
+  [ -n "${WSL_INTEROP:-}" ] && return 0
+  # 兜底：WSL_DISTRO_NAME 不是在所有调用形态下都在（例如环境被 wrapper 清洗过），
+  # 此时只剩内核版本串可认。
+  #
+  # ⚠⚠ 判据必须**同时**满足「行首是 Linux 内核串」**且**「含 microsoft/WSL」——
+  # 不能单看 Microsoft。Git Bash 也有虚拟 /proc 且**可读**（实测本机读到
+  # `MINGW64_NT-10.0-26200 version 3.6.9-...`，见 QM-6 评审 i1）：
+  #   · MSYS/Cygwin 系发行版的 /proc/version 同样可能带厂商字样，
+  #     只认 Microsoft 就会把 **Git Bash 判成 WSL 而 exit 2**，
+  #     恰好打死本闸要保护的那个平台。
+  #   · 真 WSL 的版本串形如
+  #     `Linux version 5.15.90.1-microsoft-standard-WSL2 (oe-user@oe-host) ...`
+  #     行首 Linux 与 microsoft 同时出现，两者取交集才是无歧义判据。
+  # 用 shell 内建 read + 重定向读文件，不经 cat —— 见上方「不调用外部命令」。
+  if [ -r /proc/version ]; then
+    while IFS= read -r _wsl_line || [ -n "$_wsl_line" ]; do
+      case "$_wsl_line" in
+        "Linux version "*[Mm]icrosoft*|"Linux version "*[Ww][Ss][Ll]*) return 0 ;;
+      esac
+      break
+    done < /proc/version
+  fi
+  return 1
+}
+
+if _is_wsl; then
+  say "✗ 当前 shell 是 WSL（Windows Subsystem for Linux），不是 Git Bash —— 本脚本在这里跑不动。"
+  say ""
+  say "  WSL 有另一套家目录、PATH 与文件互操作："
+  say "    · \$HOME 指向 WSL 的 /home/<user>，不是 Windows 的 C:\\Users\\<user>"
+  say "    · Windows 侧安装的 node、后端 CLI、codeagent-wrapper 全部不可见"
+  say ""
+  say "  根因通常是「裸 bash 解析到了 WSL shim」："
+  say "    C:\\windows\\system32\\bash.exe  ← WSL 入口（裸 bash 命中的是它）"
+  say "    <Git 安装目录>\\usr\\bin\\bash.exe ← Git Bash（要用的就是这个）"
+  say ""
+  say "  正确跑法（推荐：PowerShell 入口会自动定位 Git Bash 并校验身份）："
+  say "    .\\scripts\\ccg-review.ps1 -Mode Plan -Proposal <方案文件>"
+  say "    .\\scripts\\ccg-review.ps1 -Mode Deep"
+  say "  或手动指定 Git Bash："
+  say "    & \"C:\\Program Files\\Git\\bin\\bash.exe\" scripts/deep-review.sh --check-deps"
+  say ""
+  say "  最后一句：这**不是**环境变量没传进来。不要去查、不要去设 CCG_ARL_DIR ——"
+  say "  该变量在 Process/User/Machine 三级作用域本来就不存在，追它是死路。"
+  exit 2
+fi
+
+# ==========================================================================
 #  后端解析：为什么不能只靠继承来的 PATH
 # ==========================================================================
 # codeagent-wrapper 用**裸名** spawn 后端（实测 stderr 诊断头原文：
