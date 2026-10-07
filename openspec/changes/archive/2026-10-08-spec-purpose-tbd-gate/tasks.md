@@ -67,6 +67,19 @@
 - [x] 5.2 QM-6 双模型外部评审（混合 PR + 新增门禁）：23 条发现（后端 11 含 2 CRITICAL / 工程 12 含 3 MAJOR），
       逐条处置见 `openspec/records/spec-purpose-tbd-gate.md` 的「QM-6 发现处置」节；
       原件落盘 `.tmp/qm6/out-backend.txt`（19,528 B）与 `.tmp/qm6/out-frontend.txt`，评审对象钉 `68c4010d9`
-- [ ] 5.3 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
-- [ ] 5.4 归档 `openspec archive spec-purpose-tbd-gate`（归档后本 change 自己会写 `TBD` 到新增规格 ——
+- [x] 5.3 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
+      —— PR #3099 → merge `28f9d5143a3c90f07b3046121860394904bf2c9c`；attempt 1 唯一红格经定性为环境型
+      （`python simulator failed:` 空输出），`rerun --failed` 后 attempt 2 全绿；回填走 PR #3111 →
+      merge `800f7c3858b5717b884400a467e2b0496731860a`（该 PR 变更集只有记录文件，符合
+      `check-pr-exec-record.js` 的「纯回填」定义；曾误把本文件一起带上，被判据当场拒掉后退回）
+- [x] 5.4 归档 `openspec archive spec-purpose-tbd-gate`（归档后本 change 自己会写 `TBD` 到新增规格 ——
       正是这条门禁的活体测试场景，须确认归档产出的主规格 Purpose 已填）
+      —— 实跑 `npx openspec archive spec-purpose-tbd-gate -y`：`+ 1 added` 到
+      `openspec/specs/openspec-integration/spec.md`（11 → **12** 条 Requirement），change 入档为
+      `2026-10-08-spec-purpose-tbd-gate`。**该场景与预期不同的一处**：归档器只在**新建**主规格时写 TBD，
+      而本 delta 落到的是**已存在**的 `openspec-integration/spec.md` ⇒ 没有产生 TBD，
+      归档后 `node scripts/check-spec-purpose.js` 仍是 `扫描 151 份主规格，违规 0`（份数也不变，因为没新建规格文件）。
+      所以活体测试场景没有被这次归档构造出来，不能拿"归档后仍然 0 违规"当作门禁有效的证据 —— 它只证明
+      归档不会破坏既有 Purpose。副产物一处事实漂移已修：Purpose 里的「共 11 条」随计数改为「共 12 条」，
+      并补写第 12 条的来源。`openspec validate --all --strict` = 164 passed / 10 failed，
+      其中 `✗ spec/` **0 项**，10 项全是别人的 `change/…`（与归档前同一集合）。
