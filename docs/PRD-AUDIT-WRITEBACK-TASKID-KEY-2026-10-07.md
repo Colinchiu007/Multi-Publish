@@ -115,6 +115,8 @@ expect(id).toBe('task-audit-1')                                           // ②
 
 工具层一条：名称解析最初用 `split(ESC).join('')`，`×` 与测试名之间残留 `[31m`，于是"红了但说不出谁红"，`caught` 恒为 `<none>`；改为按完整 ANSI 序列 `/\x1b\[[0-9;]*[A-Za-z]/g` 剥除后才有上表归因。**「解析器无匹配」不等于「零失败」**，必须先直读一次原始输出。
 
+> 上表在 QM-6 评审修复（测试环境变量按套件回收）之后**复跑一次，归因与失败数逐条不变**（N1 仍为 `4 failed / 54 passed (58)`）。反证必须绑最终 head，否则"修完之后锁还成不成立"这句话没有出处。
+
 ## 六、影响面
 
 - **不止 B 站**：所有走 `createMonitorTask` 回查的平台（bilibili / weibo / douyin / zhihu / xiaohongshu / toutiao / youtube…）此前都拿不到审核徽标。修完这条链才第一次真正通。

@@ -418,6 +418,10 @@ describe("publish-history", () => {
 describe("updateRecordAudit 关联键契约（taskId 为规范键）", () => {
   const keyDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-key-test-"));
   afterAll(() => {
+    // 本块是与外层 describe 平级的独立顶层套件 ⇒ 外层 afterAll 的 delete 管不到它。
+    // vitest.config.js 是 maxWorkers:1 + fileParallelism:false，同 worker 串行跑多个文件，
+    // 不回收到下一个文件会把 publish-history 静默重定向到本块已删除的目录。
+    delete process.env.PH_TEST_DATA_DIR;
     try { fs.rmSync(keyDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
   function fresh () {

@@ -346,8 +346,11 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
       monitorCalls[0].callback({ status: 'rejected', postId: 'aweme-42' })
 
       expect(history.updateRecordAudit).toHaveBeenCalledTimes(1)
-      const [id, patch, owner] = history.updateRecordAudit.mock.calls[0]
-      expect(id).toBe('task-audit-1')
+      const [taskIdArg, patch, owner] = history.updateRecordAudit.mock.calls[0]
+      // 名字要如实：这里是**队列任务 id**（规范键），不是记录主键。
+      // 本行断言本身保留（PRD §4.2：调用点传的本来就是规范键），但把它叫 `id`
+      // 正是这次 P0 能被四层测试全绿带过去的语义温床。
+      expect(taskIdArg).toBe('task-audit-1')
       expect(owner).toBe('user-a')
       expect(patch).toEqual(expect.objectContaining({
         auditStatus: 'deny', monitorStatus: 'rejected', platformWorkId: 'aweme-42',
@@ -550,6 +553,10 @@ describe('P0-1 审核回写链 × 真 publish-history（跨模块契约锁）', 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-xchain-'))
   const jsonl = path.join(dir, 'publish-history.jsonl')
   afterAll(() => {
+    // 必须回收 env：vitest.config.js 是 maxWorkers:1 + fileParallelism:false，
+    // 同 worker 串行跑多个文件，不回收到下一个文件会把 publish-history
+    // 静默重定向到本块已删除的目录（读路径 ENOENT）。
+    delete process.env.PH_TEST_DATA_DIR
     try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 临时目录由系统回收 */ }
   })
   function freshHistory () {
