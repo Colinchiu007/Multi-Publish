@@ -2,9 +2,6 @@
 record: changelog-history-dedup
 task: 清理 CHANGELOG 的 841 份历史副本 + 给 growth 增加默认不生效的一次性授权通路 + 条目模型收敛为单一实现
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由后续回填把本行改成 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 ---
 
 ## 本次执行记录：CHANGELOG 历史副本清理（changelog-history-dedup，2026-10-07）
@@ -199,9 +196,9 @@ M2（摘掉 growth 形状判据里的 A2「保留份逐字节等于 base 某一�
 
 | 门禁 | 状态 | 证据 |
 |------|------|------|
-| CI 流水线 | PENDING | 本 PR 尚未推送；推送后按 `QG Changes` 日志逐字取 growth 的「例外由授权触发」那一行与棘轮的 `828/841 -> 0` 输出 |
-| QM-6 双模型外部评审 | PENDING | 判定器定档 `dual`（>200 行）；若沿用替代通道需在此声明 harness 偏差 |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后取证回填：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`、`git ls-remote --heads origin changelog-history-dedup` 返回 0 行；回填成 PASS 后必须整段删除本文件头部三个 `sync_*` 字段 |
+| CI 流水线 | PASS | head `a1b728de6`，run `37602785295`，job `QG Changes=112730943250`（completed/success）、`Gate Result=112743883250`（completed/success）。**逐字日志原文**（剥 ANSI 后取自 `/actions/jobs/112730943250/logs`）：`[changelog-growth] 例外由授权触发：269 种标题各削到 1 份、共减少 841 份副本，条目 1189 -> 349（scripts/changelog-dedup-authorization.json，owner_pr=branch:changelog-history-dedup (issue #3037)，applies_to_base=23822b73fecc）` / `[changelog-growth] ⚠ 其中 12 种标题的副本内容**互不相同**，保留的是 pickKeeper 选的"正文最长"那份…` / `[changelog-growth] PASS：base 1189 条（348 种标题）全部在 head 349 条（349 种）里，字节 7612532 -> 2089056` / `[changelog-dup-ratchet] base=23822b73fecc6c8f8e6710c1dc7911e02ea4e1fc head=HEAD` + `冗余份数 841 -> 0；本 PR 新增副本=0`。测试面：`check-changelog-growth.test.js` `# tests 30`、`check-changelog-duplicate-entries.test.js` `# tests 19 / # pass 19 / # fail 0`；`CI 接线锁：Gate 2c3 必须以 merge-base 为坐标系，且不得退回 origin/main` 在 CI 上 `ok 30`。整套 PR checks 独立回读 **19 pass / 0 fail / 1 skipping（`release`，按设计只在 tag 上跑）** |
+| QM-6 双模型外部评审 | PASS | 判定器定档 `dual`（>200 行）。**通道偏差如实声明**：主通道 `codeagent-wrapper` 绑 CC Switch `:15721`，本轮该端口不在，改走 `opencode run` 双轴替代（`opencode/nemotron-3-ultra-free` 逻辑/安全/规格轴、`opencode/ling-3.1-flash-free` 命名/模式/集成轴），**模型原件 JSON 已随 PR 落盘**（`openspec/changes/dedup-changelog-history/reviews/qm6-findings-backend.json` / `…-frontend.json`）。后端 1 CRITICAL + 3 MAJOR + 4 MINOR、前端 2 MAJOR + 6 MINOR；逐条处置见下方「QM-6 发现处置」，CRITICAL 与全部数据校验/安全类 MAJOR 已修且各有回归锁。同轮撤回了一句我自己的错误归属（曾把没读到的后端结论写成"3 MAJOR 无 CRITICAL"、并把自审项挂到评审名下），见「我更该认的一条错」 |
+| 远程同步 | PASS | 合并命令 `gh pr merge 3059 --squash --delete-branch`，**merge SHA `88669579b1dc6058b7b8b880f85b9e3dc98f6c60`**（`2026-10-07T18:24:58+08:00`），主题 `fix(ci): 清理 CHANGELOG 的 841 份历史副本；growth 的减免走一次性书面授权，默认判据一字不动 (#3059)`。取证两条均可离线复核：`git log origin/main --grep='(#3059)$' --format=%H\|%cI` 返回上面那一行；`git ls-remote --heads origin changelog-history-dedup` 返回 **0 行**（远端分支已随合并删除）。落地判据按**内容**不按 blob 相等（squash 后分支 head 不是 main 的祖先）：main tip 的 `CHANGELOG.md` 实测 `entries=349 distinct=349 redundant=0 lines=18094`，`grep -a 清理 CHANGELOG 的 841 份历史副本` 命中；四个新文件 `scripts/changelog-entries.js` / `changelog-dedup-reconcile.js` / `changelog-dedup-regen.js` / `changelog-dedup-authorization.json`（`applies_to_base=23822b73f…`）均在 `origin/main` 上存在。**回填与销账发生在同一次提交**：本行改 PASS 的同时整段删除文件头三个 `sync_*` 字段（本记录走 `openspec/records/` 载体，登记处就是它自己的 frontmatter，`scripts/gate-record-debt-ledger.json` 内无对应项、无需删项） |
 
 ### 遗留（不假装已闭合）
 
