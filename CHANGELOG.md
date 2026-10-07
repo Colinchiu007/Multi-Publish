@@ -7,6 +7,39 @@
 - 仍未观测（不假装已闭合）：B 站投稿提交后浏览器实际落在哪个 URL、真机「已发布」徽标联动——需一次真实投稿，消耗授权前须再经用户确认。
 
 ---
+# [unreleased] fix(desktop): reportError 的异步失败兜底不可达 —— 错误既不上报也不落控制台
+
+### 缺陷
+
+`apps/desktop/src/utils/report-error.js` 的 `api.logError(...)` 走
+`ipcRenderer.invoke`，**返回 Promise**；但外层 `try/catch` 只能兜**同步**抛错。
+Promise 的**异步拒绝**直接逃出去变成 `unhandledrejection`。
+
+更糟的是 `logError` 成功后有早退 `return`，于是 `:21` 的 `console.error` 兜底在这种
+失败下**永远不可达** —— 错误既没进主进程日志、也没进控制台，**彻底丢失**。
+而 `reportError` 是全应用 catch 块的统一出口（`main.js` 全局 error /
+unhandledrejection 监听、`router.onError`、6 处组件 catch）。
+
+### 为什么既有测试没发现
+
+`report-error.test.js` 的三条用例全部用 `logError: vi.fn()` —— **同步返回 undefined**，
+从未构造过 thenable。try/catch 的能力边界从来没被测到。
+
+### 修复
+
+抽出 `toConsole` 兜底函数，对 `logError` 的返回值判定
+`typeof ret.catch === 'function'` 后挂 `ret.catch(toConsole)`。
+
+### 回归保护
+
+既有测试文件补 3 条用例（共 6 条）。**TDD 红灯先行**：修复前新用例稳定报
+`expected 0 to be greater than 0`（console 一个字都没收到）。**反证**：撤掉
+`ret.catch(toConsole)` ⇒ 转红；恢复 ⇒ 6/6 绿。
+
+第三条用例锁的是反向劣化：正常 resolve 时**不得**写 console —— 防止为了让前两条
+通过而给成功路径也加 catch，把每次成功上报变成一行控制台噪音。
+
+消费方回归：`report-error.test.js` + `useExpiredAccountsBanner.test.js` 合计 11/11 通过。
 
 # [unreleased] fix(desktop): 覆盖率门禁纳入 Vue SFC —— 146 个 .vue 此前对覆盖率贡献恒为 0
 
