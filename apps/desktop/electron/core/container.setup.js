@@ -215,6 +215,30 @@ function createContainer(options) {
   // 注意：目录在装配时快照式定型（与 app-*.log 同源）；若未来支持运行时切换日志目录，
   // 需同步评估审计日志是否跟随（当前生产无 setLogOptions 调用，契约稳定）。
   container.register("urlCollector", function(c) { return new UrlCollector({ auditDir: c.get("logger").getLogsDir() }); });
+  // ── 博主监控与采集（2026-10-07）────────────────────────────────────
+  // 装配顺序有依赖：creatorStore 需要 store，creatorCollector 需要凭证提供者，
+  // creatorRuntime 依赖前两者。容器按注册顺序惰性求值，get 不到未注册名会抛，
+  // 故这里显式串起来而不是让 runtime 自己去 get。
+  container.register("creatorStore", function(c) {
+    const { createCreatorStore } = require('../services/creator-store');
+    const db = c.get("store").getDb ? c.get("store").getDb() : c.get("store").db;
+    return createCreatorStore(db);
+  });
+  container.register("creatorCollector", function(c) {
+    const { createCreatorCollector } = require('../services/creator-collector-runtime');
+    return createCreatorCollector({
+      credentialProvider: c.get("creatorCredentialProvider") || (() => null),
+      log: c.get("logger"),
+    });
+  });
+  container.register("creatorRuntime", function(c) {
+    const { createCreatorRuntime } = require('../services/creator-runtime');
+    return createCreatorRuntime({
+      store: c.get("creatorStore"),
+      collector: c.get("creatorCollector"),
+      log: c.get("logger"),
+    });
+  });
   // 知乎正文图片本地化（2026-10-03 PRD-ZHIHU-FAV-BATCH C1）：zhimg 防盗链 → Referer 伪装下载到 userData
   container.register("zhihuImageLocalizer", function(c) {
     const ZhihuImageLocalizer = require('../services/zhihu-image-localizer');
