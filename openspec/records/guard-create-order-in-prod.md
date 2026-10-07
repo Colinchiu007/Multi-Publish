@@ -2,10 +2,6 @@
 record: guard-create-order-in-prod
 task: 给 payment:create-order 加打包态拒收（纵深防御）——UI 已关入口，IPC 层补一道
 date: 2026-10-07
-# 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：create-order 打包态拒收（guard-create-order-in-prod，2026-10-07）
@@ -75,5 +71,5 @@ if (!app || app.isPackaged !== false) {
 买断授权（`expiresAt = null`）仍与 `plan-matrix.js` 的三档订阅脱节。
 真正统一需另立项：涉及金额来源、授权有效期校验与续期逻辑。
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS —— PR #3075 已合并为 `origin/main` dcd148f6（2026-10-07T18:33:43+08:00，squash merge，quality-gate 11/11 job 全绿含两个 Desktop Shard；日志核对 `tests/payment-ipc.test.js` 12/12 用例全绿，含本次新增的 4 条 create-order 打包态拒收与 #3047 的 4 条 simulate 生产拦截）；远端分支 guard-create-order-in-prod 随合并自动删除 |
 |---|---|
