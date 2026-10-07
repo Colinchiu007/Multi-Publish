@@ -1,3 +1,25 @@
+# [未发布] fix(publish): B 站发布后回查改为按端点自报桶扇出，并把命中桶的真实 state 送进日志（2026-10-07，bilibili-audit-buckets / PR #3065）
+
+## 背景与根因
+
+`BILIBILI_LIST_URL` 写死 `status=pubed`，列表只有这一跳 ⇒ 正在审核的稿件根本不在该桶，走的是与「稿件不存在」**同一个** `not-in-list` 出口。
+后果有两层：排障时读不出「稿件在审核中，等就行」还是「发布根本没成功」；以及**即使真机投稿也观测不到审核中的 state 取值**（只会得到第 12 次 `not-in-list` 然后 timeout）。
+引入点是 #2927 的取证实现（当时按「本机只观测到 pubed 桶」如实落地，属取证边界而非 Bug）。
+
+## 变更
+
+- 主桶命中即停；未命中时**只对端点自己在 `data.class` 里回报计数 > 0 的其他桶补查** ⇒ 常见路径仍是 1 次列表请求，最坏 3 次（`MAX_BUCKET_PROBES=2`，超限截断且出声）。
+- 新增 `in-review-bucket` / `in-not-pubed-bucket` 两个无定论出口，并把命中桶回报的 `state`/`primary_state`/`state_desc` 原样带出；`publish-monitor` 的 `poll-progress` 与 `monitor-timeout` 一并携带这些现场 + `bucketsProbed`/`bucketsSkipped`/`classCounts`/`bucketsTruncated`。
+- 红线：桶名中文语义未实测，`not_pubed` 命中**绝不**映射成 `rejected`/`deny`；`published` 只能由**已发布桶**（常量判据）命中产出。
+- 安全：桶键来自第三方响应且要进 URL，形态白名单校验落在导出的 `withStatusParam` **自身边界**上；重复 `status` 参数收敂为恰好一个。
+
+## 真机验证（2026-10-07 一次真实投稿，用户授权「要发，接受公开」）
+
+投稿 `BV1HyHC6mExS` 后，应用日志连续两轮实测到稿件在 `is_pubing` 桶，**`state` 先后为 `-30` 与 `-1`，`state_desc` 均为「审核中」，`primary_state` 与 `state` 同值** ⇒ 首次取得 B 站「审核中」的真实取值，证明它不是单一值。
+第 3 轮另实测到 `class.pubed` 已变 8 而 `pubed` 列表仍查不到该稿件（约 10 秒窗口）⇒ 「不得拿计数当命中证据」由推测升级为有现场支撑。
+同轮跑出一条 P0 断链：回查结论写不回发布历史（`phase4-events` 传 `task.id`，`updateRecordAudit` 按 `record.id` 匹配，队列 id 实际存在 `taskId` 字段）⇒ 所有平台审核徽标永不出现，属静默失效，另案修。
+
+详见 `docs/PRD-BILIBILI-AUDIT-BUCKET-QUERY-2026-10-07.md`、`docs/audit-requery-evidence-bilibili-2026-10-07.md`。
 # [未发布] fix(ci): 清理 CHANGELOG 的 841 份历史副本，并给 growth 加一条默认不生效的一次性授权通路（2026-10-07，changelog-history-dedup）
 
 ### 为什么不能直接把副本删掉（本条最关键）
