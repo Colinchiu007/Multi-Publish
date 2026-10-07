@@ -2,9 +2,7 @@
 record: remove-local-trial-entry
 task: 产品决策 A——正式构建不再提供本地免费试用入口
 date: 2026-10-07
-# 下面两个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由 docs-only PR 回填
-sync_backfill_owner: 下一个会话
+merged: PR #3098 → squash `92802f8d`（2026-10-07，21 success / 1 skipped，零红）
 ---
 
 ## 本次执行记录：关闭本地免费试用入口（2026-10-07）
@@ -77,5 +75,4 @@ sync_backfill_owner: 下一个会话
 服务端 trial plan 未实现。若将来要做，需往 `plan-matrix` 加 trial plan +
 注册后自动发放，与 standard/pro 走同一套权益。
 
-| 远程同步 | PENDING |
-|---|
+| 远程同步 | ✅ PR #3098 → squash `92802f8d`，21 success / 1 skipped，远端分支已删除 |
