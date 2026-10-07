@@ -3145,6 +3145,7 @@ export default {
     // 取代此前那个点下去必然被主进程拒收的「模拟支付成功（开发模式）」按钮。
     paymentChannelUnavailable: '付费通道筹备中，暂不支持购买',
     activationCodeMigrated: '激活码已迁移至账号核销，请登录后在会员中心使用',
+    trialUnavailable: '试用暂未开放，登录后可在会员中心了解会员权益',
     entitlementCardTitle: '会员权益',
     entitlementEmpty: '暂无权益数据',
     entitlementEmptyHint: '登录且身份服务可用时，这里会展示你的会员方案与权益清单。',

@@ -142,7 +142,24 @@
           <div v-if="activateError" style="color:var(--coral);font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">{{ activateError }}</div>
           <div v-if="activateSuccess" style="color:var(--success);font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">激活成功！</div>
           <div class="cohere-divider"></div>
-          <div style="text-align:center;padding:var(--space-sm)">
+          <!--
+            2026-10-07：产品侧决定暂不提供免费试用，正式构建不再显示试用入口。
+            理由（取证结论）：`activateTrial()` 只在本地写 `type=trial` + 8 项
+            PRO_FEATURES，而服务端 `plan-matrix` 只有 free/standard/pro，
+            **trial 命中 0**——这份权益在服务端权威门禁
+            （`requireEntitlement('cloud_publish', { onlineOnly: true })`）前不成立。
+            保留入口只会造成「UI 显示 Pro、点击被服务端拦」的假入口，
+            比明确告知伤害更大。
+
+            `doTrial` / `licenseManager.activateTrial()` 一并保留不删：
+            将来若做试用，正确做法是往 plan-matrix 加 trial plan 由服务端发放，
+            届时这两个函数可直接复用，不必重写。
+            IPC 侧同步拒收见 `ipc-handlers/license.js` 的 `license:activate-trial`。
+          -->
+          <div v-if="!trialAvailable" class="payment-unavailable" style="text-align:center">
+            {{ t('memberCenter.trialUnavailable') }}
+          </div>
+          <div v-else style="text-align:center;padding:var(--space-sm)">
             <button class="cohere-btn-ghost" @click="doTrial" :disabled="trialLoading" style="font-size: var(--font-size-sm);color:var(--coral)">
               {{ trialLoading ? '激活中...' : '🎁 免费试用 7 天' }}
             </button>
@@ -231,6 +248,19 @@ const purchaseAvailable = import.meta.env.DEV
  * **不给组件开测试注入口**。
  */
 const activationCodeAvailable = import.meta.env.DEV
+
+/**
+ * 免费试用入口的可见性（2026-10-07）：**正式构建默认关闭**，产品侧决定暂不提供试用。
+ *
+ * 取证结论：本地 `activateTrial()` 写 `type=trial` + 8 项 PRO_FEATURES，但服务端
+ * `plan-matrix` 只有 free/standard/pro，**trial 命中 0**。所以这份本地权益在服务端
+ * 权威门禁（`requireEntitlement`）前并不成立——用户看到 Pro 界面，点下去被拦。
+ * 详见模板处注释。
+ *
+ * 与 `purchaseAvailable` / `activationCodeAvailable` 同一口径：只读 `import.meta.env.DEV`，
+ * **不给组件开测试注入口**（否则组件测试会因注入口与真实行为不符而恒真）。
+ */
+const trialAvailable = import.meta.env.DEV
 
 const store = useLicenseStore()
 const showPaymentFlow = ref(false)

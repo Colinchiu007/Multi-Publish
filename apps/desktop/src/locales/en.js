@@ -3133,6 +3133,7 @@ export default {
     // 取代此前那个点下去必然被主进程拒收的「模拟支付成功（开发模式）」按钮。
     paymentChannelUnavailable: 'Payments are not available yet',
     activationCodeMigrated: 'Activation codes have moved to account redemption. Sign in and use them in the membership center',
+    trialUnavailable: 'Trials are not available yet. Sign in to learn about membership benefits',
     entitlementCardTitle: 'Membership',
     entitlementEmpty: 'No membership data',
     entitlementEmptyHint: 'Your plan and feature list will appear here after signing in.',

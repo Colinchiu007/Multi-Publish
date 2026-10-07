@@ -64,6 +64,19 @@ function registerHandlers(ipcMain, deps) {
   }))
 
   ipcMain.handle("license:activate-trial", withSenderCheck(async (event) => {
+    // 2026-10-07：正式构建同样拒收本地试用（口径同 `license:activate` #3085）。
+    //
+    // 与 activate 的漏洞性质不同、危害也小得多：activateTrial() 有 7 天期限且带
+    // `type === 'free'` 前置，一台设备只能激活一次。但它仍是一条**纯本地提权路径**——
+    // 服务端 `plan-matrix` 只有 free/standard/pro，**trial 命中 0**，因此这份本地权益
+    // 在服务端权威门禁（`requireEntitlement`）前不成立。结果是 UI 显示 Pro、点击被
+    // 服务端拦下的「能看见、点不动」状态。产品侧已决定暂不提供试用（2026-10-07），
+    // 故正式包一并关掉。**activateTrial() 本身保留**：将来若决定做试用，正确做法是往
+    // plan-matrix 加 trial plan 由服务端发放，而不是复活这条本地路径。
+    const { app } = require('electron')
+    if (!app || app.isPackaged !== false) {
+      return { code: EC.REQUEST_ERROR, data: false, message: '试用暂未开放，请登录后在会员中心了解' }
+    }
     try {
       const ok = licenseManager.activateTrial()
       if (ok) emitAccessLevelInvalidated('license-activate-trial')
