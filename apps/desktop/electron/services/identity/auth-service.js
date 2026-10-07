@@ -20,6 +20,8 @@ class AuthService {
     this._now = typeof options.now === 'function' ? options.now : () => Math.floor(Date.now() / 1000)
     /** 诊断日志（可注入；默认由工厂注入 electron/services/logger）。 */
     this._logger = options.logger || null
+    /** 价目目录（2026-10-07）：null = 未取到/不可用；数组 = 服务端目录。 */
+    this._plans = null
     this._offlineGraceSeconds = Number.isFinite(options.offlineGraceSeconds)
       ? Math.max(0, options.offlineGraceSeconds)
       : 7 * 24 * 60 * 60
@@ -191,7 +193,37 @@ class AuthService {
   async _syncEntitlement(user) {
     if (!this._entitlementService || typeof this._entitlementService.sync !== 'function') return null
     const accessToken = await this.getAccessToken()
-    return this._entitlementService.sync({ subject: user.sub, accessToken })
+    // 价目目录与权益**并行**取：两者打同一个服务、同一份 token，
+    // 串行会白白多一个 RTT。并行失败互不影响——权益是核心，价格是辅助。
+    const [entitlement, plans] = await Promise.all([
+      this._entitlementService.sync({ subject: user.sub, accessToken }),
+      // 失败降级为 null（明确语义：取价失败，UI 应显示「暂不可用」而非空目录）。
+      // **不**在这里兜一个硬编码价格：那正是本次要消除的「凭记忆写死金额」。
+      this._syncPlans(accessToken),
+    ])
+    return entitlement
+  }
+
+  // 2026-10-07：随权益同步一并取价目目录，写入 state 后由
+  // `onStateChanged` → `identity:state-changed` 自动推送到渲染层
+  // （复用既有通道，**不新增 preload 暴露面**）。
+  async _syncPlans(accessToken) {
+    if (!this._entitlementService || typeof this._entitlementService.fetchPlans !== 'function') return null
+    try {
+      const plans = await this._entitlementService.fetchPlans({ accessToken })
+      this._plans = plans
+      return plans
+    } catch (error) {
+      const log = this._logger
+      if (log && typeof log.warn === 'function') {
+        log.warn('[identity] 价目目录获取失败，降级为不可用: ' + ((error && error.message) || String(error)))
+      }
+      // 显式置 null：首次失败时 `this._plans` 从未被赋值会是 `undefined`，
+      // 而 undefined/null 在渲染层 normalizeState 里语义不同（一个"未初始化"、
+      // 一个"明确不可用"）。宁可从一开始就只产生一种。
+      this._plans = null
+      return null
+    }
   }
 
   async _restoreEntitlement(subject) {
@@ -240,7 +272,7 @@ class AuthService {
       }
       const entitlement = await this._restoreEntitlement(user.sub)
       if (!isCurrentOperation()) return this.getState()
-      this._setState({ status: 'authenticated', user, entitlement, error: null })
+      this._setState({ status: 'authenticated', user, entitlement, plans: this._plans, error: null })
       return this.getState()
     } catch (error) {
       if (!isCurrentOperation()) return this.getState()
@@ -473,7 +505,7 @@ class AuthService {
           !this._state.user || this._state.user.sub !== subject) {
         throw new IdentityError('ENTITLEMENT_REQUIRED', '当前账号没有所需权益')
       }
-      this._setState({ entitlement })
+      this._setState({ entitlement, plans: this._plans })
     }
     const hasFeature = typeof this._entitlementService.hasFeature === 'function'
       ? this._entitlementService.hasFeature(feature, { onlineOnly: Boolean(options.onlineOnly) })

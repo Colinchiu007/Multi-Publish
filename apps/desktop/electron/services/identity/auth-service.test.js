@@ -1064,3 +1064,62 @@ describe('AuthService', () => {
     expect(logged).toContain('safe-delete')
   })
 })
+
+// 2026-10-07：价目目录随权益同步一并取（复用 state 推送，零新增 preload 暴露面）。
+describe('权益与价目并行同步（2026-10-07）', () => {
+  const PLANS = [{ id: 'standard', label: '标准版', currency: 'CNY', priceMonthlyCents: 2900, priceYearlyCents: 19900 }]
+
+  function makeService({ plansOk = true, entOk = true } = {}) {
+    const { AuthService } = require('./auth-service')
+    return new AuthService({
+      client: { isAuthenticated: async () => true, getAccessToken: async () => 'tok' },
+      tokenStorage: { read: async () => null, write: async () => {}, clear: async () => {} },
+      entitlementService: {
+        sync: async () => { if (!entOk) throw new Error('ent fail'); return { plan: 'pro', features: ['cloud_publish'] } },
+        fetchPlans: async () => { if (!plansOk) throw new Error('plans fail'); return PLANS },
+        hasFeature: () => true,
+      },
+      logger: { warn: () => {} },
+    })
+  }
+
+  it('并行取到权益与价目，state 同时带上并已广播', async () => {
+    const service = makeService()
+    const pushes = []
+    service.onStateChanged((s) => pushes.push(s))
+    const entitlement = await service._syncEntitlement({ sub: 'u1' })
+    service._setState({ status: 'authenticated', user: { sub: 'u1' }, entitlement, plans: service._plans, error: null })
+    const state = service.getState()
+    expect(state.entitlement.plan).toBe('pro')
+    expect(state.plans).toHaveLength(1)
+    expect(pushes[pushes.length - 1].plans).toHaveLength(1)
+  })
+
+  it('价目失败 ⇒ 权益照常返回，plans 显式为 null（绝不兜硬编码价格）', async () => {
+    const service = makeService({ plansOk: false })
+    const entitlement = await service._syncEntitlement({ sub: 'u1' })
+    expect(entitlement.plan).toBe('pro')
+    // 首次失败时若不显式置 null，_plans 会是 undefined —— 与「明确不可用」语义不同
+    expect(service._plans).toBeNull()
+  })
+
+  it('权益失败 ⇒ 抛出，不被价目成功掩盖', async () => {
+    const service = makeService({ entOk: false })
+    await expect(service._syncEntitlement({ sub: 'u1' })).rejects.toThrow('ent fail')
+  })
+
+  it('两者皆失败 ⇒ 抛权益错（核心优先）', async () => {
+    const service = makeService({ entOk: false, plansOk: false })
+    await expect(service._syncEntitlement({ sub: 'u1' })).rejects.toThrow('ent fail')
+  })
+
+  it('无 entitlementService 时仍返回 null（既有行为不变）', async () => {
+    const { AuthService } = require('./auth-service')
+    const service = new AuthService({
+      client: { isAuthenticated: async () => true },
+      tokenStorage: { read: async () => null },
+    })
+    expect(await service._syncEntitlement({ sub: 'u' })).toBeNull()
+    expect(service._plans).toBeNull()
+  })
+})
