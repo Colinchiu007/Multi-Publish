@@ -1092,6 +1092,13 @@ jobs:
             if ($contrastExit -ne 0) {
               Write-Host "[GATE-7c] ---- 脚本输出 ----"
               $contrastOut | ForEach-Object { Write-Host $_ }
+              $diagFile = Join-Path $desktopDir "tests/visual-testing/contrast-audit-diag.txt"
+              if (Test-Path $diagFile) {
+                Write-Host "[GATE-7c] ---- 启动期诊断 ----"
+                Get-Content $diagFile
+              } else {
+                Write-Host "[GATE-7c] 无诊断文件 —— 脚本连 module 加载都没走到"
+              }
               $reportPath = Join-Path $desktopDir "tests/visual-testing/contrast-audit-report.json"
               if (Test-Path $reportPath) {
                 Write-Host "[GATE-7c] ---- 报告前 200 行 ----"
@@ -1192,6 +1199,7 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/reports/**
             apps/desktop/tests/visual-testing/contrast-audit-report.json
+            apps/desktop/tests/visual-testing/contrast-audit-diag.txt
             apps/desktop/tests/visual-testing/screenshots/**
             apps/desktop/tests/visual-testing/screenshots-round1/**
             apps/desktop/vite-visual.*.log

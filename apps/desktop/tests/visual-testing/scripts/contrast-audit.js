@@ -7,9 +7,45 @@
 //
 // 做法：真实渲染每个视图 → 强制 dark → 遍历可见元素取 computed color/
 //       backgroundColor → 算 WCAG 对比度 → 报出低于阈值的组合。
-const { chromium } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+
+// ── 启动期诊断（必须早于任何 require('playwright-core')）────────────
+// 为什么在这么早的位置：CI 上这个脚本三轮都只给出 "exit code 1"，
+// 而工件里始终没有报告文件 ⇒ 失败发生在写报告之前，即 module 加载或
+// browser launch 阶段。若诊断写在 require 之后，它自己就跑不到。
+//
+// 为什么要写文件而不是只 console.log：本仓 job 日志取不到（gh run view
+// 与 logs API 均返回空），但 upload-artifact 能拿到文件 —— 诊断必须落到
+// 一个能被 artifact 收集的路径上才读得到。
+const DIAG_FILE = path.resolve(__dirname, '../contrast-audit-diag.txt')
+const diagLines = []
+function diag (k, v) {
+  const line = '[' + k + '] ' + v
+  diagLines.push(line)
+  console.log('contrast-diag ' + line)
+  try {
+    fs.mkdirSync(path.dirname(DIAG_FILE), { recursive: true })
+    fs.writeFileSync(DIAG_FILE, diagLines.join('\n') + '\n', 'utf8')
+  } catch (_) { /* 诊断本身不能成为失败原因 */ }
+}
+diag('start', new Date().toISOString())
+diag('cwd', process.cwd())
+diag('node', process.version)
+diag('TEST_URL', process.env.TEST_URL || '(unset)')
+diag('HEADLESS', process.env.HEADLESS || '(unset)')
+
+let chromium
+try {
+  ({ chromium } = require('playwright-core'))
+  diag('require-playwright-core', 'OK')
+} catch (e) {
+  diag('require-playwright-core', 'FAIL: ' + e.message)
+  process.exit(2)
+}
+diag('resolve-playwright-core', (() => {
+  try { return require.resolve('playwright-core') } catch (e) { return 'FAIL: ' + e.message }
+})())
 
 const BASE = process.env.TEST_URL || 'http://127.0.0.1:5188'
 const MIN_RATIO = Number(process.env.MIN_RATIO || 3) // 低于 3:1 视为可疑
@@ -51,11 +87,15 @@ function ratio (c1, c2) {
 }
 
 async function main () {
+  diag('launch-browser', 'begin')
   const browser = await chromium.launch()
+  diag('launch-browser', 'OK')
+  diag('newPage', 'begin')
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   const report = []
 
   for (const [name, route] of ROUTES) {
+    diag('visit-begin', name)
     try {
       await page.goto(BASE + '/#' + route, { waitUntil: 'networkidle', timeout: 20000 })
       await page.waitForTimeout(900)
