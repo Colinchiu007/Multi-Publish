@@ -1101,7 +1101,9 @@ IPC 只返回 `{ status, fingerprint }`，**任何分支都不回传 Key 原文*
 | **产物幂等** | 产物文件名含内容指纹（`sha256(正文)[:16]`），重复搬运是覆盖而非追加 |
 | **可重试** | outbox 消费失败按指数退避重试（1min→8min→1h），上限 5 次后进死信 |
 | **补偿清理** | 崩溃残留的 staging 目录由启动清扫按 `mtime > 24h` 清理；**但 outbox 中仍有未完成记录（含死信）的不清**——死信需要人工介入，产物必须留着 |
-| **一致性判据** | ⚠ **终态判据必须与写入时机对齐**（CCG 评审 i8 Critical）：若同事务已写 `viral_library` + `collected`，而 outbox 尚未 `done`，则「三者等价」在**这段窗口内不成立**，删除与巡检会误判。正确做法是**把三者放进同一个最终化事务**：<br>`BEGIN IMMEDIATE` → 校验 token → 搬产物入最终位（文件级 rename，失败即整体回滚）→ UPSERT `viral_library` → `collect_state='collected'` + token 失效 → outbox `done` → `COMMIT`。<br>中间态用 **`collecting` / `ready`** 承载，**不参与终态判据**；只有 `collected` 才是终态。 |
+| **一致性判据** | ⚠ **终态判据必须与写入时机对齐**（CCG 评审 i1 纠正）。原设计把「写 `viral_library` + `collected`」与「outbox 置 `done`」分在两处，两者之间存在一个窗口：此刻 `collected` 已成立、outbox 却未 `done`，**三者等价的判据在该窗口内不成立**，删除与巡检会误判。<br>正确做法：**把三者放进同一个最终化事务**——`BEGIN IMMEDIATE` → 搬产物入最终位（文件级 rename，失败整体回滚）→ UPSERT `viral_library` → `collect_state=collected` + token 失效 → outbox 置 `done` → `COMMIT`。中间态用 **`collecting` / `ready`** 承载，**不参与终态判据**；只有 `collected` 是终态 |
+| **删除的原子性** | 删除采集库条目 MUST 在**同一事务**内完成：删 `viral_library` + discovery 落回 `pending` + `claim_token + 1`（使在途 worker 失效）+ 撤未 `done` 的 outbox。**缺任何一环都会留下漂移**：只删内容不落回 `pending` ⇒ 探测因唯一键跳过，该作品**永久不可再采**；不撤 outbox ⇒ 迟到的 finalizer 会把产物搬回来，出现「已删除却又复活」 |
+| **完整性巡检** | 每日全表核对：`collect_state=collected` 但 `viral_library` 无对应行 ⇒ 复位 `pending` + 记日志；`viral_library` 有行但无对应 discovery（历史/其他来源数据）**只计数不清理**，避免误伤。**巡检是对「任何未预期路径造成漂移」的兜底，不能只靠代码纪律** |
 
 **为什么不能用「先入库再补产物」**：那正是会产生「已采集但内容为空」的路径——用户看到已采集却拿不到正文，而 `content NOT NULL` 只挡得住 NULL 挡不住空串。**先落产物再入库**把失败暴露在入库之前，此时 discovery 仍是 `failed`，用户重试即可。
 
