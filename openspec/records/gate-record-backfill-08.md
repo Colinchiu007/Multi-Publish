@@ -9,7 +9,7 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 
 ## 本次执行记录：批量回填远程同步欠账（gate-record-backfill-08，2026-10-07）【docs-only】
 
-- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → 见下方「docs-only 判定」行（提交后复跑）
+- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ `docs-only=true`，files=5：`.quality-gates.md`、`openspec/records/audit-writeback-key-fix.md`、`openspec/records/bilibili-buckets-backfill.md`、`openspec/records/gate-record-backfill-08.md`、`scripts/gate-record-debt-ledger.json`
 - 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
 
 | 门禁 | 状态 | Fresh 证据 |
@@ -21,8 +21,8 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 | 精确定位（防误伤别人的行） | PASS | `.quality-gates.md` 全文有 **2 条** `远程同步 PENDING` 行（另一条是别的会话欠账，第 6980 行，不归本 PR）。第一版脚本按「第 N 个命中」定位 ⇒ 断言当场抛错 `期望命中 1 行，实得 2`，**在写盘之前就停手**；改为**内容锚点** `本条自己的欠账` 定位，并断言 `ANCHOR_HITS=1` 才动手。改完后 `ANCHOR_LEFT=0`、`PENDING_ROWS_LEFT=1`（另一条原样保留） |
 | 行尾与 diff 对账 | PASS | 所有编辑逐行 `split('\n')` 处理、**不碰行内容里的 `\r`**，替换行时按原行结尾补回同一行尾（`OLD_LINE_TAIL_PRESERVED=true`）。提交后按 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径对账，两口径一致 ⇒ 无幽灵行 |
 | Gate 2c | PASS | `node scripts/check-gate-record-debt.js` ⇒ `OK: …两源所有未收口的 远程同步 行均已登记，清单无陈旧项…记录文件登记字段无残留`；现场数字：远程同步行 250 / 执行记录 451 / **已登记欠账 8**（从 9 减 1，即本次销掉的那条）/ 记录文件 86 |
-| 品牌残留 | PASS | `node scripts/check-no-brand-residue.js`（见下方运行结果行） |
-| 文档同步 | PASS | `bash scripts/check-docs-sync.sh --base=main --head=HEAD`（该脚本自己拼 `origin/$BASE`，传 `origin/main` 会 `fatal: couldn't find remote ref refs/heads/origin/main`） |
+| 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` ⇒ `PASS（扫描 7184 个 tracked 文件，无品牌残留…）` |
+| 文档同步 | PASS | `bash scripts/check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`（该脚本自己拼 `origin/$BASE`，传 `origin/main` 会 `fatal: couldn't find remote ref refs/heads/origin/main`；且**必须在提交后跑**，未提交时它读 HEAD 会报「无变更」，那不构成证据） |
 | QM-1 / QM-2 代码必检 / QM-4 / TDD | N/A | docs-only 通道跳过（零运行时文件） |
 | QM-6 双模型外部评审 | N/A | 纯记录回填，按 AGENTS.md 不强制 |
 
