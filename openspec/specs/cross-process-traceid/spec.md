@@ -1,7 +1,8 @@
 # cross-process-traceid Specification
 
 ## Purpose
-TBD - created by archiving change cross-process-traceid. Update Purpose after archive.
+定义 cross-process-traceid 的行为契约，判据只认下列 Requirement 与其 Scenario：「Bridge 请求携带 X-Request-Id 并记录 traceId」、「阶段执行器传递 runId 为 traceId」、「serviceBus 与 Bridge 透传 traceId」等，共 5 条。本规格由归档 change `cross-process-traceid` 产生。
+
 ## Requirements
 ### Requirement: Bridge 请求携带 X-Request-Id 并记录 traceId
 当调用方提供 traceId 时，Python Bridge SHALL 在 HTTP 请求头携带 `X-Request-Id`，并在 Bridge 日志输出 `traceId=`；未提供 traceId 时 SHALL 保持现状（不发头、不增加日志行）。

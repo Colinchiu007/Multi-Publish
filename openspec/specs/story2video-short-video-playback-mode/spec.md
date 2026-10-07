@@ -1,7 +1,8 @@
 # story2video-short-video-playback-mode Specification
 
 ## Purpose
-TBD - created by archiving change story2video-short-video-playback-mode. Update Purpose after archive.
+定义 story2video-short-video-playback-mode 的行为契约，判据只认下列 Requirement 与其 Scenario：「短视频处理配置契约」、「mode gating」、「loop behavior」等，共 5 条。本规格由归档 change `story2video-short-video-playback-mode` 产生。
+
 ## Requirements
 ### Requirement: 短视频处理配置契约
 Story2Video SHALL accept story2videoTextConfig.video.shortVideoHandling with enum loop or stop-at-end, default loop. Missing/empty values SHALL normalize to loop; unknown explicit values SHALL fail closed with a field-specific error. The normalized value SHALL be passed to select_video_scenes, generate_assets, and compose without allowing arbitrary fields or secrets.

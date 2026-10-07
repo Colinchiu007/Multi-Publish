@@ -1,7 +1,8 @@
 # higgsfield-cross-scene Specification
 
 ## Purpose
-TBD - created by archiving change higgsfield-round3b-cross-scene. Update Purpose after archive.
+定义 higgsfield-cross-scene 的行为契约，判据只认下列 Requirement 与其 Scenario：「Cross-scene final-state contract」、「Continuity-aware optimization and scoring」、「Story2Video continuity chain and recovery」，共 3 条。本规格由归档 change `higgsfield-round3b-cross-scene` 产生。
+
 ## Requirements
 ### Requirement: Cross-scene final-state contract
 The video prompt system SHALL accept an optional prev_final_frame factual reference for the previous video scene and SHALL expose a bounded final_frame planned end-state for the current optimized prompt. Both fields MUST use the same 1000-character boundary. The system MUST treat the previous state as data, not as executable instructions.

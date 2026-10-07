@@ -1,7 +1,8 @@
 # desktop-notify-log Specification
 
 ## Purpose
-TBD - created by archiving change desktop-notify-log-standard. Update Purpose after archive.
+定义 desktop-notify-log 的行为契约，判据只认下列 Requirement 与其 Scenario：「messageKey 契约」、「errorCategory 跨模块关联」、「统一通知通道」等，共 10 条。本规格由归档 change `desktop-notify-log-standard` 产生。
+
 ## Requirements
 ### Requirement: messageKey 契约
 系统 SHALL 维护一套稳定的 `messageKey` 枚举作为「用户文案 ↔ 错误分类 ↔ 日志」的唯一关联键，并配套共享错误归一化规则表。

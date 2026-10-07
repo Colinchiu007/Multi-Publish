@@ -1,7 +1,8 @@
 # story2video-image-carousel-pipeline Specification
 
 ## Purpose
-TBD - created by archiving change story2video-autopilot-tts-localization. Update Purpose after archive.
+定义 story2video-image-carousel-pipeline 的行为契约，判据只认下列 Requirement 与其 Scenario：「图片轮播流水线更名与本地化展示」、「参数提交后自动连续执行」、「参数收敛与默认值」等，共 4 条。本规格由归档 change `story2video-autopilot-tts-localization` 产生。
+
 ## Requirements
 ### Requirement: 图片轮播流水线更名与本地化展示
 流水线 SHALL 以"图片轮播"为本地化名称展示，用户可见文案 MUST 由 i18n 资源文件驱动（zh/en），禁止硬编码。

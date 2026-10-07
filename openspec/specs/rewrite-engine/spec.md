@@ -1,7 +1,8 @@
 # rewrite-engine Specification
 
 ## Purpose
-TBD - created by archiving change activate-viral-library. Update Purpose after archive.
+定义 rewrite-engine 的行为契约，判据只认下列 Requirement 与其 Scenario：「关键词提取模块」、「知识库关键词检索」、「异步知识上下文构建」等，共 5 条。本规格由归档 change `activate-viral-library` 产生。
+
 ## Requirements
 ### Requirement: 关键词提取模块
 

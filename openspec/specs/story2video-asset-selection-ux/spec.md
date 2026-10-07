@@ -1,7 +1,8 @@
 # story2video-asset-selection-ux Specification
 
 ## Purpose
-TBD - created by archiving change story2video-asset-selection-ux. Update Purpose after archive.
+定义 story2video-asset-selection-ux 的行为契约，判据只认下列 Requirement 与其 Scenario：「检查点等待态语义展示」、「检查点激活注意力引导」、「运行控制区等待状态与取消兜底」等，共 4 条。本规格由归档 change `story2video-asset-selection-ux` 产生。
+
 ## Requirements
 ### Requirement: 检查点等待态语义展示
 流水线到达 `scene_asset_selection` 检查点暂停时，进度区对应阶段 SHALL 显示「等待用户操作」语义（图标 ⏸、waiting 样式、本地化标签），不得渲染原始 `paused` 字符串；手动暂停（无该 checkpoint）SHALL 保持「已暂停」语义与既有继续/暂停按钮。

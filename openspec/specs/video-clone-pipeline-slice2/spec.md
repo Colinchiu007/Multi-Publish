@@ -1,7 +1,8 @@
 # video-clone-pipeline-slice2 Specification
 
 ## Purpose
-TBD - created by archiving change video-clone-pipeline-slice2. Update Purpose after archive.
+定义 video-clone-pipeline-slice2 的行为契约，判据只认下列 Requirement 与其 Scenario：「本地文件 ingest 校验与元数据探测」、「链接下载与错误分类」、「ffprobe analyze 与场景检测」等，共 6 条。本规格由归档 change `video-clone-pipeline-slice2` 产生。
+
 ## Requirements
 ### Requirement: 本地文件 ingest 校验与元数据探测
 `createLocalFileIngest` SHALL 校验本地输入（存在且为文件、≤500MB、扩展名 ∈ {mp4,mov,webm,mkv,avi}、ffprobe 时长 ≤30min），成功后将 {path,sizeBytes,durationSec,width,height,fps,hasAudio,format} 写入 artifacts.media 并回填 report.meta；失败按错误码映射（FILE_NOT_FOUND / FILE_TOO_LARGE / FILE_FORMAT / FILE_TOO_LONG / PROBE_FAILED(retryable)）。

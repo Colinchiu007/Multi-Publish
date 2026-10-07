@@ -1,7 +1,8 @@
 # video-clone-dl-hardening Specification
 
 ## Purpose
-TBD - created by archiving change video-clone-dl-hardening. Update Purpose after archive.
+定义 video-clone-dl-hardening 的行为契约，判据只认下列 Requirement 与其 Scenario：「URL 下载时长上限」、「可复用下载探针」，共 2 条。本规格由归档 change `video-clone-dl-hardening` 产生。
+
 ## Requirements
 ### Requirement: URL 下载时长上限
 `createFfprobeAnalyze` SHALL 接受 `maxDurationSec`（默认 1800），元数据探测后若 durationSec 超限 SHALL 抛 `VIDEOCLONE_FILE_TOO_LONG`（phase=analyze, retryable=false），与本地文件 ≤30min 对齐。

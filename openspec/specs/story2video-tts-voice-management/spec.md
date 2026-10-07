@@ -1,7 +1,8 @@
 # story2video-tts-voice-management Specification
 
 ## Purpose
-TBD - created by archiving change story2video-autopilot-tts-localization. Update Purpose after archive.
+定义 story2video-tts-voice-management 的行为契约，判据只认下列 Requirement 与其 Scenario：「按模型绑定的内置音色」、「个人音色槽位与复制」、「模型能力与约束持久化」，共 3 条。本规格由归档 change `story2video-autopilot-tts-localization` 产生。
+
 ## Requirements
 ### Requirement: 按模型绑定的内置音色
 TTS 内置音色 SHALL 按模型绑定枚举，随模型能力表持久化；音色来源、克隆方式、文件限制与 API 模型 MUST 以供应商官方文档与配置为准。

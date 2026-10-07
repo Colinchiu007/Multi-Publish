@@ -1,7 +1,8 @@
 # mp-ue-closure Specification
 
 ## Purpose
-TBD - created by archiving change task-051-mp-closure. Update Purpose after archive.
+定义 mp-ue-closure 的行为契约，判据只认下列 Requirement 与其 Scenario：「快手二维码登录入口可验证」、「扫码登录以单一虚拟标签呈现」、「平台 cookie 域隔离」等，共 8 条。本规格由归档 change `task-051-mp-closure` 产生。
+
 ## Requirements
 ### Requirement: 快手二维码登录入口可验证
 

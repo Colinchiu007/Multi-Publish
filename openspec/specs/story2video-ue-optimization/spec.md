@@ -1,7 +1,8 @@
 # story2video-ue-optimization Specification
 
 ## Purpose
-TBD - created by archiving change story2video-autopilot-tts-localization. Update Purpose after archive.
+定义 story2video-ue-optimization 的行为契约，判据只认下列 Requirement 与其 Scenario：「UE 优化建议独立交付」，共 1 条。本规格由归档 change `story2video-autopilot-tts-localization` 产生。
+
 ## Requirements
 ### Requirement: UE 优化建议独立交付
 UE 优化建议 SHALL 作为独立交付物（建议文档/独立 change）产出，不进入本轮实现；涉及额外信息架构调整的实施 MUST 等待用户确认。

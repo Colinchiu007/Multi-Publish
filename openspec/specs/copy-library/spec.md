@@ -1,7 +1,8 @@
 # copy-library Specification
 
 ## Purpose
-TBD - created by archiving change copy-library-primary-menu. Update Purpose after archive.
+定义 copy-library 的行为契约，判据只认下列 Requirement 与其 Scenario：「一级菜单文案库入口」、「四来源聚合」、「来源筛选与搜索」等，共 4 条。本规格由归档 change `copy-library-primary-menu` 产生。
+
 ## Requirements
 ### Requirement: 一级菜单文案库入口
 

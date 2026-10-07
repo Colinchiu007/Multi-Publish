@@ -1,7 +1,8 @@
 # story2video-voice-clone-local-management Specification
 
 ## Purpose
-TBD - created by archiving change image-carousel-voice-bgm-fixes. Update Purpose after archive.
+定义 story2video-voice-clone-local-management 的行为契约，判据只认下列 Requirement 与其 Scenario：「本地克隆音色删除为本地管理操作」、「能力查询不依赖 API Key 且不污染缓存」、「克隆音色设为默认可见且可反馈」等，共 5 条。本规格由归档 change `image-carousel-voice-bgm-fixes` 产生。
+
 ## Requirements
 ### Requirement: 本地克隆音色删除为本地管理操作
 

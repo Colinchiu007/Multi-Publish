@@ -1,7 +1,8 @@
 # user-facing-messages Specification
 
 ## Purpose
-TBD - created by archiving change prompt-user-friendly-i18n. Update Purpose after archive.
+定义 user-facing-messages 的行为契约，判据只认下列 Requirement 与其 Scenario：「访问控制拒绝返回结构化错误码」、「渲染端统一错误文案映射」、「系统语言自动检测与设置切换」等，共 5 条。本规格由归档 change `prompt-user-friendly-i18n` 产生。
+
 ## Requirements
 ### Requirement: 访问控制拒绝返回结构化错误码
 `license-access-control` 的访问控制拒绝结果 SHALL 返回稳定机器可读的 `errorCode`（`AUTH_REQUIRED` / `ENTITLEMENT_REQUIRED` / `UNTRUSTED_SENDER`），`message` 必须是去掉内部通道名的自然语言文案（含「原因 + 建议」），内部通道名只能出现在 `messageParams.channel`（诊断用，禁止渲染端直接展示）。

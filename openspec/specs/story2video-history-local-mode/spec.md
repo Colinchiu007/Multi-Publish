@@ -1,7 +1,8 @@
 # story2video-history-local-mode Specification
 
 ## Purpose
-TBD - created by archiving change story2video-history-not-logged-in. Update Purpose after archive.
+定义 story2video-history-local-mode 的行为契约，判据只认下列 Requirement 与其 Scenario：「未登录时本地历史可用」、「存储不可用仍 fail-closed」、「场景-测试映射」，共 3 条。本规格由归档 change `story2video-history-not-logged-in` 产生。
+
 ## Requirements
 ### Requirement: 未登录时本地历史可用
 身份服务已启用但当前未登录（无有效 sub）时，视频创作历史记录 SHALL 回退到设备级本地命名空间读取/写入，不得抛「无法识别当前用户」，不得弹出「历史记录暂时无法加载」。

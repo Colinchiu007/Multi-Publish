@@ -1,7 +1,8 @@
 # video-clone-pipeline-slice3 Specification
 
 ## Purpose
-TBD - created by archiving change video-clone-pipeline-slice3. Update Purpose after archive.
+定义 video-clone-pipeline-slice3 的行为契约，判据只认下列 Requirement 与其 Scenario：「generate 资产规划与 provider 契约」、「ffmpeg compose 纯函数构建与真实合成」、「可选发布」等，共 5 条。本规格由归档 change `video-clone-pipeline-slice3` 产生。
+
 ## Requirements
 ### Requirement: generate 资产规划与 provider 契约
 `createGenerateAssets` SHALL 按 `createAssetPlan` 逐镜头派生资产规格（kind：full 模式且镜头 type=video → video，否则 image；promptSeed 含 palette/tone/person/plot 锚点），逐镜头调用 assetGenerator；未注入 assetGenerator SHALL 抛 VIDEOCLONE_PROVIDER_UNAVAILABLE（fail-closed，retryable）；生成失败 SHALL 抛 VIDEOCLONE_ASSET_GENERATION_FAILED（retryable）；产物缺 path SHALL 失败。成功时 artifacts.assets.scenes 按镜头序填充。

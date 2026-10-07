@@ -1,7 +1,8 @@
 # video-clone-analyze-cli Specification
 
 ## Purpose
-TBD - created by archiving change video-clone-analyze-cli. Update Purpose after archive.
+定义 video-clone-analyze-cli 的行为契约，判据只认下列 Requirement 与其 Scenario：「analyze CLI」、「场景-测试映射」，共 2 条。本规格由归档 change `video-clone-analyze-cli` 产生。
+
 ## Requirements
 ### Requirement: analyze CLI
 `scripts/video-clone-analyze.js` SHALL 支持 `node scripts/video-clone-analyze.js <https-url|本地视频路径> [--out <dir>] [--max-duration 1800]`：输入 https 链接（createUrlIngest）或本地文件（createLocalFileIngest）→ createFfprobeAnalyze → 在 outDir 写出 report.json（7 层 CloneReport）与 summary.txt；退出码 0=成功 / 1=业务失败（打印错误码）/ 2=用法错误。

@@ -1,7 +1,8 @@
 # ops-center/rewrite-hard-constraints Specification
 
 ## Purpose
-TBD - created by archiving change rewrite-hard-constraints. Update Purpose after archive.
+定义 ops-center/rewrite-hard-constraints 的行为契约，判据只认下列 Requirement 与其 Scenario：「改写硬约束多版本管理（唯一默认）」、「bootstrap 下发默认硬约束」，共 2 条。本规格由归档 change `rewrite-hard-constraints` 产生。
+
 ## Requirements
 ### Requirement: 改写硬约束多版本管理（唯一默认）
 

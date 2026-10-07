@@ -1,7 +1,8 @@
 # publish-progress-feedback Specification
 
 ## Purpose
-TBD - created by archiving change publish-progress-ux. Update Purpose after archive.
+定义 publish-progress-feedback 的行为契约，判据只认下列 Requirement 与其 Scenario：「发布进度事件富化契约」、「发布进度全局承载（store + 面板）」、「进度面板可最小化后台运行」等，共 7 条。本规格由归档 change `publish-progress-ux` 产生。
+
 ## Requirements
 ### Requirement: 发布进度事件富化契约
 

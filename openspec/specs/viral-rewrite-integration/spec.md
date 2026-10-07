@@ -1,7 +1,8 @@
 # viral-rewrite-integration Specification
 
 ## Purpose
-TBD - created by archiving change viral-rewrite-integration. Update Purpose after archive.
+定义 viral-rewrite-integration 的行为契约，判据只认下列 Requirement 与其 Scenario：「爆款分析结果落库」、「标题参考软约束（titleHint）」、「改写质量评估第 4 维（爆款潜力）」，共 3 条。本规格由归档 change `viral-rewrite-integration` 产生。
+
 ## Requirements
 ### Requirement: 爆款分析结果落库
 
