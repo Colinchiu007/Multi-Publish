@@ -10,7 +10,7 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 ## 本次执行记录：CHANGELOG 历史副本清理（changelog-history-dedup，2026-10-07）
 
 > 分支：`changelog-history-dedup`；worktree：`D:/Data/projects/mp-worktrees/mp-changelog-history-dedup`
-> 坐标系：开分支时 `origin/main`=`24d4c0a76` → 两次 re-merge 后当前 merge-base=`6fb99307b`（授权文件里的 `applies_to_base` 就是这个 sha，**由当场 `git merge-base` 打印后写入、不是手抄**；中途曾钉在 `cbce32541`，re-sync 后由 `scripts/changelog-dedup-regen.js` 重算并改写授权与台账，`identical=true` 回读通过）
+> 坐标系：**唯一真源是 `scripts/changelog-dedup-authorization.json` 的 `applies_to_base`**，它必须等于 CI 实际使用的 `git merge-base HEAD origin/main`。开分支时 `origin/main`=`24d4c0a76` → 第一次 re-merge 钉 `cbce32541` → 第二次钉 `6fb99307b` → 合并前最后一次钉 **`06073943b`**（每次都由 `node scripts/changelog-dedup-regen.js --base=<merge-base sha>` 重算并同批改写授权与台账，**不手抄 sha**；sha 形状非法或与工作树不符时该工具直接拒绝写盘）
 > 范围：🔧 门禁工具（`scripts/` 三件 + 两个测试）+ 🗄️ 台账数据（`CHANGELOG.md` 净减 47,796 行）+ 📝 OpenSpec change ⇒ 含 `scripts/` 工具脚本自身 = **混合 PR，不走 docs-only 快速通道**
 > OpenSpec：`openspec/changes/dedup-changelog-history/`（`openspec validate --strict` 通过），capability 新增 `changelog-ledger-integrity`
 
@@ -58,6 +58,22 @@ sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 | 标题集合 | base 的 **346 种一个不少**；head 为 347 种 = 346 + 本 PR 自己那条新增台账。脚本对「标题消失」与「集合不覆盖」都抛错 |
 | 幂等 | 对结果再跑一次 `dedupe` ⇒ `removed=0` |
 | 削减明细 | `removed=841 == redundant=841`；`titles_reduced=269`（写进授权文件的 `expected_titles_reduced`，门禁侧再独立核对一次） |
+
+#### 第三次 re-sync 后的实测（合并前最后一轮，base=`06073943b`，本 PR head=合并 origin/main 后的提交）
+
+上表是**第二次** re-sync 时的读数，按"历史事件"保留不改。合并前 main 又前进（#3022 等），当场按 `git merge-base HEAD origin/main` 重跑 regen 与三把锁，终值如下：
+
+| 项 | 终值（base `06073943b`） |
+|----|--------------------------|
+| base 规模 | 65,833 行 / 7,603,673 字节；**1,188 条 / 347 种 / 冗余 841 / 最坏 16** |
+| head 规模 | **348 条 / 348 种 / 18,037 行**，`redundant=0`；净减 **47,796 行**，行级 `+133 / −47,929` |
+| 授权文件 | `applies_to_base=06073943b…`、`expected_titles_reduced=269`、`expected_entries_after=348`（三个值都由 `changelog-dedup-regen.js` 同一次计算写出，不手抄） |
+| 三把锁 | growth rc=0 且**出声**打印「269 种标题各削到 1 份、共减少 841 份副本，条目 1188 -> 348」；副本棘轮 rc=0（`冗余 841 -> 0 / 新增副本=0`）；独立对账器 A1–A5 全过，`kept_byte_identical=347`（348 块里除本 PR 那条外全部同源） |
+| 回归锁 | `node --test` 两文件合跑 **49 / 49 / 0**（growth 30 + 棘轮 19） |
+
+**这一轮顺带送上一条现场证据，比推演有力**：main 这次合进来的那条标题是 `# [unreleased] gate(docs): 文档绝对路径有效性门禁（Gate 12c）…`（**小写** `[unreleased]`）。副本棘轮原来的模型是「以 `# [未发布]` 开头」，对它**完全看不见** —— 当场实测：同一份 base blob 上 canonical 口径 1,188 条，前缀口径 1,158 条，差集 30 条按形状归为 `[unreleased]` 13、`[2026-08-15]` 8、`fix(自检门禁):` 4、`fix(工程门禁):` 4、`[补记]` 1。**所以"两把锁口径分裂"不是历史洁癖，而是本轮正在产生的新盲区**；收敛为单一实现后两侧同为 1,188。
+
+另记一条本轮踩到的坐标错：我一度用 `--base=$(git rev-parse origin/main)` 跑 growth，而 main 在几分钟内又前进 ⇒ 报「269 种条目缺失」rc=1。**growth 的坐标系必须是 `merge-base`，不是 `origin/main` tip**（这正是 Gate 2c3 那条 CI 接线锁 `CI 接线锁：Gate 2c3 必须以 merge-base 为坐标系，且不得退回 origin/main` 守的东西，本地手跑同样适用）。
 
 ### 反证（新加的守卫必须被"拆掉它"证伪过）
 
