@@ -63,6 +63,9 @@ jobs:
           # 放在非 PR 早退之前，所以 main push 那一档同样覆盖。
           node --test scripts/check-gate-record-debt.test.js
           node scripts/check-gate-record-debt.js
+          # CCG 安全扫描器自身的回归保护：扫描器一旦回退成「静默 0 文件绿灯」
+          # 或把 fixtures 当真实高危，verify-security 的结论就不可信了。
+          node --test .ccg/skills/tools/verify-security/scripts/security_scanner.test.js
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             echo "docs-only=false (non-PR event: full run)"
