@@ -2,9 +2,6 @@
 record: bilibili-buckets-backfill
 task: 回填 #3065 的远程同步行并销账，同时把 B 站真机投稿取证文档与 CHANGELOG 收口入库
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='(#NNNN)$' 回填，并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：#3065 回填销账 + 真机取证文档入库（bilibili-buckets-backfill，2026-10-07）【docs-only】
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 | 新门禁 Gate 12c | PASS | main 上 #3022 刚引入 `scripts/check-doc-abs-paths.js`（文档绝对路径有效性）。按 **CI 真实口径**（`--base=<merge-base> --head=HEAD`）复跑：改动集受管文件内无失效绝对路径。⚠️ 不带参数直跑会扫**全仓**并报出 `.ccg/tasks/archive/**` 里他人历史文件的失效路径，那不是本 PR 的判据域 —— 记下来避免下次误认领 |
 | CI 首轮红的归因 | PASS | #3065 首轮 `QG Coverage` 红在 `pixel-diff-baseline-guard.test.js > 空白截图拒绝入库`，报 `Test timed out in 10000ms`（**非断言不等**）。三条判据同时成立才归 flaky：①失败模式是超时 ②该用例做真实文件 I/O 却吃默认 10s ③它跑在 `--maxWorkers=1 --no-file-parallelism` 串行全量末尾（14135 用例/1639s）。对照证据：本 PR diff 不含任何 `tests/visual-testing/` 文件，且 main 最近三次 push run 全 success。`rerun --failed` 后**零代码改动**转绿（21 次观测 pass=20 fail=0）。**未借 flaky 之名修别人的测试预算**（那是独立变更） |
 | QM-1 打包 / QM-4 视觉 / TDD / QM-6 | N/A | 本 PR 零运行时代码改动（4 个文件全是 `.md`），与运行时无关 ⇒ 按 docs-only 通道跳过。取证文档里引用的实测数字来自 #3065 已验证的实现，不在本 PR 重复验证 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin bilibili-buckets-backfill` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `8a959ef68279d7cf2eed37d7a5fae0a0b8a9c942`（committer 2026-10-07T18:47:55+08:00）。取证 `git log origin/main --grep='(#3078)$' --format=%H|%cI` 唯一命中该 SHA 与时间；`git ls-remote --heads origin bilibili-buckets-backfill` 返回 **0 行**证远端分支已删。本次回填与该文件 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 
 ### 遗留（不假装已闭合）
 
