@@ -2,9 +2,6 @@
 record: gate2c2-landing-correction
 task: 推翻自己上一轮写进 main 的落地结论——判据应留在 changes job，失败经 required 的 Gate Result 聚合拦住
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 自身尚未合并，merge SHA 与远端分支删除状态此刻不存在（这正是 PENDING 的语义）
-sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：7.1a 落地位置纠偏——required 是两层并集且聚合边算数（gate2c2-landing-correction，2026-10-02）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（回填后删除本段三个 sync_* 字段
 | 接线棘轮 | N/A | 未新增测试文件、未改 workflow；`check-unwired-tests` / `check-step-failfast` / `.github/scripts/check-max-lines` 作为既有锁复跑 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰运行面与 UI，改动面只有 `openspec/` |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`；纯规格变更按 AGENTS.md 不强制，如实登记不以自审冒充 |
-| 远程同步 | PENDING | 合并后由下一个会话按既有口径回填：merge SHA 与时间取 `git log origin/main --grep` 本 PR 号，远端分支删除取 `git ls-remote --heads origin gate2c2-landing-correction` 返回 0 行；回填后**删除本文件 frontmatter 的三个 `sync_*` 字段** |
+| 远程同步 | PASS | 已合并：squash 落地 `80a4a9f5a498d654cd120ab880be3b53cbc8a281`（committer 2026-10-02T10:43:22Z，PR mergedAt 2026-10-02T10:43:23Z）。取证三条：① `git log origin/main --grep='(#2769)$' --format=%H|%cI` 唯一命中该 SHA 与时间；② `gh pr view 2769 --json mergeCommit` 的 oid **与上面同一个 SHA**（两源互证，不靠单侧）；③ `git ls-remote --heads origin gate2c2-landing-correction` 返回 **0 行**证远端分支已删。归属判据：分支名 == 记录文件名（`gate2c2-landing-correction`），且该 head 分支只命中这 1 个 PR（多 PR 复用会整条排除而不是取第一个）。本行改写与 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 
 ### 回填补记（判定必须在 commit 之后跑，故单列）
 

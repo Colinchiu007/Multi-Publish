@@ -2,9 +2,6 @@
 record: qm6-agents-dedup
 task: 处置 #2772 的 QM-6 外部评审发现（替代通道）——AGENTS.md 去重复枚举 + 复测脚本补 PROVENANCE_MISSING / PARTIAL 两条出口
 date: 2026-10-02
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（回填时把「远程同步」改成 PASS 并整段删除 sync_status / sync_reason / sync_backfill_owner）
 ---
 
 ## 本次执行记录：QM-6 发现项处置与复测出口补强（qm6-agents-dedup，2026-10-02）
@@ -26,7 +23,7 @@ sync_backfill_owner: 下一个会话（回填时把「远程同步」改成 PASS
 | 本地门禁 | PASS | `check-gate-record-debt` / `.github/scripts/check-max-lines` / `check-unwired-tests` / `check-step-failfast` / `check-debt-budget` / `check-no-brand-residue`（6620 个 tracked 文件）六条 rc=0 逐条打印 |
 | QM-1 打包 / QM-4 视觉 | ➖ N/A | 未触 `apps/desktop/electron/**` 生产代码与 UI 面 |
 | QM-6 CCG 双模型外部评审 | PASS（替代通道，声明偏差） | **偏差**：本仓规定通道是 `codeagent-wrapper --backend <config.toml primary>`，而 2026-10-02 实测两条 primary 的底层代理 `127.0.0.1:15721` 端口**未监听**（`Test-NetConnection -Port 15721 -Quiet` = False），且 `修用户的路由代理`属机器级配置、不在任务授权内 ⇒ 改走同机另一 harness：`opencode run --model opencode/nemotron-3.5-lightning-free`（正确性轴）与 `opencode/longcat-2.5-preview-free`（模式/可维护性轴），任务书限定文件清单与输出行数（`-free` 对长生成不稳，先例见记忆「QM-6 替代评审通道」）。评审对象 = 已合并的 `31958ce1`（#2772），在**独立只读 worktree** 里跑。**判据是 findings 文件真落盘，不是 CLI 退出码**（后端首跑 rc=0 却没产出，原因是模型在 Git Bash 里用了反斜杠路径 ⇒ 补路径纪律重跑）。逐条处置见下 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin qm6-agents-dedup` 返回 0 行证分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：squash 落地 `302b3147550639c5cac480ef42787dd6f048945a`（committer 2026-10-02T15:34:16Z，PR mergedAt 2026-10-02T15:34:16Z）。取证三条：① `git log origin/main --grep='(#2784)$' --format=%H|%cI` 唯一命中该 SHA 与时间；② `gh pr view 2784 --json mergeCommit` 的 oid **与上面同一个 SHA**（两源互证，不靠单侧）；③ `git ls-remote --heads origin qm6-agents-dedup` 返回 **0 行**证远端分支已删。归属判据：分支名 == 记录文件名（`qm6-agents-dedup`），且该 head 分支只命中这 1 个 PR（多 PR 复用会整条排除而不是取第一个）。本行改写与 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 
 ### QM-6 发现项逐条处置（#2772 的两轴评审）
 
