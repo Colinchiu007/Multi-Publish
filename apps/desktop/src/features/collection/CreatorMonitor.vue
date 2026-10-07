@@ -162,6 +162,26 @@ async function collectOne (d) {
 
 const hasDiscoveries = computed(() => discoveries.value.length > 0)
 
+/**
+ * 能力徽章与质量徽章的文案映射。
+ * **必须用查表而非字符串拼接**：拼接出来的 key 对 check-locale-sync.js --keys
+ * 不可静态解析，会被判成「zh/en 缺失该 key」而使 Gate 7 变红（QG Static 曾因此失败）。
+ * 注意该检查器扫描的是**整个文件文本**，所以连注释里也不能出现拼接形式的 key 片段
+ * ——否则同样会被提取。查表让每个 key 都以字面量出现，一眼可校验。
+ */
+const CAP_LABEL_KEY = {
+  official: 'collection.creatorCapOfficial',
+  best_effort: 'collection.creatorCapBestEffort',
+  unsupported: 'collection.creatorCapUnsupported',
+}
+const QUALITY_LABEL_KEY = {
+  full: 'collection.creatorQualityFull',
+  partial: 'collection.creatorQualityPartial',
+  stub: 'collection.creatorQualityStub',
+}
+const capKey = (tier) => CAP_LABEL_KEY[tier] || CAP_LABEL_KEY.best_effort
+const qualityKey = (q) => QUALITY_LABEL_KEY[q] || QUALITY_LABEL_KEY.stub
+
 onMounted(loadCreators)
 defineExpose({ loadCreators, loadDiscoveries })
 </script>
@@ -199,8 +219,7 @@ defineExpose({ loadCreators, loadDiscoveries })
           <div class="creator-meta">
             <span class="creator-name">{{ c.display_name || c.external_id }}</span>
             <span class="creator-badge" :data-tier="c.capability_tier">
-              {{ $t('collection.creatorCap' + (c.capability_tier === 'official' ? 'Official'
-                : c.capability_tier === 'unsupported' ? 'Unsupported' : 'BestEffort')) }}
+              {{ $t(capKey(c.capability_tier)) }}
             </span>
             <span v-if="c.status === 'fatal_paused' || c.status === 'auto_paused'" class="creator-paused">
               {{ $t(c.status === 'fatal_paused' ? 'collection.creatorFatalPaused' : 'collection.creatorAutoPaused',
@@ -249,9 +268,7 @@ defineExpose({ loadCreators, loadDiscoveries })
           <div class="creator-meta">
             <span class="creator-title">{{ d.title }}</span>
             <span class="creator-quality" :data-quality="d.content_quality">
-              {{ $t(d.content_quality === 'full' ? 'collection.creatorQualityFull'
-                 : d.content_quality === 'partial' ? 'collection.creatorQualityPartial'
-                 : 'collection.creatorQualityStub') }}
+              {{ $t(qualityKey(d.content_quality)) }}
             </span>
           </div>
           <div class="creator-actions">
