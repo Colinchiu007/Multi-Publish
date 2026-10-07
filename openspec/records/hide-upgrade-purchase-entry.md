@@ -79,6 +79,32 @@ PR #3003 只统一了 `plan-matrix.js` 与对外文档，**这条下单→授权
 3. 开发包：模拟支付按钮仍渲染，原流程不被打断
 4. 开发包：购买入口与 ¥99 文案均保留
 
+
+## CI 首轮抓到：实质断言暴露了一个从未验证的假设
+
+首轮 CI 抓出一条红：`cancels order and returns to select`。
+
+**根因不是产品缺陷，是我的断言方向写错了。** 该测试原为
+`if (returnBtn.length > 0) {…} expect(true).toBe(true)`，改成实质断言后我才发现：
+
+- 模板里有两个语义相近但完全不同的按钮
+  - 「返回」在 `paymentStep === 'select'` 时绑定 `showPaymentFlow = false` ⇒ **退出整个支付流程**
+  - 「取消订单」在 `paymentStep === 'paying'` 时绑定 `cancelOrder` ⇒ 调 `paymentCancel` + `resetPayment()` 回 select 步
+- 我在「选择支付方式」步就点了「返回」（从没走到扫码页），断言「回到选择支付方式」自然失败
+
+**这正是把恒真断言换成实质断言的价值**：恒真时代「返回」的语义从未被任何人验证，
+`cancels order and returns to select` 这个测试名承诺的行为也没有对应实现路径检查。
+
+修法：按测试名本意重写三步（立即升级 → 确认支付 → 取消订单 → 回到选择支付方式），
+并**新增一条**独立测试锁住「返回」的真实语义（退出流程、不是退回上一步）。
+两个按钮从此各自有覆盖。
+
+**另修一处**：`calls deactivate when deactivate button clicked` 里的
+`if (typeof vm.doDeactivate === "function")` —— `doDeactivate` 确实在 `defineExpose` 里，
+条件恒真。改为先 `expect(typeof …).toBe("function")` 再调用。
+
+**本次共清理 4 处恒真/条件断言**（原记录写 3 处，漏统计这一处）。
+
 ## 门禁
 
 | 门禁 | 状态 | Fresh 证据 |

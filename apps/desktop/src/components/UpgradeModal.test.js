@@ -103,16 +103,49 @@ describe("UpgradeModal", () => {
     vi.stubEnv("DEV", true);
     const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await nextTick();
+    // Step 1 -> 选择支付方式
     await w.find(".upgrade-btn").trigger("click");
     await nextTick();
-    // Click return button
+    expect(w.text()).toContain("选择支付方式");
+
+    // Step 2 -> 扫码页（「取消订单」按钮只在 paymentStep==='paying' 时存在）
+    const confirmBtn = w.findAll("button").filter(b => b.text().includes("确认支付"));
+    expect(confirmBtn.length).toBeGreaterThan(0);
+    await confirmBtn[0].trigger("click");
+    await new Promise(r => setTimeout(r, 50));
+    expect(w.text()).toContain("扫码支付");
+
+    // Step 3 -> 点「取消订单」应调 paymentCancel 并退回选择支付方式
+    const cancelBtn = w.findAll("button").filter(b => b.text().includes("取消订单"));
+    expect(cancelBtn.length).toBeGreaterThan(0);
+    await cancelBtn[0].trigger("click");
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(mockPayment.paymentCancel).toHaveBeenCalled();
+    expect(w.text()).toContain("选择支付方式");
+    expect(w.text()).not.toContain("扫码支付");
+  });
+
+  it("「返回」按钮退出整个支付流程（不是退回上一步）", async () => {
+    // 2026-10-07 新增：这两个按钮语义相近但完全不同，此前从无覆盖。
+    //   - 「返回」在 paymentStep==='select' 时绑定 `showPaymentFlow = false` => 退出流程
+    //   - 「取消订单」在 paymentStep==='paying' 时绑定 cancelOrder => 回 select 步
+    // 原先把「返回」当成「返回上一步」来断言，方向就错了（本次 CI 抓到）。
+    vi.stubEnv("DEV", true);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
+    await nextTick();
+    await w.find(".upgrade-btn").trigger("click");
+    await nextTick();
+
     const returnBtn = w.findAll("button").filter(b => b.text().includes("返回"));
-    // 2026-10-07：原为 `if (…>0) {…} expect(true).toBe(true)` —— 既条件跳过又恒真，
-    // 什么都没验。改为显式断言「返回」确实把界面退回选择支付方式那一步。
     expect(returnBtn.length).toBeGreaterThan(0);
     await returnBtn[0].trigger("click");
     await nextTick();
-    expect(w.text()).toContain("选择支付方式");
+
+    expect(w.text()).not.toContain("选择支付方式");   // 已退出流程
+    expect(w.text()).not.toContain("扫码支付");
+    expect(w.text()).toContain("激活码");             // 回到 plan-card
+    expect(mockPayment.paymentCancel).not.toHaveBeenCalled();
   });
 
   it("calls deactivate when deactivate button clicked", async () => {
@@ -120,12 +153,12 @@ describe("UpgradeModal", () => {
     await nextTick();
     const deactivateBtn = w.findAll("button").filter(b => b.text().includes("deactivate"));
     if (deactivateBtn.length > 0) await deactivateBtn[0].trigger("click");
-    // deactivate available via expose
+    // 2026-10-07：原为 `if (typeof vm.doDeactivate === "function") { …断言… }` ——
+    // doDeactivate 确实在 defineExpose 里，条件恒真，等于没写。改为直接断言它存在再调。
     const vm = w.vm;
-    if (typeof vm.doDeactivate === "function") {
-      await vm.doDeactivate();
-      expect(mockStore.deactivate).toHaveBeenCalled();
-    }
+    expect(typeof vm.doDeactivate).toBe("function");
+    await vm.doDeactivate();
+    expect(mockStore.deactivate).toHaveBeenCalled();
   });
 
   it("loads license on mount", async () => {
