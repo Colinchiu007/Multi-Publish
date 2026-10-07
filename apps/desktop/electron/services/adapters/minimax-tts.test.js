@@ -358,7 +358,10 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(voices[0]).toHaveProperty('id')
       expect(voices[0]).toHaveProperty('name')
       // 回归：官方文档提取不得含编码替换符（U+FFFD 乱码）
-      const corrupted = voices.filter(v => String(v.name).includes('\uFFFD') || /[�]/.test(String(v.name)))
+      // 2026-10-07：原先此处还有一个「字符类里直接写替换符」的正则，与下面
+      // includes('\uFFFD') 语义完全等价、纯冗余；且它让本文件成为全仓唯一
+      // 「故意含字面 U+FFFD」的文件，只能靠基线豁免。删掉后断言行为不变。
+      const corrupted = voices.filter(v => String(v.name).includes('\uFFFD'))
       expect(corrupted).toEqual([])
       expect(voices.find(v => v.id === 'male-qn-daxuesheng-jingpin')?.name).toBe('青年大学生音色-beta')
     })

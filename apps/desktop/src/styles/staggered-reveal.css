@@ -1,6 +1,6 @@
-/* ========== Staggered Reveal ¶¯Ğ§ÏµÍ³ - 2026-09-20 ========== */
+/* ========== Staggered Reveal åŠ¨æ•ˆç³»ç»Ÿ - 2026-09-20 ========== */
 
-/* --- »ù´¡¶¯»­¹Ø¼üÖ¡ --- */
+/* --- åŸºç¡€åŠ¨ç”»å…³é”®å¸§ --- */
 
 @keyframes staggered-reveal-up {
   0% {
@@ -44,9 +44,9 @@
   }
 }
 
-/* --- ¹¤¾ßÀà --- */
+/* --- å·¥å…·ç±» --- */
 
-/* ÆôÓÃ staggered reveal£¨ÏòÉÏÏÔÏÖ£© */
+/* å¯ç”¨ staggered revealï¼ˆå‘ä¸Šæ˜¾ç°ï¼‰ */
 .staggered-reveal {
   animation-fill-mode: both;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -75,16 +75,16 @@
   animation-name: staggered-reveal-slide-right;
 }
 
-/* --- ×éºÏ¶¯»­£¨ÓÃÓÚ¸´ÔÓ³¡¾°£©--- */
+/* --- ç»„åˆåŠ¨ç”»ï¼ˆç”¨äºå¤æ‚åœºæ™¯ï¼‰--- */
 
-/* ¿ìËÙ fade + ÇáÎ¢ÉÏÒÆ */
+/* å¿«é€Ÿ fade + è½»å¾®ä¸Šç§» */
 .staggered-reveal-subtle {
   animation: staggered-reveal-up 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards,
              staggered-reveal-fade 0.4s ease-in-out forwards;
   animation-delay: 0s;
 }
 
-/* ÑÓ³ÙÏÔÏÖ£¨Í¨¹ı CSS ±äÁ¿¿ØÖÆ£© */
+/* å»¶è¿Ÿæ˜¾ç°ï¼ˆé€šè¿‡ CSS å˜é‡æ§åˆ¶ï¼‰ */
 .staggered-reveal-delayed {
   animation-fill-mode: both;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -93,7 +93,7 @@
   animation-delay: calc(var(--stagger-index, 0) * 0.08s);
 }
 
-/* --- ÏìÓ¦Ê½ÓÅ»¯ --- */
+/* --- å“åº”å¼ä¼˜åŒ– --- */
 
 @media (prefers-reduced-motion: reduce) {
   .staggered-reveal,
@@ -107,14 +107,14 @@
   }
 }
 
-/* --- ĞÔÄÜÓÅ»¯ --- */
+/* --- æ€§èƒ½ä¼˜åŒ– --- */
 
-/* ÌáÊ¾ä¯ÀÀÆ÷Ó²¼ş¼ÓËÙ */
+/* æç¤ºæµè§ˆå™¨ç¡¬ä»¶åŠ é€Ÿ */
 .staggered-reveal {
   will-change: transform, opacity;
 }
 
-/* ±ÜÃâÖØÅÅ */
+/* é¿å…é‡æ’ */
 .staggered-reveal-delayed {
   contain: layout style;
 }
