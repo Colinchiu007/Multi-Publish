@@ -206,3 +206,52 @@ describe('license:activate 打包态拒收（P0 权限泄漏）', () => {
     expect(licenseManager.activate).not.toHaveBeenCalled()
   })
 })
+
+// 2026-10-07 新增：license:activate-trial 的打包态拒收。
+//
+// 逃逸分析：activateTrial() 危害远小于 activate()（7 天期限 + type==='free' 前置，
+// 一台设备只能一次），但它仍是**纯本地提权路径**——服务端 plan-matrix 里
+// `grep -c trial` = 0，这份权益在 requireEntitlement 前不成立，表现为
+// 「UI 显示 Pro、点击被服务端拦」。产品侧已决定暂不提供试用，故正式包关掉入口。
+describe('license:activate-trial 打包态拒收', () => {
+  function makeTrialHandlers({ isPackaged }) {
+    const listeners = {}
+    __registerMock('electron', { app: { isPackaged } })
+    const licenseManager = {
+      isPro: vi.fn(() => false),
+      getInfo: vi.fn(() => ({ type: 'free' })),
+      activateTrial: vi.fn(() => true),
+      activate: vi.fn(),
+      deactivate: vi.fn(),
+    }
+    registerLicenseHandlers(
+      // 与上面同一处修正：业务通道走 ipcMain.handle，必须由 handle 写入 listeners
+      { handle: (ch, h) => { listeners[ch] = h }, on: (ch, h) => { listeners[ch] = h } },
+      { app: { isPackaged }, licenseManager, identityService: undefined },
+    )
+    return { handler: listeners['license:activate-trial'], licenseManager }
+  }
+
+  it('正式构建拒收，且 activateTrial 未被调用', async () => {
+    const { handler, licenseManager } = makeTrialHandlers({ isPackaged: true })
+    const r = await handler(makeTrustedEvent())
+    expect(r.code).not.toBe(0)
+    expect(r.data).toBe(false)
+    expect(r.message).toContain('试用暂未开放')
+    expect(licenseManager.activateTrial).not.toHaveBeenCalled()
+  })
+
+  it('undefined 档同样拒收（严格不等）', async () => {
+    const { handler, licenseManager } = makeTrialHandlers({ isPackaged: undefined })
+    const r = await handler(makeTrustedEvent())
+    expect(r.code).not.toBe(0)
+    expect(licenseManager.activateTrial).not.toHaveBeenCalled()
+  })
+
+  it('开发构建才走到 activateTrial', async () => {
+    const { handler, licenseManager } = makeTrialHandlers({ isPackaged: false })
+    const r = await handler(makeTrustedEvent())
+    expect(licenseManager.activateTrial).toHaveBeenCalled()
+    expect(r.code).toBe(0)
+  })
+})
