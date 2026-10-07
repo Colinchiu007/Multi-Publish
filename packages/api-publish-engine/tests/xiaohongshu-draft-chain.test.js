@@ -2,7 +2,7 @@
 /**
  * 小红书发布链契约测试 —— 图片上传 + 草稿箱存入
  *
- * 端点（2026-10-07 对照参考实现产物逐字核�� + 真机 404 实证后修正）：
+ * 端点（2026-10-07 对照参考实现产物逐字核对 + 真机 404 实证后修正）：
  *   1. GET  creator.xiaohongshu.com/api/media/v1/upload/web/permit
  *        ?biz_name=spectrum&scene=image&file_count=1&version=1&source=web
  *        Referer: https://creator.xiaohongshu.com/publish/publish        → { file_id, file_ids, token, upload_addr }
