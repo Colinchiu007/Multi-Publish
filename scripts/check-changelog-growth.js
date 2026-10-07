@@ -14,10 +14,14 @@
  * 用多重集而不是集合，是因为历史里 1,133 个标题只有 302 个不同值（267 种重复，最多 4 次），
  * 集合口径会把「把 4 份副本删到 3 份」这种真实丢失读成通过。
  *
- * 刻意**不判**的两件事（写了就不诚实，也守不住）：
+ * 刻意**不判**的三件事（写了就不诚实，也守不住）：
  *   · 条目**正文**被改短 —— 后续 PR 修订自己那条是既有习惯，判了就成了人人想关掉的红；
- *   · 字节数倒退 —— 同上，正文变短就红，属误报。
- *   一句话：本门禁守的是「条目不见了」，不是「条目变小了」。
+ *   · 字节数倒退 —— 同上，正文变短就红，属误报；
+ *   · **同题等份的内容替换**（base 有 2 份、head 也有 2 份，但是另外两份）—— 这条与上一条同源，
+ *     因为"修订自己那条"必然改动正文，无法与"换了一份"区分（QM-6 后端 MINOR-6）。
+ *     ⇒ "保留份逐字节等于 base 某一份"这条保证**只覆盖被削减到 1 份的标题**，不覆盖等份情形；
+ *       别把它读成"head 里每一块都来自 base"（那是独立对账器 A2 的范围，且它同样只在清理 PR 里跑）。
+ *   一句话：本门禁守的是「条目不见了」，不是「条目变小了」，更不是「条目内容没被换过」。
  *
  * fail closed：base/head 任一读不到、或 base 读出 0 条标题 ⇒ 直接抛错。空遍历不得判为「零丢失」
  * （与 check-gate-record-debt.js 的 rowCountAll===0 出口同源）。
@@ -158,7 +162,9 @@ function evaluateAuthorization({ authHeadText, authBaseText, baseSha }) {
   for (const k of AUTH_REQUIRED) {
     if (obj[k] === undefined || obj[k] === null || obj[k] === '') return { granted: false, fatal: `授权缺少必填字段 ${k}` };
   }
-  if (!/^[0-9a-f]{7,40}$/i.test(String(obj.applies_to_base))) return { granted: false, fatal: '授权的 applies_to_base 不是合法 sha' };
+  // QM-6 后端 MINOR-7：短 sha（7 位前缀）与 rev-parse 出的 40 位永远不等，
+  // 与其让人拿到一条"坐标系不符"的迷惑结论，不如在 schema 层就把话说死。
+  if (!/^[0-9a-f]{40}$/i.test(String(obj.applies_to_base))) return { granted: false, fatal: '授权的 applies_to_base 必须是完整 40 位 sha（不接受缩写）' };
   if (typeof obj.expected_titles_reduced !== 'number' || !Number.isInteger(obj.expected_titles_reduced) || obj.expected_titles_reduced < 1) {
     return { granted: false, fatal: 'expected_titles_reduced 必须是 >=1 的整数' };
   }
@@ -190,11 +196,19 @@ function evaluateAuthorization({ authHeadText, authBaseText, baseSha }) {
  *     对 head 独有标题复制两遍完全失明，而注释却承诺了"不得出现份数增长"）。
  */
 function checkDedupShape(baseRawText, headRawText) {
-  const bBlocks = entries.splitEntries(baseRawText).blocks;
-  const hBlocks = entries.splitEntries(headRawText).blocks;
+  const bSplit = entries.splitEntries(baseRawText);
+  const hSplit = entries.splitEntries(headRawText);
+  const bBlocks = bSplit.blocks;
+  const hBlocks = hSplit.blocks;
   const bg = entries.groupByTitle(bBlocks);
   const hg = entries.groupByTitle(hBlocks);
   const problems = [];
+  // QM-6 后端通道 MAJOR-3：preamble（第一条标题之前的全部内容）在两把锁的判据里原本**完全没人看** ——
+  // 也就是说一次挂着"清理"名义的 PR 可以把文件头（项目说明、许可声明、链接）整段换掉而三门全绿。
+  // 实测本仓 base 与 head 的 preamble 都是 0 字节，所以这条等值判据零成本、且不会误伤正常前插。
+  if (hSplit.preamble !== bSplit.preamble) {
+    problems.push({ title: '(preamble)', kind: '文件头被改写', from: Buffer.byteLength(bSplit.preamble), to: Buffer.byteLength(hSplit.preamble) });
+  }
   let titlesReduced = 0;
   let copiesRemoved = 0;
   // 「同题副本内容互不相同」时留哪一份是有后果的选择，不是无害的折叠 —— 必须把次数打出来（QM-6 Q5）。

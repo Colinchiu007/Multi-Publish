@@ -1,0 +1,66 @@
+[
+  {
+    "severity": "MAJOR",
+    "file": "spec.md",
+    "symbol_or_line": "Requirement 3（L67-83）vs check-changelog-growth.js / 测试文件",
+    "issue": "规格写了但代码与测试都没有：①「只减不增」Scenario 要求 git diff 相对 merge-base 新增行数必须为 0、删除行数与削掉的副本块相符并当场打印——全仓库无任何实现与用例；②「幂等」Scenario（再跑去重报告 removed=0 且不写入）无用例，dedupe 的幂等只是文档主张；③该 Requirement 明确要求对账证据 MUST NOT 复用产生清理的脚本自己的结论，而唯一的对账证据 checkDedupShape 就长在 check-changelog-growth.js 内部。（「保留内容与基准逐字节同源」Scenario 有负控二断言，不算缺口。）",
+    "fix": "在 CI 的 changes job 加独立复核步骤：git diff --numstat merge-base..HEAD 断言 added=0、deleted 与 collect() 报出的 copiesRemoved 相符并打印；给 dedupe 补一条幂等用例（对已清理文本再跑断言 removed=0 且文件内容不变）；或把 Requirement 3 降级为 design.md 的未决项并说明由谁实现。",
+    "confidence": 8
+  },
+  {
+    "severity": "MAJOR",
+    "file": "changelog-entries.js",
+    "symbol_or_line": "整文件（被两个门禁 require）；design.md L62；check-changelog-growth.test.js L350-364",
+    "issue": "共享模块被两把门禁 require，但本 changeset 只带了 growth 的 22 条用例；副本棘轮 check-changelog-duplicate-entries.js 的条目域从 1,158 收敛到 1,184，design.md 自己写明它的 14 条用例与门禁输出数字会变、「必须实测重跑而不是改期望值」，可是本改动里没有该测试文件、也没有重跑证据。现有覆盖只有一条计数 parity 断言（同一 fixture 数出相同总数），ratchet/dedup/绝对态三条路径在新口径下无测试——改 changelog-entries.js 一处坏两处时，只有 growth 那边会变红。",
+    "fix": "同一 PR 内提交 check-changelog-duplicate-entries.test.js 的更新（或重跑记录），并加一条跨门禁全管线 parity 用例：同一份含两种标题形状的 fixture 上同时跑 ratchet（--base）、--dedup dry-run 与 growth collect，断言三者条目域一致。",
+    "confidence": 6
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "applies_to_base / evaluateAuthorization（L109-143）；resolveSha（L100-107）；测试 headMergeBase（L185-187，未被调用）",
+    "issue": "名字承诺的是 merge-base，实际判据是 git rev-parse <--base> 的 sha：模块从不计算 merge-base，只有 CI 接线（quality-gate.yml 的 git merge-base 步骤）让它恰好等于 merge-base；本地 --base=HEAD^ 调用时坐标系就是 HEAD^，名字与实判据漂移。测试侧各用例直接 pin rev-parse HEAD 的 sha，headMergeBase 辅助定义后从未使用——与 CI 坐标系的一致性靠「HEAD 是 HEAD^ 的直系子」这个巧合，而不是断言。",
+    "fix": "在 evaluateAuthorization 与授权文件注释里写明「applies_to_base = --base 解析出的 sha（CI 中由 merge-base 推导，非 merge-base 本身）」；测试改用 headMergeBase(repo,'HEAD^','HEAD') 计算并断言其等于 rev-parse HEAD^，把坐标系一致性钉成断言。",
+    "confidence": 8
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "readBlobText（L73-82，replace 在 L81）；checkDedupShape（L152-180，同源比较在 L167）",
+    "issue": "「保留份逐字节同源」名不副实：readBlobText 把文本里所有 \r 全部剥掉（含台账里实测存在的孤立 CR），checkDedupShape 的同源比较实为「CR 归一后相同」——与 base 仅差一个孤立 CR 的保留份会通过判据。spec/design 均写「逐字节」，判据承诺强于实现。",
+    "fix": "同源比较改为 Buffer 字节级比较（splitEntries 保留的块原文直接比对），或把「CR 归一后逐字节」写进判据定义与 spec Scenario，避免承诺过头。",
+    "confidence": 8
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.js",
+    "symbol_or_line": "checkDedupShape 判据注释 ④（L145-151）vs 循环体（L160-170）",
+    "issue": "注释承诺「head 里不得出现 base 没有的份数增长」，但循环只遍历 base 的标题组（for [t, bo] of bg），head 独有标题出现 ≥2 次时本形状检查完全失明——默认多重集判据同样只看 base⊆head，授权通路下该形状只有副本棘轮在 CI 里兜住。注释承诺了实现没做的事。",
+    "fix": "循环改为遍历 base∪head 标题并检查 head 独有标题 count>1 即判 problem；或删掉注释 ④ 的后半句，并注明「新标题副本数由副本棘轮守」。",
+    "confidence": 8
+  },
+  {
+    "severity": "MINOR",
+    "file": "changelog-dedup-authorization.json",
+    "symbol_or_line": "AUTH_PATH（check-changelog-growth.js L50）；evaluateAuthorization（L117-119「授权文件不是本次新增」分支）",
+    "issue": "一次性通路生命周期：授权文件合并后永久留在历史里，此后任何 PR 的 base 都含它，例外静默失效（正确）；但「重新武装」只需先删后加两步，而删除 scripts/changelog-dedup-authorization.json 的 PR 不会触发任何变红（head 无该文件 ⇒ 例外通路不生效，CHANGELOG 未变 ⇒ 默认判据照常 PASS）。判断：滥用面其实被形状判据锁死（再触发也只能做「削到 1 份且保留份同源」的合法去重），且每次生效都大声打印「例外由授权触发」，所以风险可控但「重置开关」无人看管、无审计点。",
+    "fix": "最小改进二选一：改为一次性编号路径（changelog-dedup-authorization-<序号>.json，每次清理用一个新文件，「相对 base 新增」条件不变，无需删除旧文件）；或在 CI 加一步：main 上该文件被删除即红。",
+    "confidence": 8
+  },
+  {
+    "severity": "MINOR",
+    "file": "check-changelog-growth.test.js",
+    "symbol_or_line": "evaluateAuthorization 的 AUTH_REQUIRED 分支（check-changelog-growth.js L124-134）；测试 AUTH_PATH 重声明（L162）",
+    "issue": "规格漂移双向存在：spec「坐标系错位或授权损坏」Scenario 明写「缺必填字段」也要非零码失败，代码实现了但无用例（仅 JSON 不可解析与格式合法但错位的 sha 被测）；「授权 JSON 必须是一个对象」「applies_to_base 非法 sha 格式」分支同样无用例。反方向：expected_titles_reduced/expected_entries_after 必须与实际相符、reason/owner_pr 必填——这两条判据代码里有，spec 的 Scenario 列表没写。另有小漂移：测试 L162 重新声明 AUTH_PATH 字符串而非从模块 import，模块改路径时测试会静默测错对象。",
+    "fix": "补三条负控用例（缺必填字段、数组 JSON、非法 sha 格式）；把数字核对与 reason/owner_pr 写进 spec Scenario；测试改为 const { AUTH_PATH } = require('./check-changelog-growth.js')。",
+    "confidence": 8
+  },
+  {
+    "severity": "MINOR",
+    "file": "changelog-entries.js",
+    "symbol_or_line": "pickKeeper（L75-77）vs check-changelog-growth.js checkDedupShape（L166-167）",
+    "issue": "「保留哪一份」仍有两套规则：模块内 pickKeeper 是「同题取正文最长、并列取首次」，而 growth 的形状判据内联的是「保留份必须等于 base 同标题的任意一块」。门禁输出并不指明留哪份（只报 titlesReduced/copiesRemoved），analyze/dedupe 报的 kept 与门禁实际接受的份可能不是同一份——changelog-entries.js L72-74 注释承诺的「门禁说会留哪份 = 修复真留了哪份」只在弱意义下成立（门禁只契约 ∈ base 同题块）。授权流程里二者相容且失败是 fail-closed 的红，但 --dedup --apply 的修复工具可能留下门禁接受集合中不同的那一份，正是 M3 注警过的分裂形态的残余。",
+    "fix": "checkDedupShape 复用 pickKeeper 并把保留份标题/索引写进 authorization 输出，让门禁与修复工具对「留哪份」是同一份代码；或至少在文档里明确门禁只契约「∈ base 同题块」、不指定具体一份。",
+    "confidence": 6
+  }
+]

@@ -342,7 +342,10 @@ test('无授权时行为必须与现状逐字相同：副本删一份仍红（�
   commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
   commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n' }, 'dedup WITHOUT authorization');
   const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  // QM-6 后端 MINOR-8：只断言 lost.length===1 的话，一个"永远恰好报一条"的坏实现也能过。
+  // 必须钉住是**哪一条**、以及 wanted/got 的具体数，才真正跑到多重集算术。
   assert.equal(r.lost.length, 1);
+  assert.deepEqual(r.lost[0], { heading: '# [未发布] B', wanted: 2, got: 1 }, '必须点名是哪条标题从几份掉到几份');
   assert.equal(r.authorization, undefined, '没有授权文件时结果里不得出现授权凭据');
   assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
   fs.rmSync(repo.dir, { recursive: true, force: true });
@@ -444,7 +447,8 @@ test('授权损坏的三种形态各自 fail closed（缺必填字段 / JSON 是
   const cases = [
     { name: '缺 reason 字段', body: (() => { const o = { applies_to_base: 'x'.repeat(40), owner_pr: '#1', expected_titles_reduced: 1, expected_entries_after: 2 }; return JSON.stringify(o); })(), re: /缺少必填字段/ },
     { name: 'JSON 是数组', body: '[]', re: /必须是一个对象/ },
-    { name: 'sha 形状非法', body: JSON.stringify({ applies_to_base: 'zz'.repeat(20), reason: 'r', owner_pr: '#1', expected_titles_reduced: 1, expected_entries_after: 2 }), re: /不是合法 sha/ },
+    { name: 'sha 形状非法（缩写或非 hex）', body: JSON.stringify({ applies_to_base: 'zz'.repeat(20), reason: 'r', owner_pr: '#1', expected_titles_reduced: 1, expected_entries_after: 2 }), re: /40 位 sha/ },
+    { name: 'sha 是合法的 7 位缩写也不行', body: JSON.stringify({ applies_to_base: 'cbce325', reason: 'r', owner_pr: '#1', expected_titles_reduced: 1, expected_entries_after: 2 }), re: /完整 40 位/ },
   ];
   for (const c of cases) {
     const repo = makeRepo();
@@ -458,6 +462,32 @@ test('授权损坏的三种形态各自 fail closed（缺必填字段 / JSON 是
     assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1, `${c.name} 必须 rc=1`);
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
+});
+
+test('多空格 / 制表符后的一级标题也是条目（QM-6 后端 MAJOR-4：写死"恰好一个空格"会留失明）', () => {
+  // 三种合法 markdown 标题形态都必须被同一个口径认作条目
+  assert.deepEqual(headingsOf('#  两个空格\n'), ['#  两个空格']);
+  assert.deepEqual(headingsOf('#    五个空格\n'), ['#    五个空格']);
+  assert.deepEqual(headingsOf('#\t制表符\n'), ['#\t制表符'], '制表符不算空格时这条会红 —— 判据必须覆盖它');
+  // 但 `# CHANGELOG` 的多种空格形态都仍是节标题
+  assert.deepEqual(headingsOf('#  CHANGELOG\n\n# [未发布] A\n'), ['# [未发布] A']);
+  // 且无空格仍不是标题
+  assert.deepEqual(headingsOf('#nospace 不是标题\n'), []);
+});
+
+test('授权通路下，文件头（preamble）被改写 ⇒ 红（QM-6 后端 MAJOR-3：块级判据看不见第一条标题之前等内容）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# 项目台账说明与许可声明\n\n---\n# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base with preamble');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    // 削了 B 的副本（合法），却把文件头换成别的（不合法）
+    'CHANGELOG.md': 'REPLACED HEADER\n# [未发布] A\n\na\n# [未发布] B\n\nb2\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 3 }),
+  }, 'dedup but preamble rewritten');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.match(r.authorizationError || '', /文件头被改写/, '必须点名是 preamble：' + String(r.authorizationError));
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
 });
 
 test('判据文件的扫描域不得为 0（防「解析退化成空集合」式假绿）', () => {

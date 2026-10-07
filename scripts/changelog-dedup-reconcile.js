@@ -61,6 +61,10 @@ function reconcile ({ base, head, root }) {
   const failures = [];
 
   const baseSet = new Set(bBlocks);
+  // A6（QM-6 后端 MAJOR-3）：preamble 必须逐字节不变 —— 块级判据看得见条目，看不见文件头。
+  const bPre = entries.splitEntries(baseText).preamble
+  const hPre = entries.splitEntries(headText).preamble
+  if (bPre !== hPre) failures.push(`A6 文件头（第一条标题之前的 ${Buffer.byteLength(bPre)} 字节）被改写，清理不得顺手改 preamble`)
   let keptFromBase = 0;
   // 遍历 base∪head 的标题并集：原先只遍历 head 的分组，于是"base 有、head 一份都不剩"这种
   // 最危险的形状只能靠后面一个补判循环才抓到，而循环内的 ho.length===0 分支因此是死代码。

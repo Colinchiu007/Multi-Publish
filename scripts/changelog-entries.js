@@ -18,7 +18,10 @@
  */
 
 // 一级标题即条目；只排除文档自身的节标题 `# CHANGELOG`。
-const HEADING_RE = /^# (?!CHANGELOG(?:\s|$))\S/i;
+// `# +`（一个或多个空格）是 QM-6 后端通道 MAJOR-4 的修正：markdown 允许 `#` 后跟任意个空格，
+// 原先写死的"恰好一个空格"会让 `#  Title` 这类合法标题**既不被 growth 保护、也不被副本棘轮计数**。
+// 实测本仓当前 base 与 head 上多空格 H1 均为 0 处 ⇒ 这是补未来的失明，不改今天的行为。
+const HEADING_RE = /^#[ \t]+(?!CHANGELOG(?:\s|$))\S/i;
 
 /** 一行的条目标题形态：剥掉行尾空白（含 \r），不猜行尾种类。 */
 function headingOfLine (line) {
