@@ -2,9 +2,6 @@
 record: blogger-p0-smoke
 task: 博主采集 P0 冒烟首次实跑——4/5 通过，并暴露依赖库 @handle 静默返回错误频道的缺陷
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 尚不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：博主采集 P0 冒烟实跑（blogger-p0-smoke，2026-10-07）
@@ -23,7 +20,41 @@ sync_backfill_owner: 下一个会话
 | 行尾与 diff 对账 | PASS | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致 |
 | 接线棘轮 | N/A | 本 PR 未新增 `*.test.js`；行为由 `creator_p0_smoke.py`（真实外部 API 门禁）锁定 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/` 或 `packages/rpa-engine/`（QM-1 触发范围）；无视觉面变更 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填，并删除上方三个 sync_* 字段与 ledger 登记项 |
+| 远程同步 | PASS｜PR #3027 squash 合并，merge SHA `8a68203021ec8aafb96fa5d2a22b31451b2da831`，2026-10-07T11:42:45+08:00。取证 `git log origin/main --grep='(#3027)
+
+### 危害定级：静默数据正确性事故（非可用性问题）
+
+`@handle` 走关键词搜索后，返回的是**标题/描述含该词的任意视频**，其 `channel_id` 是**那些视频作者的频道**，合法且有值。系统读到的 `channel_id`「看起来正常」，日志仅有一行 warning，UI 无任何异常信号。
+
+**后果：用户关注 A 博主，系统把 B 博主的内容当作 A 的作品推给他，全程无异常信号。**
+
+实测证据：期望 `UC_x5XG1OV2P6uZZ5FSM9Ttw`（GoogleDevelopers），实得含 `UC-BsRijgl1O-H-sD4-Zw3UA`——另一频道。日志：`[YouTube] @handle 格式需要搜索: GoogleDevelopers`。
+
+三条正确形态（`/channel/UC…`、`/c/…`、`/user/…`）均解析正确，**仅 `@handle` 一条出错**。
+
+### 冒烟同时证实的能力（正面结论）
+
+| 能力 | 实测 |
+|---|---|
+| 官方 Data API 链路 | ✅ `forHandle` / `forUsername` / `channels` / `playlistItems` 全部可用 |
+| **字幕正文可用** | ✅ 1215 字，`transcript_source=subtitle` —— 这是此前最大的未知项，现已证实 |
+| 探测幂等 | ✅ 三次结果集合完全一致 |
+
+### 遗留（不假装已闭合）
+
+- **E2E-1 仍红**：缺陷在**依赖库内部**，本仓无法直接修；缓解是 adapter 层自行解析（已验证可行），但**须在实现阶段以单测锁死**，否则回归风险高
+- 未测：打包产物中该依赖是否可用（QM-1）、`viral_library` 实际入库、outbox 最终化、送入 AI 写作
+- 冒烟使用真实 API Key（由用户在会话中提供，仅作进程环境变量传入，**未写入任何仓库文件、未进日志、未提交**）
+
+### 零假设·零臆测（证据等级）
+
+| 结论 | 证据等级 |
+|---|---|
+| 依赖库 @handle 降级为关键词搜索 | **直接代码证据** + **真实 API 实测复现** |
+| 裸串不进 URL 解析分支 | **直接代码证据** + 真实 API 返回 HTTP 400 |
+| 三条正确形态解析可用 | **真实 API 实测** |
+| 字幕链路可用（1215 字） | **真实 API 实测** |
+| Key 归属与限额 | 用量远低于 10,000 units/天上限；本 PR 未触及配额治理设计 | --format=%H|%cI`；`git ls-remote --heads origin blogger-collection` 返回 0 行，远端分支已删。 |
 
 ### 危害定级：静默数据正确性事故（非可用性问题）
 
