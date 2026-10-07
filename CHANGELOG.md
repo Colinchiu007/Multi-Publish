@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # [未发布] docs(security): rgj7（libheif）可达性追踪完成——两条 sharp 公告均无可达路径，升级安全收益确证（2026-10-08，rgj7-reachability）
 
 ### 追踪结论：`GHSA-rgj7-g3m4-5g8c` 不可达
@@ -319,6 +320,52 @@ main push run `37640317864` 的基线新鲜度门禁报 `❌ collection-dark.png
 另记一条度量口径（本轮踩过）：**定位漂移区域不能用 `pixelmatch` 的输出图扫非零像素** —— 它连匹配的像素也写成非零淡色，包围盒会摊成整页；正解是按逐像素严格相等求差集。两个度量的像素数不可互相校验（严格 3114 px vs `pixelmatch(0.1)` 237 px），后者是门禁里那个数，前者才是「哪里变了」的现场。
 
 见 `docs/visual-capture-settle-and-attribution.md` §9、`openspec/records/visual-baseline-collection-dark.md`。
+=======
+# [unreleased] fix(desktop): IPC 韧性三项 —— 超时兜底 / 权限不足兜底 / 卸载清理（M-13 + M-14 + M-16）
+
+## 缺陷
+
+- **M-13**：`invoke()` 直接 `return api[method](...)`，**零超时包装**。任一主进程 handler
+  卡死（Python bridge 挂起 / CDP 卡住 / SQLite 锁）⇒ 前端 Promise 永久 pending ⇒
+  `loading` 永不复位、按钮永久禁用、**用户零错误提示**，只能重启应用
+- **M-14**：preload 的 `createPermissionError()` 对 `authenticated` 级方法**同步 throw**，
+  而 `invoke` 是 `async` ⇒ 变成 rejected promise ⇒ `invokeWithFallback` 的 `await` 直接抛出，
+  **fallback 分支永不执行**。而「未登录 / 许可证未激活」正是生产环境最高频的失败模式
+- **M-16**：`Collection.vue` 的 `onUnmounted` 已清 4 项，但漏了视频采集的阶段推进计时器
+  （只在两处 `finally` 里停）与 ASR 安装成功后的 1200ms 自动重试计时器
+
+## 改动
+
+1. **新增 `invokeWithTimeout(method, timeoutMs, fallback, ...args)`**（M-13）
+   `timeoutMs > 0` 超时后返回 fallback；`<= 0` 不设超时（长任务用）。主进程真 reject 时
+   错误**原样抛出**，不被 fallback 吞掉。**刻意不改 `invoke` 的默认行为** —— 给
+   `pipelineStart` 这类合法耗时数分钟的长任务套统一默认值，会把「长任务」变成「必超时」
+2. **`invokeWithFallback` 增加权限错误兜底**（M-14）
+   `catch (e) { if (e?.name === 'LicensePermissionError') return fallback; throw e }`。
+   按 `error.name` 而非 message 判定 —— 改文案不该影响兜底；其余错误照原样抛出，
+   静默兜底会把真实故障藏起来
+3. **补齐 `onUnmounted`**（M-16）：加 `stopVideoStageProgression()`；ASR 重试计时器
+   存句柄并在卸载时 `clearTimeout`
+
+## 验证
+
+| 项 | 结果 |
+|---|---|
+| `electron-bridge.test.js` | **20/20**（既有 8 + 新增 12） |
+| `Collection.test.js` | **115/115**（既有 112 + 新增 3） |
+| 反证 M-13（关掉超时） | 2 条转红，耗时 3s → 23s |
+| 反证 M-14（撤掉 catch） | 3 条转红 |
+| 反证 M-16（撤掉 stopVideoStageProgression） | 1 条转红 |
+
+详见 [PRD-IPC-RESILIENCE-2026-10-07.md](./01-docs/PRD-IPC-RESILIENCE-2026-10-07.md)。
+
+## 不做的事
+
+- 不给 `invoke` 加默认超时（会把长任务变成必超时）
+- 不批量改造调用方（本批只补桥接层能力；哪些调用点该设上限属独立 change）
+- 不虚拟滚动（M-15 报告明说「不建议现在上」，改做分页，放后续批次）
+- 不合并 9 份 `getApi()`（M-9，属独立重构）
+>>>>>>> 3e4f27c8 (fix(desktop): IPC 韧性三项 —— 超时兜底 / 权限不足兜底 / 卸载清理（M-13 + M-14 + M-16）)
 
 # [未发布] docs(creator): B 站审核回写修复的真机端到端复验入库（带一个天然对照组）（2026-10-07，keyfix-live-verify）
 # [未发布] fix(定时发布): 收口真机 E2E 遗留三项（直连 7050 真因 / 排期假成功 / 到点发布验证）
