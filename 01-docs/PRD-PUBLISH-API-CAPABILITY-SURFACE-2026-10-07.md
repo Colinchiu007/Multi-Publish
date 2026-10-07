@@ -229,3 +229,47 @@ catch 无条件落 RPA。更糟的是 `Promise.race` 超时后 API 发布并未�
 
 `b52c735a`（能力面子系统，约 1000 行）由**另一会话**在同一 worktree 产出，仅抽查 3 处
 未经完整人工评审；`68bbe8ba` 是对其未提交在制品的回收提交。PR 以 draft 提出正是为此。
+## 八、OpenAPI 响应契约（2026-10-07 补，PR #3044）
+
+能力面路由（§3 之前未单列）的 **200 响应契约此前与实现漂移**：OpenAPI 里只写了一句
+「能力查询结果」，而每个能力方法除归一化字段外**一律附带 `raw`** —— 平台原始返回
+原样透传，列表类（poi / drafts）还逐项附带：
+
+```js
+// bilibili-capabilities.js
+return { uid, nickname, avatar, memberInfo, raw: data }
+// baijiahao-capabilities.js（列表）
+items: list.map((p) => ({ id, name, raw: p })), raw: d
+```
+
+契约未声明 ⇒ 调用方按文档读会以为只返回归一化字段。
+
+### 本次只补齐契约，不动实现
+
+新增 `src/publish/openapi-capability-schemas.js`，按各能力方法**实际返回**逐项声明 7 个
+schema（`PlatformRaw` / `CapabilityBase` / `UserInfoResult` / `PermissionResult` /
+`ListItem` / `ListResult` / `CapabilityResult`），其中：
+
+- `PlatformRaw` 标注 `additionalProperties: true`、说明「形状由平台决定，不保证稳定」；
+- `PermissionResult.allowed` 的说明写明 **fail-closed 口径**：仅 `status_code===0` 等
+  明确肯定分支为 `true`，其余一律 `false`；
+- `unrecognized` 标注其用途：区分「平台明说不行」与「读不懂」（仅抖音）。
+
+> **为什么是补齐而不是删掉 `raw`**：`raw` 是既有行为，其内容是否含平台返回的凭证类
+> 字段**无法定性** —— 证据切片里 B站 nav 的响应结构完全没出现，快手那条只看到
+> `{likeCnt, userName, fansCnt, userId, followCnt, desc, incomes, ksCoin}`，
+> 不足以断言，且无真实 cookie 可实调。在无证据的情况下删一个不了解其用途的功能，
+> 属于「把某条路线不通当成能力不可达」。故只让契约说真话。
+
+### 为什么 schema 单独成文件
+
+`publish-api-server.js` 登记 1356 行、增长额度 200、**上限 1556**。直接内联一度到
+1682 行并被 `check-max-lines` 判红。抽出后主机身 1537 行，回到额度内。这与项目既有
+做法一致 —— `publish-api-capabilities.js` 单独成文件，理由同样写在它自己的文件头。
+
+### 门禁记录
+
+回归锁 `test/publish-api-server.test.js`（29/29）锁「声明 ⊇ 实现」：解开 `allOf` 后
+逐项断言归一化字段与 `raw` 均已声明。变异验证：删掉 `CapabilityBase.raw` → 精确报
+`CapabilityBase 必须声明 raw`（28/29），恢复 → 29/29。
+

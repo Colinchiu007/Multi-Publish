@@ -110,6 +110,25 @@ async function publishToutiao (p) {
   // ProseMirror 走纯文本通道；Quill 草稿会把 HTML 规范化为 <p>，
   // 不剥离会让 <p> 以字面量出现在文章正文（真机 verify snapshot 实证）。
   const plainContent = stripHtml(article && article.content)
+
+  // 2026-10-07 P0（真机 E2E 抓出，PR #3033）：带 publishTime 时，任何**不携带
+  // timer_status/timer_time** 的路径都不得被当作成功。头条发布页的定时控件从未
+  // 被 RPA 驱动，因此下面两条路径的语义都是「立即发布」：
+  //   ① _publish_generic 点「发布」按钮（draftOnly=false）
+  //   ② publishViaPageXhr 重放页面**自动保存** body（只把 save 0→1）
+  // 真机事实：把排期设到 7 天后，走的正是 ② —— 平台返回 code=0「提交成功」
+  // 与一个真实 pgcId，本地记录 status=executed、发布记录时间=当下，
+  // 而内容**已经被立即发出**。这正是本次改造要消灭的「以为已排期、实际已发出」，
+  // 且它躲过了上一次修复：那次只在「DOM 成功」分支前加了守卫，
+  // 而 ② 的早退恰好在守卫**之前**，于是定时意图被静默吞掉。
+  //
+  // 修法（防患优先，不做事后检测）：带定时意图时
+  //   · DOM 走 draftOnly —— 只存草稿，绝不点发布（从源头掐掉 ①）；
+  //   · 跳过 XHR 重放兜底 —— 它重放的自动保存 body 里没有 timer 字段（掐掉 ②）；
+  //   · 唯一出口是 Node 直连（publishDirect 是唯一会提交 timer_status/timer_time 的路径）；
+  //   · 直连失败即 fail-closed，绝不回退到任何会立即发布的路径。
+  const scheduled = Boolean(article && article.publishTime)
+
   const domResult = await host._publish_generic(win, { ...article, content: plainContent }, 'toutiao', {
     ...config,
     publish_url: publishUrl || config.publish_url,
@@ -119,28 +138,28 @@ async function publishToutiao (p) {
     // 2026-10-03 ⭐ preFill：编辑器加载完成后立刻装 XHR hook（比兜底时重装早整个发布周期，
     // 捕获填充触发的所有自动保存请求；兜底时 body 早已在手，不再受 60s 后页面关闭影响）
     preFill: 'installToutiaoSaveHook',
+    // 带定时意图 ⇒ DOM 只落草稿，不点发布（见上方 P0 说明）
+    ...(scheduled ? { draftOnly: true } : {}),
   })
+
+  if (scheduled) {
+    log.warn('RpaView', '[toutiao] 带定时意图：DOM 仅存草稿、跳过 XHR 重放，强制走 Node 直连提交排期')
+    const direct = await publishDirect({ win, article: { ...article, content: plainContent }, sign: p.sign, log })
+    if (direct.success) return { ...direct, scheduled: true }
+    // fail-closed：直连失败即失败，不回退（回退 = 立即发布 = 用户以为已排期而内容已发出）
+    log.warn('RpaView', '[toutiao] 定时直连失败，不允许回退到立即发布路径: ' + (direct.error || ''))
+    return { ...direct, success: false, error: direct.error || 'SCHEDULE_SUBMIT_FAILED' }
+  }
+
   // 2026-10-03 ⭐ 兜底（在 DOM 流程【之后】执行——页面此时已填充、未关闭）：
   // 1) 重装 XHR hook（导航已重置上下文，之前装的必失效）
   // 2) 微调标题触发页面自动保存 ⇒ 页面自己发 save=1 publish 请求 ⇒ hook 捕获
   // 3) 用捕获的 body 原样重放（改 save=1 保持），即完成真发布
+  // ⚠️ 本兜底会立即发布，仅在**无定时意图**时可达（上方 scheduled 分支已 fail-closed 截断）。
   if (domResult && domResult.success === false && /verification timeout/.test(String(domResult.error || ''))) {
     log.warn('RpaView', '[toutiao] DOM verification timeout → 页面 XHR 重放兜底')
     const xhrResult = await publishViaPageXhr({ win, title: article && article.title, log })
     if (xhrResult.success) return xhrResult
-  }
-
-  // 2026-10-07 ⭐ 平台侧定时：DOM 路径**不会**设置定时（头条发布页的定时控件未被
-  // RPA 驱动），它成功即意味着内容已立即发布。用户若带 publishTime（要求定时），
-  // 却走 DOM 成功路径 ⇒ 内容被立即发出 =「以为已排期、实际已发出」，
-  // 正是本次改造要消灭的形态。故：带定时意图时一律走 Node 直连（唯一会提交
-  // timer_status/timer_time 的路径），DOM 成功也不能吞掉定时意图。
-  if (article && article.publishTime && domResult && domResult.success === true) {
-    log.warn('RpaView', '[toutiao] DOM 路径不携带定时字段 → 改走 Node 直连以提交排期')
-    const direct = await publishDirect({ win, article: { ...article, content: plainContent }, sign: p.sign, log })
-    if (direct.success) return { ...direct, scheduled: true }
-    log.warn('RpaView', '[toutiao] 定时直连失败，回退 DOM 结果: ' + (direct.error || ''))
-    return { ...direct, success: false, error: direct.error || 'SCHEDULE_SUBMIT_FAILED' }
   }
 
   return publishToutiaoWithFallback({ win, article: { ...article, content: plainContent }, domResult, sign: p.sign, log })

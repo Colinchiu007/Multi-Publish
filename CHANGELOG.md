@@ -55,6 +55,58 @@
 - main 已有的 828 份冗余本 PR **不清理**，只保证不再变多；清理需与 growth 口径一并改（见对应 issue）。
 - 事前拦（把「本 PR 对 CHANGELOG 必须是纯前插」这条聚合式判据固化进 re-sync 工具）未做，`.tools/mp-ci/` 不在仓库内。
 
+# [unreleased] fix(定时发布): 真机 E2E 抓出「带定时意图却立即发布」并 fail-closed（PR #3033，2026-10-07）
+
+### P0：排期到 7 天后，内容被立即发布
+
+真机（运行中 Electron，CDP 9279 附加，头条账号在线）执行定时发布 E2E 时抓到：
+排期设到 7 天后，提交结果为 `status=executed`、发布记录时间=**当下**，
+平台返回真实 `pgcId=7691596240059908649` —— 内容**已被立即发出**。
+
+日志链：`DIAG[publish2] cfgHasApi=false` → `clickTrusted 定时发布` →
+`DOM verification timeout` → `toutiao-xhr code=0 msg=提交成功`。
+
+根因在 `packages/rpa-engine/src/toutiao-direct-bridge.js`：头条发布页的定时控件
+从未被 RPA 驱动，因此有两条路径语义都是「立即发布」——
+① `_publish_generic` 点发布按钮；② `publishViaPageXhr` 把页面**自动保存** body
+只把 `save` 0→1 后重放（自动保存发生在任何定时控件被设置之前 ⇒ body 里没有
+`timer_status`/`timer_time`）。
+
+上一次修复只在「DOM 成功」分支前加了定时守卫，而 ② 的早退**恰好在守卫之前**，
+于是定时意图被静默吞掉 —— 正是本次架构变更要消灭的「以为已排期、实际已发出」。
+
+修法（防患优先，不做事后检测）：带 `publishTime` 时
+DOM 走 `draftOnly` 只存草稿（从源头不点发布）→ 跳过 XHR 重放 →
+唯一出口是 Node 直连（唯一会提交 `timer_status/timer_time` 的路径）→ 失败即
+**fail-closed**，绝不回退到任何会立即发布的路径。
+
+### 同期修复的 4 个 UI 缺陷
+
+- **定时徽标谎报支持范围**：发布页显示「定时发布 15/15 平台支持」，而能力表实际只有
+  头条 1 个支持。该徽标统计的是「发布链路接入了 schedule 字段」，与平台能否真正
+  接下排期无关 —— 属架构变更后的语义错位，也是静默失败的前置诱因。改为按**当前
+  所选平台**给真实能力并点名不支持的平台。
+- **阻断后无当场反馈**：点「一键发布」后无 toast，原因只出现在页面底部结果面板。
+  同文件其它校验分支均有 `notifyWarning`，唯独定时阻断没有 —— 已补齐。
+- **提示用内部 id**：文案为「baijiahao 暂不支持定时发布…」「toutiao 的定时发布至少
+  需要提前 5 分钟」，与界面上的「百家号 / 今日头条」对不上。改为经 `platformLabel`
+  注入展示名（保留 `platformId` 供定位）。
+- **英文文案缺空格**：`{platform} {accountId}must be at least…`。
+
+### 验证
+
+阶段 A 四个场景真机逐个跑通（不支持平台 / 过去时间 / 超出 30 天 / 提前量不足），
+**全部在提交前被拦、四个发布 IPC 零调用**。回归锁新增 11 条
+（`toutiao-schedule-intent.test.js` 4 条 P0 + `schedule-capability-hint.test.js` 7 条）。
+`rpa-engine` 全量绿、`features/publish` 206/206、`composables+utils+locales` 1115/1115、
+11 项结构性门禁全 rc=0。
+
+⚠️ 头条账号上留有一条本次 E2E 产生的真实已发布内容（标题「定时发布真机E2E验证-可忽略」），
+需在头条后台删除。修复后的 Node 直连路径需一次新的真机提交才能确认平台侧到点发布。
+
+---
+
+
 # [unreleased] fix(bilibili): 发布侧作品标识 aid/bvid 采集（PR #2968，2026-10-06，docs-only 收口）
 
 - B 站 RPA 投稿成功后 `postId` 恒取不到（实测四种 URL/响应体形态全部 null），于是发布被判「缺少平台作品 ID」；而上一轮（#2927）落地的审核回查按 `bvid`/`aid` 精确比——**拿不到键就永不被触发**。根因追溯到 `57082ddec`（2026-08-24 写路径段关键词表时只覆盖图文/管理页形态），`d424c245c` 拆分纯函数时原样搬迁。
@@ -64,6 +116,57 @@
 - 仍未观测（不假装已闭合）：B 站投稿提交后浏览器实际落在哪个 URL、真机「已发布」徽标联动——需一次真实投稿，消耗授权前须再经用户确认。
 
 ---
+# [unreleased] test(desktop): S2V 父子契约补双向交叉校验 —— 堵住「已登记但父级已删」这一缺口
+
+### 缺陷
+
+`s2v-panel-contract.js` 的契约注释声称「未登记键访问显式抛错，防止拼错的键静默返回
+undefined 而丢失配置」，但这个守卫**只覆盖一个方向**：
+
+- `createS2VPanel` 先用 `Object.defineProperty` 把**每个** `S2V_PANEL_STATE` 键预置到
+  `state` 上
+- 随后 guard 用 `if (!(prop in target))` 判存在性 —— 对白名单内键该表达式**恒为假**
+
+于是：
+
+| 情形 | 结果 |
+|---|---|
+| 未登记键（拼错） | 抛错 —— **防住了** |
+| **已登记但父级已改名/删除** | `prop in target` 为真 → 返回 `undefined`，**面板控件静默退化为空值或默认值** |
+
+在 `CreateView.vue` 里重命名或删除任一 data / computed / methods 键，S2V 配置面板对应
+控件零报错地退化 —— 正是注释声称要防的那类 Bug，却恰好落在它唯一的缺口上。
+
+既有 `S2vConfigPanels.test.js` 结构上发现不了：它拿 `S2V_PANEL_STATE` **自身**构造 mock
+`vm`，白名单与真实 `CreateView` 之间零交叉校验。
+
+### 处置
+
+**未改生产代码** —— 缺陷是「防线的缺口」而非「防线的错误」，补断言即可。新增
+`s2v-panel-contract.parent-keys.test.js`（5 用例）：用 `@vue/compiler-sfc` + `@babel/parser`
+静态解析 `CreateView.vue`（5600+ 行，正则切嵌套块会静默给出错误键集合），取出
+data / computed / methods 真实键集合，与两份白名单双向对账。
+
+**反证**：向白名单注入一个父级不存在的键 ⇒ 转红并点名该键 + 说明后果 + 给出两条修法；
+撤销后 5/5 绿。`video-creation/` 全量 8 文件 73 用例通过。
+
+另加 2 条**防装饰**用例：提取器规模下限（data>80 / computed>30 / methods>100），以及
+断言一个必然不存在的键确实被判为缺失。这两条不是凑数 —— 本轮开发中提取器真的坏过一次
+（`data` 是 `ObjectMethod` 而非 `ObjectProperty`、`computed`/`methods` 成员是方法简写
+同样是 `ObjectMethod`），一度推出「48 条中 43 条缺失」的**假漂移**结论。若当时信了，
+就会为了自己的 bug 去动 5600 行的 `CreateView.vue`。
+
+### 当前状态：无漂移
+
+```
+CreateView：data 154 键 / computed 75 键 / methods 243 键
+S2V_PANEL_STATE  48 条，父级无对应键 0
+S2V_PANEL_METHODS 27 条，父级 methods 无对应键 0
+```
+
+白名单与父级当前完全一致，这条测试今天是绿的。价值在于把不变量钉住：今后任何对
+`CreateView` 的 data/computed/methods 删改，只要碰了白名单里的键，CI 立刻红并点名是哪一个。
+
 # [unreleased] fix(desktop): reportError 的异步失败兜底不可达 —— 错误既不上报也不落控制台
 
 ### 缺陷

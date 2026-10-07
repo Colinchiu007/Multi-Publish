@@ -270,3 +270,74 @@ if (PublishApiServer) {
     await server.stop(); // second call should not throw
   });
 run();
+
+/**
+ * 回归锁：能力面的 OpenAPI 响应契约必须与**实际实现**一致。
+ *
+ * 背景：此前 `/api/v1/platforms/{platform}/{action}` 的 200 响应只写「能力查询结果」，
+ * 而每个能力方法除归一化字段外还一律附带 `raw`（平台原始返回原样透传，列表类逐项附带）。
+ * 契约未声明 ⇒ 文档与实现对不上，调用方按文档读会以为只返回那几个字段。
+ *
+ * 本锁锁的是「声明 ⊇ 实现」这个方向：实现的每个返回字段都必须在 schema 里出现。
+ * 反向（schema 声明了但没实现）由人工评审把控——多声明不会误导调用方。
+ */
+t('openapi 能力面 schema 覆盖实现的全部返回字段', async function () {
+  var server = new PublishApiServer({ dryRun: true });
+  await server.start(0);
+  var port = server._server.address().port;
+  try {
+    var res = await new Promise(function (resolve, reject) {
+      http.get({ hostname: '127.0.0.1', port: port, path: '/api/v1/openapi.json' }, function (r) {
+        var b = '';
+        r.on('data', function (c) { b += c; });
+        r.on('end', function () { resolve(JSON.parse(b)); });
+      }).on('error', reject);
+    });
+
+    var schemas = res.components && res.components.schemas;
+    assert.ok(schemas, 'spec 必须含 components.schemas');
+
+    // 组合式 schema（allOf）里的字段不直接挂在顶层，先解开再断言 ——
+    // 否则断言的是「没写在那儿」而不是「没声明」。
+    function propsOf (name) {
+      var node = schemas[name] || {};
+      var props = Object.assign({}, node.properties);
+      (node.allOf || []).forEach(function (part) {
+        if (part.properties) Object.assign(props, part.properties);
+        else if (part['$ref']) {
+          var ref = part['$ref'].split('/').pop();
+          if (schemas[ref]) Object.assign(props, propsOf(ref));
+        }
+      });
+      return props;
+    }
+    ['PlatformRaw', 'CapabilityBase', 'UserInfoResult', 'PermissionResult', 'ListItem', 'ListResult', 'CapabilityResult']
+      .forEach(function (n) { assert.ok(schemas[n], '缺少 schema: ' + n); });
+
+    // raw 必须在 CapabilityBase 与 ListItem 上都被声明
+    assert.ok(propsOf('CapabilityBase').raw, 'CapabilityBase 必须声明 raw');
+    assert.ok(propsOf('ListItem').raw, 'ListItem 必须声明 raw（列表类逐项附带）');
+
+    // 200 响应的 data 指向 CapabilityResult，且 oneOf 覆盖三类能力
+    var op = res.paths['/api/v1/platforms/{platform}/{action}'];
+    assert.ok(op, 'spec 必须含能力面路径');
+    var ref = op.post.responses['200'].content['application/json'].schema.properties.data['$ref'];
+    eq(ref, '#/components/schemas/CapabilityResult');
+    var branches = schemas.CapabilityResult.oneOf.map(function (o) { return o['$ref'].split('/').pop(); });
+    assert.ok(branches.indexOf('UserInfoResult') !== -1, 'oneOf 缺 UserInfoResult');
+    assert.ok(branches.indexOf('PermissionResult') !== -1, 'oneOf 缺 PermissionResult');
+    assert.ok(branches.indexOf('ListResult') !== -1, 'oneOf 缺 ListResult（poi/drafts 走它）');
+
+    // 归一化字段不得缺失（实现里确实返回它们）
+    var ui = propsOf('UserInfoResult');
+    ['uid', 'nickname', 'avatar', 'fans'].forEach(function (f) {
+      assert.ok(ui[f] !== undefined, 'UserInfoResult 缺 ' + f + '（实现确实返回它）');
+    });
+    var perm = propsOf('PermissionResult');
+    ['allowed', 'risk_blocked', 'unrecognized', 'reason'].forEach(function (f) {
+      assert.ok(perm[f] !== undefined, 'PermissionResult 缺 ' + f);
+    });
+  } finally {
+    await server.stop();
+  }
+});

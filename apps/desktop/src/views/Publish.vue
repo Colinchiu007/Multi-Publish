@@ -151,6 +151,7 @@
               <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
               <UiInput type="datetime-local" v-model="a.publishTime" class="input-max-260" />
               <span class="publish-time-hint">{{ scheduleHintText }}</span>
+              <p v-if="scheduleCapabilityHint(a.platforms)" class="no-title-hint" data-testid="batch-schedule-capability">{{ scheduleCapabilityHint(a.platforms) }}</p>
             </div>
           </div>
         </div>
@@ -343,7 +344,7 @@
                 <div class="cohere-form-item">
                   <label class="cohere-form-label">
                     {{ t('publishPage.schedule') }}
-                    <span v-if="fieldSupportText('schedule')" class="field-support-badge">{{ fieldSupportText('schedule') }}</span>
+                    <span v-if="scheduleCapabilityHint(selectedPlatforms)" class="field-support-badge">{{ scheduleCapabilityHint(selectedPlatforms) }}</span>
                   </label>
                   <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
                   <span class="publish-time-hint">{{ scheduleHintText }}</span>
@@ -519,7 +520,7 @@
               <div class="cohere-form-item">
                 <label class="cohere-form-label">
                   {{ t('publishPage.schedule') }}
-                  <span v-if="fieldSupportText('schedule')" class="field-support-badge">{{ fieldSupportText('schedule') }}</span>
+                  <span v-if="scheduleCapabilityHint(selectedPlatforms)" class="field-support-badge">{{ scheduleCapabilityHint(selectedPlatforms) }}</span>
                 </label>
                 <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
                 <span class="publish-time-hint">{{ scheduleHintText }}</span>
@@ -1228,6 +1229,10 @@ const { groupPickerItems, applyGroupById } = usePublishGroupTargets({
 // 下沉前这些判据内联在本视图、且只认全局 selectedPlatforms，批量条目无从复用。
 const fieldSurface = usePublishFieldSurface()
 const { fieldSupportText } = fieldSurface
+// 定时能力提示：按**当前所选平台**给真实能力（2026-10-07 PR #3033）。
+// 不再用 fieldSupportText('schedule')：那个徽标统计的是「发布链路接入了 schedule
+// 字段」（15/15），与平台能否真正接下排期无关，属于改造后的语义错位。
+const scheduleCapabilityHint = (ids) => fieldSurface.scheduleCapabilityHint(ids)
 const noTitleHint = computed(() => fieldSurface.noTitleHintFor(selectedPlatforms.value))
 const selectedOverridePlatforms = computed(() =>
   fieldSurface.overridePlatformSpecsFor(platforms.value, selectedPlatforms.value))

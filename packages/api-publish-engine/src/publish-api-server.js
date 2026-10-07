@@ -1439,6 +1439,8 @@ p{color:#6e6e73}
           draft: { type: "boolean", description: "true=存草稿；false 或缺省=直接发布" },
           aiGenerated: { type: "boolean", description: "AI 生成内容声明，缺省 true" },
         };
+        // 能力面响应 schema 由共用模块提供（抽出以控制本文件行数，见模块头注释）
+        spec.components = { schemas: require("./publish/openapi-capability-schemas").CAPABILITY_SCHEMAS };
         var pathItems = {
           "/api/v1/health": { get: { summary: "存活检查", responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { status: { type: "string" }, version: { type: "string" } } } } } } } } },
           "/api/v1/ready": { get: { summary: "生产就绪检查", responses: { "200": { description: "所有身份依赖就绪" }, "503": { description: "数据库、迁移或 OIDC/JWKS 未就绪" } } } },
@@ -1450,7 +1452,22 @@ p{color:#6e6e73}
             parameters: [{ name: "platform", in: "path", required: true, schema: { type: "string" } },
                          { name: "action", in: "path", required: true, schema: { type: "string", enum: ["user-info", "permission-check", "poi", "drafts"] } }],
             requestBody: { content: { "application/json": { schema: { type: "object", properties: { cookie: { type: "string" }, page: { type: "integer" }, pageSize: { type: "integer" }, type: { type: "string" }, search: { type: "string" } } } } } },
-            responses: { "200": { description: "能力查询结果" }, "401": { description: "登录失效（仅 loginDetection=true 的平台会走到这里）" }, "404": { description: "平台无能力面，或该能力在矩阵中为 null" }, "400": { description: "请求体非法或媒体不可解析" } },
+            // 响应契约按**实际实现**如实声明：每个能力方法除归一化字段外还一律附带
+            // raw（平台原始返回原样透传，列表类逐项附带），契约未声明即属漂移。
+            // 补齐而非删字段：raw 是既有行为，删它属于无依据改动。
+            responses: { "200": { description: "能力查询结果",
+              content: { "application/json": { schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean" },
+                  platform: { type: "string" },
+                  capability: { type: "string", enum: ["user-info", "permission-check", "poi", "drafts"] },
+                  data: { $ref: "#/components/schemas/CapabilityResult" },
+                },
+              } } } },
+              "401": { description: "登录失效（仅 LOGIN_DETECTION 为 true 的平台会走到这里）" },
+              "404": { description: "平台无能力面，或该能力在 CAPABILITY_MATRIX 中为 null" },
+              "400": { description: "请求体非法或媒体不可解析" } },
           } },
           "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platform: { type: "string" } }, articleProps), required: ["platform"] } } } }, responses: { "200": { description: "发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
           "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: Object.assign({ platforms: { type: "array", items: { type: "string" } } }, articleProps), required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" }, "400": { description: "请求体非法（字段类型错误或媒体路径在服务端不可解析）" } } } },
