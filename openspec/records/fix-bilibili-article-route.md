@@ -2,9 +2,7 @@
 record: fix-bilibili-article-route
 task: bilibili 图文任务不得路由进视频链——改 fail-closed 前置校验并自解释报错
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
-sync_backfill_owner: "backfill-bilibili-route-record"
+sync_status: PASS
 ---
 
 ## 本次执行记录：bilibili 图文路由缺陷（fix-bilibili-article-route，2026-10-07）
@@ -20,7 +18,7 @@ sync_backfill_owner: "backfill-bilibili-route-record"
 | 既有测试调整 | PASS | 两个**与内容形态无关**的既有用例（Cookie 缺失 auth_missing、取消信号）原本顺手用了 bilibili，补 `video_path` 让其走视频轨、保持原测断言；另一处误加的 `video_path` 已撤回。**不是放宽守卫** |
 | 测试 | PASS | `publisher-router.test.js` + `publisher-router-logging.test.js` + 新用例 = **77/77 通过** |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面 |
-| 远程同步 | PENDING | 待合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | PR #3016 已 squash 合并，merge SHA `0135cff3530441062217c891c0e08fa90dfb2d2e`，2026-10-07T09:11:55+08:00。取证 `git log origin/main --grep='(#3016)$' --format=%H|%cI`；`git ls-remote --heads origin fix-bilibili-article-route` 返回 0 行，证远端分支已删 |
 
 ### 遗留（不假装已闭合）
 

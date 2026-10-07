@@ -2,9 +2,7 @@
 record: xhs-draft-publish
 task: 打通小红书草稿箱发布——真实 XYW_ 签名 + 三步上传链路
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
-sync_backfill_owner: "backfill-xhs-draft-record"
+sync_status: PASS
 ---
 
 ## 本次执行记录：小红书草稿箱发布（xhs-draft-publish，2026-10-07）
@@ -27,7 +25,7 @@ sync_backfill_owner: "backfill-xhs-draft-record"
 | 变异反证有效性 | PASS | 反证用例经实跑验证：改实现 → 转红；还原 → 全绿。若不验这条，「变异反证」只是一句注释，锁不住任何东西 |
 | 行尾与 diff 对账 | PASS | CHANGELOG 净 +74/-0，main 侧条目完整保留（65404 行，L1 本次条目 / L75 main M-5 条目）；此前一轮误按首行重建曾把 5 万行压成 27 行，已还原并改为 `edit` 精确插入 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面；改的是签名算法与发布链 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | PR #3009 已 squash 合并，merge SHA `4ac23052112b1d445a5d37a43f863ff749496315`，2026-10-07T09:11:51+08:00。取证 `git log origin/main --grep='(#3009)$' --format=%H|%cI`；`git ls-remote --heads origin xhs-draft-publish` 返回 0 行，证远端分支已删 |
 
 ### 方案选型留痕
 

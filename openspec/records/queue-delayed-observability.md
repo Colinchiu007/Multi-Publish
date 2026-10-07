@@ -2,9 +2,7 @@
 record: queue-delayed-observability
 task: 频控等待任务（_delayed）纳入可观测与持久化——修多平台批量发布队列饿死
 date: 2026-10-06
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
-sync_backfill_owner: "backfill-queue-delayed-record"
+sync_status: PASS
 ---
 
 ## 本次执行记录：队列饿死修复（queue-delayed-observability，2026-10-06）
@@ -19,7 +17,7 @@ sync_backfill_owner: "backfill-queue-delayed-record"
 | 防止再次发生（QM-5 ⑤） | PASS | 新增 `task-queue-delayed-observability.test.js` 4 例钉住三条不变量：等待中任务计入 pending、进入 serialize 快照、窗口到期可派发；`clearPending` 覆盖 delayed。修既有精确相等断言时在注释写明原因（快照结构变更，用例意图未变） |
 | 行尾与 diff 对账 | PASS | 改 1 个源文件 + 2 个测试文件，三处改动语义互为闭环，无孤立修改 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面；改的是队列状态视图与持久化 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | PR #2993 已 squash 合并，merge SHA `fa8ea3cb72ab4f0618398b3ba9f782d2b4e2a614`，2026-10-07T09:11:47+08:00。取证 `git log origin/main --grep='(#2993)$' --format=%H|%cI`；`git ls-remote --heads origin queue-delayed-observability` 返回 0 行，证远端分支已删 |
 
 ### E2E 实证（修复前的失败现场，非单测替代）
 
