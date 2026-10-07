@@ -80,6 +80,53 @@ describe('Payment IPC handlers', function() {
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 
+  // 2026-10-07 新增：`payment:create-order` 的打包态拒收，理由与 simulate 那组相同——
+  // beforeEach 把 app.isPackaged 钉死为 false，于是这条分支此前同样从未被执行过，
+  // 删掉它本文件依然全绿。付费通道未就绪，正式包不应创建真实订单。
+  // app.isPackaged 在 handler 调用时求值，改属性即可，无需重新 registerHandlers。
+  describe('payment:create-order 打包态拒收', function() {
+    var createOrderHandler
+
+    beforeEach(function() {
+      createOrderHandler = mockIpcMain.handle.mock.calls.find(function(c) {
+        return c[0] === 'payment:create-order'
+      })[1]
+      mockCreateOrder.mockReturnValue({ id: 'order-1', plan: 'pro', amount: 99, method: 'alipay', status: 'pending' })
+    })
+
+    test('打包态（isPackaged=true）拒收，且不创建订单', async function() {
+      __electronMock.app.isPackaged = true
+      var result = await createOrderHandler(TRUSTED_EVENT, { plan: 'pro', method: 'alipay' })
+      expect(result.code).not.toBe(0)
+      expect(result.message).toBe('付费通道筹备中，暂不支持创建订单')
+      expect(mockCreateOrder).not.toHaveBeenCalled()
+    })
+
+    test('只有明确 false 才放行——undefined 同样拒收', async function() {
+      // `app.isPackaged !== false` 是严格不等：undefined 属「非明确开发态」，必须拒收。
+      // 写成 `if (app.isPackaged)` 会漏掉这一档。
+      __electronMock.app.isPackaged = undefined
+      var result = await createOrderHandler(TRUSTED_EVENT, { plan: 'pro', method: 'alipay' })
+      expect(result.code).not.toBe(0)
+      expect(mockCreateOrder).not.toHaveBeenCalled()
+    })
+
+    test('拦截优先于参数校验：plan 合法也照样拒收', async function() {
+      __electronMock.app.isPackaged = true
+      var result = await createOrderHandler(TRUSTED_EVENT, { plan: 'pro', method: 'alipay' })
+      expect(result.message).toBe('付费通道筹备中，暂不支持创建订单')
+      expect(result.message).not.toContain('plan')
+    })
+
+    test('开发态（isPackaged=false）仍然放行——确认拦截不是恒真', async function() {
+      // 防「恒绿」：把拦截写成永远 return，本条必须红。
+      __electronMock.app.isPackaged = false
+      var result = await createOrderHandler(TRUSTED_EVENT, { plan: 'pro', method: 'alipay' })
+      expect(mockCreateOrder).toHaveBeenCalledWith('pro', { method: 'alipay' })
+      expect(result.code).toBe(0)
+    })
+  })
+
   // 2026-10-07 新增：上面那个 beforeEach 把 app.isPackaged 钉死为 false，
   // 于是 payment.js 里 `if (!app || app.isPackaged !== false)` 这条
   // **生产拦截分支从未被任何测试执行过**——删掉它本文件依然全绿。
