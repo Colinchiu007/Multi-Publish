@@ -76,6 +76,16 @@ const TEST_SCAN_DIRS = SCAN_DIRS.concat(['apps/desktop/tests']);
 // 对它们设零增长容差与既有容差设计直接冲突（表现：任何一次 i18n 新增都让 CI 红）。
 // 它们继续走「登记值 + 200」。
 const TARGET_EXCLUDE_RE = [/\.bundle\.[cm]?js$/i, /(^|\/)src\/locales\//, /\.design-system\.css$/i];
+
+// ⚠ targets 归属：目标值锚定在**设置那一刻的实际行数**，因此它会在「与设置无关的
+//   PR」上触发。实测：设完 targets 后 main 上有人给 Collection.vue 加了 4 行，
+//   于是下一个恰好开着的 PR（本 PR）被判红 —— 但那 4 行不是本 PR 加的。
+//
+//   处置原则：**漂移由漂移发生后第一个 rebase 的 PR 重新锚定**，而不是让无关 PR
+//   替人背锅。重新锚定时必须 (a) 逐条列出漂移与方向、(b) 区分「变大」与「变小」——
+//   目标值**高于**当前实际行数是危险的：那等于白送 (目标 - 当前) 行的免涨额度。
+//   本 PR 实测：`PublishHistory.vue` 被 main 拆小了 16 行，若不重锚，
+//   它就能在无人察觉的情况下再涨 16 行。
 /** 是否可被点名还债（返回 false 的继续走登记值+200） */
 function isTargetable(rel) {
   return !TARGET_EXCLUDE_RE.some((re) => re.test(rel));
