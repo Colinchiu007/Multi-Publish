@@ -27,6 +27,58 @@
 - main 已有的 828 份冗余本 PR **不清理**，只保证不再变多；清理需与 growth 口径一并改（见对应 issue）。
 - 事前拦（把「本 PR 对 CHANGELOG 必须是纯前插」这条聚合式判据固化进 re-sync 工具）未做，`.tools/mp-ci/` 不在仓库内。
 
+# [unreleased] fix(定时发布): 真机 E2E 抓出「带定时意图却立即发布」并 fail-closed（PR #3033，2026-10-07）
+
+### P0：排期到 7 天后，内容被立即发布
+
+真机（运行中 Electron，CDP 9279 附加，头条账号在线）执行定时发布 E2E 时抓到：
+排期设到 7 天后，提交结果为 `status=executed`、发布记录时间=**当下**，
+平台返回真实 `pgcId=7691596240059908649` —— 内容**已被立即发出**。
+
+日志链：`DIAG[publish2] cfgHasApi=false` → `clickTrusted 定时发布` →
+`DOM verification timeout` → `toutiao-xhr code=0 msg=提交成功`。
+
+根因在 `packages/rpa-engine/src/toutiao-direct-bridge.js`：头条发布页的定时控件
+从未被 RPA 驱动，因此有两条路径语义都是「立即发布」——
+① `_publish_generic` 点发布按钮；② `publishViaPageXhr` 把页面**自动保存** body
+只把 `save` 0→1 后重放（自动保存发生在任何定时控件被设置之前 ⇒ body 里没有
+`timer_status`/`timer_time`）。
+
+上一次修复只在「DOM 成功」分支前加了定时守卫，而 ② 的早退**恰好在守卫之前**，
+于是定时意图被静默吞掉 —— 正是本次架构变更要消灭的「以为已排期、实际已发出」。
+
+修法（防患优先，不做事后检测）：带 `publishTime` 时
+DOM 走 `draftOnly` 只存草稿（从源头不点发布）→ 跳过 XHR 重放 →
+唯一出口是 Node 直连（唯一会提交 `timer_status/timer_time` 的路径）→ 失败即
+**fail-closed**，绝不回退到任何会立即发布的路径。
+
+### 同期修复的 4 个 UI 缺陷
+
+- **定时徽标谎报支持范围**：发布页显示「定时发布 15/15 平台支持」，而能力表实际只有
+  头条 1 个支持。该徽标统计的是「发布链路接入了 schedule 字段」，与平台能否真正
+  接下排期无关 —— 属架构变更后的语义错位，也是静默失败的前置诱因。改为按**当前
+  所选平台**给真实能力并点名不支持的平台。
+- **阻断后无当场反馈**：点「一键发布」后无 toast，原因只出现在页面底部结果面板。
+  同文件其它校验分支均有 `notifyWarning`，唯独定时阻断没有 —— 已补齐。
+- **提示用内部 id**：文案为「baijiahao 暂不支持定时发布…」「toutiao 的定时发布至少
+  需要提前 5 分钟」，与界面上的「百家号 / 今日头条」对不上。改为经 `platformLabel`
+  注入展示名（保留 `platformId` 供定位）。
+- **英文文案缺空格**：`{platform} {accountId}must be at least…`。
+
+### 验证
+
+阶段 A 四个场景真机逐个跑通（不支持平台 / 过去时间 / 超出 30 天 / 提前量不足），
+**全部在提交前被拦、四个发布 IPC 零调用**。回归锁新增 11 条
+（`toutiao-schedule-intent.test.js` 4 条 P0 + `schedule-capability-hint.test.js` 7 条）。
+`rpa-engine` 全量绿、`features/publish` 206/206、`composables+utils+locales` 1115/1115、
+11 项结构性门禁全 rc=0。
+
+⚠️ 头条账号上留有一条本次 E2E 产生的真实已发布内容（标题「定时发布真机E2E验证-可忽略」），
+需在头条后台删除。修复后的 Node 直连路径需一次新的真机提交才能确认平台侧到点发布。
+
+---
+
+
 # [unreleased] fix(bilibili): 发布侧作品标识 aid/bvid 采集（PR #2968，2026-10-06，docs-only 收口）
 
 - B 站 RPA 投稿成功后 `postId` 恒取不到（实测四种 URL/响应体形态全部 null），于是发布被判「缺少平台作品 ID」；而上一轮（#2927）落地的审核回查按 `bvid`/`aid` 精确比——**拿不到键就永不被触发**。根因追溯到 `57082ddec`（2026-08-24 写路径段关键词表时只覆盖图文/管理页形态），`d424c245c` 拆分纯函数时原样搬迁。

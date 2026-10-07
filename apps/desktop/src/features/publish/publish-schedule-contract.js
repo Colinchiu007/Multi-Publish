@@ -43,7 +43,7 @@ function defaultScheduleMessage (key, params = {}) {
 /**
  * 校验定时发布条目。间隔按 platform + accountId 计算，避免不同账号互相阻塞。
  * @param {Array<{platform: string, accountId?: string | null, publishTime?: string | Date | null}>} entries
- * @param {{ now?: number, maxDays?: number, minIntervalMs?: number, translate?: (key: string, params?: Record<string, unknown>) => string }} [options]
+ * @param {{ now?: number, maxDays?: number, minIntervalMs?: number, translate?: (key: string, params?: Record<string, unknown>) => string, platformLabel?: (platformId: string) => string }} [options]
  * @returns {{ valid: boolean, message: string, reason?: string, params?: Record<string, unknown> }}
  */
 export function validateScheduleEntries (entries, options = {}) {
@@ -55,6 +55,14 @@ export function validateScheduleEntries (entries, options = {}) {
   const translate = typeof options.translate === 'function'
     ? options.translate
     : defaultScheduleMessage
+  // 2026-10-07 真机 E2E（PR #3033）：提示文案里的 {platform} 此前直接是内部 id，
+  // 用户看到的是「baijiahao 暂不支持定时发布…」「toutiao 的定时发布至少需要提前
+  // 5 分钟」—— 与界面上的「百家号 / 今日头条」对不上。展示名由调用方注入：
+  // 本模块保持哑实现（不 import publish-contract.js —— 那边反向 re-export 本文件，
+  // 直接导入会成环）。
+  const label = typeof options.platformLabel === 'function'
+    ? options.platformLabel
+    : (id) => String(id || '')
   const groups = new Map()
 
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -81,7 +89,7 @@ export function validateScheduleEntries (entries, options = {}) {
     // 后只得到一条泛化失败 —— 更重要的是：绝不能让「以为已排期、实际立即发出」。
     const capability = getPlatformScheduleCapability(platform)
     if (capability.mode === 'unsupported') {
-      const params = { platform, reason: capability.reason }
+      const params = { platform: label(platform), platformId: platform, reason: capability.reason }
       return { valid: false, reason: 'schedulePlatformUnsupported', params, message: translate('schedulePlatformUnsupported', params) }
     }
 
@@ -90,7 +98,7 @@ export function validateScheduleEntries (entries, options = {}) {
     if (capability.minLeadMinutes > 0) {
       const leadMinutes = (timestamp - now) / 60000
       if (leadMinutes < capability.minLeadMinutes) {
-        const params = { platform, minMinutes: capability.minLeadMinutes }
+        const params = { platform: label(platform), platformId: platform, minMinutes: capability.minLeadMinutes }
         return { valid: false, reason: 'scheduleTooSoon', params, message: translate('scheduleTooSoon', params) }
       }
     }
@@ -115,7 +123,8 @@ export function validateScheduleEntries (entries, options = {}) {
     for (let index = 1; index < list.length; index += 1) {
       if (list[index].timestamp - list[index - 1].timestamp < minIntervalMs) {
         const params = {
-          platform: list[index].platform,
+          platform: label(list[index].platform),
+          platformId: list[index].platform,
           accountId: list[index].accountId === 'unbound' ? '' : list[index].accountId,
           minMinutes: Math.round(minIntervalMs / 60000)
         }

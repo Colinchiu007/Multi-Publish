@@ -20,6 +20,9 @@ import {
   getVisibilityField,
   getVisibilitySemanticSupport,
 } from '@multi-publish/shared-utils/src/publish-capabilities'
+// 平台侧定时能力真源（api / rpa / unsupported 三态；未知平台 fail-closed）。
+// 必须走 vite alias 指向的 ESM 孪生，不能 import CJS 版（dev server 运行时无具名导出）。
+import { isPlatformSideScheduleSupported } from '@multi-publish/shared-utils/src/platform-schedule-capability'
 
 const t = (key, params) => i18n.global.t(key, params)
 
@@ -48,6 +51,35 @@ export function usePublishFieldSurface () {
       const field = commonFormFields.find(item => item.key === fieldKey)
       if (!field) return ''
       return t('publishPage.fieldSupport', { count: field.platforms.length, total: registryPlatformCount })
+    },
+
+    /**
+     * 定时发布能力提示（2026-10-07 平台侧定时改造，PR #3033 真机 E2E 修正）。
+     *
+     * ⚠️ 为什么不能用 fieldSupportText('schedule')：它统计的是注册表里
+     * 「发布链路接入了 schedule 字段」的平台数（15/15），与「该平台能否真的
+     * 把排期交给平台服务器」无关。平台侧定时架构下，14 个平台的排期会在
+     * 提交前被显式阻断 —— 徽标却宣称 15/15 支持，正是本次改造要消灭的
+     * 「以为已排期、实际已发出」的**前置诱因**（用户据此放心勾选）。
+     *
+     * 本方法按**当前所选平台**给出真实能力：全部支持 ⇒ 放行文案；
+     * 存在不支持的平台 ⇒ 点名列出，让用户在勾选阶段就看到后果。
+     * @param {string[]} platformIds 当前所选平台
+     * @returns {string} 空串表示所选平台全不支持定时（此时提示无意义，交由提交前阻断处理）
+     */
+    scheduleCapabilityHint (platformIds) {
+      const ids = uniqueIds(platformIds)
+      if (ids.length === 0) return ''
+      const supported = ids.filter(id => isPlatformSideScheduleSupported(id))
+      const unsupported = ids.filter(id => !isPlatformSideScheduleSupported(id))
+      if (supported.length === 0) return ''
+      if (unsupported.length === 0) {
+        return t('publishPage.scheduleAllSupported', { platforms: joinLabels(supported) })
+      }
+      return t('publishPage.schedulePartiallySupported', {
+        supported: joinLabels(supported),
+        unsupported: joinLabels(unsupported)
+      })
     },
 
     /**

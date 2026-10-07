@@ -17,7 +17,7 @@ export function createBatchPublisher (deps) {
     notifyWarning, notifyError, notifySuccess, notifyConfirm,
     formatUserError, progressText,
     isAccountAvailable, validatePublishTargets, validatePublishMetadata,
-    validatePlatformContent, validateScheduleEntries, buildPublishTargets,
+    validatePlatformContent, validateScheduleEntries, buildPublishTargets, getPlatformLabel,
     convertBatchArticleItem,
     offlineStatus, offlineAddToCache, buildCacheTargets, buildBatchArticlePayload,
     toPlainJson, batchCreate, batchSchedule, batchExecute, batchGet, onBatchProgress,
@@ -111,7 +111,11 @@ export function createBatchPublisher (deps) {
           return { ...target, publishTime: a.publishTime }
         })
       })
-      const scheduleCheck = validateScheduleEntries(scheduleEntries, { translate: (k, p) => progressText(`publishPage.scheduleValidation.${k}`, p) })
+      const scheduleCheck = validateScheduleEntries(scheduleEntries, {
+        translate: (k, p) => progressText(`publishPage.scheduleValidation.${k}`, p),
+        // 提示里显示平台展示名而非内部 id（2026-10-07 真机 E2E，PR #3033）
+        platformLabel: (id) => getPlatformLabel(id),
+      })
       if (!scheduleCheck.valid) {
         notifyWarning('publishPage.batchNotify.scheduleInvalid', { params: { message: scheduleCheck.message } })
         return

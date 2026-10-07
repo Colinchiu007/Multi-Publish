@@ -1420,6 +1420,12 @@ export default {
     // 前置展示校验限制（2026-10-06）：此前 30 天上限与 5 分钟同账号间隔只在被拒绝时才
     // 告知用户，hint 仅写「留空 = 立即发布」。现在提前把规则摆出来，减少无效提交。
     scheduleHintWithLimits: '留空 = 立即发布；可排期未来 {maxDays} 天内，同一账号两次定时发布至少间隔 {minMinutes} 分钟',
+    // 平台侧定时能力提示（2026-10-07，PR #3033 真机 E2E）：
+    // 原先此处渲染 fieldSupport 徽标「15/15 平台支持」—— 它统计的是「发布链路
+    // 接入了 schedule 字段」，与平台能否真正接下排期无关。用户据该徽标放心勾选，
+    // 提交时才被拦 ⇒ 与本次改造要消灭的静默失败同源。改为按所选平台给真实能力。
+    scheduleAllSupported: '{platforms} 支持定时发布（由平台服务器到点发布）',
+    schedulePartiallySupported: '仅 {supported} 支持定时发布；{unsupported} 暂不支持，选中后提交时会被阻止',
     // 定时校验提示的本地化出口（原先为 publish-contract.js 内硬编码中文字面量，
     // en-US 用户在本地化外壳里看到中文）
     scheduleValidation: {
@@ -1506,6 +1512,9 @@ export default {
       publishFailedProgress: (ctx) => '✗ 发布失败: ' + ctx.named('message'),
       publishErrorProgress: (ctx) => '✗ 错误: ' + ctx.named('message'),
       scheduleInvalidProgress: (ctx) => '✗ ' + ctx.named('message'),
+      // 2026-10-07 真机 E2E（PR #3033）：阻断原因此前只进页面底部进度面板，
+      // 点「一键发布」后当场无反馈，用户需滚动到页面最下方才知道被拦。
+      scheduleInvalidToast: (ctx) => '定时发布未提交：' + ctx.named('message'),
       cancelledCount: (ctx) => '已取消 ' + ctx.named('count') + ' 个任务',
       taskCancelled: '任务已取消',
       scheduleCreateFailed: '定时任务创建失败',
