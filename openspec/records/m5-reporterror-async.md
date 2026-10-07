@@ -2,10 +2,6 @@
 record: m5-reporterror-async
 task: 修复 reportError 在 logError 的 Promise 异步拒绝时既不上报也不回退控制台，错误彻底丢失
 date: 2026-10-07
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 ---
 
 ## 本次执行记录：reportError 异步失败兜底不可达（M-5，m5-reporterror-async，2026-10-07）
@@ -22,7 +18,7 @@ sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面：改动是渲染层一个 22 行的纯函数，无 `electron/` 与 `packages/rpa-engine/` 改动 |
 | QM-6 CCG 双模型外部评审 | 未能执行 | 见「遗留」 |
 | 消费方回归 | PASS | `report-error.test.js` + 既有消费方 `useExpiredAccountsBanner.test.js`（mock 掉 reportError 的那条）合计 **11/11 通过** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3029 于 2026-10-07 12:57:14 +08:00 squash 合并，merge SHA `257fc3bede43365f7d4d80d43fc7871a14c3bc64`，origin/main 已核验；`git ls-remote --heads origin m5-reporterror-async` 返回 0 行，远端分支已删 |
 
 ### 一条被我推翻的旧判断（此前记录在案，此处更正）
 
