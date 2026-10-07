@@ -19,7 +19,7 @@
 用 `start-app` 技能（首选一键）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/sync-app.ps1
+powershell -ExecutionPolicy Bypass -File D:/Data/projects/mulpub/scripts/sync-app.ps1
 ```
 
 确认窗口出现 + CDP 就绪：
@@ -39,7 +39,7 @@ curl http://127.0.0.1:<cdpPort>/json/version # 200
 
 ```powershell
 # 打开 auth 视图后采 /profile 的 title/关键文本，判定是否真登录
-cd D:\Data\projects\Multi-Publish\.agent_context\w3livefix-staging
+cd D:\Data\projects\mulpub\.agent_context\w3livefix-staging
 $env:MP_CDP="127.0.0.1:<cdpPort>"; $env:MP_VITE="<vitePort>"
 node probe-d2-loginstate.js
 ```
@@ -49,7 +49,7 @@ node probe-d2-loginstate.js
 ## 步骤 D — 采集发布编辑页「真提交钮」DOM（零发布副作用）
 
 ```powershell
-cd D:\Data\projects\Multi-Publish\.agent_context\w3livefix-staging
+cd D:\Data\projects\mulpub\.agent_context\w3livefix-staging
 $env:MP_CDP="127.0.0.1:<cdpPort>"; $env:MP_VITE="<vitePort>"
 node probe-d2-dom.js   # 输出 dump 到同目录 probe-d2-dom.json
 ```

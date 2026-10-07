@@ -1,0 +1,147 @@
+// @ts-check
+/**
+ * 小红书发布链契约测试 —— 图片上传 + 草稿箱存入
+ *
+ * 端点（2026-10-06 公开资料实证，与参考实现一致）：
+ *   1. POST creator.xiaohongshu.com/api/media/v1/upload/web/permit  → { file_id, token }
+ *   2. PUT  ros-upload.xiaohongshu.com/{file_id}                    → 上传图片二进制
+ *   3. POST edith.xiaohongshu.com/web_api/sns/v2/note              → 提交（draft=true 存草稿箱）
+ *
+ * 认证：Authorization: AT <access-token-creator.xiaohongshu.com> + xhs 签名头
+ *
+ * 草稿语义：草稿保存在小红书**创作者中心**（服务端），可用草稿列表接口读回 —— 这正是
+ * 需求「只需要放在小红书草稿箱」要的语义：内容落到平台侧草稿箱，不公开发布。
+ *
+ * 与旧实现的关键差异（旧 adapters/xiaohongshu.js 的三处缺陷）：
+ *   1. 端点错：打的是 /api/publish（不存在），真实为 web_api/sns/v2/note
+ *   2. 签名结构错：{ sign: {X-s,X-t} } 塞进 query ⇒ 序列化成 sign=[object Object]
+ *   3. 草稿缺失：无 draft 语义
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const { XiaohongshuDraftChain } = require('../src/publish/platforms/xiaohongshu-draft')
+
+describe('xiaohongshu draft chain', () => {
+  let calls
+  let chain
+
+  beforeEach(() => {
+    calls = []
+    chain = new XiaohongshuDraftChain({
+      http: {
+        request: vi.fn(async (cfg) => {
+          calls.push({ method: cfg.method, url: cfg.url, headers: cfg.headers, data: cfg.data })
+          if (cfg.url.includes('/upload/web/permit')) {
+            return { data: { code: 0, data: { file_id: 'F1', token: 'TK1', cos_key: 'k1' } } }
+          }
+          if (cfg.url.includes('ros-upload')) {
+            return { status: 200, data: Buffer.from('ok') }
+          }
+          if (cfg.url.includes('/web_api/sns/v2/note')) {
+            return { data: { code: 0, data: { note_id: 'N123', draft_id: 'D9' } } }
+          }
+          throw new Error('unexpected url ' + cfg.url)
+        }),
+      },
+      sign: vi.fn(async () => ({
+        'x-s': 'XYW_test',
+        'x-t': '1700000000000',
+        'x-s-common': 'Y3M=',
+        'x-b3-traceid': 'a'.repeat(16),
+        'x-xray-traceid': 'b'.repeat(32),
+      })),
+      userAgent: 'UA/1.0',
+    })
+  })
+
+  it('三步链路顺序正确：permit → ros-upload PUT → note 提交', async () => {
+    const out = await chain.publishToDraft({
+      title: '测试标题',
+      content: '正文内容',
+      images: [{ path: 'C:/tmp/cover.png' }],
+      draft: true,
+      cookie: 'a1=AAAA; web_session=BBBB',
+      authorization: 'AT token-value',
+      readFile: async () => Buffer.from('fake-image-bytes'),
+    })
+
+    expect(calls.map(c => c.method)).toEqual(['POST', 'PUT', 'POST'])
+    expect(calls[0].url).toMatch(/\/api\/media\/v1\/upload\/web\/permit$/)
+    expect(calls[1].url).toMatch(/^https:\/\/ros-upload\.xiaohongshu\.com\//)
+    expect(calls[2].url).toBe('https://edith.xiaohongshu.com/web_api/sns/v2/note')
+    expect(out.success).toBe(true)
+    expect(out.draft).toBe(true)
+    expect(out.noteId).toBe('N123')
+  })
+
+  it('签名头必须是独立 header，绝不能塞进 query（旧实现的 [object Object] 缺陷）', async () => {
+    await chain.publishToDraft({
+      title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
+      draft: true, cookie: 'a1=AAAA', authorization: 'AT tk',
+      readFile: async () => Buffer.from('x'),
+    })
+    const submit = calls[2]
+    expect(submit.headers['x-s']).toBe('XYW_test')
+    expect(submit.headers['x-t']).toBe('1700000000000')
+    expect(submit.headers['Authorization']).toBe('AT tk')
+    expect(submit.url).not.toMatch(/[?&]sign=/)
+    expect(submit.url).not.toContain('%5Bobject')
+  })
+
+  it('draft=true 时提交体必须带草稿语义（不公开发布）', async () => {
+    await chain.publishToDraft({
+      title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
+      draft: true, cookie: 'a1=AAAA', authorization: 'AT tk',
+      readFile: async () => Buffer.from('x'),
+    })
+    const body = JSON.parse(calls[2].data)
+    expect(body.title).toBe('t')
+    expect(body.draft).toBe(true)
+    expect(Array.isArray(body.image_list)).toBe(true)
+    expect(body.image_list.length).toBe(1)
+    expect(body.image_list[0].file_id).toBe('F1')
+  })
+
+  it('无图片时 fail-closed：小红书不支持纯文字笔记', async () => {
+    // 本链路的入参校验是同步抛出（不返回 rejected Promise）
+    await expect(Promise.resolve().then(() => chain.publishToDraft({
+      title: 't', content: 'c', images: [],
+      draft: true, cookie: 'a1=AAAA', authorization: 'AT tk',
+      readFile: async () => Buffer.from('x'),
+    }))).rejects.toThrow(/image|图片/i)
+  })
+
+  it('缺 a1 / 缺 Authorization 时 fail-closed，不得发出请求', async () => {
+    await expect(chain.publishToDraft({
+      title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
+      draft: true, cookie: 'web_session=x', authorization: 'AT tk',
+      readFile: async () => Buffer.from('x'),
+    })).rejects.toThrow(/a1/i)
+    expect(calls).toHaveLength(0)
+
+    await expect(chain.publishToDraft({
+      title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
+      draft: true, cookie: 'a1=AAAA', authorization: '',
+      readFile: async () => Buffer.from('x'),
+    })).rejects.toThrow(/authorization/i)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('平台返回业务错误码时必须如实抛错（不得当成功）', async () => {
+    const bad = new XiaohongshuDraftChain({
+      http: {
+        request: vi.fn(async (cfg) => {
+          if (cfg.url.includes('/upload/web/permit')) return { data: { code: 0, data: { file_id: 'F1', token: 'T' } } }
+          return { data: { code: -100, msg: '风控拦截' } }
+        }),
+      },
+      sign: vi.fn(async () => ({ 'x-s': 'XYW_t' })),
+      userAgent: 'UA/1.0',
+    })
+    await expect(bad.publishToDraft({
+      title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
+      draft: true, cookie: 'a1=AAAA', authorization: 'AT tk',
+      readFile: async () => Buffer.from('x'),
+    })).rejects.toThrow(/风控拦截|-100/)
+  })
+})

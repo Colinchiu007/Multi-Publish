@@ -110,7 +110,7 @@ describe("PublisherRouter 三条发布轨结构化生命周期日志（QM-3）",
       const task = {
         id: "t-api",
         platform: "bilibili",
-        article: { accountId: "acc-api", title: "标题", content: "正文" },
+        article: { accountId: "acc-api", title: "标题", content: "正文", video_path: "D:/tmp/v.mp4" },
       };
       await expect(p.publish(task)).rejects.toThrow(/平台 Cookie 缺失/);
 
@@ -196,7 +196,7 @@ describe("PublisherRouter 三条发布轨结构化生命周期日志（QM-3）",
       const task = {
         id: "t-cancel-api",
         platform: "bilibili",
-        article: { accountId: "acc-cancel-api", title: "标题", content: "正文" },
+        article: { accountId: "acc-cancel-api", title: "标题", content: "正文", video_path: "D:/tmp/v.mp4" },
       };
       await expect(p.publish(task, { signal: { aborted: true } })).rejects.toThrow("任务已取消");
 

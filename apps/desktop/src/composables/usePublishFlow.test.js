@@ -119,8 +119,11 @@ describe('usePublishFlow — composable setup', () => {
     vi.clearAllMocks()
     i18n.global.locale.value = 'zh'
     article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
-    selectedPlatforms = { value: ['wechat_mp'] }
-    selectedAccounts = { value: { wechat_mp: 'acc1' } }
+    // 默认平台用 toutiao：平台侧定时语义（2026-10-07）下，wechat_mp / zhihu 等
+// 已登记为 unsupported，会被渲染层能力门禁在提交前阻断，
+// 使「定时创建成功 / 失败文案 / 自动回滚」这类与平台无关的用例无法成立。
+selectedPlatforms = { value: ['toutiao'] }
+    selectedAccounts = { value: { toutiao: 'acc1' } }
     precheckEnabled = { value: false }
     usePublishProgressStore().sessions = []
 
@@ -196,7 +199,8 @@ describe('usePublishFlow — composable setup', () => {
   it('账号已从当前列表移除时在 IPC 前阻止发布', async () => {
     article.title = '标题'
     article.content = '正文'
-    selectedAccounts.value = { wechat_mp: ['deleted-account'] }
+    // 默认平台已是 toutiao（平台侧定时语义），accounts 键需与之匹配
+    selectedAccounts.value = { toutiao: ['deleted-account'] }
     const r = usePublishFlow({
       article,
       selectedPlatforms,
@@ -317,6 +321,29 @@ describe('usePublishFlow — composable setup', () => {
     expect(mockPublishBatch).not.toHaveBeenCalled()
   })
 
+  // 平台侧定时（2026-10-07）：定时创建**不需要 renderer 网络在线**——
+  // 它只是把排期提交给平台（主进程 scheduler + Node 直连 HTTP）。
+  // 若离线时把定时任务落进离线缓存（缓存形状 {targets,data} 不含 publishTime），
+  // 网络恢复后会**立即发布** =「以为已排期、实际已发出」。
+  it('带定时时间时即使离线也不落离线缓存（必须创建排期）', async () => {
+    mockOfflineStatus.mockResolvedValueOnce({ code: 0, data: { offline: true } })
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+    article.publishTime = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+
+    await r.handlePublish()
+    await nextTick()
+
+    // 关键：不得写离线缓存（那会丢排期意图）
+    expect(mockOfflineAddToCache).not.toHaveBeenCalled()
+    // 必须真的创建排期
+    expect(mockSchedulerCreate).toHaveBeenCalledWith(expect.objectContaining({
+      publishTime: article.publishTime
+    }))
+    expect(r.result.value).toMatchObject({ success: true, scheduled: true })
+  })
+
   // ─── 敏感词预检 ───────────────────────────
   it('敏感词检测发现敏感词时弹确认框', async () => {
     mockSensitiveCheck.mockResolvedValueOnce({ code: 0, data: { words: ['badword'] } })
@@ -398,7 +425,8 @@ describe('usePublishFlow — composable setup', () => {
   })
 
   it('同一平台多个账号会展开成多个发布目标', async () => {
-    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    selectedPlatforms.value = ['toutiao']
+    selectedAccounts.value = { toutiao: ['acc1', 'acc2'] }
     const r = createFlow()
     article.title = 'Test'
     article.content = 'Content'
@@ -406,8 +434,8 @@ describe('usePublishFlow — composable setup', () => {
     await r.handlePublish()
 
     expect(mockPublishBatch.mock.calls[0][0]).toEqual([
-      { platform: 'wechat_mp', accountId: 'acc1' },
-      { platform: 'wechat_mp', accountId: 'acc2' },
+      { platform: 'toutiao', accountId: 'acc1' },
+      { platform: 'toutiao', accountId: 'acc2' },
     ])
   })
 
@@ -415,7 +443,7 @@ describe('usePublishFlow — composable setup', () => {
     article.title = '定时文章'
     article.content = '正文'
     article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    selectedAccounts.value = { toutiao: ['acc1', 'acc2'] }
     mockSchedulerCreate
       .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
       .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-2' } })
@@ -426,7 +454,7 @@ describe('usePublishFlow — composable setup', () => {
     expect(mockSchedulerCreate).toHaveBeenCalledTimes(2)
     expect(mockPublishBatch).not.toHaveBeenCalled()
     expect(mockSchedulerCreate.mock.calls[0][0]).toMatchObject({
-      platform: 'wechat_mp',
+      platform: 'toutiao',
       publishTime: article.publishTime,
       article: expect.objectContaining({ accountId: 'acc1' }),
     })
@@ -451,7 +479,7 @@ describe('usePublishFlow — composable setup', () => {
     article.title = '定时文章'
     article.content = '正文'
     article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    selectedAccounts.value = { toutiao: ['acc1', 'acc2'] }
     mockSchedulerCreate
       .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
       .mockRejectedValueOnce(new Error('第二个任务创建失败'))
@@ -468,7 +496,7 @@ describe('usePublishFlow — composable setup', () => {
     article.title = '定时文章'
     article.content = '正文'
     article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    selectedAccounts.value = { toutiao: ['acc1', 'acc2'] }
     mockSchedulerCreate
       .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
       .mockResolvedValueOnce({ code: -1, message: '创建失败' })
@@ -489,7 +517,7 @@ describe('usePublishFlow — composable setup', () => {
     article.title = '定时文章'
     article.content = '正文'
     article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    selectedAccounts.value = { toutiao: ['acc1', 'acc2'] }
     mockSchedulerCreate
       .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
       .mockResolvedValueOnce({ code: -1, message: '创建失败' })
@@ -509,7 +537,7 @@ describe('usePublishFlow — composable setup', () => {
     article.title = '定时文章'
     article.content = '正文'
     article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    selectedAccounts.value = { toutiao: ['acc1', 'acc2'] }
     mockSchedulerCreate
       .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
       .mockResolvedValueOnce({ code: 0, data: {} })

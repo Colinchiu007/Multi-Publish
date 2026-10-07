@@ -202,10 +202,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(124)
   })
 
-  it('account 模块应导出 49 个方法（52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
+  it('account 模块应导出 50 个方法（49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(49)
+    expect(Object.keys(r).length).toBe(50)
+    // 新增方法必须真实存在于聚合入口，防止「改了数字但方法没接上」
+    expect(Object.keys(r)).toContain('accountCredentialNames')
   })
 
   it('system 模块应导出 149 个方法', () => {
@@ -224,8 +226,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(149)
   })
 
-  it('合并后 api 总键数应为 334（337 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理；336 = 上一基线 331 + 账号云同步 5，openspec add-cloud-account-sync；337 = 336 + batchCancel 批量排期取消）', () => {
-    expect(Object.keys(api).length).toBe(335)
+  it('合并后 api 总键数应为 336（335 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；337 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理；336 = 上一基线 331 + 账号云同步 5，openspec add-cloud-account-sync；337 = 336 + batchCancel 批量排期取消）', () => {
+    expect(Object.keys(api).length).toBe(336)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

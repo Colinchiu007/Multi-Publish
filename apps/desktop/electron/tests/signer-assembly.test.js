@@ -192,10 +192,39 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
     // S2b 仅实证 kuaishou（Tier-A GO）→ 只有 kuaishou 置 verified（manager + provider 两侧同步）。
     expect(calls).toContainEqual(['verified', 'kuaishou.ns-sig3-browser'])
     expect(calls).toContainEqual(['providerVerify', 'kuaishou.ns-sig3-browser'])
-    // 小红书止步（design §6）：只注册 provider 槽位，绝不 verified —— 否则 renderer 经 signer:invoke
-    // 会让 manager 放行、创建隐藏页并导航未激活平台活页（触达未取证域，越红线）。
-    expect(calls).not.toContainEqual(['verified', 'xiaohongshu.x-s-browser'])
-    expect(calls).not.toContainEqual(['providerVerify', 'xiaohongshu.x-s-browser'])
+    // 小红书（2026-10-07 起）：design §6 原「绝不 verified」的闸门针对的是 **browser 形态**
+    // —— renderer 经 signer:invoke 放行后会创建隐藏页并导航未激活平台活页（触达未取证域，越红线）。
+    // 但实测 XYW_ 是纯 AES-128-CBC 的 localAlgorithm 形态：signFn 在 signer-assembly.js
+    // 内直接 return signXiaohongshuLocal(payload)，**不调用 assembly.sign、不调 getOrCreatePage**，
+    // 故不存在上述副作用面。闸门因此按形态细化而非一刀切。
+    // 真正要锁的不变量是「localAlgorithm 绝不开窗」，由 mutation 反证钉住。
+    expect(calls).toContainEqual(['verified', 'xiaohongshu.x-s-browser'])
+    expect(calls).toContainEqual(['providerVerify', 'xiaohongshu.x-s-browser'])
+  })
+
+  // 结构锁（变异反证）：把 localAlgorithm 分支改回走 assembly.sign 时，本用例必须转红。
+  // 否则「verified 已放行」与「是否会开窗」之间的联系就断了，红线只剩一句注释。
+  it('localAlgorithm 形态求签必须短路，不得落到 assembly.sign / getOrCreatePage（变异反证）', () => {
+    const { registerSignerAssembly } = require(ASSEMBLY_MODULE)
+    const noop = () => {}
+    const calls = []
+    const assembly = {
+      sign: () => { calls.push(['assembly.sign']); return 'sig-from-browser' },
+      prewarm: async () => ({ ok: true }),
+      getOrCreatePage: () => { calls.push(['getOrCreatePage']); return {} },
+    }
+    const manager = {
+      registerIpcHandlers: noop, registerCommand: noop, markVerified: noop,
+      invokeSign: noop, _setSignFn: (fn) => { manager._fn = fn },
+    }
+    registerSignerAssembly({
+      manager, assembly, provider: null,
+      ipcMain: { handle: noop },
+      isTrustedSender: () => true,
+      log: { info: noop, warn: noop, error: noop, notify: noop },
+    })
+    manager._fn('xiaohongshu.x-s-browser', { accountId: 'a1', fullUri: '/api/x', cookie: 'a1=abc' })
+    expect(calls).toEqual([]) // 一旦实现回退到 browser 链，这里会出现 assembly.sign / getOrCreatePage
   })
 
   // Gate 17（P1-14）：signer:prewarm 会触发隐藏页创建（活的副作用面），

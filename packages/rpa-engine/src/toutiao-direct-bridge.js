@@ -12,6 +12,7 @@
 'use strict'
 
 const { cookiesFromSession, buildPostData, publishWithSign } = require('./toutiao-direct-publish')
+const { formatToutiaoPublishTime } = require('./platform-schedule-time')
 const PUBLISH_URL = 'https://mp.toutiao.com/mp/agw/article/publish'
 const PUBLISH_QUERY = 'source=mp&type=article&aid=1231&mp_publish_ab_val=0'
 
@@ -33,10 +34,23 @@ async function publishDirect ({ win, article, sign, log }) {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .split(/\n+/).filter(Boolean).join('</p><p>') + '</p>'
 
-    // ③ 定时 1 分钟后（用户已确认「定时路径近似立即发布」可接受；立即路径被页面 deferred 死锁）
-    const d = new Date(Date.now() + 60 * 1000)
-    const p2 = (n) => (n < 10 ? '0' : '') + n
-    const timerTime = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+    // ③ 平台侧定时（2026-10-07）
+    // 旧实现硬编码「当前 +60 秒」——把平台定时能力当作「绕过 DOM 死锁的手段」，
+    // 而不是用户可选的定时模式（当时立即路径被页面 deferred 死锁所迫）。
+    // 现改为使用调度器透传的真实用户排期时间：article.publishTime 由
+    // shared-utils scheduler 随任务下发，此处直接提交给头条，由其服务器到点发布。
+    // 未携带 publishTime（立即发布）时才回退到旧的 +60 秒兜底 —— 因为 Node 直连
+    // 路径已验证必须带 timer_status=1（立即路径被页面 deferred 死锁，见本文件历史）。
+    let timerTime = ''
+    if (article && article.publishTime) {
+      // 显式注入时区偏移：平台按其服务器时区解释本地墙钟时间，
+      // 依赖运行环境 TZ 会让开发机与生产机产出不同结果。
+      timerTime = formatToutiaoPublishTime(article.publishTime, -new Date().getTimezoneOffset())
+    } else {
+      const d = new Date(Date.now() + 60 * 1000)
+      const p2 = (n) => (n < 10 ? '0' : '') + n
+      timerTime = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+    }
 
     const body = buildPostData({
       title: String(article && article.title || ''),
@@ -56,7 +70,8 @@ async function publishDirect ({ win, article, sign, log }) {
     const res = await publishWithSign({ cookies, body, aBogus: signResult.signature })
     log.info('RpaView', '[toutiao-direct] status=' + res.status + ' code=' + res.code + ' msg=' + res.message + ' pgcId=' + res.pgcId)
     if (res.code === 0 && res.pgcId && res.pgcId !== '0') {
-      return { success: true, platform: 'toutiao', pgcId: res.pgcId }
+      // scheduled=true 表示本次提交携带了 timer_status/timer_time（平台侧定时已受理）
+      return { success: true, platform: 'toutiao', pgcId: res.pgcId, scheduled: true }
     }
     return { success: false, platform: 'toutiao', error: 'API_REJECTED:' + res.code + ':' + (res.message || '').slice(0, 60) }
   } catch (e) {
@@ -114,6 +129,20 @@ async function publishToutiao (p) {
     const xhrResult = await publishViaPageXhr({ win, title: article && article.title, log })
     if (xhrResult.success) return xhrResult
   }
+
+  // 2026-10-07 ⭐ 平台侧定时：DOM 路径**不会**设置定时（头条发布页的定时控件未被
+  // RPA 驱动），它成功即意味着内容已立即发布。用户若带 publishTime（要求定时），
+  // 却走 DOM 成功路径 ⇒ 内容被立即发出 =「以为已排期、实际已发出」，
+  // 正是本次改造要消灭的形态。故：带定时意图时一律走 Node 直连（唯一会提交
+  // timer_status/timer_time 的路径），DOM 成功也不能吞掉定时意图。
+  if (article && article.publishTime && domResult && domResult.success === true) {
+    log.warn('RpaView', '[toutiao] DOM 路径不携带定时字段 → 改走 Node 直连以提交排期')
+    const direct = await publishDirect({ win, article: { ...article, content: plainContent }, sign: p.sign, log })
+    if (direct.success) return { ...direct, scheduled: true }
+    log.warn('RpaView', '[toutiao] 定时直连失败，回退 DOM 结果: ' + (direct.error || ''))
+    return { ...direct, success: false, error: direct.error || 'SCHEDULE_SUBMIT_FAILED' }
+  }
+
   return publishToutiaoWithFallback({ win, article: { ...article, content: plainContent }, domResult, sign: p.sign, log })
 }
 

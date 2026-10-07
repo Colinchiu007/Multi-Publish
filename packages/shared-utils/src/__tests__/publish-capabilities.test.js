@@ -359,39 +359,42 @@ describe('publish-capabilities — 通用主表单字段支持矩阵', () => {
   })
 
   // 2026-10-06 定时发布验证发现：注册表 schedule.note 曾声称「平台原生定时：抖音 timing、
-  // 快手 publishTime、B站 dtime」，但那是参考产品（4.0 逆向工程）的做法。
-  // 本项目统一走本地调度（shared-utils scheduler → 任务队列 → 与立即发布同一链路），
-  // electron/publishers 下没有任何平台消费平台侧定时参数。
-  // 这条锁防止 note（或实现）再次漂回「平台原生定时」的误解。
-  it('schedule 字段说明不得声称平台原生定时（本项目统一本地调度）', () => {
+  // 2026-10-07 架构变更：定时发布改为「平台侧定时」——创建时把排期提交给平台，
+  // 由平台服务器到点发布（不再由本地定时器到点触发）。
+  // 逐平台能力真源改由 platform-schedule-capability.js 承担（api / rpa / unsupported 三态）；
+  // 本字段的 platforms 列表只表示「这些平台的发布链路接入定时」，不再表示定时触发方式。
+  it('schedule 字段说明反映平台侧定时语义，且不再声称本地定时器到点触发', () => {
     const schedule = getCommonFormFields().find(f => f.key === 'schedule')
     expect(schedule).toBeTruthy()
-    expect(schedule.note).toContain('本地调度')
+    expect(schedule.note).toContain('平台侧定时')
+    expect(schedule.note).not.toContain('本地 setTimeout')
     expect(schedule.note).not.toMatch(/平台原生定时：/)
   })
 
-  it('publisher 实现不消费平台侧定时参数（本地调度方案的实证锁）', () => {
+  it('平台侧定时能力注册表存在且自检通过（逐平台三态，禁止缺省为支持）', () => {
+    const {
+      validateScheduleCapabilityRegistry,
+      getPlatformScheduleCapability,
+      resolveScheduleMode
+    } = require('../platform-schedule-capability')
+    expect(validateScheduleCapabilityRegistry()).toEqual([])
+    // 未取证的平台一律 unsupported —— 绝不静默立即发布
+    expect(getPlatformScheduleCapability('zhihu').mode).toBe('unsupported')
+    expect(getPlatformScheduleCapability('some-unknown').mode).toBe('unsupported')
+    expect(resolveScheduleMode('some-unknown')).toBe('blocked')
+  })
+
+  // 旧锁（本地调度方案下的实证锁）已随架构变更加重写：平台侧定时的正确形态是
+  // 「调度器把 publishTime 透传给 publisher，publisher 组装平台字段」，
+  // 而不是 publisher 内部硬编码某个竞品的字段名。下列锁改为检查这条透传链存在。
+  it('publisher 链路已具备 publishTime 透传（平台侧定时装配的前置条件）', () => {
     const fs = require('fs')
     const path = require('path')
-    const publishersDir = path.resolve(__dirname, '..', '..', '..', '..', 'apps', 'desktop', 'electron', 'publishers')
-    expect(fs.existsSync(publishersDir), 'publishers 目录应存在').toBe(true)
-
-    const offenders = []
-    const walk = (dir) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name)
-        if (entry.isDirectory()) { walk(full); continue }
-        if (!entry.name.endsWith('.js') || entry.name.includes('.test.')) continue
-        const src = fs.readFileSync(full, 'utf8')
-        // 平台侧定时的特征字段：抖音 timing / B站 dtime / prePubTime / publish_time(秒级排期)
-        if (/\bprePubTime\b|\bdtime\b|\btiming\s*[:=]/.test(src)) {
-          offenders.push(path.relative(publishersDir, full))
-        }
-      }
-    }
-    walk(publishersDir)
-
-    expect(offenders, `以下 publisher 疑似消费平台侧定时参数：${offenders.join(', ')}`).toEqual([])
+    const routerFile = path.resolve(__dirname, '..', '..', '..', '..', 'apps', 'desktop', 'electron', 'services', 'publisher-router.js')
+    expect(fs.existsSync(routerFile), 'publisher-router.js 应存在').toBe(true)
+    const src = fs.readFileSync(routerFile, 'utf8')
+    // buildPublishArticle 必须把 task.publishTime 搬进 article，否则各 publisher 收不到时间
+    expect(src).toMatch(/publishTime:\s*task\?\./)
   })
 })
 

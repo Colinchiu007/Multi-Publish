@@ -1,3 +1,79 @@
+## 改了 preload 源码就必须重新生成入库的 bundle 产物——`build-preload.test.js` 会直接比对两者（xhs-draft-publish，2026-10-07）
+
+- **`electron/preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 是入库的构建产物**（`git ls-files` 可查到）。`electron/tests/build-preload.test.js:56` 会把**仓库里已提交的** `OUTPUT_FILE` 与源码 `preload/index.js` 暴露的 API 路径做 `toEqual` 深比对。加一个 preload 方法而没跑 `pnpm run build:preload`，该用例报「提交态 bundle 与源码暴露完全相同的 API 路径」失败，并逐条 diff 缺失的键名。
+- **症状极具迷惑性**：同一次 CI 里 `preload.test.js` 说「源码侧方法数多了 1 个」（expected 49 / received 50），`build-preload.test.js` 却说「bundle 侧少了那个方法」——两者**方向相反但同源**。差点误判成两处独立问题。实为：源码改了、产物没重建。
+- **前置动作**：任何改 `apps/desktop/electron/preload/**` 的改动，验证前先 `cd apps/desktop && pnpm run build:preload`，且要确认 `git status` 里两个 bundle 文件真的变了。
+- **配套**：`preload.test.js` 用**硬编码方法数**断言（account 49 / 合并 api 335），新增方法必然连带失配。改这类断言时不要只改数字 —— 一并加 `expect(Object.keys(r)).toContain('newMethodName')`，否则「数字对上但方法没接上」也能过。
+
+## 变异反证必须实跑验证：改实现看它是否真的转红，否则只是一句注释（xhs-draft-publish，2026-10-07）
+
+- **「变异反证」的价值全在它会不会红**。新增一条「若实现回退到 browser 链则失败」的反证用例后，只跑一遍全绿就提交，等于没锁 —— 因为你不知道这条用例是不是恒绿（比如断言写成了 `not.toContain` 恰好与实现同向）。
+- **实跑口径**：把被锁的实现行临时改成错误形态 → 跑该文件 → 必须**恰好目标用例转红**（其余仍绿）→ 还原 → 确认实现文件 `git diff` 为空。本次 `signer-assembly.js:276` 把 `signXiaohongshuLocal(payload)` 改成 `assembly.sign(...)`，19 例中仅新增的那 1 例红，还原后 19/19 全绿。
+- **配套的编辑器坑**：`[System.IO.File]::ReadAllText()` 不指定编码时按 UTF-8 读，含中文的 JS 文件会被读成乱码，导致 `IndexOf`/`Contains` 全部落空 → 误判「目标行不存在」。必须 `[System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)`；写回用 `New-Object System.Text.UTF8Encoding($false)` 避免加 BOM。
+
+## 闸门断言要锁「意图」而不是「当前实现形态」——形态变化不等于红线失守（xhs-draft-publish，2026-10-07）
+
+- **判例**：`signer-assembly.test.js` 原断言「小红书绝不置 verified」，注释写明的红线是「verified 放行后 renderer 会创建隐藏页并导航未激活平台活页，触达未取证域」。本 PR 把小红书改成 `localAlgorithm` 形态（纯 AES-128-CBC，不开窗）后该断言转红。
+- **取证步骤**（三跳，缺一跳就会误改红线）：①`invokeSign`（`signer-page-manager.js:113`）只做 verified 闸门 + 调 `signFn`，**页面创建不在这里**；②页面创建在 `getOrCreatePage`，属 `signFn` 的下游；③`signFn`（`signer-assembly.js:276`）在 `localAlgorithm` 模式**直接 return**，压根不进 `assembly.sign`（第 279 行）。⇒ 原红线担心的副作用面**不存在**，是形态变了而非红线失守。
+- **改法**：断言从「绝不能 verified」改为「localAlgorithm 形态必须 verified」，同时**新增变异反证锁真正的不变量**「求签必须短路、绝不开窗」。这样闸门跟着意图走，且不变量被结构锁钉住。
+- **反面教训**：若只把 `not.toContainEqual` 删掉改成 `toContainEqual` 就收工，闸门就成了「证明实现没被改」而不是「证明危险面不存在」——形态再变一次又会打脸。
+
+## 6.5 万行 CHANGELOG 的合并冲突：两侧共享巨尾，只能取去重并集，绝不能朴素拼接（queue-delayed / xhs-draft，2026-10-07）
+
+- **现象（pitfall）**：本仓 `CHANGELOG.md` 已达 6.5 万行，两边各自在**文件开头**加新条目 ⇒ 几乎每次 main 前进都会撞冲突。第一次尝试按「ours 全文 + 空行 + theirs 全文」拼接，结果产出 **13 万行**、重复 327 行 —— 因为两侧**共享约 65,000 行公共尾部**，且开头各有若干条**完全相同的条目**。
+- **第一性原因**：CHANGELOG 是**只在头部追加**的累积日志，条目本身历史不变 ⇒ 冲突永远是「头部少量差异 + 尾部完全相同」。朴素拼接把「合并」退化成「复制」。
+- **规约（四条，不可省）**：
+  1. **先测公共尾部**：从两侧末尾向前逐行比对，定位共享后缀起点（本次分别是 64,910 / 65,332 行，别套用旧数字）。
+  2. **按一级标题切块去重**：头部按 `^# ` 切成条目块，逐块精确比较，只保留各自独有的块，共享块只留一份。
+  3. **写回后必须自检条数**：`^# ` 一级标题总数应 = 共享块数 + 各自独有条目数。**若暴增即去重失败**，不要提交。
+  4. **幂等保护**：写回前先查 ours 是否已含 theirs 的独有条目标题（含则直接用 ours），否则重跑脚本会产生大量重复。
+- **配套的三个环境坑（同一会话全部踩到）**：
+  - **PowerShell 管道破坏 UTF-8**：`ReadAllLines` 之外一律不用管道读文件内容；用 `cmd /c "git show > file"` 重定向 + `.NET ReadAllLines(path, UTF8)`。管道经控制台代码页解码会让行数统计偏低（本会话一度把 65,467 行误读成 65,331）。
+  - **`.ps1` 里有中文注释会炸**：PowerShell 5.1 对无 BOM 文件按 GBK 解码，一个中文字符可能破坏整行语法。临时脚本一律**纯英文**。
+  - **bash 工具的 `cd` 不跨调用保留**：`ReadAllLines('CHANGELOG.md')` 会静默解析到**共享主仓**同名文件，读到错误内容。**所有跨 worktree 的文件读写必须用绝对路径**。
+- **更早的一次自伤**：曾用 `Get-Content -TotalCount 1` 取首行后当全文重写，把 5 万行压成 27 行（-65,188）。**CHANGELOG / 累积型大文件只能整文件读 + 精确位置插入，绝不能按首行重建全文。**
+
+---
+
+## 单测覆盖了被测模块，却漏掉「模块能否被加载」这条最外层契约（xhs-draft，2026-10-07）
+
+- **现象（pitfall）**：`adapters/xiaohongshu.js` 的 require 路径写成 `'../../base-adapter'`（实际在 `src/` 下，应为 `'../base-adapter'`）。包内 13 例单测（签名 7 + 发布链 6）**全绿**，CI Gate 4 却直接挂：`Cannot find module '../../base-adapter'`。
+- **为什么没抓到**：测试只 `require` 被测模块自身（`signer-local`、`xiaohongshu-draft`），**从不 require adapter**。于是「发布链逻辑正确」被验证了，而「发布链能不能被装配起来」这条更外层的契约**无人看守**。
+- **系统性形态**：同一会话内第二次栽在同一类坑 —— 上一处是签名测试全绿但实现错位。两处的共同点：**测试断言的是被测模块的行为，而不是被测模块与真实依赖图的连通性**。
+- **规约**：为任何「新增/重写的装配层文件（adapter / handler / 入口）」补一条**加载守卫用例**，最少三条：
+  1. `expect(() => require('<该文件>')).not.toThrow()` —— 直接钉住路径错位；
+  2. 类可实例化且关键接口存在（方法名、字段值）；
+  3. 默认值语义锁定（如 `draft` 默认必须为 `true`，只有显式传 `false` 才允许公开发布）。
+- **反证是必须的**：守卫写完要**变异反证** —— 把路径故意改回错的，确认用例当场红且报出同样的错误，否则这条锁可能对目标缺陷不敏感。
+- **接线也要做**：`packages/api-publish-engine/scripts/run-tests.js` 有显式白名单（`VITEST_FILES`），新测试不进白名单等于永不执行；且 `electron/signer/**` **不在** vitest 的 `include` 内，把测试放那儿等于没接。**放 `electron/tests/`（已接线）而非新建目录。**
+
+---
+
+---
+
+## 「复现不出失败」时先怀疑自己的复现口径——vitest 手工跑漏 `--globals` 曾被误判成既有环境问题（xhs-draft-publish，2026-10-07）
+
+- **别把「我这边跑不出同样错误」当成「这是既有问题」**（pitfall + pattern）。今日 `packages/api-publish-engine/scripts/run-tests.js` 退出码为 1，我判定为「既有问题 `describe is not defined`，vitest/mocha 混用」并写进了 PR 执行记录。**该结论是错的**：`run-tests.js` 调 vitest 时显式带 `--globals`（`scripts/run-tests.js:105`，参数为 `['run','--globals','--environment','node',...]`），而我手工 `pnpm exec vitest run <file>` **漏了该参数** ⇒ `describe` 未注入 ⇒ 报 `describe is not defined`。改对命令后该报错消失，随即暴露出**真正的失败**：`signer-local.test.js` 5 例红于 `a1 cookie is required (fail-closed)`。
+- **代价**：如果当时就以「既有问题」结案，会把这个真实失败放过去。而它恰恰是 PR #3009 CI 红 5 项的两大根因之一（另一根因是重写 adapter 时删掉 `uploadVideo`/`uploadCover`，破坏统一入口契约）。
+- **判定口诀**：区分「既有问题」与「我的口径不对」的唯一硬证据是**在 CI 的真实命令下复现**。查脚本源码确认它到底传了哪些参数，不要用自己拼的命令下结论。
+- **配套沉淀**：错判已写进 `openspec/records/xhs-draft-publish.md` 的「自我纠错」行，保留而非抹除——避免后续追溯时又把这个假结论当既成事实。
+
+## 改测试还是改实现，先查清被改函数的**生产调用方**（xhs-draft-publish，2026-10-07）
+
+- **fail-closed 让既有测试变红时，默认怀疑测试、而不是急着放宽实现**（pattern）。`getXiaohongshuSign` 从 md5 占位换成真实 XYW_ 算法后，5 条既有用例红于 `a1 cookie is required`。判定依据不是「fail-closed 听起来更安全」，而是**调用链取证**：`xiaohongshu.x-s` 这个 registry 键除测试外**没有任何生产调用方**，生产发布链走的是 `xiaohongshu.x-s-browser` → `buildXiaohongshuSignHeaders`（带真 cookie）。据此确认 fail-closed 无副作用 ⇒ 改测试（显式传 a1 + 补 fail-closed 反证/不同 a1 签名相异/绝对 URL 路径三条），**不动实现**。
+- **反向情形同样成立**：若被改函数确有生产调用方且依赖旧宽松行为，那就该改实现、改调用方、并补契约测试，而不是改测试掩盖。
+- **查证手法**：`grep '<函数名>' --glob '*.js'` 会同时命中定义、registry 注册、测试与调用方。registry 键**只有测试引用**是一个强信号，说明该路径已无生产价值。
+- **判断「要不要为测试放宽安全语义」的红线**：假成功比假失败危险。签名器这类安全/正确性关键路径，宁可让调用方显式提供凭据，也不要在缺凭据时返回占位值。
+
+## CCG 安全扫描器的 high 档含大量误报，先剔测试文件噪音再逐条定性（既有高危治理，2026-10-07）
+
+- **`security_scanner.js` 只接受目录、传单文件会 `files_scanned: 0` 且 `passed: true`**（pitfall）。`node .ccg/skills/tools/verify-security/scripts/security_scanner.js <单个 .js> --json` 会「通过」但实际一个文件都没扫 —— **假绿灯比红灯危险**。必须传目录，并对结果里的 `files_scanned` 数量做 sanity check。
+- **`--json` 必须放在路径之后**：`parseCliArgs` 遇到首个非 flag 参数即停止解析，前置会让 flag 被当成路径。
+- **实测噪音结构**（`apps/desktop/electron/services/`，670 文件 → 2 critical + 14 high + 7 low）：2 个 critical「发现私钥」与多数 high「硬编码密钥/密码」**全部落在 `*.test.js` 的假数据里**（如 `ops-center-sync.test.js:25`、`log-injection-sanitization.test.js:120` 的 `sk-ABCDEF...`）。剔掉测试文件后才剩真问题。
+- **典型误报形态**：`rpa-view-platforms.js:1024` 被判「硬编码密钥」，原文实为 `const editUrl = 'https://mp.weixin.qq.com/cgi-bin/appmsg?...&token=' + tokenMatch[1]`，`token` 来自用户自己会话 URL 的正则捕获 —— 扫描器按 `token=` 关键字命中。**判为误报，不是密钥泄露。**
+- **真实且更值得关注的**：`rpa-view-helpers.js` 4 处 innerHTML（70/73/106/111）+ 1 处 `new Function()`（170），其中动态代码执行风险高于 `rpa-view-platforms.js:963`（后者已剥离 `script/iframe/object/embed` 与 `on*` 属性，属黑名单过滤而非 `textContent` 安全绑定）。
+- **治理顺序**：先给扫描器补 test-fixture 排除规则（把噪音挡在门外），再逐条定性真问题；**不要**在无关 PR 里顺手改 RPA 填词注入路径 —— 抖音/小红书发布成功依赖它，风险外溢到已跑通的产线链路。
+
 ## 注入 mock 的键面盘点要按源码实际排版逐形态扫描——空格差异就能让批修漏网（publish-logging-observability w2-d2，2026-10-05）
 
 - **批修 pattern 的「无空格变体」陷阱（pitfall）**：fallback 批修（#2924）的简写模式是 info() {}，而 settings-roundtrip-contract.test.js 的注入写的是 info () {}（多一个空格）——正则 \s* 没覆盖到吗？覆盖了，但**插入脚本用的是字符串 replace 而非正则**，锚点里写死了无空格形态。正解：批修用正则匹配 + 函数式替换（在 error 项后插 notify），不要用固定字符串锚点。漏网的 5 处让 pplyRuntime 的 notify 调用抛 TypeError，CI Coverage 红了 3 个不在本 PR diff 里的测试文件——表象与日志无关，靠「红文件 require 链反查」才归因到注入 log 的键面。

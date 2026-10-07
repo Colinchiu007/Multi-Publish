@@ -1,0 +1,457 @@
+# CCG 深度双模型审查（QM-6）后端解析缺陷复盘
+
+- 日期：2026-10-07
+- 分支：`ccg-review-claude-path`（worktree `D:/Data/projects/mp-worktrees/mp-ccg-review-claude-path`）
+- 影响面：`scripts/deep-review.sh`（QM-6 本地入口）与其上游 `adversarial-review-loop` 引擎
+- 症状：双模型外部审查时 `claude` 报「不在 PATH」，引擎**静默降级成单后端**
+
+---
+
+## 一、根因
+
+### 1.1 表面现象
+
+跑 CCG 双模型外部审查（QM-6）时，`claude` 不在 PATH。`codeagent-wrapper` 用**裸名** spawn
+后端，于是评审后端缺席。
+
+### 1.2 第一性原因：进程 PATH 里的 C: 盘条目被剥掉了盘符
+
+实测（本机 2026-10-07）进程 `$env:PATH` 中存在两种形态并存的情况：
+
+| 注册表（HKCU + HKLM）里的形态 | 进程 `$env:PATH` 里的形态 |
+|---|---|
+| `C:\Users\<user>\.local\bin` | `\Users\<user>\.local\bin` |
+| `D:\Program Files\npm-global` | `\Program Files\npm-global` |
+
+**Windows 会把「无盘符的 PATH 条目」按当前工作目录所在盘符解析。** 实测：
+
+```
+cwd = D:\Data\projects\mulpub   （仓库所在盘）
+  where claude    -> 找不到
+  where opencode  -> D:\Program Files\npm-global\opencode
+  where codex     -> D:\Program Files\npm-global\codex
+
+cwd = C:\
+  where claude    -> C:\Users\<user>\.local\bin\claude.exe
+  where opencode  -> 找不到
+  where codex     -> 找不到
+```
+
+两组条目**没有任何一条同时对两个盘符有效**。仓库 cwd 在 D: → 恰好 `claude` 挂、
+`opencode`/`codex` 好用。这与 `.quality-gates.md` 里那次
+「通道偏差声明：primary 前端 claude 静默空转（rc=2、completed without agent_message
+output、无产物）⇒ 降级 opencode 免费模型」的现象完全吻合。
+
+`claude.exe` 本体健康（`2.1.278 (Claude Code)`），注册表里的 PATH 也是对的——坏的只是
+**会话进程继承下来的那份**。git 钩子与非登录 shell 又不重读注册表，于是稳定复现。
+
+### 1.3 第二性原因：入口脚本把「告警」当成了「处理」
+
+`scripts/deep-review.sh` 由 `d98f54db`（PR #2955，2026-10-06 01:09:40）**一次引入**，
+下面两行从出生就在，不是从可用态退化来的：
+
+```sh
+command -v claude   >/dev/null 2>&1 || say "⚠ 找不到 claude —— 评审后端不可用，引擎会降级为单后端"
+command -v opencode >/dev/null 2>&1 || say "⚠ 找不到 opencode —— 出方案后端不可用，跨家族校验会降级"
+```
+
+这两句**发现了问题，但不改变任何行为**：不补 PATH、不改退出码、不阻断。评审照跑、
+结论照出，只是少了一路跨家族交叉验证。旁边对 `codeagent-wrapper` 的处理恰恰相反
+（找不到就 `exit 2`）——同一个「依赖体检」段落里两种哲学并存。
+
+---
+
+## 二、逃逸分析（逐层）
+
+| 层 | 为什么没拦住 |
+|---|---|
+| 单元测试 | `deep-review.sh` **从来没有任何测试**。它不在任何 `node --test` 列表里，CI 也没有结构锁保护。本 PR 补 7 例。 |
+| 集成测试 | 深度审查**明确不进 CI**（脚本头注释：单次 >15 分钟，挂 required check 会把仓库锁死）。于是 PR 层也没有它的回归保护，只能靠人工把关。 |
+| 端到端 | 有 QM-6 人工环节，产物是 `.quality-gates.md` 记录 + `.ccg/qm6-*.json`。但**人眼看的是评审结论，不是「几路后端参与了」**。 |
+| 代码审查 | `d98f54db` 的评审重点在「wrapper 缺失要 exit 2」；两条 `|| say` 看起来是合理的降级提示。关键是**评审者当时的环境里 claude 是可解析的**——环境恰好是好的，缺陷就不可见。 |
+| 流程 | `.quality-gates.md` 允许把降级「如实登记」后继续。降级因此从异常变成**可接受常态**，掩盖了它其实是环境缺陷而非审查本身的问题。 |
+
+---
+
+## 三、系统性漏洞定位
+
+1. **告警不改行为**（结构性根因）。凡是「发现了但照跑」的检查，实质上把缺陷转化为
+   沉默。本仓的 fail-closed 原则在别处执行得很严，唯独这里开了口子。
+2. **依赖继承的 PATH 而非绝对路径**。凡是把「环境可解析性」当输入的脚本都在赌会话
+   环境。值得注意的是 `deep-review.sh` 自己的第 1 步**已经**为 `node` 写过同类兜底
+   （`fnm env` 兜底，注释写明「git 钩子不继承登录 shell 的 PATH，node 常常在这里丢失」）——
+   这个问题在本仓已被认知过一次，但只修了 `node` 一个工具，没推广到评审后端。
+3. **缺诊断入口**。真降级时没有一条命令能问「为什么少了一路」，只能靠读引擎日志反推。
+4. **降级被流程合法化**（掩盖层）。见上表最后一行的流程层。
+
+---
+
+## 四、修复与回归保护
+
+### 4.1 机器层（本机环境态，不在版本控制内）
+
+在**全盘符限定**的 PATH 目录里放一个指向真身的符号链接，使其与 cwd 所在盘符无关：
+
+- 位置：`C:\hermes-home\bin\claude.exe` → `C:\Users\<user>\.local\bin\claude.exe`
+  （`C:\hermes-home` 是 junction，真实路径 `C:\Users\<user>\bin`）
+- 为什么用符号链接而不是 `.cmd` shim：实测 wrapper 走 `CreateProcess`
+  （`UseShellExecute=false`），**不解析 `.cmd`**，放 `.cmd` 上去只会把失败推迟到引擎深处。
+  符号链接还不会像硬链接那样在 Claude Code 自更新后滞留在旧版本。
+- 实测收益：`where claude` 在 D: 与 C: 两个盘符下均命中；
+  `codeagent-wrapper --backend claude` 端到端 `exit=0`、stdout 返回正常内容。
+
+### 4.2 仓库层（本次 PR，持久化）
+
+`scripts/deep-review.sh` 不再信任继承的 PATH：
+
+1. 新增 `posix_dir` / `candidate_dirs` / `resolve_backend` / `report_backends`。
+   候选目录：`$HOME/.local/bin`、`$HOME/bin`、`$APPDATA/npm`、`npm prefix -g`
+   （经 `cygpath -u` 或 sed 归一）、`$CCG_BACKEND_BIN_DIRS`（显式追加）。
+2. 命中即把目录 `prepend` 进 PATH 并 **`export`**（wrapper 是子进程，看不到未导出的
+   shell 变量——这是「补了等于没补」的常见坑）。
+3. 状态四取一并如实分开报出：
+   - `PATH` 裸名已可解析
+   - `ABS` 原本不可解析，已按绝对路径补入
+   - `CMD` 只找到 `.cmd`/`.bat` → **明确判为不可用**并说明 CreateProcess 限制
+   - `MISS` 彻底找不到 → 给出可操作修法
+4. 新增 `--check-deps`：**纯依赖体检入口**，刻意放在定位 node / 驱动 / 判定记录**之前**，
+   即「环境坏掉时的第一手诊断」自己不能依赖那些可能已坏的东西。
+   为此把 `ROOT` 的计算从 `dirname -- "$0"` 改成参数展开——`dirname` 原本是全脚本第一个
+   外部依赖，实测它会先于体检逻辑把 `--check-deps` 打死
+   （`dirname: command not found`）。
+5. 退出码分三档：两个后端都在 = 0；有缺失 = 2。**单后端不算通过**——那正是本条坑
+   造成的形态，把它判 0 会让体检语义与它要检的缺陷相反。主流程仍保持非致命（与旧语义
+   一致），要 fail-closed 请显式用 `--check-deps`。
+
+### 4.3 回归保护测试
+
+`scripts/deep-review-deps.test.js`，8 例，用**假 HOME + 最小 PATH**（`/usr/bin:/bin`）
+精确复现「后端不在 PATH 却已安装」这一条件。
+
+红绿口径要分清两个阶段（QM-6 评审 i4 指出原文档数字对不上）：
+
+- **首版 5 例**在修复前实测 **5/5 全红**（当时脚本只有这 5 条断言）。
+- 随后为 QM-6 评审补到 8 例；**修复后 8/8 全绿**。
+  编号 ①–⑧ 连续，每条注释与 `test()` 顺序一一对应。
+
+其中 3 例是 QM-6 评审直接催生的：② 的 `rc ≠ 0` 断言（i1）、④ 的含空格/含冒号
+候选目录（i2 + 下面第四节记的额外缺陷）、⑦ 从字符串级锁改成行为级（i7）。
+
+已接线进 `.github/workflows/quality-gate.yml` 的 Gate 2b
+（`check-unwired-tests` 实跑：检查域内 59 份测试全部接线或按欠账登记，rc=0）。
+
+### 4.4 真实环境取证
+
+```
+# 真实环境（PATH 正常）
+$ sh scripts/deep-review.sh --check-deps
+  ✓ codeagent-wrapper  /c/Users/<user>/.claude/bin/codeagent-wrapper.exe
+  · claude  [PATH] 裸名已可解析（无需干预）（评审后端（主力））
+  · opencode  [PATH] 裸名已可解析（无需干预）（出方案后端 / 跨家族校验）
+体检通过：后端可用。                                    rc=0
+
+# 故意打成坏 PATH（模拟无机器层符号链接时的真实形态）
+$ PATH=/usr/bin:/bin sh scripts/deep-review.sh --check-deps
+  · claude  [ABS] 已从绝对路径补入 PATH: /c/Users/<user>/.local/bin/claude
+  · opencode  [MISS] 找不到（PATH 与候选目录均未命中）
+      ↳ 修法：装一个（npm i -g @anthropic-ai/claude-code），…
+体检不通过：见上方逐条修法。                            rc=2
+```
+
+第二段是本次修复的核心证据：坏 PATH 下 `claude` 仍被**绝对路径分支救回**，
+`opencode` 诚实报缺失并给修法，退出码自解释。
+
+---
+
+## 五、QM-6 拿自己的修复审自己（第二轮）
+
+修复推上去后，用**刚修好的通道**对本次改动跑了一遍 QM-6 深度双模型审查
+（commit `c689da94`，基线 `origin/main`，引擎自报
+`跨家族校验: proposer=opencode critic=claude 通过`）——这本身就是原问题已修复的
+最强证据：改动前这里是 claude 静默空转。
+
+`critic=claude` 给出 7 条（1 Critical + 2 Warning + 4 Info，最低分 correctness 5），
+引擎走自扮演裁决出口（`self_play`，置信权重 0.6，低于真跨家族的 1）。逐条处置：
+
+| id | 严重度 | 问题 | 处置 |
+|---|---|---|---|
+| i1 | Critical | `CMD` 分支既不置 `_rb_rc` 也不计数 → 两个后端只有 `.cmd` 时会打印「深度审查根本起不来」却 exit 0 并打印「体检通过」，自相矛盾 | 已修：`CMD` 置 `_rb_rc=2`；② 补 `rc ≠ 0` 断言 |
+| i2 | Warning | `for d in $(candidate_dirs)` 未加引号，含空格候选被按 IFS 拆词。本机 `npm prefix -g` 实测返回 `D:\Program Files\npm-global` ⇒ **「救 opencode/codex」那条分支在本机完全失效** | 已修：改 `while IFS= read -r` + here-doc（不用管道，管道会开子 shell，`export PATH` 与 `return` 都会丢） |
+| i3 | Warning | 主流程 `report_backends \|\| true` 之后无条件打印「依赖体检通过」 | 已修：按计数分支；**一个后端都没有时提前 `exit 2`** |
+| i4 | Info | 文档「修复前 5/5 全红」与 7 例对不上 | 已修：分两阶段写清（首版 5 例 5/5 红；最终 8 例 8/8 绿） |
+| i5 | Info | 注释称候选清单「不依赖 PATH 本身」属过度声称（`npm prefix -g` 走 `command -v npm`） | 已修：注释按实际能力收窄 |
+| i6 | Info | 测试注释编号混乱（⑥b、两个 ⑦、缺 ⑤） | 已修：重排为 ①–⑧ |
+| i7 | Info | ⑦ 用正则精确匹配 `${_self_dir%/*}` 实现串，合法重构会误报红 | 已修：改成行为级锁——往 PATH 塞一个必定失败的 `dirname`，看体检是否照常通过 |
+
+### 5.1 评审没命中、但被**自己的新测试**当场抓出的 3 个缺陷
+
+这一节值得单列：它们说明「写完就以为对了」和「有测试」是两件事。
+
+1. **`CCG_BACKEND_BIN_DIRS` 按 `:` 切分**。Windows 盘符自带冒号，
+   `C:\...\Program Files\npm-global` 被劈成 `C` 和 `\...` 两个废目录。
+   改为一律只按**分号**切（换行也算），消费方本就按行读。
+2. **候选列表最后一行被静默丢弃**。`printf '%s'` 不带尾换行，而
+   `while IFS= read -r` 在 EOF 处读到内容却返回非零 ⇒ 最后一个候选没被检查。
+   两处都改：生产者用 `printf '%s\n'`，消费者用 `while ... || [ -n "$_d" ]`。
+3. **`set -u` 下 `[ -n "$APPDATA" ]` 直接中止 `candidate_dirs`**。
+   最小 env（无 `APPDATA`）里，排在后面的 npm / `CCG_BACKEND_BIN_DIRS` 分支
+   一句都跑不到，候选列表被静默截短，后端于是被判「找不到」。
+   ——**这正是本次要消灭的「静默降级」，出现在修复自己的代码里**。
+   全部变量改 `${VAR:-}`（`$HOME` 在 4 处同样加固）。
+
+第 3 条尤其值得记住：它的失败形态与原 Bug **完全同构**（保护逻辑自己静默失效，
+外部只看到「找不到」）。凡是「负责发现问题的代码」，
+它自己的失败模式必须也走「明确报错」而不是「安静地少做一点」。
+
+### 5.2 第二轮之后的状态
+
+- `bash -n` rc=0；`node --test scripts/deep-review-deps.test.js` **8/8 绿**
+- 真实环境三档文案与退出码实测全部正确：
+
+| 形态 | 文案 | rc |
+|---|---|---|
+| 双模型齐备 | `体检通过：后端可用。`（**无**降级措辞） | 0 |
+| 降级（1/2） | `⚠ 只剩单后端可用 …` + `体检不通过` | 2 |
+| 全缺（0/2） | `✗ 没有任何评审后端可用 —— 深度审查根本起不来。` + `体检不通过` | 2 |
+
+「双模型齐备时误报只剩单后端」这个缺陷是**跑真实环境**时发现的（`_rb_ok` 只是
+0/1 标志，2/2 与 1/2 长得一样），已改为按**计数**分档，并给测试①补上
+「齐备时不得出现降级措辞」的断言。教训同 5.1：**夹具能过的测试 ≠ 真实环境正确**。
+
+---
+
+## 六、第三轮 QM-6：修复第一版其实是假绿灯
+
+第二轮处置完后再审一轮（commit `1091b4e4`），6 条，**最低分从 5 掉到 3**。
+其中 i1 是 Critical，而且直指第一版修复**根本没生效**。
+
+### i1（Critical）：`PATH` 修复写在子 shell 里，报告是绿的、修复是无效的
+
+第一版 `report_backends` 用 `out="$(resolve_backend "$tool")"` 收集结果，
+而 `resolve_backend` 里的 `PATH=…; export PATH` 就发生在**命令替换的子 shell** 中，
+一退出即丢。后果：
+
+- 报告照样打印「已从绝对路径补入 PATH」——**看起来修好了**
+- 主流程 `exec node $DRIVER` → `codeagent-wrapper` 仍按**原 PATH** 裸名 spawn
+- claude 照样找不到 ⇒ **静默降级在目标场景下原样复现**
+
+已用最小复现实证（不是推理）：
+
+```sh
+f() { printf 'X'; PATH="/zzz-marker:$PATH"; export PATH; }
+out="$(f)"
+case "$PATH" in /zzz-marker:*) echo 传出 ;; *) echo "丢在子 shell 里" ;; esac
+# → 结论：PATH 改动丢在子 shell 里 —— 父 shell 未被修改
+```
+
+**为什么第一轮没发现**：测试①只断言了**文案与 rc**，从未验证「恢复之后裸名
+真能解析」。这正是「有测试」与「测到了要测的东西」的区别。
+
+处置：
+1. `resolve_backend` 改为**写全局变量** `_RB_CODE` / `_RB_MSG`，调用方
+   **直接调用**，全程不走命令替换。
+2. `--check-deps` 末尾新增**裸名自检**：在当前 shell 里 `command -v` 每个后端并打印
+   解析结果。自检与体检结论矛盾时一律判不通过——**宁可误报红，也不放假绿灯过去**。
+3. 新增 3 例：⑥b（报「已补入 PATH」后裸名自检必须真能解析）、
+   ⑥c（自检失败不得判通过）、并保留 ⑥ 的三档断言。
+
+### i2（Warning）：健康判据与 spawn 判据错配
+
+msys 的 `command -v` 会把 PATH 里的 **shim**（`.cmd` / 无扩展名）也判为「已可解析」，
+而 wrapper 走 `CreateProcess` 起不了它们 ⇒ `PATH` 分支会误报
+「裸名已可解析（无需干预）」，静默降级仍然无告警。
+原实现只在**候选目录**分支查文件类型，PATH 命中那条路从没查过。
+已修：PATH 分支对 `command -v` 的结果同样做 `.cmd`/`.bat` 判定，命中走 CMD 文案并置 rc=2。
+
+### i3（Warning）：修法文案张冠李戴
+
+`MISS` 分支把包名写死成 `@anthropic-ai/claude-code`，`opencode` 缺失时也让用户装
+claude-code——装完 opencode 仍缺。已修：按后端给包名
+（`claude` → `@anthropic-ai/claude-code`，`opencode` → `opencode-ai`）。
+实测已确认输出变成 `npm i -g opencode-ai`。
+
+### i4（Info）：我那个「行为级锁」本身是假的
+
+⑦ 号测试声称是行为级锁（往 PATH 塞一个必失败的 `dirname`），但**毒桩没加执行位**，
+`command -v dirname` 直接跳过它落回真 `dirname`——毒化从未发生，实际只靠下面那行
+字符串正则兜底。已修：`chmod +x` 后**先断言毒桩真的生效**（`command -v dirname`
+必须指向毒桩目录），再跑被测断言。声称的回归保护必须是真在跑的。
+
+### i5（Info）/ i6（Info）
+
+- step4 有两行内容重复的「保持非致命」注释、测试④上方残留整段旧版注释 → 已清理。
+- 候选目录只有 `npm prefix` 经 `posix_dir` 归一，`$APPDATA/npm` 与
+  `CCG_BACKEND_BIN_DIRS` 以 Windows 反斜杠形态直接进 PATH → 已改为**全部**经
+  `posix_dir` 归一。实测输出已统一为 `/c/hermes-home/bin/claude`、
+  `/d/Program Files/npm-global/opencode` 这种 POSIX 形态。
+
+### 6.1 第三轮之后的端到端取证
+
+不再只看报告，直接用修复后的 PATH **真去 spawn 一次 wrapper**：
+
+```
+# 坏 PATH（/usr/bin:/bin）下跑 --check-deps
+  · claude  [ABS] 已从绝对路径补入 PATH: /c/Users/<user>/.local/bin/claude
+  · 裸名自检 claude → /c/Users/<user>/.local/bin/claude
+
+# 取该目录拼进 PATH，真正 spawn wrapper
+command -v claude -> /c/Users/<user>/.local/bin/claude
+wrapper rc=0
+PONG
+```
+
+这才是「引擎真的能拿到后端」的证据。测试最终 **10/10 绿**。
+
+### 6.2 这一轮最该记住的
+
+同一处修复，第一版能通过自己写的全部测试、报告还能打印成功文案、CI 也是绿的，
+**而它对目标场景完全无效**。真正抓住它的是外部评审对「你验证的是不是要修的东西」
+的质疑，加上一次刻意设计的**端到端取证**。
+
+规律：**「我测了」不等于「我测到了要修的那个性质」**。
+凡是「保护/修复逻辑」，验收标准必须是**被保护对象的可观测行为**，
+而不是修复代码自己的返回值或文案。
+
+---
+
+## 七、第四轮 QM-6：找错了两次机理，才摸到真正的病根
+
+第四轮（commit `da0eb2f3`）7 条，最低分 4。两个 Critical。i1 的**问题是真的**，
+但我一开始**修错了方向**——这一节记的是怎么错的，比记怎么对更有用。
+
+### 7.1 我先后做错的三件事
+
+**错法一（第三版）**：以为 `.cmd`/`.bat` 和 MSYS 下的无扩展名 sh shim
+wrapper 都起不来，于是加了一套「按扩展名判定可 spawn」的分类器。
+依据是我先前用 **.NET `Process.Start`（`UseShellExecute=false`）**测出
+「raw CreateProcess 起不了 `.cmd`」。
+
+**但 wrapper 是 Go 写的。Go 在 Windows 上能直接跑 `.cmd`/`.bat`。**
+实测真身 `npm-global\opencode.cmd` 被 wrapper 正常拉起、`rc=0`。
+把一个只对 raw CreateProcess 成立的结论推广到 Go 进程上，
+就是「我测了」但「我测的不是它」。
+
+**错法二**：以为 bash 的 `command -v` 命中就等于 wrapper 能起，所以只在
+解析失败时才补 PATH。
+
+**错法三**：以为 `posix_dir` 归一出来的 `/d/...` 形态对 Go 是致命的。
+
+### 7.2 真正的病根：Go 的 ErrDot
+
+直接去读 wrapper 的报错，才是决定性的：
+
+```
+Failed to start opencode: exec: "opencode": cannot run executable found
+relative to current directory
+```
+
+这是 Go 的 `ErrDot`：`exec.LookPath` 一旦返回**相对**路径就拒绝执行。
+而那些被剥掉盘符的 PATH 条目（`\Program Files\npm-global`）在 Go 眼里
+正是「相对」的——bash 会按 cwd 盘符补全它们，Go 不会。
+
+于是矛盾解开了：
+
+> **同一份 PATH 下，bash 的 `command -v opencode` 成功，wrapper 却直接失败。**
+
+这正是本条缺陷最隐蔽的形态：**bash 侧一切正常，引擎侧起不来**。
+所以判据必须落在「绝对目录有没有被放到 PATH 最前」，而**不是**
+「裸名能不能解析」。
+
+对照实验（决定性）：
+
+| 变体 | 结果 |
+|---|---|
+| A 原始继承 PATH | `rc=1` ErrDot |
+| B 注入原生形态 `D:\Program Files\npm-global` | `rc=0` 正常返回 |
+| C 注入 MSYS 形态 `/d/Program Files/npm-global` | `rc=0` 正常返回 |
+
+B/C 都通 ⇒ 错法三也被推翻：**MSYS 会翻译，POSIX 形态无害，起决定作用的是
+「绝对 + 排最前」**。
+
+### 7.3 最终实现
+
+`resolve_backend` 改成**总是**把找到后端的绝对目录 prepend 到 PATH 最前
+（而不是只在解析失败时），并用裸名自检确认结果。文件形态不再参与判定。
+
+配套修掉第四轮其余各条：
+
+- i2（Critical）：自检 `else` 分支只打印「仍不可解析」却不置 rc=2 ——
+  我注释里承诺的「矛盾一律判不通过」只实现了 `.cmd` 那一格。已置 rc，
+  并补 ⑥c 覆盖。
+- i3（Warning）：自检只做在 `--check-deps`，主流程没有 → 已下沉到
+  `report_backends` 末尾，两条路径共用。
+- i4（Info）：测试桩从未 `chmod +x`，POSIX 上 `command -v` 按 X_OK 过滤 ⇒
+  「10/10 绿」只在 Windows msys 成立。已改为按平台命名 + 显式 chmod。
+  （注：CI 上 Gate 2b 对 ubuntu 实跑通过，说明 bash 在该环境下的宽松度与
+  我的推断不同；但显式 chmod 仍然是对的，不该依赖平台宽容。）
+- i5 / i6：重复与陈旧注释已清理；候选目录全部经 `posix_dir` 归一。
+
+### 7.4 又一次被自己的测试抓住
+
+新分类器上线后测试直接转红 4 条，暴露了另一个平台陷阱：
+**Git Bash 下 `command -v` 报出的路径会省略 `.exe`**（磁盘上是
+`opencode.exe`，它报 `opencode`）。不先归一就会把真正的 exe 误判。
+
+更阴的是归一本身也踩坑：**MSYS 的文件测试对扩展名不敏感**，
+磁盘上只有 `claude.exe` 时 `[ -f "$d/claude" ]` 依然为真
+（实测 `OSTYPE=cygwin`）。所以只能**先查无歧义的扩展名**、再回落裸名。
+这两条都是靠单点探针脚本测出来的，不是推理出来的。
+
+### 7.5 第四轮之后的完整验收
+
+不再看报告，直接用脚本产出的 PATH 真去 spawn 两个后端：
+
+```
+# 真实环境 --check-deps
+  · claude   [ABS] 已把绝对目录 /c/Users/邱领/.local/bin 补到 PATH 最前
+  · opencode [ABS] 已把绝对目录 /d/Program Files/npm-global 补到 PATH 最前
+体检通过：后端可用。                                              rc=0
+
+# 用该 PATH spawn wrapper
+claude    rc=0
+opencode  rc=0
+```
+
+测试最终 **11/11 绿**。
+
+### 7.6 这一轮真正的教训
+
+前三轮我在修「让报告好看且自洽」，第四轮才发现**报告自洽与引擎可用是两回事**。
+而这一轮我又被自己的两个错误推论带偏（`.cmd` 不可用、`command -v` 命中即等于可用），
+两次都是靠**直接去读真实进程的报错**才纠正。
+
+规律：
+
+1. **先看被保护对象的真实报错，再动手写保护逻辑。**
+   `cannot run executable found relative to current directory` 这一行，
+   比我三轮推理加起来的信息量都大。
+2. **不同运行时的规则不同，不能跨运行时推广结论。**
+   raw CreateProcess 起不了 `.cmd`，不等于 Go 起不了。
+3. **当同一个「可用性」被两套机制判定时，判据必须选跟消费者同一套。**
+   bash 说得通不代表 Go 说得通——这与 §1.2 那个「同一份 PATH，cwd 在 D: 能用、
+   cwd 在 C: 不能用」是同一种病：**环境一致性是假象，只有消费者的真实解析才算数**。
+
+---
+
+## 八、预防措施
+
+1. **已落地**：告警改行为（`--check-deps` 三档退出码）+ 绝对路径解析 + 独立诊断入口 +
+   防回潮结构锁。
+2. **本仓既有认知的推广**：第 1 步为 `node` 写过 PATH 兜底，本次把同一思路推广到评审
+   后端。后续若有脚本把「某个 CLI 能否解析」当输入，应默认继承同一套候选目录解析，
+   不要新写 `command -v` 一次性告警。
+3. **流程层待办（不在本 PR 范围）**：
+   - `.quality-gates.md` 允许 QM-6 降级「如实登记」，建议补一条：**降级登记时必须附
+     `--check-deps` 输出**，否则「登记」会退化成「免责」。
+   - QM-6 记录应显式写明**实际参与了几路后端**，而不只是结论。
+4. **未在本 PR 修**：其他脚本对继承 PATH 的依赖（本次只审了 `deep-review.sh` 一条路径）。
+
+## 九、附：一条无害观察
+
+wrapper 诊断头打印的命令行里 `--setting-sources` 后面是**空值**：
+
+```
+Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+```
+
+实测该形态调用正常（`exit=0`、stdout 正常），故判定为无害，未按缺陷处理，仅留痕。

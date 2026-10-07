@@ -32,6 +32,8 @@ function createAccountApi(ipcRenderer) {
     accountDelete: (accountId) => ipcRenderer.invoke('account:delete', accountId),
     accountCheckLogin: (platform, accountId) => ipcRenderer.invoke('account:check-login', { platform, accountId }),
     accountBatchCheckLogin: (accountIds) => ipcRenderer.invoke('accounts:batch-check-login', { accountIds }),
+    // 诊断：只返回 cookie **名**（永不含 value），用于确认发布链硬凭据是否存在
+    accountCredentialNames: (platform, accountId) => ipcRenderer.invoke('account:credential-names', { platform, accountId }),
     accountBatchOpenLogin: (accountIds) => ipcRenderer.invoke('accounts:batch-open-login', { accountIds }),
     accountList: () => ipcRenderer.invoke('account:list'),
     accountSetDefault: (platform, accountId) => ipcRenderer.invoke('store:set-default-account', { platform, accountId }),

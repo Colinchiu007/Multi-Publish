@@ -100,7 +100,13 @@ vi.mock("@/api/publisher", () => ({
   onQrCodeOpened: vi.fn(() => vi.fn()),
   publishBatch: vi.fn(), onProgress: vi.fn(() => vi.fn()),
   sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
-  batchCreate: vi.fn(), storeGetSetting: vi.fn(),
+  batchCreate: vi.fn(),
+  // useBatchPublish 的依赖注入对象在 setup 期即求值（提交编排已拆到 runBatchPublish.js，
+  // 依赖由调用方一次性传入），因此这些导出在**挂载时**就会被访问。缺一个就在
+  // mount 阶段直接抛「No \"batchX\" export is defined on the mock」，而不是等到点提交。
+  batchExecute: vi.fn(), batchSchedule: vi.fn(), batchGet: vi.fn(), batchCancel: vi.fn(),
+  retryTask: vi.fn(), onBatchProgress: vi.fn(() => vi.fn()),
+  storeGetSetting: vi.fn(),
   offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
   offlineAddToCache: vi.fn(), syncAll: vi.fn(), listAccounts: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   firstRunCheck: vi.fn().mockResolvedValue({ setupDone: false }),

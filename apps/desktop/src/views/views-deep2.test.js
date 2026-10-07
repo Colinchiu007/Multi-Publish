@@ -66,6 +66,10 @@ vi.mock("@/api/publisher", () => ({
   onPipelineUpdate: vi.fn(() => vi.fn()),
   sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
   batchCreate: vi.fn(),
+  // useBatchPublish 的依赖注入对象在 setup 期即求值，缺一个就在 mount 阶段直接抛
+  // 「No \"batchX\" export is defined on the mock」（见 views-coverage.test.js 同处注释）。
+  batchExecute: vi.fn(), batchSchedule: vi.fn(), batchGet: vi.fn(), batchCancel: vi.fn(),
+  retryTask: vi.fn(), onBatchProgress: vi.fn(() => vi.fn()),
   storeGetSetting: vi.fn(),
   offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
   offlineAddToCache: vi.fn(),

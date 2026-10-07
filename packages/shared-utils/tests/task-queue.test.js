@@ -175,9 +175,11 @@ describe('TaskQueue', () => {
     queue.setOwnerSubjectProvider(() => null)
 
     expect(() => queue.getStatus()).not.toThrow()
-    expect(queue.getStatus()).toMatchObject({ pending: 0, running: 0, history: 0 })
+    expect(queue.getStatus()).toMatchObject({ pending: 0, running: 0, delayed: 0, history: 0 })
     expect(queue.getPendingTasks()).toEqual([])
-    expect(JSON.parse(queue.serialize())).toEqual({ queue: [], running: [] })
+    // 身份不可用时快照不得泄露任何任务；2026-10-06 起快照含 delayed 段
+    // （频控等待任务此前完全不在持久化范围内，会静默丢失）。
+    expect(JSON.parse(queue.serialize())).toEqual({ queue: [], running: [], delayed: [] })
     expect(() => queue.add({ platform: 'douyin', article: {} })).toThrow('任务队列无法识别当前用户')
   })
 

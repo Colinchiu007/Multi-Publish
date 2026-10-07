@@ -1,3 +1,289 @@
+# [unreleased] fix(desktop): 覆盖率门禁纳入 Vue SFC —— 146 个 .vue 此前对覆盖率贡献恒为 0
+
+### 缺陷
+
+`apps/desktop/vitest.config.js` 的 `coverage.include` 共 13 条，**全部是 `*.js` glob**，
+而 `apps/desktop/src` 下有 **146 个 `.vue`**。它们对覆盖率的贡献恒为 0，而承载的却是
+渲染分支、事件处理、生命周期、computed 推导等绝大部分界面逻辑。
+
+结果是门禁的数字一直在**低报自己测到了什么**：「覆盖率 55%」是在一个刻意排除了全部
+界面代码的文件集上量出来的。旧门禁的真实含义是「我不看你测了多少界面代码」，
+而不是「界面代码测得不好」。
+
+### 修复
+
+`coverage.include` 增加 `src/**/*.vue`（+6 行，含说明注释）。
+
+### 实测：阈值一个都不用改
+
+全量跑测（768 文件 / 13974 用例）零失败后：
+
+| 口径 | 文件数 | statements | branches | functions | lines |
+|---|---|---|---|---|---|
+| 旧口径（13 条 `*.js` 实际命中） | 495 | 55834 / 76.71% | 51416 / 67.61% | 8039 / 78.37% | 47617 / 78.91% |
+| SFC 部分（本次新增） | 146 | 16260 / 76.02% | 16143 / 68.87% | 4282 / 66.60% | 13849 / 79.52% |
+| **合计（新口径）** | 641 | 72094 / **76.55%** | 67559 / **67.91%** | 12321 / **74.28%** | 61466 / **79.05%** |
+
+四项全部远高于现有阈值 55 / 40 / 60 / 55，**阈值保持不变**。
+
+门禁文件集实际膨胀：statements **+29%**、functions **+53%**。唯一真正下降的比率是
+functions（78.37% → 74.28%），因为 SFC 带来 4282 个函数而其中仅 66.60% 被覆盖 ——
+这正是过去被排除在外的那部分真实缺口，现在第一次可见。
+
+SFC 覆盖率并不比 `.js` 差（B 组 statements 76.02% vs A 组 76.71%，几乎持平）。本仓
+视图测试存量相当厚（`CreateView.test.js` 961 行、`ResultView.test.js` 954 行、
+`Collection.test.js` 560 行、`Accounts.test.js` 743 行），它们一直在真实测这些组件，
+只是覆盖率门禁从来没把这些代码算进去。
+
+### 回归保护
+
+新增 Gate 15c `.github/scripts/check-coverage-include-sfc.js` + `.test.js`（11 用例）。
+这类变更删掉不会让任何门禁变红，所以判据不止断言「配了 `.vue`」：
+
+1. 存在能匹配 `.vue` 的 include 条目 —— 防整条被删
+2. 这些 glob **实测命中 ≥1 个真实文件** —— 防假 glob（`src/**.vue` 少一个 `*`，
+   与 `src/**/*.vue` 肉眼几乎一样，真实引擎下零命中）
+3. `src` 下**每个** `.vue` 都被覆盖 —— 防新目录没被带上
+4. `thresholds` 存在且为正数 —— 防删阈值或置 0
+
+glob 展开用 `fs.globSync`（Node 22 自带，vitest 底层同一套引擎）而非 `minimatch`：
+后者在本仓只是传递依赖（实测解析到 3.1.5，导出形状与 v9+ 不同），照抄另一种写法会
+`minimatch is not a function` —— 恰是本门禁要防的那类静默失效的同构形态。
+
+反证：撤掉 `src/**/*.vue` → 门禁 exit 1 并点名「146 个 .vue 未被覆盖」；恢复 → PASS
+（146/146）。
+# [未发布] feat(xiaohongshu): 打通小红书草稿箱发布——真实 XYW_ 签名 + 三步上传链路（xhs-draft-publish，2026-10-07）
+
+### 起因：7 个平台里唯一一条走不通的链路
+热门选题 E2E 要求「能发的都发，小红书只需放草稿箱」。此前小红书发布链**从未真正可用**，
+三处实证缺陷：
+
+| # | 缺陷 | 证据 |
+| --- | --- | --- |
+| 1 | 签名是占位实现 | `getXiaohongshuSign` = `md5(ts + "MirAR" + body)`，与平台算法无关 |
+| 2 | 签名被塞进 query | `params = { sign: {X-s, X-t} }` ⇒ 序列化成 `sign=[object Object]` |
+| 3 | 端点不存在 | adapter 打 `/api/publish`，平台无此端点 |
+
+`signer-assembly.js` 亦标着 `verified: false` / `moduleId: -1`，注释「x-s 依赖外包签名服务，
+本波只留 provider 槽不激活链」——该链路从未启用。
+
+### 关键发现：X-s 是纯 AES-128-CBC，不需要浏览器
+
+公开资料（Cloxl/xhshow，MIT；Go 版 tamnd/xiaohongshu-cli 独立复现同常量）显示：
+
+```
+X-s = "XYW_" + hex(AES-128-CBC(
+         base64("x1={md5('url='+fullUri)};x2={envFlags};x3={a1};x4={ts};"),
+         key = 7cc4adla5ay0701v, iv = 4uzjr7mbsibcaldp))
+```
+
+纯本地计算即可，**故不走隐藏浏览器抽签**：不开窗即不引入 `wechat_mp` / `baijiahao`
+那类隐藏窗口原生崩溃面，同时不受 `verified` 闸门约束。
+
+**只实现 `XYW_`，不实现 `XYS_`** —— 老 `XYS_` 形态已被小红书数据接口以 HTTP 406 拒绝。
+
+### 实现
+
+- `signer-local.js`：真实 XYW_ 实现（替换 md5 占位）+ `x-s-common` / traceid / `x-rap-param`
+- `publish/platforms/xiaohongshu-draft.js`（新增）：三步链路
+  `permit → ros-upload PUT → web_api/sns/v2/note`，**默认 `draft: true`**（落创作者中心草稿箱）
+- `adapters/xiaohongshu.js`：重写 —— 修端点、修签名结构（改独立 header）、加草稿语义
+- `signer-assembly.js`：小红书新增 `localAlgorithm` 求签形态（不开窗口）
+
+### 交叉校验抓到的真实 bug
+
+实现后专门写了 `signer-local-xyw-crosscheck.js`：**刻意不复用**实现里的任何常量与函数，
+照 Python 源码独立复算一遍再比对。首轮即抓到两处隐蔽错误：
+
+1. **填充时机错** —— 参考实现是 `base64(message)` **之后**才 PKCS#7 填充；
+2. **双重填充** —— `createCipheriv('aes-128-cbc')` 默认 `autoPadding=true` 会再补一次，
+   密文多出整整一个块。
+
+修复后交叉校验输出 `OK cross-check passed (JS output == Python reference output)`。
+
+### fail-closed 原则（贯穿实现）
+
+缺 `a1` / 缺 `Authorization` ⇒ 抛错且**不发请求**；无图片 ⇒ 抛错（平台不支持纯文字笔记）；
+`code != 0` ⇒ 如实抛错；签名不可用 ⇒ 抛错，**绝不退回占位签名**。
+
+### 测试
+
+| 文件 | 用例 | 结果 |
+| --- | --- | --- |
+| `signer-local-xyw.test.js` | 7 | ✅ 全绿 |
+| `xiaohongshu-draft-chain.test.js` | 6 | ✅ 全绿 |
+| `electron/tests/signer-xhs-local.test.js` | 4 | ✅ 全绿 |
+| `signer-local-xyw-crosscheck.js` | 交叉校验 | ✅ 与参考实现逐字节等价 |
+
+包内全量：`2 failed / 32 passed`（279 用例）—— 两个失败文件在 **main 上同样失败**
+（`describe is not defined`，vitest/mocha 混用的既有环境问题），**非本次引入**。
+
+### 遗留（不假装已闭合）
+
+- **草稿箱真机写入未验证**：本 PR 完成实现 + 契约测试 + 交叉校验，真机验证前不得宣称可用
+- 平台改签名算法 / 指纹常量需同步维护（已集中单点）
+- 草稿箱接口无官方公开文档，端点形态依据多个公开实现，真机响应为最终判据
+
+---
+
+
+
+# [未发布] fix(queue): 频控等待任务（_delayed）纳入可观测与持久化——修批量发布队列饿死（queue-delayed-observability，2026-10-06）
+
+### 起因：多平台批量发布 21 个任务只跑了 5 个
+- ha-b 图文批次（3 草稿 × 7 平台）实测：21 个发布任务只有 5 个真正执行，
+  其余「入队了却既无历史也不派发」，而 `queue:status` 报 `pending=0 running=0`
+  —— 看起来队列已排空，实际有任务卡住，排障完全无从下手。
+
+### 根因：观测与持久化双双漏掉 `_delayed`
+频控未到窗口时，任务被移出 `_queue` 放进 `_delayed`，靠 `setTimeout` 到点重入队
+（`task-queue.js:526-535`）。而两个视图都只统计 `_queue` / `_running`：
+
+| 位置 | 修复前 | 后果 |
+| --- | --- | --- |
+| `getStatus().pending` | 只数 `_queue` | 观测盲区，误判队列已空 |
+| `serialize()` | 只导出 `_queue`/`_running` | 进程重启/崩溃后这批任务**永久丢失** |
+
+`clearPending()` 早已正确遍历 `_delayed` —— 作者知此容器，只是两个视图未对齐，
+且没有任何交叉断言能发现这种不一致。
+
+### 修复（三处闭环）
+- `getStatus()`：`pending = _queue + _delayed`，并单列 `delayed` 便于 UI
+  区分「排队中」与「等频控窗口中」
+- `serialize()`：新增 `delayed` 段，频控等待任务进持久化快照
+- `deserialize()`：消费 `delayed` 段回 `_queue`，由频控检查重新判定该等还是该发
+  （频控窗口本身持久化，重启后重新计时 = 原语义跨进程延续，而非丢任务）
+
+### 逃逸分析与回归保护
+既有 48 例队列测试 + 频控守卫集成测试，**无一条断言 `_delayed` 的可观测性**。
+新增 `task-queue-delayed-observability.test.js`（4 例），TDD 先红后绿：先实测
+`getStatus().pending` 返回 0 而非 1、`clearPending` 不清 delayed，再修实现。
+队列全量 **48/48** 通过。
+
+### 遗留
+- 修复**尚未经真实 E2E 复跑验证**（需重跑 ha-b 批次确认成功率提升才闭环）
+- bilibili 图文必失败（video-path 校验对图文不适用）、douyin 状态自相矛盾、tencent_video 零成功
+
+# [unreleased] docs(review): 撤回 M-2「运行坐实」结论 + 沉淀缺陷复现型测试的系统性风险
+
+### 撤回的结论
+审查报告附录 C.2 曾断言 P0-2「重试后结果卡永不更新」为**运行坐实**。该结论**不成立，现予撤回**：
+P0-2 从「已实证的 Bug」降级为「**静态可疑、动态未能复现**」。
+
+### 复核过程
+为准备修复（方案 §11.1 六维对比后选定 (b) 别名表方案），在隔离 worktree 实现了完整修复
+（store 侧记 session.taskIdAliases + 消费侧 activeSession 展开别名），随后做**反证** ——
+撤掉消费侧别名展开、保留 store 记账，期望核心断言转红。
+
+**结果：核心断言未转红。** 逐时点实测（缺陷态，无任何修复生效）：
+
+| 时点 | activeSession | session.status | session.tasks |
+|---|---|---|---|
+| after-register | s_1_1791… | — | [task-OLD] |
+| after-failed | s_1_1791… | **done** | [task-OLD] |
+| **after-retry** | **s_1_1791…（仍能解析）** | — | [task-NEW] |
+| after-success | s_1_1791… | done | [task-NEW] |
+
+最终结果卡 = `{ success:true, message:"发布完成：1 个平台全部成功", url:"https://x/2" }` —— 完全正确。
+
+### 根因
+`usePublishFlow.js:125` 的 watch getter `() => activeSession.value && activeSession.value.status`
+**在任务失败那一刻就求值并缓存了 session 对象引用**。此后 taskId 怎么换，watch 拿到的都是同一个对象。
+
+而 `publishProgress.js` 的 `_recomputeSessionStatus` 有一条本报告初版未读到的分支：
+
+```js
+} else if (!allTerminal && session.status === 'done') {
+  // 重试失败项后会话回到 running
+  session.status = 'running'
+}
+```
+
+它保证重试后 status 重新流转，watch 有第二次触发机会 —— **兜住了旧 id 失联**。
+
+原实证之所以「成功」，是因为断言 `expect(flow.result.value).toBeNull()` 抢在 watch 排空之前执行；
+真实用户会等界面刷新，watch 早已触发完毕。
+
+### 处置
+**两处修复代码已全部回退，未提交。** 为一个在真实路径下不发生的问题引入额外状态（别名表）
+与复杂度不划算。正文 M-2 条目保持不变，但证据等级按 §C.7 理解为「静态可疑」。
+
+### 沉淀：缺陷复现型测试的系统性风险（§C.8）
+M-2 与 M-5 在同一天内以**同一种模式**翻车：
+
+| | 原结论 | 实测真相 |
+|---|---|---|
+| M-5 | 「并发即丢数据」 | 取决于两个 await 的交错时序，**非必然** |
+| M-2 | 「重试后结果卡永不更新」 | watch 缓存了引用，旧 id 失联**不影响结果卡** |
+
+**共同根因**：缺陷复现型测试证明的是「我能构造出这个状态」，不是「用户会遇到这个状态」。
+两者都栽在**构造时序与真实用户路径不一致**。
+
+**三条纪律**：
+1. 缺陷复现型断言必须回答「真实用户路径下同样成立吗」，而非「我能不能造出这个状态」；
+2. 修复前先做反证 —— 撤掉修复核心断言必须转红，**若仍绿说明缺陷或断言有问题**（本轮直接拦住了 M-2 的无效提交）；
+3. 反证不通过时先怀疑自己的实证，不要先怀疑世界。
+
+> **一句话**：跑绿不等于成立；**撤掉修复还能绿的测试，是装饰不是回归锁。**
+
+---
+
+# [unreleased] feat(定时发布): 架构变更为平台侧定时——创建即提交平台、平台服务器到点发布（platform-side-schedule，2026-10-07）
+
+### 起因
+原实现是「本地定时器到点触发一次普通立即发布」。改为对标参考产品（4.0 逆向工程）的
+「平台侧定时：由平台服务器到点发布」。
+
+逆向核实（决定性证据）：参考产品 `prePubTime` 出现 **86 次**，其中 **0 次**邻近任何本地延时原语
+（setTimeout/Delay/setInterval/sleep/race）——确实不做本地等待；34 个 worker 中 **27 个**走平台侧定时、
+**7 个不支持**，且这 7 个的 `prePubTime` 出现 0 次 ⇒ 用户勾了定时、内容**立即发布**（最危险的静默失败）。
+本仓 15 个平台与那 7 个平台**零交集**，迁移路径成立。
+
+### 关键发现：本仓头条早已具备平台侧定时能力
+`packages/rpa-engine/src/toutiao-direct-publish.js` 早已实现 `timer_status=1` + `timer_time`
+（`YYYY-MM-DD HH:mm`）并有契约测试，但唯一调用方把时间**硬编码为「当前 +60 秒」**——
+平台定时能力此前被当作「绕过 DOM 死锁的手段」，而非用户可选的定时模式。
+本次把它提升为真实定时模式（去除 `+60s` 硬编码，改用调度器透传的 `publishTime`）。
+
+### 架构变更
+- **新增** `platform-schedule-capability.js`：逐平台能力三态（api / rpa / unsupported），未知平台 fail-closed。
+- **新增** `platform-schedule-time.js`：按平台格式/单位产出提交值，显式注入时区偏移（不依赖运行环境 TZ）。
+- `scheduler.create()`：能力门禁**前置到落盘前** → 落盘 `submitted` → 立即提交给平台（携带 `publishTime`），
+  **不再武装任何本地定时器**；`restore()` 不再重放 `submitted`/`dispatching`（否则平台侧重复排期）。
+- `publisher-router.js` 的 `buildPublishArticle` 搬运 `publishTime` 到 `article`，供各 publisher 装配平台字段。
+- 渲染层 `validateScheduleEntries` 新增能力门禁 + 平台最小提前量/最大跨度校验，提交前拦截并给出具体原因。
+
+### 实施中发现并修复的缺陷
+| # | 缺陷 | 后果 |
+|---|------|------|
+| D1 | `submitted` 标记写盘失败只记 warn | 派发静默丢失、记录停在 `pending` 被 restore 当 legacy 本地任务派发 ⇒ **静默回落本地定时** |
+| D2 | `cancel` 允许取消 in-flight 提交 | 本地显示已取消、平台已排期照发 ⇒ 状态分裂 |
+| R2 | `create()` 未校验平台 `minLeadMinutes`/`maxHorizonDays` | 10 秒 / 365 天排期本地通过、平台必拒，用户零反馈 |
+| R3 | `restore()` 的 `dispatching` 分支永不可达 | 死代码，误导后来者 |
+| R4 | owner 切换回退为 `pending` | `pending` 是 restore 的 legacy 桶 ⇒ 重开本地兜底后门 |
+| **R5（首轮遗漏，已补）** | **批量排期未做任何改造** | `batch-manager.js` 的 `scheduleBatch` 仍用本地 `setTimeout` 且**无能力门禁** ⇒ 批量路径会对不支持的平台**静默到点立即发布**，正是本变更要消灭的形态。已补能力门禁 + 平台窗口校验 + 立即提交携带 `publishTime`，并删除死代码的本地定时器分支 |
+| **R6（R5 修复引入的连带缺陷，已补）** | 批量 `cancelBatch` 仍以「是否清到本地 timer」判定成败 | 平台侧下本地已无定时器 ⇒ **用户点「取消排期」永远返回 false、永远失败**。判定基准改为「记录存在且仍处可取消状态」，语义与单篇 `scheduler.cancel` 对齐 |
+
+### 安全底线：绝不静默立即发布
+本仓在四层同时阻断：能力注册表（未取证一律 unsupported）→ 渲染层校验（提交前拦截并说明原因）
+→ 主进程 create（落盘前抛错，无记录残留）→ 三阶段失败反馈
+（`mark-submitted` / `claim-mismatch` / `enqueue`）。
+
+### 取证纪律与当前范围
+判定「某平台支持平台侧定时」需登录该平台确认，属真机取证范畴，**不猜测**：未经取证的平台一律
+`unsupported`。**当前只有头条可用** —— 宁可功能少，不可静默发错。其余 14 个平台需逐个登录取证后启用。
+平台侧时间字段形态多样（秒级/毫秒/字符串/表单开关/5 分钟取整），接入步骤见 PRD §6.3.15.7。
+
+### 取消语义的重要边界
+平台侧定时下，内容在创建瞬间已连同时间提交给平台，平台无撤销接口 ⇒
+**已提交平台（executed）与提交中（dispatching）的任务均不可取消**，本地改判 cancelled 只会造成
+「用户以为取消成功、平台照发」。UI 须如实说明，不能让用户以为「取消了就一定不会发」。
+
+### 测试
+- `scheduler.test.js` 重写为平台侧语义（49/49）；新增能力/时间/平台侧语义三个测试文件（13+10+10）。
+- `publish-contract.test.js` 新增能力门禁 7 例（46/46）。
+- shared-utils 全量 **621/621 通过**。
+
 # [unreleased] fix(copy-library): M-5 读-改-写串行化 —— 并发保存不再静默丢数据
 
 ### 缺陷
