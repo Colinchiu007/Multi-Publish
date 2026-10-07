@@ -2,6 +2,7 @@
   "//": "超大文件挂账清单（audit-batch-4）。limit 之上的存量文件在此登记；新文件超限一律阻断。注释：preload/index.bundle.js 与 home-shell-preload.bundle.js 是 esbuild 构建产物，其行数随 preload 源码 API 增减而变，不是「有人在手写大文件」——对这两个键的容差已被 2026-10-06 的定时发布修复吃满（新增 onSchedulerDispatchFailed 后 delta=204 > 200），故按门禁自述的「经审阅后 --update」语义单键抬到 1538。真正的代码体积治理见 electron/preload/*.js 源码侧的拆分，不应在此处无限抬高生成物基线。还完债用 --prune <路径> 单键清账（会同时在 pruned 立碑）；--update 仅做增量登记，--update --rewrite 才全量重生（会掩盖别人的漂移，需人工审 diff）。",
   "limit": 500,
   "growthAllowance": 200,
+  "testLimit": 1500,
   "files": {
     "apps/desktop/electron/bootstrap/phase1-context.js": 502,
     "apps/desktop/electron/home-shell-preload.bundle.js": 1581,
@@ -102,7 +103,45 @@
     "packages/story2video-engine/src/slideshow.ts": 789,
     "packages/story2video-engine/src/text-segmentation.ts": 1389
   },
+  "targets": {
+    "apps/desktop/electron/services/asset-generator.js": 1369,
+    "apps/desktop/electron/services/model-provider-manager.js": 1263,
+    "apps/desktop/electron/services/pipeline-engine.js": 2724,
+    "apps/desktop/electron/services/rpa-view-platforms.js": 1476,
+    "apps/desktop/electron/services/story2video-compose-engine.js": 2486,
+    "apps/desktop/electron/services/story2video-project-service.js": 2373,
+    "apps/desktop/electron/services/story2video-stages.js": 4006,
+    "apps/desktop/electron/services/tts-voice-clone-service.js": 1748,
+    "apps/desktop/src/styles/cohere-design-system.css": 1698,
+    "apps/desktop/src/views/Accounts.vue": 1568,
+    "apps/desktop/src/views/Collection.vue": 2916,
+    "apps/desktop/src/views/CreateView.vue": 5656,
+    "apps/desktop/src/views/ModelProviders.vue": 1496,
+    "apps/desktop/src/views/Publish.vue": 1757,
+    "apps/desktop/src/views/PublishHistory.vue": 1380,
+    "apps/desktop/src/views/ResultView.vue": 1888,
+    "ops-center/backend/services/model_preset_service.py": 1221,
+    "packages/api-publish-engine/src/publish-api-server.js": 1537,
+    "packages/python-backend/src/multi_publish/video_creation/providers/video/video_compose.py": 2638,
+    "packages/story2video-engine/src/text-segmentation.ts": 1389
+  },
   "pruned": {
     "apps/desktop/src/components/LogsSettings.vue": 469
-  }
+  },
+  "testFiles": {
+    "apps/desktop/electron/publishers/account-manager.test.js": 1598,
+    "apps/desktop/electron/services/story2video-compose-engine.test.js": 2954,
+    "apps/desktop/electron/services/story2video-project-service.test.js": 3274,
+    "apps/desktop/electron/services/story2video-stages.test.js": 4152,
+    "apps/desktop/electron/services/tts-voice-clone-service.test.js": 1756,
+    "apps/desktop/electron/services/webview-manager.test.js": 1649,
+    "apps/desktop/electron/tests/stage-executor.test.js": 1516,
+    "apps/desktop/src/views/Accounts.test.js": 2029,
+    "apps/desktop/src/views/Collection.test.js": 1687,
+    "apps/desktop/src/views/CreateView.test.js": 6574,
+    "apps/desktop/src/views/Publish.test.js": 1735,
+    "apps/desktop/src/views/ResultView.test.js": 2175,
+    "apps/desktop/src/views/RewriteView.test.js": 1649
+  },
+  "testPruned": {}
 }

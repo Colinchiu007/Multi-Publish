@@ -492,6 +492,56 @@ main push run `37640317864` 的基线新鲜度门禁报 `❌ collection-dark.png
 - `packages/python-backend/scripts/update_account_isolation.py` — 一次性死代码。其作用
   （给 `douyin.py` 注入 `_get_browser_data_dir`）已由 `publishers/base.py:405` 正式承接；
   脚本本身硬编码云端沙箱路径、本机不可运行，且无任何引用。
+# [unreleased] fix(ci): 超大文件门禁从「只挡新增」改为「点名还账 + 测试文件纳管」（M-7）
+
+### 缺陷
+
+`.github/scripts/check-max-lines.js` 的五条判定里**没有任何一条要求存量下降**，98 个挂账文件
+可以永久不变小，每条还各自享有「登记值 + 200 行」的容差。
+
+**这 200 行容差已经被静默吃掉**（实测 `--update` 的 `blockedRaise`）：98 个挂账文件中 **45 个**
+的当前行数已高于 baseline 登记值；最大的 20 个里 12 个已漂移，`Collection.vue` 2721 → 2916
+（+195），只差 5 行就会撞上红线——它是在边缘被人察觉的，不是被门禁挡住的。
+
+**测试文件完全不在门禁视野内**：`EXCLUDE` 含 `tests`/`test`/`__tests__` 且用
+`rel.includes(x)` 子串匹配，而 `.test.js` 里含 "test"，于是 **1024 个测试文件全部被顺带排掉**。
+其中 >500 行 102 个、>1500 行 13 个，最长的 `CreateView.test.js` **6574 行** —— 比它所测的
+`CreateView.vue`（5656 行）还长 900 行，却完全不受任何约束。
+
+### 改动
+
+1. **点名还账 `targets`**：最大的 20 个挂账文件各记目标行数，**容差 0**，优先级高于墓碑。
+   目标值锚在**当前实际行数**而非 baseline 登记值——后者已失真（那 12 个已漂移文件一上线就红，
+   那不是门禁在工作，是基线说谎）。先承认漂移，再从今天冻结。
+   `--prune <路径>` 连带摘掉 `targets` 同名条目，避免已还债文件被 0 容差永久盯着。
+2. **排除名单**：`* .bundle.js`（esbuild 产物）、`src/locales/*.js`（i18n 词条表）、
+   `*.design-system.css`（设计令牌表）不进点名清单 —— 给它们 0 容差等于「任何一次 i18n 新增都让
+   CI 红」，门禁直接不可用。
+3. **测试文件通道**：`scanTestFiles()` 单列，`.test.*`/`.spec.*` 上限 **1500**，独立挂账表
+   `testFiles`/`testPruned`，CLI 新增 `--prune-test`，扫描根比源码多一个 `apps/desktop/tests`。
+   存量 13 个 >1500 挂账。
+
+### 一条由外部跨家族评审抓出的 CRITICAL
+
+`--update` / `--update --rewrite` 只重建 5 个键，跑一次就把 `testLimit`/`targets`/`testFiles`/
+`testPruned` **静默抹掉**，门禁当场退回旧行为且零报错。自查（主断言 + 反证 + 27 条测试）
+**未覆盖 `--update` 路径**，是外部评审（opencode/deepseek 家族）补上的。已修 `computeUpdate()`
+与 `writeBaseline()` 显式搬运四个新键，并补两条回归锁。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 门禁主断言 | rc=0（98 挂账 / 20 点名 / 13 测试挂账 全绿） |
+| 反证：`CreateView.vue` +2 行 | `TARGET_GREW`，exit 1 |
+| 反证：新建 1521 行测试 | `TEST_OVER_LIMIT`，exit 1 |
+| 反证：`locales/zh.js` +2 行 | **不报**（排除名单生效） |
+| 回归锁 | `check-max-lines.test.js` **27/27**（既有 17 + 新增 10） |
+| `--update` 后键集合 | 一致，四键全部保留 |
+
+详见 [PRD-MAX-LINES-REPAYMENT-2026-10-07.md](./01-docs/PRD-MAX-LINES-REPAYMENT-2026-10-07.md)。
+
+# [unreleased] test(desktop): S2V 父子契约补双向交叉校验 —— 堵住「已登记但父级已删」这一缺口
 # [未发布] fix(ci): CHANGELOG 副本数棘轮门禁——一次 PR 不得让任何标题的副本数变大（2026-10-07，changelog-dup-gate）
 
 ### 事故与判据
