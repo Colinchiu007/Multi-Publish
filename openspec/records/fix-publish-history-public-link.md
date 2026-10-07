@@ -2,9 +2,6 @@
 record: fix-publish-history-public-link
 task: 发布记录「作品链接」必须落到平台公开内容页，不再是登录页（新增目的地语义判据 + 消除 platform-metrics 真源分裂）
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 合并本 PR 的会话（回填与销账必须同一次提交）
 ---
 
 ## 本次执行记录：发布记录作品链接落到公开内容页（fix-publish-history-public-link，2026-10-07）
@@ -27,7 +24,7 @@ sync_backfill_owner: 合并本 PR 的会话（回填与销账必须同一次提�
 | CHANGELOG 两门禁 | ✅ | 按 CI 差分口径：`--base=origin/main --head=HEAD` → 冗余份数 828 → 828、本 PR 新增副本=0；growth → PASS。**注**：`main` 上以绝对口径跑 `check-changelog-duplicate-entries.js` 亦为 rc=1 / 828 份重复（既有基线污染），本 PR 未使其变多，也未做越界去重 |
 | 变异反证 | ✅ | 把内容页白名单退化为「`safeHttpUrl` 通过即算内容页」（精确复刻旧判据）→ `published-content-url.test.js` 69 例转红、`PublishHistory.test.js` 的 V2/V3/V4/V5/V6/V11 精确转红（V11 报出 `expected 'https://creator.xiaohongshu.com/publish/publish' to be 'https://www.xiaohongshu.com/explore/6530a1b2c3d4e5f600112233'`，正是本 Bug）。还原后 `isPublicContentUrl` 两端函数体逐字 `IDENTICAL`、203 例全绿。**第一次尝试的变异只改「协议非法」分支，desktop 侧 96 例全绿——是个恒不触发的假变异，已作废重做** |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实记「未执行」，不以自审冒充通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并 #3057 = `23822b73fecc6c8f8e6710c1dc7911e02ea4e1fc`，committer 2026-10-07T17:32:25+08:00。取证：GitHub `mergeCommit` 与远端一致，`git log origin/main --grep="(#3057)" --format="%H %cI"` 双源一致，`git ls-remote --heads origin fix-publish-history-public-link` 返回 **0 行**（远端分支已删） |
 
 ### 门禁实测明细（本机，2026-10-07）
 
