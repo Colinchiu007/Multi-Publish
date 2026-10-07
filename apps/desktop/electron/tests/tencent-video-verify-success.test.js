@@ -54,7 +54,10 @@ describe('tencent_video 发布成功判定（假失败修复，E2E 实证）', (
   it('E2E 快照里的成功标记需与成功文案同现才算成功（视频ID 本身不是成功信号）', () => {
     const p = extractPatternsFromSource()
     // 成功文案形态（含 E2E 快照里的带标点形态）
-    for (const t of ['发布并登记完成', '发布并登记完成。', '提交并登记完成', '登记完成']) {
+    // 2026-10-07 收窄：去掉裸「登记完成」。真实快照（视频ID: sphOuKJ6GWCmZLB
+    // 视频57 注册51 发布并登记完成）里该词始终与「发布/提交」同现；
+    // 孤立出现时缺少上下文，可能在未发布页面上误判为成功。
+    for (const t of ['发布并登记完成', '发布并登记完成。', '提交并登记完成']) {
       expect(judge(t, p), t).toBe(true)
     }
     // 单独一个「视频ID: ...」不构成成功证据 —— 它是成功页的伴随字段，
@@ -62,6 +65,16 @@ describe('tencent_video 发布成功判定（假失败修复，E2E 实证）', (
     expect(judge('视频ID: sphOuKJ6GWCmZLB', p)).toBe(false)
     // 但与成功文案同现时整体判成功
     expect(judge('视频ID: sphOuKJ6GWCmZLB 发布并登记完成', p)).toBe(true)
+  })
+
+  it('孤立的「登记完成」不得单独构成成功证据（收窄回归锁）', () => {
+    const p = extractPatternsFromSource()
+    // 这条是 2026-10-07 主动收窄的判据：视频号真实文案总是「发布并登记完成」，
+    // 剥离前缀的裸词没有证据价值，只会放大假成功面。
+    expect(judge('登记完成', p)).toBe(false)
+    expect(judge('本次登记完成', p)).toBe(false)
+    // 带前缀的仍必须命中
+    expect(judge('发布并登记完成', p)).toBe(true)
   })
 
   it('旧文案不得回归（覆盖既有全部形态）', () => {

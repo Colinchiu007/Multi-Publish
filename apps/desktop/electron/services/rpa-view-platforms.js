@@ -171,6 +171,12 @@ const platformsMixin = {
     log.info('RpaView', '[' + platform + '] publish config=' + (publishConfig ? 'provided' : 'default') + '; selectorCount=' + Object.keys(sel || {}).length + '; publishButtons=' + (sel?.publish_btn?.length || 0) + '; titleInputs=' + (sel?.title_input?.length || 0) + '; fileInputs=' + (sel?.file_input?.length || 0) + '; hasCoverInput=' + Boolean(sel?.cover_input) + '; hasTitle=' + Boolean(article?.title) + '; hasVideo=' + Boolean(article?.video_path) + '; hasCover=' + Boolean(article?.cover_path))
     const throttle = new ProgressThrottle(5000, 10)
     const retry = new FieldRetryState(3)
+    // 2026-10-07：草稿模式不得在「什么都没写进去」时报成功。
+    // 背景：真机 E2E 实测标题/正文/标签三项全部 not found（全 WARN），
+    // draftOnly 分支仍无条件 return {success:true}，history 记 success
+    // —— 假成功比失败危险：它骗过队列统计、历史列表与用户。
+    // 这里收集**硬性内容字段**的填写结果，draftOnly 据此 fail-closed。
+    const fillReport = { title: null, content: null, tags: null }
 
     if (!config.publish_url) { log.warn('RpaView', '[' + platform + '] no publish_url configured'); return { success: false, error: platform+' no publish_url', platform: platform } }
 
@@ -304,13 +310,16 @@ const platformsMixin = {
           const titleValue = (captionSel && !titleSel) ? this._composeEditorCaption(article, config.max_content) : article.title
           // 读回校验已内建于 `_fillInput`（读回 0 且待填值非空即抛错）。
           await this._fillInput(win, titleTarget, titleValue); retry.markDone('title')
+          fillReport.title = { ok: true }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
-          if (!retry.retry('title')) break; await this._sleep(1000)
+          if (!retry.retry('title')) { fillReport.title = { ok: false, error: e.message }; break; }
+          await this._sleep(1000)
         }
       }
     } else if (article.title) {
       log.warn('RpaView', '[' + platform + '] title field not found (no title_input nor editor candidate), title skipped')
+      fillReport.title = { ok: false, error: 'title field not found (no selector matched)' }
     }
 
     // content
@@ -327,13 +336,16 @@ const platformsMixin = {
             try {
               this._emitProgress(platform, 'filling content...', 35)
               await this._fillInput(win, contentSel, article.content); retry.markDone('content')
+              fillReport.content = { ok: true }
             } catch(e) {
               log.warn('RpaView', '['+platform+'] content: '+e.message)
-              if (!retry.retry('content')) break; await this._sleep(1000)
+              if (!retry.retry('content')) { fillReport.content = { ok: false, error: e.message }; break; }
+              await this._sleep(1000)
             }
           }
         } else {
           log.warn('RpaView', '[' + platform + '] content editor not found among ' + cs.length + ' candidates')
+          fillReport.content = { ok: false, error: 'content editor not found among ' + cs.length + ' candidates' }
         }
       }
     }
@@ -368,6 +380,7 @@ const platformsMixin = {
     // tags
     if (article.tags && article.tags.length>0 && sel.tag_input && sel.tag_input.length>0) {
       const tagSel = await this._resolveSelector(win, sel.tag_input, 5000, 2000)
+      let tagsOk = 0; let tagErr = ''
       for (let ti=0;ti<Math.min(article.tags.length,5);ti++) {
         try {
           this._emitProgress(platform,'adding tags...',72)
@@ -375,8 +388,12 @@ const platformsMixin = {
           await this._fillInput(win,tagSel,article.tags[ti])
           await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(tagSel)+';let el=document.querySelector(s);if(el)el.dispatchEvent(new KeyboardEvent(\'keydown\',{key:\'Enter\',code:\'Enter\',keyCode:13}))})()')
           await this._sleep(800)
-        } catch(e) { log.warn('RpaView','['+platform+'] tag: '+e.message) }
+          tagsOk++
+        } catch(e) { log.warn('RpaView','['+platform+'] tag: '+e.message); if (!tagErr) tagErr = e.message }
       }
+      fillReport.tags = tagsOk > 0
+        ? { ok: true, filled: tagsOk, of: Math.min(article.tags.length, 5) }
+        : { ok: false, error: tagErr || 'tag input not found' }
     }
 
     // 实验：头条跳过封面 hook，验证封面注入是否占用 defer-publish 的 `_e`（判据：跳过后 appReqN>0）。
@@ -415,6 +432,28 @@ const platformsMixin = {
     // 有自动草稿保存（页面显示「编辑于 刚刚」，侧边栏草稿箱计数 +1），因此填完字段后
     // 等待落库即可；若平台另提供显式存草稿钮（sel.draft_btn）则优先点它。
     if (config.draftOnly) {
+      // 2026-10-07 假成功修复：先判「内容真的写进去了吗」，再谈落库。
+      // 旧实现无条件 return {success:true} —— 真机 E2E 实测标题/正文/标签三项
+      // 全部 not found，页面空白，仍报 success 并写入发布历史。
+      // 硬性判据：文章带了标题就必须写进去；带了正文就必须写进去。
+      // 标签是增强项（不写不致命），单独记 warn 不阻断。
+      const hardFailures = []
+      if (article.title && fillReport.title && fillReport.title.ok === false) hardFailures.push('title: ' + fillReport.title.error)
+      if (article.content && fillReport.content && fillReport.content.ok === false) hardFailures.push('content: ' + fillReport.content.error)
+      if (fillReport.tags && fillReport.tags.ok === false) {
+        log.warn('RpaView', '[' + platform + '] draft: tags not filled (' + fillReport.tags.error + ') — 降级放行（标签为增强项）')
+      }
+      if (hardFailures.length > 0) {
+        const detail = hardFailures.join(' | ')
+        log.error('RpaView', '[' + platform + '] draft-only ABORT: content not filled, refuse to report success -> ' + detail)
+        return {
+          success: false, platform, draft: true,
+          error: '草稿内容未写入页面，已中止（避免假成功）: ' + detail,
+          errorCode: 'PUBLISH_DRAFT_CONTENT_NOT_FILLED',
+          fillReport,
+          url: win.webContents.getURL() || '',
+        }
+      }
       this._emitProgress(platform, 'saving draft...', 90)
       if (sel.draft_btn && sel.draft_btn.length > 0) {
         for (const cand of sel.draft_btn) {
@@ -423,12 +462,20 @@ const platformsMixin = {
           } catch (_) { /* 候选失效继续下一个 */ }
         }
       }
-      // 等自动保存落库（编辑页「编辑于 刚刚」/「已保存」/草稿计数变化）
-      const draftSaved = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return /编辑于|已保存|草稿/.test(t)}', 20000, 1500)
+      // 等自动保存落库。2026-10-07：旧正则 `/编辑于|已保存|草稿/` 里的裸「草稿」
+      // 在小红书创作者页是常驻文案（侧边栏「草稿箱」入口），恒真 ⇒ saved 恒为 true，
+      // 等于没有判据。收紧为「明确表示已保存/编辑于某时刻」的形态：
+      // 要求带时间量词或「已保存/保存成功」，不再接受孤立的「草稿」二字。
+      const draftSaved = await this._waitForCondition(win,
+        'function(){var t=(document.body&&document.body.innerText)||"";' +
+        'return /编辑于\\s*\\S{1,12}|已保存|保存成功|自动保存/.test(t) && !/编辑于\\s*$/.test(t.trim())}',
+        20000, 1500)
       await this._sleep(3000)
       log.info('RpaView', '[' + platform + '] draft-only done saved=' + Boolean(draftSaved) + ' url=' + (win.webContents.getURL() || ''))
       this._emitProgress(platform, 'draft saved', 100)
-      return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: Boolean(draftSaved) }
+      // saved=false 不再直接判成功：内容已写入但未观测到保存信号，属于「不确定」，
+      // 如实回报 draftSaved=false 让调用方与用户看到真实状态。
+      return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: Boolean(draftSaved), fillReport }
     }
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
@@ -823,7 +870,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     try {
       const domSuccess = await this._waitForCondition(win, 'function(){' +
         'var text=(document.body&&document.body.innerText)||"";' +
-        'var success=/(发布成功|投稿成功|发布完成|提交成功|作品已发布|已发布|发布并登记完成|提交并登记完成|登记完成)/.test(text);' +
+        'var success=/(发布成功|投稿成功|发布完成|提交成功|作品已发布|已发布|发布并登记完成|提交并登记完成)/.test(text);' +
         'var failure=/(发布失败|提交失败|上传失败|登录失效|请登录)/.test(text);' +
         'if(failure)return false;' +
         'return success;', 30000, 500)
