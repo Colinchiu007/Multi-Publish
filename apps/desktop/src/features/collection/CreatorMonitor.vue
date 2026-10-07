@@ -132,7 +132,7 @@ async function collectAll () {
   collecting.value = true
   try {
     const r = await call('creatorCollect', { followId: (c && (c.follow_id || c.id)) })
-    if (r && r.code === -10) {
+    if (r && r.reason === 'creator:count_exceeds_limit') {
       ElMessage.warning(t('collection.creatorErrCountExceedsLimit', { max: r.max }))
       return
     }

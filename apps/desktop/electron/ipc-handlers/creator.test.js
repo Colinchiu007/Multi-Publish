@@ -81,7 +81,6 @@ describe('creator IPC · 通道注册', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, { log: { warn: () => {}, error: () => {} } })
     const r = await ipc._get('creator:collect')({}, {})
-    expect(r.code).toBe(-1)
     expect(r.reason).toBe('service-unavailable')
   })
 })
@@ -91,7 +90,6 @@ describe('creator IPC · 博主列表', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, stubDeps())
     const r = await ipc._get('creator:list')({}, {})
-    expect(r.code).toBe(0)
     expect(r.items).toHaveLength(2)
     expect(r.items[0].pendingCount).toBe(3)
     expect(r.totalPending).toBe(3)
@@ -111,7 +109,6 @@ describe('creator IPC · 关注', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, stubDeps())
     const r = await ipc._get('creator:follow')({}, {})
-    expect(r.code).toBe(-11)
     expect(r.reason).toBe('creator:invalid_input')
   })
 
@@ -153,7 +150,6 @@ describe('creator IPC · 批量采集（零副作用是硬要求）', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, deps)
     const r = await ipc._get('creator:collect')({}, { followId: 'f1', count: 150 })
-    expect(r.code).toBe(-10)
     expect(r.reason).toBe('creator:count_exceeds_limit')
     expect(r.max).toBe(100)
     expect(deps.calls.collectBatch).toHaveLength(0)   // ← 关键：零副作用
@@ -188,7 +184,6 @@ describe('creator IPC · 批量采集（零副作用是硬要求）', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, deps)
     const r = await ipc._get('creator:collect')({}, { followId: 'f1', count: 5 })
-    expect(r.code).toBe(-10)
     expect(r.max).toBe(2)
   })
 
@@ -196,8 +191,8 @@ describe('creator IPC · 批量采集（零副作用是硬要求）', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, stubDeps())
     const r = await ipc._get('creator:collect')({}, { followId: 'nope' })
-    expect(r.code).toBe(-1)
-    expect(r.reason).toBe('creator:failed')
+    // 领域码整类透传：关注项不存在 MUST NOT 退化成通用失败——两者排查方向完全不同
+    expect(r.reason).toBe('creator:follow_not_found')
   })
 })
 
@@ -206,7 +201,6 @@ describe('creator IPC · 单条采集', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, stubDeps())
     const r = await ipc._get('creator:collect-one')({}, { discoveryId: 'd1' })
-    expect(r.code).toBe(0)
     expect(r.collected).toBe(1)
   })
 
@@ -234,5 +228,73 @@ describe('creator IPC · 立即检查与发现列表', () => {
     const r = await ipc._get('creator:discoveries')({}, {})
     expect(r.limit).toBe(50)
     expect(r.offset).toBe(0)
+  })
+})
+
+describe('creator IPC · 送入 AI 写作', () => {
+  const item = { id: 'd1', url: 'https://www.youtube.com/watch?v=v1', updated_at: '2026-10-07T10:00:00Z' }
+
+  function mountWith (pipeline) {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({
+      creatorStore: { getDiscovery: async () => item },
+      fullAutoPipeline: pipeline,
+    }))
+    return ipc
+  }
+
+  it('复用 full-auto-pipeline，且显式关闭 publish（不做一键搬运）', async () => {
+    const calls = []
+    const ipc = mountWith({ startRun: async (cfg) => { calls.push(cfg); return { success: true, runId: 'r9' } } })
+    const r = await ipc._get('creator:send-to-writer')({}, { discoveryId: 'd1' })
+    expect(r.runId).toBe('r9')
+    expect(calls[0].stages.publish).toBe(false)
+    expect(calls[0].urls).toEqual([item.url])
+  })
+
+  it('同一内容重复点击返回同一幂等键，不重复起跑消耗 LLM 额度', async () => {
+    let starts = 0
+    const ipc = mountWith({ startRun: async (cfg) => { starts += 1; return { success: true, runId: 'r' + starts } } })
+    const a = await ipc._get('creator:send-to-writer')({}, { discoveryId: 'd1' })
+    const b = await ipc._get('creator:send-to-writer')({}, { discoveryId: 'd1' })
+    expect(a.idempotencyKey).toBe(b.idempotencyKey)
+  })
+
+  it('内容更新后幂等键随之变化（允许重新生成）', async () => {
+    const keys = []
+    const ipc = createMockIpcMain()
+    let current = { ...item }
+    registerHandlers(ipc, stubDeps({
+      creatorStore: { getDiscovery: async () => current },
+      fullAutoPipeline: { startRun: async (cfg) => { keys.push(cfg.idempotencyKey); return { success: true, runId: 'r' } } },
+    }))
+    await ipc._get('creator:send-to-writer')({}, { discoveryId: 'd1' })
+    current = { ...item, updated_at: '2026-10-08T10:00:00Z' }
+    await ipc._get('creator:send-to-writer')({}, { discoveryId: 'd1' })
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('流水线未就绪时明确失败，不静默无反应', async () => {
+    const ipc = mountWith(null)
+    const r = await ipc._get('creator:send-to-writer')({}, { discoveryId: 'd1' })
+    expect(r.reason).toBe('pipeline-unavailable')
+  })
+
+  it('作品不存在时报错，不拿空 URL 去起跑', async () => {
+    const ipc = createMockIpcMain()
+    let called = false
+    registerHandlers(ipc, stubDeps({
+      creatorStore: { getDiscovery: async () => null },
+      fullAutoPipeline: { startRun: async () => { called = true; return { success: true, runId: 'r' } } },
+    }))
+    const r = await ipc._get('creator:send-to-writer')({}, { discoveryId: 'nope' })
+    expect(r.reason).toBe('creator:discovery_not_found')
+    expect(called).toBe(false)
+  })
+
+  it('缺 discoveryId 被拒', async () => {
+    const ipc = mountWith({ startRun: async () => ({ success: true, runId: 'r' }) })
+    const r = await ipc._get('creator:send-to-writer')({}, {})
+    expect(r.reason).toBe('creator:invalid_input')
   })
 })

@@ -26,12 +26,15 @@ const { CREATOR_INPUT_ERRORS } = require('../services/creator-collector')
 /** 领域错误 → UI 形状。排查方向不同的错误 MUST 分开，不要合并成一句话。 */
 function toIpcError (err) {
   if (err instanceof ClampError) {
-    return { code: -10, reason: err.code, message: err.message, max: err.max, count: err.count }
+    return { code: -11, reason: err.code, message: err.message, max: err.max, count: err.count }
   }
   const code = err && err.code
-  const known = Object.values(CREATOR_INPUT_ERRORS)
-  if (code && known.includes(code)) {
-    return { code: -11, reason: code, message: (err && err.message) || '' }
+  // 本特性所有领域错误都以 creator: 前缀标识（输入类见 CREATOR_INPUT_ERRORS，
+  // 其余为 discovery_not_found / follow_not_found / quota_would_exceed 等）。
+  // **必须整类透传**：只映射输入类枚举会让其余原因落进通用分支丢失 reason，
+  // 而「格式不对」「作品不存在」「配额不足」排查方向完全不同。
+  if (typeof code === 'string' && code.startsWith('creator:')) {
+    return { code: -12, reason: code, message: (err && err.message) || '' }
   }
   return { code: -1, reason: 'creator:failed', message: (err && err.message) || '操作失败' }
 }
@@ -82,7 +85,7 @@ function registerHandlers (ipcMain, deps) {
     for (const ch of [
       'creator:list', 'creator:follow', 'creator:unfollow', 'creator:toggle',
       'creator:check-now', 'creator:discoveries', 'creator:collect',
-      'creator:collect-one', 'creator:skip-one',
+      'creator:collect-one', 'creator:skip-one', 'creator:send-to-writer',
     ]) degraded(ch)
     return
   }
@@ -206,6 +209,35 @@ function registerHandlers (ipcMain, deps) {
     const discoveryId = requireString(payload, 'discoveryId', { max: 64 })
     await creatorStore.skipDiscovery(discoveryId)
     return { code: 0 }
+  }))
+
+  // ── 送入 AI 写作 ────────────────────────────────────────────
+  // 复用既有 full-auto-pipeline 的 collect → rewrite → create 三段，**不执行 publish**
+  // （非目标 N1：不做一键搬运发布）。幂等键见下，避免同一内容反复点重复消耗 LLM 额度。
+  ipcMain.handle('creator:send-to-writer', wrap(async (payload) => {
+    const discoveryId = requireString(payload, 'discoveryId', { max: 64 })
+    const pipeline = deps.fullAutoPipeline
+    if (!pipeline || typeof pipeline.startRun !== 'function') {
+      return { code: -1, reason: 'pipeline-unavailable', message: 'AI 写作流水线未就绪' }
+    }
+    const item = await creatorStore.getDiscovery(discoveryId)
+    if (!item) {
+      const e = new Error('作品不存在')
+      e.code = 'creator:discovery_not_found'
+      throw e
+    }
+    // 幂等：同一份内容（id + updated_at）重复点击返回同一个 runId，而不是重复起跑
+    const sig = `${item.id}:${item.updated_at || item.collected_at || ''}`
+    const started = await pipeline.startRun({
+      urls: [item.url].filter(Boolean),
+      sourceType: 'url',
+      stages: { collect: false, rewrite: true, create: true, publish: false },
+      idempotencyKey: `creator:${sig}`,
+    })
+    if (!started || started.success === false) {
+      return { code: -1, reason: 'writer-start-failed', message: (started && started.error) || 'AI 写作启动失败' }
+    }
+    return { code: 0, runId: started.runId, idempotencyKey: `creator:${sig}` }
   }))
 }
 

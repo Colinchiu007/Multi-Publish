@@ -21,6 +21,7 @@ function createCreatorApi (renderer = ipcRenderer) {
     creatorCollect: (payload) => invoke('creator:collect', payload),
     creatorCollectOne: (payload) => invoke('creator:collect-one', payload),
     creatorSkipOne: (payload) => invoke('creator:skip-one', payload),
+    creatorSendToWriter: (payload) => invoke('creator:send-to-writer', payload),
   }
 }
 
