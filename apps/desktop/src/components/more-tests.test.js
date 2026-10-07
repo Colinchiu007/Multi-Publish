@@ -21,6 +21,11 @@ vi.mock("@/stores/license", () => ({
 
 import TrialBanner from "./TrialBanner.vue";
 import UpgradeModal from "./UpgradeModal.vue";
+// 2026-10-07 disable-simulated-payment-in-prod：UpgradeModal 起用了 useI18n()
+// （正式包「付费通道筹备中」走 locale，QG Static 的 check-locale-sync 要求
+// 渲染端用户可见文案必须 zh/en 成对），故本文件全部 mount 需挂真实 i18n 实例。
+// 口径与 BackToTop.test.js 一致：`import i18n from "@/i18n"`，**不 stub `t`**。
+import i18n from "@/i18n";
 
 describe("TrialBanner", () => {
   it("renders banner when not dismissed (free mode)", () => {
@@ -47,12 +52,12 @@ describe("TrialBanner", () => {
 
 describe("UpgradeModal", () => {
   it("renders upgrade overlay", () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     expect(w.find(".upgrade-overlay").exists()).toBe(true);
   });
 
   it("shows free and pro plan cards", () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     const planCards = w.findAll(".plan-card");
     expect(planCards.length).toBeGreaterThanOrEqual(2);
   });
@@ -60,13 +65,13 @@ describe("UpgradeModal", () => {
 
 describe('UpgradeModal extended', () => {
   it('shows payment flow when startPayment is triggered', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     expect(w.text()).toContain("选择支付方式");
   });
 
   it('shows activate input section', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     expect(w.text()).toMatch(/激活码|立即升级/);
   });
 });
@@ -84,31 +89,31 @@ describe('UpgradeModal comprehensive', () => {
   });
 
   it('shows free plan badge for free user', () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     expect(w.find('.free-card .plan-badge').text()).toContain("当前方案");
   });
 
   it('shows upgrade button for free user', () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     expect(w.find('.upgrade-btn').exists()).toBe(true);
     expect(w.find('.upgrade-btn').text()).toContain("升级");
   });
 
   it('starts payment flow on upgrade click', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     expect(w.text()).toContain("选择支付方式");
     expect(w.text()).toContain("支付宝");
   });
 
   it('submitOrder creates order and shows paying step', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     expect(w.text()).toContain("选择支付方式");
   });
 
   it('renders close button', () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     const closeBtns = w.findAll('button').filter(b => b.text().includes("✕"));
     expect(closeBtns.length).toBeGreaterThanOrEqual(1);
   });
@@ -125,14 +130,14 @@ describe('UpgradeModal payment flow', () => {
   });
 
   it('shows payment step select after startPayment', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     expect(w.find('.payment-flow').exists()).toBe(true);
     expect(w.text()).toContain("选择支付方式");
   });
 
   it('submitOrder creates order and transitions to paying', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     await w.vm.$nextTick();
     const payBtn = w.findAll('button').filter(b => b.text().includes("支付"));
@@ -145,7 +150,7 @@ describe('UpgradeModal payment flow', () => {
 
   it('submitOrder handles API error (code !== 0)', async () => {
     paymentCreateOrder.mockResolvedValue({ code: 1, message: "余额不足" });
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     const payBtns = w.findAll('button').filter(b => b.text().includes("支付"));
     if (payBtns.length > 0) {
@@ -157,7 +162,7 @@ describe('UpgradeModal payment flow', () => {
 
   it('submitOrder handles network error', async () => {
     paymentCreateOrder.mockRejectedValue(new Error('Network error'));
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     const payBtns = w.findAll('button').filter(b => b.text().includes("支付"));
     if (payBtns.length > 0) {
@@ -168,7 +173,7 @@ describe('UpgradeModal payment flow', () => {
   });
 
   it('simulatePayment succeeds', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
   });
 });
@@ -182,7 +187,7 @@ describe('UpgradeModal activation flow', () => {
   });
   it('doActivate succeeds with valid key', async () => {
     mockStore.activate.mockResolvedValue(true);
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     w.vm.licenseKey = 'test-key-123';
     await w.vm.doActivate();
     await w.vm.$nextTick();
@@ -190,7 +195,7 @@ describe('UpgradeModal activation flow', () => {
   });
 
   it('doActivate fails with empty key - validation', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     var actBtn = w.find('.activate-section .upgrade-btn');
     if (actBtn.exists()) {
       await actBtn.trigger('click');
@@ -201,7 +206,7 @@ describe('UpgradeModal activation flow', () => {
 
   it('doTrial activates trial', async () => {
     mockStore.activateTrial.mockResolvedValue(true);
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.vm.doTrial();
     await w.vm.$nextTick();
     expect(mockStore.activateTrial).toHaveBeenCalled();
@@ -209,7 +214,7 @@ describe('UpgradeModal activation flow', () => {
 
   it('deactivate shows/hides payment flow', async () => {
     mockStore.deactivate.mockResolvedValue();
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     var deactBtns = w.findAll('button').filter(function(b) { return b.text().includes("注销许可证"); });
   });
 });
@@ -224,7 +229,7 @@ describe('UpgradeModal simulation coverage', () => {
 
   it('simulatePayment fails when API returns error code', async () => {
     paymentSimulate.mockResolvedValue({ code: 1, message: "支付失败" });
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     await w.vm.$nextTick();
     // Start paying step
@@ -242,7 +247,7 @@ describe('UpgradeModal simulation coverage', () => {
 
   it('simulatePayment fails with network error', async () => {
     paymentSimulate.mockRejectedValue(new Error('支付服务异常'));
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     w.vm.$.setupState.paymentStep = 'paying';
     w.vm.$.setupState.orderId = 'order-123';
@@ -257,7 +262,7 @@ describe('UpgradeModal simulation coverage', () => {
 
   it('cancelOrder resets payment flow', async () => {
     paymentCancel.mockResolvedValue({});
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-btn').trigger('click');
     w.vm.$.setupState.paymentStep = 'paying';
     w.vm.$.setupState.orderId = 'order-123';
@@ -280,7 +285,7 @@ describe('UpgradeModal activation edge cases', () => {
 
   it('doActivate fails with invalid key', async () => {
     mockStore.activate.mockResolvedValue(false);
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     w.vm.licenseKey = 'invalid-key';
     await w.vm.doActivate();
     await w.vm.$nextTick();
@@ -290,7 +295,7 @@ describe('UpgradeModal activation edge cases', () => {
 
   it('doTrial fails', async () => {
     mockStore.activateTrial.mockResolvedValue(false);
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.vm.doTrial();
     await w.vm.$nextTick();
     expect(mockStore.activateTrial).toHaveBeenCalled();
@@ -299,7 +304,7 @@ describe('UpgradeModal activation edge cases', () => {
 
   it('doDeactivate calls store.deactivate', async () => {
     mockStore.deactivate.mockResolvedValue();
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.vm.doDeactivate();
     await w.vm.$nextTick();
     expect(mockStore.deactivate).toHaveBeenCalled();
@@ -308,7 +313,7 @@ describe('UpgradeModal activation edge cases', () => {
 
 describe('UpgradeModal UX actions', () => {
   it('close button emits close event', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     var closeBtn = w.findAll('button').filter(function(b) { return b.text().includes("\u2715"); });
     if (closeBtn.length > 0) {
       await closeBtn[0].trigger('click');
@@ -317,7 +322,7 @@ describe('UpgradeModal UX actions', () => {
   });
 
   it('overlay click emits close event', async () => {
-    const w = mount(UpgradeModal);
+    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
     await w.find('.upgrade-overlay').trigger('click');
     expect(w.emitted('close')).toBeTruthy();
   });

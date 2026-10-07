@@ -174,6 +174,33 @@ X-s = "XYW_" + hex(AES-128-CBC(
 - 修复**尚未经真实 E2E 复跑验证**（需重跑 ha-b 批次确认成功率提升才闭环）
 - bilibili 图文必失败（video-path 校验对图文不适用）、douyin 状态自相矛盾、tencent_video 零成功
 
+# [unreleased] fix(desktop): 正式包不再渲染「模拟支付成功（开发模式）」入口
+
+## 问题
+
+`UpgradeModal.vue` 的模拟支付按钮自 `8480a7e`（2026-07-04 P2 许可证系统）诞生起
+就无条件渲染。正式包里该按钮点下去必然被主进程拒收——`ipc-handlers/payment.js:66`
+的 `app.isPackaged !== false` 会直接返回「模拟支付在生产环境禁用」，
+`license-access-control.js:91` 另把该通道列入 `ADMIN_ONLY_CHANNELS`，普通登录用户够不着。
+
+**所以这不是安全漏洞，是 UI 诚实性缺陷**：给用户看一个标着「开发模式」、
+且必然失败的操作入口。正式包改渲染「付费通道筹备中，暂不支持购买」。
+
+## 修复
+
+- `simulatedPaymentAvailable = import.meta.env.DEV`（构建期常量，默认关闭即安全）
+- 沿用 `useFeatureFlag.js` 既有口径：**不给组件开测试注入口**，测试侧用
+  `vi.stubEnv('DEV', false)` 摆出正式包形态，跑生产同一条分支
+- 回归锁 3 条（正式包不见按钮 / 反失明断言 / 开发包流程不被打断）
+
+## 顺带记录（未修，见 PR 描述「遗留」）
+
+- `tests/payment-ipc.test.js` 的 `beforeEach` 把 `isPackaged` 钉死 `false`，
+  **主进程那道生产拦截至今零测试覆盖**
+- `payment:create-order` 属 public 通道，正式包能建单、能看到扫码页，只是付不了款
+- `¥99 /永久` 的价格文案未改——产品已定订阅制，但需先打通 `license-manager`
+  与 `plan-matrix` 两套授权模型
+
 # [unreleased] docs(review): 撤回 M-2「运行坐实」结论 + 沉淀缺陷复现型测试的系统性风险
 
 ### 撤回的结论

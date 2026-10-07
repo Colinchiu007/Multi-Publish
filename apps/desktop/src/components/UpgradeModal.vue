@@ -72,10 +72,13 @@
                 请使用{{ selectedMethod === 'alipay' ? '支付宝' : '微信' }}扫码完成支付
               </div>
             </div>
-            <div style="margin-top:var(--space-md);display:flex;gap:8px;justify-content:center">
+            <div v-if="simulatedPaymentAvailable" style="margin-top:var(--space-md);display:flex;gap:8px;justify-content:center">
               <button class="upgrade-btn" @click="simulatePayment" :disabled="simulating" style="max-width:160px">
                 {{ simulating ? '处理中...' : '模拟支付成功（开发模式）' }}
               </button>
+            </div>
+            <div v-else class="payment-unavailable">
+              {{ t('memberCenter.paymentChannelUnavailable') }}
             </div>
             <div style="margin-top:var(--space-sm)">
               <button class="cohere-btn-ghost" @click="cancelOrder" style="font-size: var(--font-size-xs)">取消订单</button>
@@ -138,10 +141,27 @@
 import { ref, computed, onMounted } from "vue"
 import { useLicenseStore } from "@/stores/license"
 import { paymentCreateOrder, paymentSimulate, paymentCancel } from "@/api/publisher"
+import { useI18n } from "vue-i18n"
 import { reportError } from "@/utils/report-error"
 import { formatUserError } from "@/utils/user-facing-error"
 
 const emit = defineEmits(["close"])
+const { t } = useI18n()
+
+/**
+ * 模拟支付入口的可见性：**构建期常量，默认关闭**。
+ *
+ * 主进程 `payment:simulate` 本就有两道硬拦截——`ipc-handlers/payment.js` 的
+ * `app.isPackaged !== false` 拒收，以及 `license-access-control.js` 把该通道列入
+ * `ADMIN_ONLY_CHANNELS`（普通登录用户够不着）。**所以这不是安全漏洞，是 UI 缺陷**：
+ * 正式包里渲染一个点下去必然被拒的按钮，还把它标成「开发模式」给用户看。
+ *
+ * 口径与 `composables/useFeatureFlag.js` 的 `devFlagChannelEnabled()` 一致：
+ * 只读 `import.meta.env.DEV`，**不给组件开测试注入口**——能传给测试的开关
+ * 同样能传给误用者。测试侧用 `vi.stubEnv('DEV', false)` 摆出正式包形态，
+ * 跑的就是生产同一条分支（见 UpgradeModal.test.js）。
+ */
+const simulatedPaymentAvailable = import.meta.env.DEV
 
 const store = useLicenseStore()
 const showPaymentFlow = ref(false)
@@ -330,6 +350,12 @@ defineExpose({ doActivate, doTrial, doDeactivate, licenseKey })
 }
 .upgrade-btn:hover { opacity: 0.9; }
 .upgrade-btn:disabled { opacity: 0.5; cursor: default; }
+.payment-unavailable {
+  margin-top: var(--space-md);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+}
 .payment-flow, .activate-section { padding: 0 var(--space-lg) var(--space-lg); }
 .payment-methods { display: flex; gap: var(--space-md); justify-content: center; margin-bottom: var(--space-md); }
 .payment-method-card {

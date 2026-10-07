@@ -3083,6 +3083,9 @@ export default {
     licenseUnlimited: '永久有效',
     upgradePro: '升级 Pro',
     upgradeHint: '解锁全平台发布、批量发布、定时发布、AI 写作等能力',
+    // 2026-10-07 disable-simulated-payment-in-prod：正式包无真实支付通道，
+    // 取代此前那个点下去必然被主进程拒收的「模拟支付成功（开发模式）」按钮。
+    paymentChannelUnavailable: '付费通道筹备中，暂不支持购买',
     entitlementCardTitle: '会员权益',
     entitlementEmpty: '暂无权益数据',
     entitlementEmptyHint: '登录且身份服务可用时，这里会展示你的会员方案与权益清单。',
