@@ -1,3 +1,60 @@
+# [未发布] fix(publish-history): 作品链接必须落到平台公开内容页，不再是登录页（2026-10-07，fix-publish-history-public-link）
+
+## 背景与根因
+
+发布记录页（`/history`）中状态为「成功」的记录，点「作品链接」或点整张卡片，打开的是平台**登录页**而不是作品内容页。
+
+根因三层，均已取证：
+
+1. **落库的 `url` 本身是创作者后台页**。`electron/services/rpa-view-platforms.js` 判定发布成功时取 RPA webview 的当前页面地址（`_verifyPublishSuccess` 的 `finish()`：`artifact.url || result.url || currentUrl`；平台专用链 `_publish_douyin` / `_publish_wechat_mp` / `_publish_youtube` / `_publish_zhihu` 同为 `win.webContents.getURL()`）。而 `config/platforms.yaml` 里绝大多数平台的 `publish_url` **本身就是后台**（`creator.xiaohongshu.com` / `mp.toutiao.com` / `member.bilibili.com` / `baijiahao.baidu.com/builder` / `cp.kuaishou.com` / `channels.weixin.qq.com`）。
+2. **`sanitizePublishResultUrl` 只脱敏不判目的地**（`electron/services/publisher-router.js`），登录墙 URL 被原样保留。
+3. **渲染端把「协议合法」当成「目的地正确」**（真正的合同缺陷）。`src/views/PublishHistory.vue` 唯一的判据是 `safeHttpUrl`（**协议**白名单），于是 `https://creator.xiaohongshu.com/…` 被当作「作品链接」渲染；应用内标签与系统浏览器都不携带平台会话 Cookie，平台自然重定向到登录页。
+
+知乎之所以「有时正常」，是因为它发布后恰好跳到 `zhuanlan.zhihu.com/p/<aid>`——**同码不同表现**是该 Bug 长期未被发现的直接原因。
+
+## 修复
+
+- **新增目的地语义判据（单一真源）**：`packages/shared-utils/src/published-content-url.js`（CJS）+ `published-content-url.browser.js`（ESM 孪生，`source`+`flags` 由 parity 用例拦截）。三层裁决：recorded 命中该平台**公开内容页白名单** → 原样采用（`recorded`）；否则用通过六重闸门的**平台作品 ID** 派生（`derived`）；都不成立 → **不给链接**（`none`）。绝不用后台页兜底。
+- **判据按 path 白名单而非后台域名黑名单**：知乎内容页与编辑页同域不同 path（`zhuanlan.zhihu.com/p/123` vs `/write`），只有 path 白名单能区分；黑名单则要穷举且必然漏。
+- **作品 ID 六重闸门**：类型 / 非空 / 长度 ≤128 / 非合成前缀（`published-`、`task_`、`tmp`）/ 非空值与布尔字面量 / **平台专属形态正则**。快手 `from=publish` 兜底派生的 `published-xxx` 不再被拼成必然 404 的地址。
+- **诚实降级**：结构性不可派生的平台（微信公众号、视频号、微博、TikTok、Twitter、Instagram、Facebook——永久链接需 `__biz`+`mid`+`idx`+`sn`、`uid/mid`、`@user` 等第二成分）**如实不给链接**，详情弹窗给出「以下为发布时页面地址（需登录平台查看）」并渲染为**不可点的纯文本**，不再给一个点开必然看到登录页的锚点。
+- **存量记录无需迁移**：解析发生在渲染期，`result.postId` / 审核回写的 `platformWorkId` 早已落库，既有记录即刻恢复正确。
+- **消除真源分裂**：`electron/services/platform-metrics/index.js` 此前自持一份 URL 模板而渲染端不用它（正确的那份没被复用）。四个 parser 一律委托共享解析器，对既有四平台**逐字 no-op**（由新测试 M1-M4 逐字锁死）。顺带修掉该目录**完全缺失的测试覆盖**及其两处既有缺陷：`https://zhihu.com/p/published-lz3k9x`、`https://m.gifshow.com/fw/photo/true` 这类必然失败的地址不再产出；快手不再忽略已是公开内容页的 `resultUrl`。
+- **判据分层不合并**（三层分工见 `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md` 新增补丁）：目的地语义（新增）→ 协议白名单 `safeHttpUrl`（既有）→ 主进程 `isAllowedExternalUrl`（既有，更严兜底）。`href-scheme-contract.test.js` 的「`:href` 必须字面被 `safeHttpUrl` 包裹」与「`v-if` 与 `:href` 必须取同一判据表达式」两条锁均保持通过。
+- **渲染层 ESM 孪生的接线**：`apps/desktop/vite.config.js` 的 `resolve.alias` 登记 `@multi-publish/shared-utils/src/published-content-url` → `published-content-url.browser.js`。渲染层一律从**不带 `.browser` 后缀**的模块名导入（与 `safe-http-url` / `publish-audit-status` 同约定）——首轮 CI `QG Static` 红在此处：直接写 `.browser` 后缀会被 `scripts/check-renderer-cjs-boundary` 判为「未登记的 CJS 跨边界导入」。未登记 alias 时渲染层会拉到主进程 CJS 版，浏览器无法执行 `module.exports`。
+- **抽出 composable `usePublishHistoryContentLink`**：`PublishHistory.vue` 已 1457 行，逐文件行数门禁（limit=500 / growthAllowance=200）按账本登记值比对本 PR 触碰文件的增长——判据与打开通道留在视图里会触发 `LEDGER_GREW`（较登记值 1205 膨胀 253 行 > 200）。拆出后视图降至 1363 行，**未用 `--update` 抬高账本基线绕过门禁**。附带收益：抽出 `window.open` 后契约测试立刻报出陈旧登记（`OPEN_SITES_GUARDED_IN_MAIN` 仍指旧文件），于是顺带把 `window.open` 的扫描域从仅 `.vue` 扩到 `.vue` + `src` 下非测试 `.js`——否则该 `window.open` 会**静默退出扫描域**，既不用登记也不被看见。
+
+## 显示项与文案（zh/en 成对）
+
+| key | zh | en |
+| --- | --- | --- |
+| `historyPage.cardNoLinkHint`（修订） | 暂无平台公开链接 | No public post link |
+| `historyPage.detailLinkDerivedHint`（新增） | 由平台作品 ID 推导生成 | Derived from the platform work ID |
+| `historyPage.detailLinkLoginWallHint`（新增） | 以下为发布时页面地址（需登录平台查看） | This is the page URL captured at publish time (sign-in required) |
+| `historyPage.detailLinkAbsent`（新增） | 未记录作品链接 | No post link recorded |
+
+`cardNoLinkHint` 由「暂无平台链接」改为「暂无平台**公开**链接」：记录里**有** `result.url`，只是它不是公开页；新文案如实区分「没有链接」与「没有公开链接」。
+
+## 逃逸链与回归保护
+
+既有 14 条卡片点击用例的负例**全部是协议类**（`javascript:`、缺协议、协议相对、非字符串），正例用的是 `https://www.zhihu.com/question/123456`（**问题页**，不是内容页）——**没有任何一条断言「合法 http 的后台页 URL 不得被打开」**，缺口的正是本 Bug 本身。`platform-metrics/` 则**没有任何测试文件**。E2E 与视觉回归无法覆盖：跳转目标是外部站点，自动化环境断言不了落地页。
+
+回归保护：`published-content-url.test.js` 91 例（15 平台 × 四种输入 + 边界 + CJS/ESM parity）；`platform-metrics/index.test.js` 26 例（补齐空缺覆盖 + no-op 逐字锁）；`PublishHistory.test.js` 新增 V2-V8/V11/V12 共 8 例，**第一次真正以「合法 http 的后台页 URL」为输入**。
+
+**变异反证**：把内容页白名单临时退化为「`safeHttpUrl` 通过即算内容页」（= 精确复刻旧判据），跑测试必须转红——实测 `published-content-url.test.js` 69 例转红、`PublishHistory.test.js` 的 V2/V3/V4/V5/V6/V11 精确转红（V11 报出 `expected 'https://creator.xiaohongshu.com/publish/publish' to be 'https://www.xiaohongshu.com/explore/6530a1b2c3d4e5f600112233'`，正是本 Bug）。还原后 `isPublicContentUrl` 两端函数体逐字一致、203 例全绿。
+
+> 第一次尝试的变异只改了「协议非法」分支（`if (!safe) return false` → `true`），对「协议合法但不是内容页」毫无影响，desktop 侧 96 例**全绿**——**差点用一个恒不触发的变异骗过门禁**。教训：变异必须精确对应被锁的不变量，跑完要看**哪几个**用例转红，而不是只看「有没有红」。
+
+> 另记一个同类陷阱：在块注释里写 glob 形态的路径，其中的「星号 + 斜杠」组合会**提前终止注释**，其后内容被当成代码，报出的却是 esbuild 的「invalid JS syntax / 是不是该用 .jsx 后缀」这种与真实原因毫无关系的假象报错。（第一次写下这条提醒时，提醒本身又踩了同一个坑。）
+
+## 文档
+
+- `01-docs/PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07.md`（新增，本变更完整规格：数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 15 平台规则表 / 测试计划 / 风险）
+- `01-docs/PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03.md`（勘误：其「`safeHttpUrl` 非 null 即为作品链接」的前提已被修正）
+- `01-docs/PRD-HREF-SCHEME-GUARD-2026-09-29.md`（新增三层判据分层补丁）
+
+---
+
 # [unreleased] gate(docs): 文档绝对路径有效性门禁（Gate 12c）+ 清理 python-backend 死脚本
 
 ### 新增

@@ -351,7 +351,34 @@
           <div><dt>{{ t('historyPage.detailMode') }}</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
           <div v-if="deliveryModeValue(selectedRecord)"><dt>{{ t('historyPage.detailDeliveryMode') }}</dt><dd>{{ deliveryModeLabel(selectedRecord) }}</dd></div>
           <div v-if="resultValue(selectedRecord, 'postId')"><dt>{{ t('historyPage.detailPostId') }}</dt><dd>{{ resultValue(selectedRecord, 'postId') }}</dd></div>
-          <div v-if="resultValue(selectedRecord, 'url')"><dt>{{ t('historyPage.detailLink') }}</dt><dd><a v-if="safeHttpUrl(resultValue(selectedRecord, 'url'))" :href="safeHttpUrl(resultValue(selectedRecord, 'url'))" target="_blank" rel="noopener" class="detail-link" data-testid="detail-link">{{ resultValue(selectedRecord, 'url') }}</a><span v-else class="detail-link" data-testid="detail-link-plain">{{ resultValue(selectedRecord, 'url') }}</span></dd></div>
+          <!-- 作品链接：按「目的地判据」三态渲染（PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07）。
+               ① anchor —— 解析出公开内容页（recorded 原样 / derived 由作品 ID 推导）才给链接；
+               ② plain  —— 落库的是创作者后台页（登录墙），**如实给纯文本 + 说明**，绝不给一个
+                              点开必然看到登录页的可点链接；
+               ③ absent —— 压根没记录作品链接，给占位文案而不是留空白。
+               三态共用 publicLinkHref 单一出口，杜绝「文本显示 A、href 打开 B」。 -->
+          <div v-if="linkRenderState(selectedRecord).kind !== 'absent' || resultValue(selectedRecord, 'postId') || selectedRecord.platformWorkId">
+            <dt>{{ t('historyPage.detailLink') }}</dt>
+            <dd>
+              <!-- :href 与 v-if 取**同一个**判据表达式（href-scheme-contract.test.js 的
+                   「成链点的 v-if 与 :href 必须取同一个判据表达式」锁）：成链 ⟺ 解析出了公开
+                   内容页。这里 safeHttpUrl 再过一次是纵深防御，让协议门禁在 sink 处就地可见。 -->
+              <a
+                v-if="safeHttpUrl(publicLinkHref(selectedRecord))"
+                :href="safeHttpUrl(publicLinkHref(selectedRecord))"
+                target="_blank"
+                rel="noopener"
+                class="detail-link"
+                data-testid="detail-link"
+              >{{ publicLinkHref(selectedRecord) }}</a>
+              <span v-if="linkSourceHint(linkRenderState(selectedRecord))" class="detail-link-hint" data-testid="detail-link-derived-hint">{{ linkSourceHint(linkRenderState(selectedRecord)) }}</span>
+              <template v-if="linkRenderState(selectedRecord).kind === 'plain'">
+                <span class="detail-link" data-testid="detail-link-plain">{{ linkRenderState(selectedRecord).raw }}</span>
+                <span class="detail-link-hint" data-testid="detail-link-loginwall-hint">{{ linkLoginWallHint(linkRenderState(selectedRecord)) }}</span>
+              </template>
+              <span v-else-if="linkRenderState(selectedRecord).kind === 'absent'" class="detail-link-hint" data-testid="detail-link-absent">{{ t('historyPage.detailLinkAbsent') }}</span>
+            </dd>
+          </div>
           <div><dt>{{ t('historyPage.detailTime') }}</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
           <div><dt>{{ t('historyPage.detailAccounts') }}</dt><dd>{{ metricValue(selectedRecord.accountCount, 1) }}</dd></div>
           <div><dt>{{ t('historyPage.detailTasks') }}</dt><dd>{{ metricValue(selectedRecord.taskCount, 1) }}</dd></div>
@@ -397,7 +424,7 @@ import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { usePlatformStore } from '@/stores/platforms'
-import { useTabStore } from '@/stores/tab'
+import { usePublishHistoryContentLink, CARD_INTERACTIVE_SELECTOR } from '@/composables/usePublishHistoryContentLink'
 import { useIdentity } from '@/composables/useIdentity'
 import { isAuthGateResult } from '@/utils/auth-gate'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -408,8 +435,6 @@ const { t } = useI18n()
 const router = useRouter()
 const platformStore = usePlatformStore()
 platformStore.load()
-// 卡片整体点击 → 应用内新标签打开平台作品链接（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）。
-const tabStore = useTabStore()
 const activeTab = ref('records')
 const records = ref([])
 const drafts = ref([])
@@ -778,61 +803,20 @@ function closeRecordDetail () {
   detailError.value = ''
 }
 
-// ── 卡片整体点击打开平台作品链接（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）──
-// URL 判据单一来源：safeHttpUrl（渲染端 ESM 孪生，仅 http/https 前缀白名单；
-// 拒绝 javascript:/data:/协议相对/缺协议/非字符串，不清洗放行）。
-// 打开通道：应用内 page-manager 新标签（tabStore.createTab，与 Collection.openCollection 同范式）；
-// 桥不可用或创建失败（store 合同：内部吞错返回 null）时降级 window.open(url, '_blank')，
-// 由主进程 setWindowOpenHandler → isAllowedExternalUrl（更严判据：new URL() 解析 +
-// 协议白名单 + 拒绝 userinfo）兜底交系统浏览器——该 window.open 点已在
-// href-scheme-contract.test.js 的 OPEN_SITES_GUARDED_IN_MAIN 登记。
-
-// 卡片内交互元素：点击走自身逻辑，不冒泡为「打开链接」。用 closest 委托过滤而非逐个
-// @click.stop，避免将来新增子元素时漏加 stop 导致误开。
-// [role=tab] 是防御性条目：当前卡内无该元素，为未来子组件（如内嵌 tab 切换）预留的排除面。
-const CARD_INTERACTIVE_SELECTOR = 'a, button, label, input, select, textarea, [role="tab"]'
-// 进行中守卫：同一卡片在 createTab 未 settle 前的重复点击忽略（非模板绑定，无需响应式）。
-const openingCardIds = new Set()
-
-function cardLinkUrl (record) {
-  return safeHttpUrl(resultValue(record, 'url'))
-}
-
-/** 仅控制光标与 title 提示的可点性判断；真正打开前会再走同一判据（单一真源，双口径同函数） */
-function isCardClickable (record) {
-  return Boolean(cardLinkUrl(record))
-}
-
-function cardClickHint (record) {
-  return isCardClickable(record) ? t('historyPage.cardOpenHint') : t('historyPage.cardNoLinkHint')
-}
-
-async function openCardLink (record) {
-  const url = cardLinkUrl(record)
-  if (!url) return
-  // 已知取舍（QM-6 MINOR-3）：record.id 缺失（undefined/null）的记录共享 '' 守卫键——
-  // 另一张无 id 卡片在途时本卡点击被吞一次，自愈且无泄漏；生产数据 id 由 SQLite 主键保证非空。
-  const recordKey = String(record?.id ?? '')
-  if (openingCardIds.has(recordKey)) return
-  openingCardIds.add(recordKey)
-  try {
-    const tabId = await tabStore.createTab({
-      url,
-      platform: String(record?.platform || ''),
-      title: t('historyPage.cardTabTitle', { title: recordTitle(record) }),
-    })
-    if (tabId) {
-      actionMessage.value = t('historyPage.cardLinkOpened')
-      return
-    }
-    window.open(url, '_blank')
-  } catch {
-    // createTab 合同上不抛错；此处兜底未来实现漂移，不让点击变成未捕获异常
-    actionMessage.value = t('historyPage.cardLinkOpenFailed')
-  } finally {
-    openingCardIds.delete(recordKey)
-  }
-}
+// ── 作品链接的目的地判据 + 打开通道 ──
+// 已抽成 composable `usePublishHistoryContentLink`：该视图已达 1457 行，逐文件行数门禁
+// （.github/scripts/check-max-lines.js，limit=500 / growthAllowance=200）按账本登记值
+// 比对本 PR 触碰文件的增长，逻辑留在视图里会超容差。判据口径与设计理由见该 composable
+// 头注释（PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07 / CARD-OPEN-LINK-2026-10-03）。
+const {
+  publicLinkHref,
+  isCardClickable,
+  cardClickHint,
+  linkRenderState,
+  linkSourceHint,
+  linkLoginWallHint,
+  openCardLink,
+} = usePublishHistoryContentLink({ t, recordTitle, resultValue, actionMessage })
 
 function onCardClick (event, record) {
   if (event?.target?.closest?.(CARD_INTERACTIVE_SELECTOR)) return
