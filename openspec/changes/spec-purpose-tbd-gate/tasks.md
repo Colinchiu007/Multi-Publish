@@ -67,6 +67,9 @@
 - [x] 5.2 QM-6 双模型外部评审（混合 PR + 新增门禁）：23 条发现（后端 11 含 2 CRITICAL / 工程 12 含 3 MAJOR），
       逐条处置见 `openspec/records/spec-purpose-tbd-gate.md` 的「QM-6 发现处置」节；
       原件落盘 `.tmp/qm6/out-backend.txt`（19,528 B）与 `.tmp/qm6/out-frontend.txt`，评审对象钉 `68c4010d9`
-- [ ] 5.3 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
+- [x] 5.3 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
+      —— PR #3099 → merge `28f9d5143`；attempt 1 的唯一红格经定性为环境型（`python simulator failed:`
+      空输出 = `status=null` 两型之一），`rerun --failed` 后 attempt 2 全绿；回填与销账发生在同一次提交
+      （本文件 5.3 勾选 + 记录远程同步行改 PASS + frontmatter 三个 `sync_*` 字段删除）
 - [ ] 5.4 归档 `openspec archive spec-purpose-tbd-gate`（归档后本 change 自己会写 `TBD` 到新增规格 ——
       正是这条门禁的活体测试场景，须确认归档产出的主规格 Purpose 已填）
