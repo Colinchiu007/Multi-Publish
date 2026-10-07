@@ -26,12 +26,12 @@
 
 - [x] 4.1 落授权文件，跑 `--dedup --apply`
 - [x] 4.2 独立回读对账（不复用去重脚本自己的结论）：diff 新增行数 == 0；每个保留块逐字节等于 merge-base 同标题的某一块；canonical distinct 标题集合 == base；行数与净删量当场打印
-- [ ] 4.3 `--dedup` 再跑一次必须 `removed=0`（幂等）；两把锁对新 merge-base 复跑均 rc=0
+- [x] 4.3 `--dedup` 再跑一次必须 `removed=0`（幂等）；两把锁对新 merge-base 复跑均 rc=0
 
 ## 5. 交付
 
 - [x] 5.1 写 `openspec/records/changelog-history-dedup.md`（含 QM-5 五步、QM-6 处置、frontmatter 登记 `sync_*`）
-- [ ] 5.2 QM-6 双模型外部评审（>200 行 ⇒ 判定器定档 `dual`）；Critical 必修，Warning 逐条处置
+- [x] 5.2 QM-6 双模型外部评审（>200 行 ⇒ 判定器定档 `dual`）；Critical 必修，Warning 逐条处置
 - [ ] 5.3 `openspec validate --strict` 通过；`check-docs-sync` / `check-gate-record-debt` / `check-pr-exec-record` / `check-unwired-tests` / `check-step-failfast` / `classify-docs-only` 本地全绿
 - [ ] 5.4 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
 - [ ] 5.5 在 #3037 记录最终口径（含「17,891 行是窄口径、canonical 口径需重测」的更正），worktree 按 R1–R5 收尾

@@ -86,24 +86,57 @@ function headingsOf(text) {
   return entries.headingsOf(text);
 }
 
-/** 取 blob 的**原始字节文本**；文件不存在返回 null（授权文件"缺席"是一个合法状态，不得抛）。 */
-function readBlobOrNullText(git, ref, file) {
+/** 原始 blob 文本（**不**剥 CR）—— 只给"逐字节同源"这类内容判据用；标题判据一律走 readBlobText。 */
+function readBlobRaw(git, ref, file) {
+  let buf;
   try {
-    return git(['cat-file', 'blob', ref + ':' + file]).toString('utf8');
+    buf = git(['cat-file', 'blob', ref + ':' + file]);
   } catch (e) {
-    const msg = (e.stderr || e.message || '').toString();
-    if (/does not exist|path|not found|fatal/i.test(msg)) return null;
-    throw new Error(`读 ${ref}:${file} 失败（非"文件不存在"，不得当作缺席）—— ${msg.trim().slice(0, 160)}`);
+    throw new Error(`读不到 ${ref}:${file} 的原始字节 —— ${(e.stderr || e.message || '').toString().trim().slice(0, 160)}`);
   }
+  return buf.toString('utf8');
+}
+
+/**
+ * 取 blob 文本；**只有"该 ref 里确实没有这个文件"才返回 null**。
+ * QM-6 实测纠正（2026-10-07）：原先靠错误文案正则判缺席不可靠 ——
+ * `git cat-file blob ref:path` 在「文件在工作区但不在该 ref」时输出的正是
+ * `exists on disk, but not in 'ref'`，与真·读失败（权限、对象损坏）在文案上难以区分，
+ * 于是"读失败"会被洗成"文件不存在"，进而让「授权文件不是本次新增」这条判据失真。
+ * 正解是把**存在性**与**读取**分成两步：先 `ls-tree <ref> -- <path>` 问 ref，再 `cat-file` 取内容；
+ * ref 里明明有却读不出来 ⇒ 抛（fail closed），绝不返回 null。
+ */
+function readBlobOrNullText(git, ref, file) {
+  let listed;
+  try {
+    listed = git(['ls-tree', '--name-only', ref, '--', file]).toString('utf8');
+  } catch (e) {
+    throw new Error(`探测 ${ref}:${file} 是否存在失败（不得当作缺席）—— ${(e.stderr || e.message || '').toString().trim().slice(0, 160)}`);
+  }
+  if (!listed.trim()) return null;
+  let buf;
+  try {
+    buf = git(['cat-file', 'blob', ref + ':' + file]);
+  } catch (e) {
+    throw new Error(`${ref}:${file} 在该 ref 里存在却读不出来（fail closed，不当作缺席）—— ${(e.stderr || e.message || '').toString().trim().slice(0, 160)}`);
+  }
+  return buf.toString('utf8');
 }
 
 /** 把 ref 解析成 sha：授权的坐标系比较必须落在 sha 上，`HEAD^` 这种写法不能直接和 JSON 里的 sha 比。 */
 function resolveSha(git, ref) {
+  let out;
   try {
-    return git(['rev-parse', ref]).toString('utf8').trim();
+    out = git(['rev-parse', ref]).toString('utf8').trim();
   } catch (e) {
     throw new Error(`解析 ${ref} 失败 —— ${(e.stderr || e.message || '').toString().trim().slice(0, 160)}`);
   }
+  // QM-6 实测纠正：rev-parse 成功时也可能给出**非 40 位 sha**（短前缀、多行、被当成 pathspec）。
+  // 不过形状就拿去和 applies_to_base 比，等于"坐标校验"自己可以先失效。
+  if (!/^[0-9a-f]{40}$/.test(out)) {
+    throw new Error(`解析 ${ref} 得到的不是 40 位 sha（实得 ${JSON.stringify(out.slice(0, 60))}）—— 坐标系无法核对，fail closed`);
+  }
+  return out;
 }
 
 const AUTH_REQUIRED = ['applies_to_base', 'reason', 'owner_pr', 'expected_titles_reduced', 'expected_entries_after'];
@@ -143,35 +176,56 @@ function evaluateAuthorization({ authHeadText, authBaseText, baseSha }) {
 }
 
 /**
- * 清理形状判据（四条同时成立才算"清了一次重复副本"，而不是"顺手删了点东西"）：
- *  ① base 里的每一个标题在 head 里都至少还剩 1 份（少一个标题＝#2884 那种整份删空，任何例外都不救）；
- *  ② 被减少的标题在 head 里必须**恰好剩 1 份**（"4 份削到 2 份"不算清理）；
- *  ③ 那一份必须与 base 中同标题的某一块**逐字节相同**（授权只覆盖删副本，不覆盖顺便改正文）；
- *  ④ head 里允许出现 base 没有的新标题（本 PR 自己那条台账），但不得出现 base 没有的**份数增长**。
+ * 清理形状判据。**同源比较走 raw 字节**（QM-6 F-D）：早先这里比的是 `readBlobText` 的产物，
+ * 而那个函数为了标题比对会把文本里**所有** `\r` 剥掉 —— 于是"逐字节等于 base 的某一份"
+ * 实际只是"CR 归一后相同"，与 base 只差一个孤立 CR 的块也能过。标题分组仍用归一口径
+ * （`titleOf` 自带 trimEnd，CRLF/LF 下同标题可比），但**内容同源必须是未加工的字节**。
+ *
+ * 四条同时成立才算"清了一次重复副本"：
+ *  ① base 里每一个标题在 head 至少还剩 1 份（少一个＝#2884 那种整份删空，任何例外都不救）；
+ *  ② 被减少的标题在 head **恰好剩 1 份**（4→2 不算清理）；
+ *  ③ 那一份 raw 字节等于 base 中同标题的某一块，**且必须就是 pickKeeper 选定的那一份**
+ *     （QM-6 F-H：否则"门禁说会留哪份"和"修复真留了哪份"又是两套口径）；
+ *  ④ head 里出现 base 没有的标题时最多只能 1 份（QM-6 F-E：原实现只遍历 base 的标题组，
+ *     对 head 独有标题复制两遍完全失明，而注释却承诺了"不得出现份数增长"）。
  */
-function checkDedupShape(baseText, headText) {
-  const bBlocks = entries.splitEntries(baseText).blocks;
-  const hBlocks = entries.splitEntries(headText).blocks;
+function checkDedupShape(baseRawText, headRawText) {
+  const bBlocks = entries.splitEntries(baseRawText).blocks;
+  const hBlocks = entries.splitEntries(headRawText).blocks;
   const bg = entries.groupByTitle(bBlocks);
   const hg = entries.groupByTitle(hBlocks);
   const problems = [];
   let titlesReduced = 0;
   let copiesRemoved = 0;
-  for (const [t, bo] of bg) {
+  // 「同题副本内容互不相同」时留哪一份是有后果的选择，不是无害的折叠 —— 必须把次数打出来（QM-6 Q5）。
+  let heterogeneousTitles = 0;
+  for (const t of new Set([...bg.keys(), ...hg.keys()])) {
+    const bo = bg.get(t) || [];
     const ho = hg.get(t) || [];
+    if (bo.length === 0) {
+      if (ho.length > 1) problems.push({ title: t, kind: 'base 没有的新标题被插了多份', from: 0, to: ho.length });
+      continue;
+    }
     if (ho.length === 0) { problems.push({ title: t, kind: '标题消失', from: bo.length, to: 0 }); continue; }
     if (ho.length === bo.length) continue;
     if (ho.length > bo.length) { problems.push({ title: t, kind: '副本变多', from: bo.length, to: ho.length }); continue; }
     if (ho.length !== 1) { problems.push({ title: t, kind: '只削一半', from: bo.length, to: ho.length }); continue; }
     const kept = hBlocks[ho[0].index];
     if (!bo.some((o) => bBlocks[o.index] === kept)) { problems.push({ title: t, kind: '保留份与 base 任何一份都不逐字节相同', from: bo.length, to: 1 }); continue; }
+    const expected = entries.pickKeeper(bo).index;
+    if (ho[0].index !== undefined && bBlocks[expected] !== kept) {
+      problems.push({ title: t, kind: '留下的不是 pickKeeper 选定的那份', from: bo.length, to: 1 });
+      continue;
+    }
     titlesReduced += 1;
     copiesRemoved += bo.length - 1;
+    if (new Set(bo.map((o) => bBlocks[o.index])).size > 1) heterogeneousTitles += 1;
   }
   return {
     problems,
     titlesReduced,
     copiesRemoved,
+    heterogeneousTitles,
     headEntries: hBlocks.length,
     baseEntries: bBlocks.length,
     headDistinct: hg.size,
@@ -233,7 +287,14 @@ function collect({ base, head, root, git } = {}) {
   }
   if (!ev.granted) { out.authorizationError = ev.fatal; return out; }
 
-  const shape = checkDedupShape(baseText, headText);
+  let shape;
+  try {
+    // 同源比较必须用**未剥 CR 的原始 blob 文本**（QM-6 F-D）；标题/分组仍走归一口径以便跨行尾可比。
+    shape = checkDedupShape(readBlobRaw(runGit, base, FILE), readBlobRaw(runGit, head, FILE));
+  } catch (e) {
+    out.authorizationError = '读取原始 blob 失败，无法做逐字节同源核对：' + e.message;
+    return out;
+  }
   const complaints = [];
   if (shape.problems.length > 0) {
     complaints.push(`清理形状不合格 ${shape.problems.length} 项：`
@@ -260,6 +321,7 @@ function collect({ base, head, root, git } = {}) {
       appliesToBase: ev.auth.applies_to_base,
       titlesReduced: shape.titlesReduced,
       copiesRemoved: shape.copiesRemoved,
+      heterogeneousTitles: shape.heterogeneousTitles,
       baseEntries: shape.baseEntries,
       headEntries: shape.headEntries,
     },
@@ -299,6 +361,11 @@ function main(argv) {
     // 例外生效必须出声：静默放行等于"判据被人改宽了但没人知道"，那正是本仓反复出事的形态。
     console.log(`[changelog-growth] 例外由授权触发：${a.titlesReduced} 种标题各削到 1 份、共减少 ${a.copiesRemoved} 份副本，`
       + `条目 ${a.baseEntries} -> ${a.headEntries}（${a.path}，owner_pr=${a.ownerPr}，applies_to_base=${String(a.appliesToBase).slice(0, 12)}）`);
+    if (a.heterogeneousTitles > 0) {
+      // 这条不是装饰：它把"哪一份活下来"从隐性策略变成必须被人看见的数字（QM-6 Q5）。
+      console.log(`[changelog-growth] ⚠ 其中 ${a.heterogeneousTitles} 种标题的副本内容**互不相同**，`
+        + `保留的是 pickKeeper 选的"正文最长"那份；若某份副本曾被就地改写过，这里就是需要人工过目的清单。`);
+    }
   }
   console.log(`[changelog-growth] PASS：base ${r.baseTotal} 条（${r.baseDistinct} 种标题）全部在 head ${r.headTotal} 条（${r.headDistinct} 种）里，`
     + `字节 ${r.baseBytes} -> ${r.headBytes}`);
@@ -315,6 +382,8 @@ module.exports = {
   compareMultisets,
   headingsOf,
   readBlobText,
+  readBlobOrNullText,
+  resolveSha,
   evaluateAuthorization,
   checkDedupShape,
   main,

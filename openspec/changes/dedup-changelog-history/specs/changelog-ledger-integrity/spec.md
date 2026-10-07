@@ -64,21 +64,34 @@
 - **WHEN** 授权文件的 `applies_to_base` 与本次 merge-base 不相等，或其 JSON 不可解析 / 缺必填字段
 - **THEN** 门禁以非零码失败并点名原因，MUST NOT 退化成"当作没有授权"后静默通过
 
-### Requirement: 清理结果 MUST 可与基准逐块对账且只减不增
+### Requirement: 清理结果 MUST 由一个独立对账器核对，且核对的是「块」而非「行」
 
-系统 SHALL 使每一次台账清理都留下可独立复核的对账证据，且该复核 MUST NOT 复用产生清理的那个脚本自己的结论。
+系统 SHALL 提供 `scripts/changelog-dedup-reconcile.js`，以 base/head 两个 blob 为输入，独立核对五条**与顺序无关**的性质，
+并 MUST NOT 复用产生清理的那个脚本（`--dedup`）自己的结论来充当证据。
+判据层面必须承认：去重会把幸存块挪到该标题首次出现的槽位，因此**行级** `+/-` 必然包含重排噪声，
+把"新增行为 0"写成判据是错的（第一版就是这么写的，并被真实数据当场判红）。
 
-#### Scenario: 只减不增
+#### Scenario: 每标题恰好一块且标题集闭合
 
-- **WHEN** 一次清理 PR 完成后
-- **THEN** `git diff` 相对 merge-base 的新增行数必须为 0，删除行数必须与实际削掉的副本块相符并当场打印
+- **WHEN** 对清理结果跑独立对账
+- **THEN** 必须满足 `head 块数 == head 标题数`，且 `head 标题数 == base 标题数 + 本次新增标题数`
+
+#### Scenario: 保留块逐字节可溯且必须是 pickKeeper 选定的那份
+
+- **WHEN** 对账器检查 head 里的每一个块
+- **THEN** 该块必须与 base 中同标题的某一块**在原始字节上完全相等**（不得是"剥掉 CR 后相等"），且必须就是 `pickKeeper` 会选定的那一份
 
 #### Scenario: 幂等
 
-- **WHEN** 对已经清理过的台账再次运行去重
-- **THEN** 报告 `removed=0` 且不产生任何写入
+- **WHEN** 对已经清理过的文本再跑一次去重
+- **THEN** 必须报告 `removed=0`
 
-#### Scenario: 保留内容与基准逐字节同源
+#### Scenario: 行级规模只作信息打印
 
-- **WHEN** 复核清理后的台账
-- **THEN** 其中每一个块都必须能在 merge-base 中找到逐字节相同的同源块
+- **WHEN** 对账器输出结果
+- **THEN** 必须打印 `added_lines` / `deleted_lines` / 字节变化，但它们**不参与**通过与否的判定；被判定的是上面三条块级性质
+
+#### Scenario: 取数失败不得读成"没问题"
+
+- **WHEN** base 或 head 的 blob 读不出来，或其中一方**一条条目都没有**
+- **THEN** 对账器必须以非零码失败并点名，MUST NOT 把"零条目"当成"零丢失"通过

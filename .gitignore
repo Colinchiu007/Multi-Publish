@@ -126,6 +126,8 @@ scripts/*.js
 # 条目模型的单一实现（被上面两个门禁 require）；漏这条会让"判据本体"不进仓库，
 # 于是 CI 与本地跑的是两份不同东西（第 106 行 scripts/*.js 会静默忽略新建脚本）。
 !scripts/changelog-entries.js
+# 清理结果的独立对账器（QM-6 F-A）；漏这条同样是把工具挡在仓库外，CI 与本仓各跑一份
+!scripts/changelog-dedup-reconcile.js
 !scripts/openspec-sync-check.test.js
 !scripts/affected-report.js
 !scripts/verify-worktree-deps.js

@@ -10,7 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { FILE, HEADING_RE, headingsOf, compareMultisets, collect, main } = require('./check-changelog-growth.js');
+const { FILE, HEADING_RE, headingsOf, compareMultisets, collect, main, AUTH_PATH, readBlobOrNullText, resolveSha } = require('./check-changelog-growth.js');
 
 test('导出的判据面必须齐（缺一个就是判据搬家）', () => {
   assert.equal(FILE, 'CHANGELOG.md');
@@ -159,8 +159,8 @@ test('真仓库四档：顶插=过 / 截断=红 / 副本删一份=红 / 恢复=�
 // 属于 owner 有意选定的不变量，不由清理 PR 改宽。所以例外只在「head 相对 base 新增授权文件」时才存在。
 // ══════════════════════════════════════════════════════════════════════
 
-const AUTH_PATH = 'scripts/changelog-dedup-authorization.json';
-
+// AUTH_PATH 一律从被测模块取（QM-6 F-C：本文件原先自己复制了一份同名字符串，
+// 模块改路径时这里会静默测不到东西）。
 function commitFiles(repo, files, msg) {
   for (const [rel, content] of Object.entries(files)) {
     const abs = path.join(repo.dir, rel);
@@ -181,19 +181,19 @@ function authJson(over = {}) {
   }, over), null, 2) + '\n';
 }
 
-// 把 applies_to_base 改成"本次真的 merge-base"，坐标系必须由 git 给，不许手抄 sha。
-function headMergeBase(repo, base, head) {
-  return repo.g(['merge-base', base, head]).trim();
-}
+// 注：这里曾有一个 headMergeBase 辅助函数定义后从未被调用（QM-6 F-C 抓到）。
+// 删掉它，而不是"留着以后用"——死代码会让下一个人以为坐标系是这么算的。
+// 真实语义写在模块注释里：applies_to_base 是 `--base` 解析出的 sha（CI 中由 merge-base 推导）。
 
 test('授权例外：削到恰好 1 份 + 保留份逐字节同源 + distinct 齐全 ⇒ 过，且必须出声', () => {
   const repo = makeRepo();
   // base：B 有两份（b / b2），A 一份 —— 这就是待清理的"乘法型污染"形状
   commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
   const mb = repo.g(['rev-parse', 'HEAD']).trim();
-  // head：新增授权文件 + B 削到 1 份，且留下的是 base 里逐字节存在的那一份（b，不是 b2）
+  // head：新增授权文件 + B 削到 1 份，且留下的必须是 dedupe/pickKeeper 真会留的那一份（正文最长 = b2），
+  // 否则 F-H 判据（"门禁说留哪份"必须等于"修复真留哪份"）就会判红。
   commitFiles(repo, {
-    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n',
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb2\n',
     [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 2 }),
   }, 'dedup with authorization');
   const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
@@ -210,7 +210,9 @@ test('例外生效必须出声：判据输出里必须出现「例外由授权�
   commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n# [未发布] B\n\nb3\n' }, 'base');
   const mb = repo.g(['rev-parse', 'HEAD']).trim();
   commitFiles(repo, {
-    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n',
+    // 留的必须是 pickKeeper 真会留的那一份：b2 与 b3 等长，等长取首次出现 ⇒ 是 b2 不是 b3
+    // （这一档正是 F-H 判据第一次生效的地方：夹具原先留 b3 被判红）
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb2\n',
     [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 2 }),
   }, 'dedup 3->1 with authorization');
   const lines = [];
@@ -361,6 +363,101 @@ test('条目模型只有一份实现：growth 与副本棘轮在同一份文本�
   // canonical 口径的判据必须逐字来自 growth 现有的那条被实测纠正过的正则
   assert.equal(entries.HEADING_RE.source, growth.HEADING_RE.source);
   assert.equal(entries.HEADING_RE.flags, growth.HEADING_RE.flags);
+});
+
+// ── QM-6 三条 MAJOR/MINOR 的落点：读失败≠缺席、sha 形状、raw 字节同源 ──
+
+test('readBlobOrNullText：ref 里存在却读不出来 ⇒ 抛（不得洗成"没有授权文件"）；ref 里不存在 ⇒ null', () => {
+  const presentButUnreadable = (args) => {
+    if (args[0] === 'ls-tree') return Buffer.from('scripts/changelog-dedup-authorization.json\n');
+    const e = new Error('boom'); e.stderr = Buffer.from('fatal: unable to read object'); throw e;
+  };
+  assert.throws(
+    () => readBlobOrNullText(presentButUnreadable, 'HEAD', 'scripts/changelog-dedup-authorization.json'),
+    /在该 ref 里存在却读不出来/,
+  );
+  const absent = (args) => (args[0] === 'ls-tree' ? Buffer.from('') : Buffer.from('x'));
+  assert.equal(readBlobOrNullText(absent, 'HEAD', 'scripts/changelog-dedup-authorization.json'), null);
+
+  // 存在性必须由 ls-tree 决定，不得再靠错误文案猜（旧实现把 `exists on disk, but not in` 与真读失败混为一谈）
+  const src = fs.readFileSync(path.join(__dirname, 'check-changelog-growth.js'), 'utf8');
+  const at = src.indexOf('function readBlobOrNullText');
+  assert.ok(at > 0, '函数必须存在（锚点找不到≠实现被删）');
+  const body = src.slice(at, at + 1400);
+  assert.ok(/ls-tree/.test(body), '存在性判定必须走 ls-tree');
+  assert.doesNotMatch(body, /does not exist/, '不得再用文案正则把"读失败"判成"不存在"');
+});
+
+test('resolveSha：rev-parse 成功但输出不是 40 位 sha ⇒ 抛（坐标校验自己不得先失效）', () => {
+  for (const bad of ['HEAD', 'not-a-sha', 'd1e2f3', '', '  \n']) {
+    assert.throws(
+      () => resolveSha(() => Buffer.from(bad + '\n'), 'HEAD^'),
+      /不是 40 位 sha/,
+      `输入 ${JSON.stringify(bad)} 本应被拒`,
+    );
+  }
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  assert.equal(resolveSha(() => Buffer.from(sha + '\n'), 'HEAD'), sha);
+});
+
+test('raw 字节同源：只差一个 CR 的保留份不得算"逐字节相同"（QM-6 F-D）', () => {
+  const repo = makeRepo();
+  // base 里 B 的那一份正文行尾带孤立 CR；head 里改成了纯 LF —— 剥 CR 后两者"相同"，raw 则不同
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb2\r\n# [未发布] B\n\nb3\r\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb2\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 2 }),
+  }, 'kept copy differs from base only by CR');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.match(r.authorizationError || '', /逐字节/, '必须被判成"保留份与 base 不同源"，而不是被 CR 归一洗掉');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('head 独有的新标题被插两份 ⇒ 红（QM-6 F-E：旧实现只遍历 base 的标题组，对这一档完全失明）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+  const mb = repo.g(['rev-parse', 'HEAD']).trim();
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb2\n# [未发布] C\n\nc\n# [未发布] C\n\nc\n',
+    [AUTH_PATH]: authJson({ applies_to_base: mb, expected_titles_reduced: 1, expected_entries_after: 4 }),
+  }, 'legit dedup + a brand-new title duplicated twice');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.match(r.authorizationError || '', /新标题/, '必须点名是"base 没有的标题被插了多份"');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('head 一条标题都没有 ⇒ 红（后端通道 Q4：判据退化成分支不能被读成"零丢失"）', () => {
+  const repo = makeRepo();
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n' }, 'base');
+  commitFiles(repo, { 'CHANGELOG.md': '\n这段正文里没有任何一级标题\n' }, 'head has zero entries');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.headTotal, 0, '夹具自证：head 确实零条目');
+  assert.equal(r.lost.length, 2, '两种标题都必须报丢，零条目不是"无丢失"');
+  assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1);
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('授权损坏的三种形态各自 fail closed（缺必填字段 / JSON 是数组 / sha 形状非法）', () => {
+  const cases = [
+    { name: '缺 reason 字段', body: (() => { const o = { applies_to_base: 'x'.repeat(40), owner_pr: '#1', expected_titles_reduced: 1, expected_entries_after: 2 }; return JSON.stringify(o); })(), re: /缺少必填字段/ },
+    { name: 'JSON 是数组', body: '[]', re: /必须是一个对象/ },
+    { name: 'sha 形状非法', body: JSON.stringify({ applies_to_base: 'zz'.repeat(20), reason: 'r', owner_pr: '#1', expected_titles_reduced: 1, expected_entries_after: 2 }), re: /不是合法 sha/ },
+  ];
+  for (const c of cases) {
+    const repo = makeRepo();
+    commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base');
+    commitFiles(repo, {
+      'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb2\n',
+      [AUTH_PATH]: c.body,
+    }, 'broken auth: ' + c.name);
+    const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+    assert.match(r.authorizationError || '', c.re, `${c.name} 的出声文案不对`);
+    assert.equal(main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1, `${c.name} 必须 rc=1`);
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
 });
 
 test('判据文件的扫描域不得为 0（防「解析退化成空集合」式假绿）', () => {
