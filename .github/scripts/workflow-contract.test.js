@@ -424,7 +424,7 @@ test('CHANGELOG 副本棘轮必须与 growth 同进步骤、同在 changes job�
   assert.ok(iGate >= 0, '该步骤必须跑副本棘轮本体（只接测试不接门禁，坏文件照样进 main）');
   assert.ok(iGrowth >= 0, 'growth 判据不得被顺手摘掉——两把锁是一前一后，不是二选一');
   assert.ok(iGate > iGrowth, '棘轮必须排在 growth 之后（先保"条目不许丢"，再判"不许复制"）');
-  assert.match(body.slice(iGate), /--base=\$\{MB:-\$BASE_REF\}/, '必须复用同一步骤算出的 merge-base，不得自己再算一遍 base');
+  assert.match(body.slice(iGate), /--base="\$\{MB:-\$BASE_REF\}"/, '必须复用同一步骤算出的 merge-base，不得自己再算一遍 base');
   assert.doesNotMatch(body.slice(iGate), /--base=\s*$/, '不得漏传 --base（漏了会退回默认 HEAD^，在合并提交上等于拿错的父提交比）');
 });
 
