@@ -2,9 +2,6 @@
 record: audit-writeback-key-fix
 task: 修 P0——审核回查结论此前一条都写不回发布历史（生产传队列 task id，被调方只按 record.id 匹配）
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='(#3083)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：审核回写关联键错配修复（audit-writeback-key-fix，2026-10-07）
@@ -26,7 +23,7 @@ sync_backfill_owner: 下一个会话（合并后按 git log origin/main --grep='
 | 行尾与 diff 对账 | PASS | `git diff --numstat origin/main..HEAD` 与 `--ignore-cr-at-eol --numstat` **逐文件完全相同**（39/0、68/0、16/4、116/0、127/0 ⇒ 366 insertions / 4 deletions）⇒ 无幽灵行、行尾未被统一重写。rebase 的 CHANGELOG 冲突按「两条都保留」解：`resolve-changelog.js` 逐行 `split('\n')` 不动行尾（实测新增块自身带 `\r`）、只删三行标记、解后 `MARKER_COUNT_AFTER=0` 且 `git diff origin/main -- CHANGELOG.md` = **+39/−0**。 |
 | 执行记录与欠账登记 | PASS | 本文件即执行记录。**新载体的登记随文件走**：`远程同步` 行写 `PENDING` + frontmatter 的 `sync_reason` / `sync_backfill_owner` 两个字段非空，`check-gate-record-debt.js`（Gate 2c）即判 OK；**不得**再往 `scripts/gate-record-debt-ledger.json` 加键 —— 试过，当场报「陈旧登记 1 条」，因为那套 JSON 键只服务 `.quality-gates.md` 的历史标题源（本轮实测两次：加键 ⇒ 红，删键 ⇒ OK，ledger 回到 9 键且 `git diff --stat` 为空）。合并后回填 PASS + 删两个 `sync_*` 字段必须**同一次提交**。 |
 | QM-6 CCG 双模型外部评审 | PASS（走替代通道，偏差如实登记） | 触发条件命中（改主进程服务 + 持久化写回）。**偏差**：`Test-NetConnection 127.0.0.1 -Port 15721 -Quiet` = **False** ⇒ 配置里两个 primary（`codex` / `claude`，均绑 CC Switch）本轮不可用；两轴改走 `opencode run`，且**选不同底模**（后端 `opencode/nemotron-3-ultra-free`、前端 `opencode/ling-3.1-flash-free`），同经一个 harness ⇒ 跨家族独立性打折。任务书与被审 diff 均落在本 worktree 内（`.ccg/qm6-*-task.md`、`.ccg/review/keyfix-runtime.diff`，245 行，绑 commit `5930bc6fb1ad419d80dc0887462fe05aadb35945`），两份 findings 入库留证：<br>**后端轴** ⇒ Critical 0 / Warning 0 / INFO。四问逐条给 `文件:行号` 判据；其行号我逐条回读核实（`:45-52` matchesOwner、`:86` id 生成、`:200-201` 入参早退、`:217-221` 匹配条件、K6 在 test `:516-518`）**全部与现状相符**。它独立确认「没有别的生产调用方」与孪生实现不导出该函数，并指出 N5 是「唯一只靠 K6 抓住」的反证 —— 与我的实测一致。<br>**前端轴** ⇒ Critical 0 / **Warning 1** / INFO 3。它核实了 X1 注入的是真模块（`PH_TEST_DATA_DIR` 只是模块自带的存储接缝，不是替身）、断言读落盘文件、`getMainWin:null` 不会绕过被测链（`publish-progress-events.js:135-136` 对 null 窗口直接 return）。处置见下节。 |
-| 远程同步 | PENDING | 本 PR 尚未合并 ⇒ 合并后回填 PASS + merge SHA（取证 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`）与远端分支删除（`git ls-remote --heads origin audit-writeback-key-fix` 应 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段（新载体的登记随文件走，本记录**不在** `gate-record-debt-ledger.json` 里建键） |
+| 远程同步 | PASS | 已合并：squash 落地 `e24660047a87e9f8a2ceca8e59c5664739e87b93`（committer 2026-10-07T20:28:25+08:00）。取证 `git log origin/main --grep='(#3083)$' --format=%H|%cI` 唯一命中该 SHA 与时间；`git ls-remote --heads origin audit-writeback-key-fix` 返回 **0 行**证远端分支已删（本次合并同时删远端分支，本地分支因被本 worktree 占用而未删，属会话残留、不影响远程同步状态）。本次回填与 frontmatter 三个 `sync_*` 字段的删除发生在**同一次提交**
 | 残留 | 见「遗留」 | — |
 
 ## 处置表（评审发现 → 结论）
