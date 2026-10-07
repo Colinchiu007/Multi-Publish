@@ -128,6 +128,8 @@ scripts/*.js
 !scripts/changelog-entries.js
 # 清理结果的独立对账器（QM-6 F-A）；漏这条同样是把工具挡在仓库外，CI 与本仓各跑一份
 !scripts/changelog-dedup-reconcile.js
+# re-sync 后重新生成"清理结果 + 授权文件"的可复跑命令（不留在某人脑子里）
+!scripts/changelog-dedup-regen.js
 !scripts/openspec-sync-check.test.js
 !scripts/affected-report.js
 !scripts/verify-worktree-deps.js
