@@ -2,9 +2,7 @@
 record: fix-ccg-scanner-noise
 task: CCG 安全扫描器治理第一步——剔除测试文件噪音 + 修单文件假绿灯
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
-sync_backfill_owner: "backfill-ccg-scanner-record"
+sync_status: PASS
 ---
 
 ## 本次执行记录：CCG 扫描器噪音治理（fix-ccg-scanner-noise，2026-10-07）
@@ -23,7 +21,7 @@ sync_backfill_owner: "backfill-ccg-scanner-record"
 | 实仓效果 | PASS | `apps/desktop/electron/services/`：files_scanned **670 → 351**，critical **2 → 0**，high **14 → 7**，low 7 → 1。剔掉的正是 `ops-center-sync.test.js`/`runtime-trust-anchor.test.js` 的假私钥与 6 个测试文件里的假 key |
 | 残留真问题（不在本 PR） | PASS | 噪音剔净后剩下的 7 条 high 才是需要逐条定性的对象：`rpa-view-helpers.js` 70/73/106/111 四处 innerHTML + 170 处硬编码密码；`rpa-view-platforms.js` 1031 处 innerHTML；`logger.js` 210 处 console.log。**本 PR 不动业务代码**——改 RPA 填词注入路径会外溢到已跑通的发布链，须独立立项、单独验证 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面与运行时代码；改的是 `.ccg/` 工具脚本与其 CI 接线 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | PR #3023 已 squash 合并，merge SHA `6335bdb85997966dc4533eeb5d63a417b9334786`，2026-10-07T10:12:15+08:00。取证 `git log origin/main --grep='(#3023)$' --format=%H|%cI`；`git ls-remote --heads origin fix-ccg-scanner-noise` 返回 0 行，证远端分支已删 |
 
 ### 定性更正（此前表述不准确）
 
