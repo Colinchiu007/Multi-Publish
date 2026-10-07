@@ -1,3 +1,30 @@
+# [未发布] chore(ci): Gate 12d —— 主规格 Purpose 去 TBD 的检测机制（2026-10-07，spec-purpose-tbd-gate）
+
+### 为什么上一轮的"填平"不算完（本条最关键）
+
+- `openspec archive` 会往 `openspec/specs/<cap>/spec.md` 写 `TBD - created by archiving change <name>. Update Purpose after archive.`，然后**没有任何东西回来追这笔账**：2026-10-07 清点 151 份主规格里 **43 份**如此，而 `git grep -l Purpose -- scripts .github` 命中 **0 个文件**（门禁面上这条判据从来不存在）。
+- PR #3084 只做了一次性填平，并把"缺检测机制"如实写在自己的遗留项里。本条兑现它：**不加检测，存量会重新积累且零失败信号** —— 下一个会话读到 TBD 只会认为"这规格本来没写"，"先文档再代码"的前置门对该规格静默失效。
+
+### 三个非显然的决定
+
+- **全量扫描而非改动集**：Purpose 缺失由"归档"动作引入，与后续谁改了哪个文件无关；按改动集判 = 只在恰好又改到它时才拦。**前提是先归零存量**（#3084 做的正是这件事，当场复跑 151 份违规 0），所以能按绝对判据上，不必做棘轮。对照 Gate 12c 文档绝对路径只能按改动集 —— 全量会命中 100+ 处历史引用，逐条"修好"等于篡改历史。
+- **两条空集出口 + 规模下界**：`0 个文件` 与 `0 个违规` 同形。反证 M3 首跑是 `NOT_RED` —— 只给"目录不存在"留锁时，把 `check()` 里"扫描域为空 ⇒ 抛"改成 `return ok:true` 的变异照样全绿；补第二条出口的测试后同一变异立刻变红。
+- **落点必须是 `changes` job 且在 `classify` 之后**：输入 `openspec/**` 命中 docs-only 白名单，接进被 `docs-only != 'true'` 门控的 static-gates 等于自我关闭（同族 #2718 账本 JSON、#2745 执行记录、#3000 文档绝对路径）；摆在 `classify` 之前则本 step 一红会让 `docs-only` 输出整条消失、下游重型 job 全部跑满。**两条位置前提由测试里的结构锁钉住**，不靠注释。
+
+### 顺带抓住的一个自身缺陷（否则会作为噪声上线）
+
+- 判据第一版用带 `m` 的多行正则取 Purpose 正文，其中 `$` 在多行模式下匹配**空行行尾** —— 而 `## Purpose` 与正文之间按惯例就有空行，于是 **15 份已写好 Purpose 的规格被判成 EMPTY**（真实例子 `openspec/specs/creator-monitor/spec.md`，另有 `i18n-content-sync` / `session-worktree-isolation` / 8 份 `story2video-*`）。
+- 若直接上线，这条门禁第一天就红成噪声，而下一个人被教的是"绕开它"。**正解不是调判据而是换实现**：改为逐行扫描（并让代码围栏内的 `#` 不被当成下一个标题），同时留一条**真实文件形状**的回归锁 —— 断言"用同一份真实规格跑，不得判 EMPTY"。M2 反证（把实现退回旧正则）实测让 2 条变红。
+
+### 回归保护与反证
+
+- `scripts/check-spec-purpose.test.js` **15 条**：四类违规各一（TBD / 缺段 / 空段 / 只有空白）、两条空集出口各一、规模下界、占位词按语义特征（换措辞的 `TODO` / `待补充` 也拦；只认正文开头，避免把"Purpose 里提到 TBD"判成缺陷）、`changes/` 增量目录不得入域、真实仓库形状锁、**三条接线结构锁**、`.gitignore` 放行锁。
+- RED 先行实测：实现尚未存在时 `Cannot find module './check-spec-purpose.js'` / `MODULE_NOT_FOUND`、`tests 1 / pass 0 / fail 1`。GREEN 后 `15 / 15 / 0`。
+- 反证 7 条全部 PASS 且逐字节还原：M1 判据恒合规（红 4）、M2 退回多行正则（红 2）、M3 空集改判通过（红 1）、M4 下界改 0（红 1）、M5 整块搬到 `classify` 之前（红 1）、M6 删 negation（红 1）、M7 摘掉 step 里的 `node --test` 点名（红 1）。两条驱动自身的坑也如实记下：M3 首跑 `NOT_RED` 暴露测试覆盖洞；M7 首跑 `ANCHOR_NOT_FOUND` 是 needle 手拼 `'\n'` 而 workflow 是 CRLF —— 改为**从文件运行时取行**后才成立。
+- 本仓实跑：`node scripts/check-spec-purpose.js` → `扫描 151 份主规格（openspec/specs/**/spec.md），违规 0`；`openspec validate spec-purpose-tbd-gate --strict` 通过；`check-unwired-tests` 检查域 65→**66** 且报「全部已接线」。
+- 见 `openspec/changes/spec-purpose-tbd-gate/` 与 `openspec/records/spec-purpose-tbd-gate.md`。
+
+---
 # [未发布] fix(desktop): 审核回查结论此前一条都写不回发布历史 —— 关联键错配（2026-10-07，audit-writeback-key-fix）
 
 ### 症状与第一性原因
