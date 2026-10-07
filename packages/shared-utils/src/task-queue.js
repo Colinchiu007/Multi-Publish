@@ -8,6 +8,9 @@
  * - 进度事件通知
  */
 const EventEmitter = require('events')
+// R14：持久化快照（待派发 / running / delayed）的字段取舍统一到一处，
+// 见 task-projection.js 头注释（publishTime 曾在三份手抄白名单里全部缺席）。
+const { projectTask } = require('./task-projection')
 
 function normalizeOwnerSubject (ownerSubject) {
   if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
@@ -149,6 +152,11 @@ class TaskQueue extends EventEmitter {
   _add (task, ownerSubject) {
     if (this._shutdown) throw new Error('任务队列已关闭')
     const taskId = `task_${++this._idCounter}_${Date.now()}`
+    // R14（2026-10-07 真机 E2E）：此处原先是**第四份**手抄字段清单，
+    // publishTime 未在其中 ⇒ 平台侧定时意图在入队瞬间即被丢弃，
+    // 下游所有「带定时就 fail-closed」的守卫都判定为「非定时」而永不触发。
+    // 这是运行时**完整**条目（不是持久化投影），故显式构造；字段取舍规则
+    // 见 task-projection.js —— 新增任务字段必须同时满足「这里」与「那里」。
     const entry = {
       id: taskId,
       platform: task.platform,
@@ -156,9 +164,11 @@ class TaskQueue extends EventEmitter {
       owner_subject: ownerSubject,
       batchId: task.batchId || null,
       accountId: task.accountId ?? task.article?.accountId ?? null,
-      // 发布模式标记（'scheduled' = 定时派发）：白名单透传到终态事件，
-      // phase4-events 据此写入发布历史；立即发布为 null（不参与过滤语义）。
+      // 发布模式（'scheduled'）与平台侧排期时间必须成对：
+      // 前者只影响历史展示，后者才决定发布器会不会带定时字段。
+      // 只保前者 ⇒ UI 显示「定时发布」而内容立即发出（R14 事故形态）。
       publishMode: task.publishMode || null,
+      publishTime: task.publishTime ?? null,
       retry: task.retry ?? this.defaultRetry,
       timeout: task.timeout ?? this.defaultTimeout,
       status: 'pending',    // pending | running | success | failed | cancelled
@@ -259,22 +269,8 @@ class TaskQueue extends EventEmitter {
       ...this._queue,
       ...Array.from(this._delayed.values(), entry => entry.task),
     ]
-    return this._visibleTasks(pending).map(t => ({
-      id: t.id,
-      platform: t.platform,
-      article: t.article,
-      owner_subject: t.owner_subject,
-      batchId: t.batchId || null,
-      accountId: t.accountId || null,
-      // 发布模式标记随队列状态持久化：崩溃恢复（deserialize ...task 展开）后
-      // 定时派发任务仍带 'scheduled'，终态写历史时不丢模式。
-      publishMode: t.publishMode || null,
-      retry: t.retry,
-      timeout: t.timeout,
-      retriesLeft: t.retriesLeft,
-      retryOf: t.retryOf || null,
-      createdAt: t.createdAt
-    }))
+    // 字段清单见 task-projection.js（R14：publishTime 曾因三处手抄白名单而丢失）
+    return this._visibleTasks(pending).map(t => projectTask(t))
   }
 
   /**
@@ -283,42 +279,14 @@ class TaskQueue extends EventEmitter {
   serialize () {
     return JSON.stringify({
       queue: this.getPendingTasks(),
-      running: this._visibleTasks(Array.from(this._running.values())).map(t => ({
-        id: t.id,
-        platform: t.platform,
-        article: t.article,
-        owner_subject: t.owner_subject,
-        batchId: t.batchId || null,
-        accountId: t.accountId || null,
-        publishMode: t.publishMode || null,
-        retry: t.retry,
-        timeout: t.timeout,
-        retriesLeft: t.retriesLeft,
-        retryOf: t.retryOf || null,
-        createdAt: t.createdAt,
-        startedAt: t.startedAt
-      })),
+      running: this._visibleTasks(Array.from(this._running.values())).map(t => projectTask(t, { startedAt: t.startedAt })),
       // 2026-10-06：频控等待中的任务（_delayed）必须进快照。
       // 它们既不在 _queue 也不在 _running，此前完全不在持久化范围内 ——
       // 进程重启/崩溃后这批任务静默消失，用户看到的是「发了一半就没了」。
       // 恢复到 queue 尾部（而非立刻派发）：原状态是「等频控窗口」，
       // 而频控窗口是持久化的（PublishIntervalGuard 走 store），重启后
       // 由 _processNext 的守卫检查重新判定该等还是该发。
-      delayed: this._visibleTasks(Array.from(this._delayed.values()).map(d => d.task)).map(t => ({
-        id: t.id,
-        platform: t.platform,
-        article: t.article,
-        owner_subject: t.owner_subject,
-        batchId: t.batchId || null,
-        accountId: t.accountId || null,
-        publishMode: t.publishMode || null,
-        retry: t.retry,
-        timeout: t.timeout,
-        retriesLeft: t.retriesLeft,
-        retryOf: t.retryOf || null,
-        createdAt: t.createdAt,
-        startedAt: t.startedAt
-      }))
+      delayed: this._visibleTasks(Array.from(this._delayed.values()).map(d => d.task)).map(t => projectTask(t, { startedAt: t.startedAt }))
     })
   }
 
