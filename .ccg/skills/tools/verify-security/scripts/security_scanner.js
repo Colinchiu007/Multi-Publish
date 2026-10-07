@@ -162,6 +162,37 @@ const DEFAULT_EXCLUDES = [
   'dist', 'build', '.tox', 'tests', 'test', '__tests__', 'spec',
 ];
 
+/**
+ * 测试文件判定。
+ *
+ * DEFAULT_EXCLUDES 只挡**目录**（tests/ test/ __tests__/ spec/），
+ * 但同目录下的 `foo.test.js` / `foo.spec.js` / `foo.e2e.js` 仍会被扫，
+ * 于是 fixtures 里的假私钥、sk-xxx、假 token 全被当成真实高危
+ * （实测 apps/desktop/electron/services/ 670 文件扫出 2 critical + 14 high，
+ *  其中 critical 全在 *.test.js 的假数据里）。
+ *
+ * 排除测试文件不等于放弃防护：fixtures 里的「凭据」是刻意构造的假值，
+ * 真正的泄露只可能发生在被发布的代码路径上。
+ */
+const TEST_FILE_RE = /(^|[./\\-])(test|spec|e2e)\./i;
+// test_*.js / spec_*.js / e2e_*.js：与 *.test.js 同为仓库既有的测试命名约定
+const TEST_PREFIX_RE = /^(test|spec|e2e)[_.-]/i;
+const TEST_DIR_PARTS = new Set(['tests', 'test', '__tests__', 'spec', '__mocks__', 'fixtures']);
+
+function isTestFile(filePath, excludeDirs = DEFAULT_EXCLUDES) {
+  const base = path.basename(filePath);
+  // 文件名形态：foo.test.js / foo.spec.tsx / foo.e2e.js
+  if (TEST_FILE_RE.test(base)) return true;
+  // 前缀形态：test_helper.js / e2e_login.py
+  if (TEST_PREFIX_RE.test(base)) return true;
+  // 路径中出现被排除的测试目录名：.../tests/foo.js、.../__mocks__/foo.js
+  const parts = String(filePath).split(/[\\/]/);
+  for (const part of parts.slice(0, -1)) {
+    if (excludeDirs.includes(part) || TEST_DIR_PARTS.has(part)) return true;
+  }
+  return false;
+}
+
 function scanFile(filePath, rules) {
   const findings = [];
   const ext = path.extname(filePath).toLowerCase();
@@ -211,6 +242,7 @@ function walkDir(dir, excludeDirs) {
     if (entry.isDirectory()) { results.push(...walkDir(full, excludeDirs)); }
     else if (entry.isFile()) {
       if (CODE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        if (isTestFile(full, excludeDirs)) continue; // 测试文件假数据不是真实高危
         results.push(full);
       }
     }
@@ -221,7 +253,32 @@ function walkDir(dir, excludeDirs) {
 function scanDirectory(scanPath, excludeDirs) {
   const resolved = path.resolve(scanPath);
   const findings = [];
-  const files = walkDir(resolved, excludeDirs);
+
+  // 单文件入口：此前 walkDir 把它当目录读、失败返回 []，于是
+  // files_scanned=0 却 passed=true —— 一个「什么都没扫」的假绿灯。
+  // 现在显式区分「用户点名要扫这个文件」与「目录里恰好没有可扫文件」：
+  // 前者必须计入 files_scanned 并真的扫；后者才允许 0。
+  let files;
+  let stat;
+  try { stat = fs.statSync(resolved); } catch { stat = null; }
+  if (stat && stat.isFile()) {
+    if (isTestFile(resolved, excludeDirs)) {
+      // 点名扫测试文件：显式拒绝并说明，不允许退化成 0 文件绿灯
+      return {
+        scan_path: resolved, files_scanned: 0, passed: false,
+        findings: [{
+          severity: 'medium', category: '扫描配置',
+          message: '目标是被排除的测试文件，未扫描。请改扫其所属目录，或用 --include-tests 显式纳入。',
+          file_path: resolved, line_number: 1, line_content: '',
+          recommendation: '测试文件里的凭据是刻意构造的假值，不构成泄露风险',
+        }],
+      };
+    }
+    files = CODE_EXTENSIONS.has(path.extname(resolved).toLowerCase()) ? [resolved] : [];
+  } else {
+    files = walkDir(resolved, excludeDirs);
+  }
+
   for (const f of files) findings.push(...scanFile(f, SECURITY_RULES));
   findings.sort((a, b) =>
     (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9));
@@ -280,4 +337,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { scanFile, SECURITY_RULES };
+module.exports = { scanFile, scanDirectory, walkDir, isTestFile, DEFAULT_EXCLUDES, SECURITY_RULES };
