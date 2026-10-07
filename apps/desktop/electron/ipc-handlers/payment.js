@@ -21,6 +21,15 @@ function registerHandlers(ipcMain, deps) {
   const pm = new PaymentManager()
 
   ipcMain.handle('payment:create-order', withSenderCheck(async function(event, options) {
+    // 2026-10-07：与 `payment:simulate` 同口径的打包态拒收。
+    // 付费通道未就绪，正式包不应创建真实订单——`withSenderCheck` 只验
+    // senderFrame 是 app://，**不验调用意图**（应用自身有 XSS 时挡不住），
+    // 这是补在 IPC 层的纵深防御。UI 层已由 UpgradeModal 的
+    // `purchaseAvailable = import.meta.env.DEV` 关闭购买入口，此处不依赖它。
+    // 环境变量不能覆盖打包事实，故只认 `app.isPackaged !== false`。
+    if (!app || app.isPackaged !== false) {
+      return { code: EC.REQUEST_ERROR, message: '付费通道筹备中，暂不支持创建订单' }
+    }
     // M-6 修复：参数校验，options 为 undefined 时 options.plan 必崩
     if (!options || !options.plan) return { code: EC.VALIDATION_ERROR, message: '缺少 plan 参数' }
     try {
