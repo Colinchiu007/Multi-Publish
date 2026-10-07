@@ -351,7 +351,34 @@
           <div><dt>{{ t('historyPage.detailMode') }}</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
           <div v-if="deliveryModeValue(selectedRecord)"><dt>{{ t('historyPage.detailDeliveryMode') }}</dt><dd>{{ deliveryModeLabel(selectedRecord) }}</dd></div>
           <div v-if="resultValue(selectedRecord, 'postId')"><dt>{{ t('historyPage.detailPostId') }}</dt><dd>{{ resultValue(selectedRecord, 'postId') }}</dd></div>
-          <div v-if="resultValue(selectedRecord, 'url')"><dt>{{ t('historyPage.detailLink') }}</dt><dd><a v-if="safeHttpUrl(resultValue(selectedRecord, 'url'))" :href="safeHttpUrl(resultValue(selectedRecord, 'url'))" target="_blank" rel="noopener" class="detail-link" data-testid="detail-link">{{ resultValue(selectedRecord, 'url') }}</a><span v-else class="detail-link" data-testid="detail-link-plain">{{ resultValue(selectedRecord, 'url') }}</span></dd></div>
+          <!-- 作品链接：按「目的地判据」三态渲染（PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07）。
+               ① anchor —— 解析出公开内容页（recorded 原样 / derived 由作品 ID 推导）才给链接；
+               ② plain  —— 落库的是创作者后台页（登录墙），**如实给纯文本 + 说明**，绝不给一个
+                              点开必然看到登录页的可点链接；
+               ③ absent —— 压根没记录作品链接，给占位文案而不是留空白。
+               三态共用 publicLinkHref 单一出口，杜绝「文本显示 A、href 打开 B」。 -->
+          <div v-if="linkRenderState(selectedRecord).kind !== 'absent' || resultValue(selectedRecord, 'postId') || selectedRecord.platformWorkId">
+            <dt>{{ t('historyPage.detailLink') }}</dt>
+            <dd>
+              <!-- :href 与 v-if 取**同一个**判据表达式（href-scheme-contract.test.js 的
+                   「成链点的 v-if 与 :href 必须取同一个判据表达式」锁）：成链 ⟺ 解析出了公开
+                   内容页。这里 safeHttpUrl 再过一次是纵深防御，让协议门禁在 sink 处就地可见。 -->
+              <a
+                v-if="safeHttpUrl(publicLinkHref(selectedRecord))"
+                :href="safeHttpUrl(publicLinkHref(selectedRecord))"
+                target="_blank"
+                rel="noopener"
+                class="detail-link"
+                data-testid="detail-link"
+              >{{ publicLinkHref(selectedRecord) }}</a>
+              <span v-if="linkSourceHint(linkRenderState(selectedRecord))" class="detail-link-hint" data-testid="detail-link-derived-hint">{{ linkSourceHint(linkRenderState(selectedRecord)) }}</span>
+              <template v-if="linkRenderState(selectedRecord).kind === 'plain'">
+                <span class="detail-link" data-testid="detail-link-plain">{{ linkRenderState(selectedRecord).raw }}</span>
+                <span class="detail-link-hint" data-testid="detail-link-loginwall-hint">{{ linkLoginWallHint(linkRenderState(selectedRecord)) }}</span>
+              </template>
+              <span v-else-if="linkRenderState(selectedRecord).kind === 'absent'" class="detail-link-hint" data-testid="detail-link-absent">{{ t('historyPage.detailLinkAbsent') }}</span>
+            </dd>
+          </div>
           <div><dt>{{ t('historyPage.detailTime') }}</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
           <div><dt>{{ t('historyPage.detailAccounts') }}</dt><dd>{{ metricValue(selectedRecord.accountCount, 1) }}</dd></div>
           <div><dt>{{ t('historyPage.detailTasks') }}</dt><dd>{{ metricValue(selectedRecord.taskCount, 1) }}</dd></div>
@@ -386,6 +413,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
+import { resolvePublishedContentUrl } from '@multi-publish/shared-utils/src/published-content-url.browser'
 import { normalizeAuditStatus, isAuditAlertStatus, auditStatusLabelKey } from '@multi-publish/shared-utils/src/publish-audit-status'
 import { CirclePlus, Clock, Close, Delete, Download, FolderOpened, Grid, List, Operation, Search, Tickets, User } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -794,17 +822,67 @@ const CARD_INTERACTIVE_SELECTOR = 'a, button, label, input, select, textarea, [r
 // 进行中守卫：同一卡片在 createTab 未 settle 前的重复点击忽略（非模板绑定，无需响应式）。
 const openingCardIds = new Set()
 
-function cardLinkUrl (record) {
-  return safeHttpUrl(resultValue(record, 'url'))
+// ── 作品链接的**目的地**判据（PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07）──
+// 背景：落库的 `result.url` 是 RPA webview 成功瞬间的当前页面地址，而绝大多数平台的
+// publish_url 本身就是创作者后台（creator.xiaohongshu.com / mp.toutiao.com /
+// member.bilibili.com / baijiahao /builder / cp.kuaishou.com / channels.weixin.qq.com）。
+// 旧实现只判**协议**（safeHttpUrl），于是登录墙 URL 被当「作品链接」呈现；应用内标签与
+// 系统浏览器都不带平台会话 Cookie，点开必然落到平台登录页。
+//
+// 判据分三层，**不可互相替代**（分工理由同 electron/window.js:85-90）：
+//   ① 目的地语义 resolvePublishedContentUrl —— 「这是不是该平台的公开内容页」
+//   ② 协议白名单   safeHttpUrl                 —— 「能不能进 href」
+//   ③ 主进程 isAllowedExternalUrl              —— 交给系统浏览器前的更严兜底
+// ① 在 ② 之前：语义不通过就不产出 URL，协议判据无从谈起。
+function publicContentLink (record) {
+  if (!record) return { url: '', source: 'none' }
+  return resolvePublishedContentUrl({
+    platform: record.platform,
+    // postId 优先取发布结果；platformWorkId 是审核回查落库的锚点，作为历史记录的回退来源
+    postId: resultValue(record, 'postId') || record.platformWorkId || '',
+    recordedUrl: resultValue(record, 'url'),
+  })
 }
 
-/** 仅控制光标与 title 提示的可点性判断；真正打开前会再走同一判据（单一真源，双口径同函数） */
+/** 卡片与详情弹窗共用的唯一 URL 出口：解析结果再过协议判据，杜绝「显示 A、打开 B」 */
+function publicLinkHref (record) {
+  return safeHttpUrl(publicContentLink(record).url)
+}
+
 function isCardClickable (record) {
-  return Boolean(cardLinkUrl(record))
+  return Boolean(publicLinkHref(record))
 }
 
 function cardClickHint (record) {
   return isCardClickable(record) ? t('historyPage.cardOpenHint') : t('historyPage.cardNoLinkHint')
+}
+
+/**
+ * 详情弹窗「作品链接」行的三态渲染依据：锚点 / 纯文本+登录说明 / 未记录占位。
+ * `raw` 是**原样记录值**，只作文本展示（Vue 转义后不执行），**任何情况下都不进 href**；
+ * `href` 只来自 publicLinkHref（公开内容页 + 协议判据双通过）。
+ */
+function linkRenderState (record) {
+  const href = publicLinkHref(record)
+  const raw = resultValue(record, 'url')
+  if (href) return { kind: 'anchor', href, source: publicContentLink(record).source, raw }
+  if (raw) return { kind: 'plain', href: '', source: 'none', raw }
+  return { kind: 'absent', href: '', source: 'none', raw: '' }
+}
+
+function linkSourceHint (state) {
+  if (state.kind !== 'anchor') return ''
+  return state.source === 'derived' ? t('historyPage.detailLinkDerivedHint') : ''
+}
+
+/** 只有「确实是 http(s) 页面地址」才标「需登录平台查看」；非 http 的畸形值不套这句说明 */
+function linkLoginWallHint (state) {
+  if (state.kind !== 'plain' || !safeHttpUrl(state.raw)) return ''
+  return t('historyPage.detailLinkLoginWallHint')
+}
+
+function cardLinkUrl (record) {
+  return publicLinkHref(record)
 }
 
 async function openCardLink (record) {

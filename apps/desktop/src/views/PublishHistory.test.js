@@ -280,7 +280,7 @@ describe('PublishHistory', () => {
       code: 0,
       data: {
         total: 1,
-        records: [{ id: 'detail-mode', title: 'API 发布', platform: 'baijiahao', status: 'success', result: { mode: 'api', postId: 'post-998', url: 'https://example.com/p/998' } }],
+        records: [{ id: 'detail-mode', title: 'API 发布', platform: 'baijiahao', status: 'success', result: { mode: 'api', postId: 'post-998', url: 'https://baijiahao.baidu.com/s?id=9987654321' } }],
       },
     })
     const wrapper = mountView()
@@ -291,7 +291,7 @@ describe('PublishHistory', () => {
     expect(detail.text()).toContain('发布方式')
     expect(detail.text()).toContain('API 直连')
     expect(detail.text()).toContain('post-998')
-    expect(detail.get('[data-testid="detail-link"]').attributes('href')).toBe('https://example.com/p/998')
+    expect(detail.get('[data-testid="detail-link"]').attributes('href')).toBe('https://baijiahao.baidu.com/s?id=9987654321')
     expect(detail.get('[data-testid="detail-link"]').attributes('rel')).toBe('noopener')
   })
   it('详情里的历史 url 非 http/https 时不产出锚点，改渲染纯文本（PRD-HREF-SCHEME-GUARD）', async () => {
@@ -795,7 +795,11 @@ describe('PublishHistory 发布方式徽标（§6.1）', () => {
 // 判据单一来源：safeHttpUrl（渲染端 ESM 孪生）；打开通道：tabStore.createTab
 // （page-manager 应用内新标签）→ 失败降级 window.open（主进程 isAllowedExternalUrl 更严判据兜底）。
 describe('PublishHistory 发布记录卡片点击打开平台链接', () => {
-  const CARD_URL = 'https://www.zhihu.com/question/123456'
+  // PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07 §8.3 修正说明：
+  // 旧夹具 CARD_URL 用的是 `https://www.zhihu.com/question/123456`（**问题页**，不是内容页），
+  // 它之所以能通过，正说明旧判据只查协议、不查目的地——这正是本 Bug 的逃逸口。
+  // 现改为真正的公开内容页，并由新增的 V2（后台页 + postId → 派生）与之构成对照。
+  const CARD_URL = 'https://zhuanlan.zhihu.com/p/123456789'
 
   // 组件合同测 store.createTab 调用契约（vi.mock('@/stores/tab') 注入 tabCreateTabMock）；
   // store→pageManager 桥→IPC 的集成由 Collection.test.js / Comments.test.js 与 tab store 自身测试覆盖。
@@ -908,7 +912,7 @@ describe('PublishHistory 发布记录卡片点击打开平台链接', () => {
     ])
     const cards = wrapper.findAll('.record-card')
     expect(cards[0].attributes('title')).toBe('点击打开平台作品链接')
-    expect(cards[1].attributes('title')).toBe('暂无平台链接')
+    expect(cards[1].attributes('title')).toBe('暂无平台公开链接')
   })
 
   it('T13 同一卡片进行中重复点击不重复发请求', async () => {
@@ -931,5 +935,130 @@ describe('PublishHistory 发布记录卡片点击打开平台链接', () => {
     expect(link.attributes('href')).toBe(CARD_URL)
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toContain('noopener')
+  })
+})
+
+// ── PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07：作品链接的**目的地**判据 ──
+// 用户报障：发布记录里已成功的记录，点链接打开的是**登录页**而不是作品内容页。
+// 根因：落库的 result.url 是 RPA 会话所在的后台页，旧判据只查协议不查目的地。
+// 本组用例第一次真正覆盖这个缺口：V2/V3/V4/V6 全部以「合法 http 的后台页 URL」为输入。
+describe('PublishHistory 作品链接必须落到平台公开内容页', () => {
+  const CONSOLE_URL = 'https://creator.xiaohongshu.com/publish/publish'
+  const XHS_NOTE_ID = '6530a1b2c3d4e5f600112233'
+  const XHS_PUBLIC = `https://www.xiaohongshu.com/explore/${XHS_NOTE_ID}`
+
+  const record = (extra = {}) => ({
+    id: 'pl-1', title: '已发布笔记', platform: 'xiaohongshu', status: 'success',
+    timestamp: '2026-07-24T08:00:00.000Z', publisher: '秋叔', contentType: 'image',
+    result: { url: CONSOLE_URL, postId: XHS_NOTE_ID }, ...extra,
+  })
+
+  beforeEach(() => {
+    i18n.global.locale.value = 'zh'
+    vi.clearAllMocks()
+    tabCreateTabMock.mockResolvedValue('btab-1')
+    identityAuthenticatedRef.value = true
+  })
+
+  async function mountRecords (records) {
+    historyListMock.mockReset().mockResolvedValue({ code: 0, data: { total: records.length, records } })
+    const wrapper = mountView()
+    await flushHistory()
+    return wrapper
+  }
+
+  async function openDetail (wrapper, id) {
+    await wrapper.get(`[data-testid="detail-${id}"]`).trigger('click')
+    await flushHistory()
+  }
+
+  it('V2 后台页 + 合法作品 ID ⇒ 打开的是派生出的公开内容页，而不是后台页', async () => {
+    const wrapper = await mountRecords([record()])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).toHaveBeenCalledTimes(1)
+    const [arg] = tabCreateTabMock.mock.calls[0]
+    expect(arg.url).toBe(XHS_PUBLIC)
+    // 核心反证：绝不能把创作者后台页当作品链接交出去
+    expect(arg.url).not.toBe(CONSOLE_URL)
+  })
+
+  it('V3 只有后台页、无作品 ID ⇒ 卡片不可点，不产出任何打开行为', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const wrapper = await mountRecords([record({ result: { url: CONSOLE_URL } })])
+    expect(wrapper.find('.record-card').attributes('title')).toBe('暂无平台公开链接')
+    expect(wrapper.find('.record-card').classes()).not.toContain('is-clickable')
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).not.toHaveBeenCalled()
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
+  it('V4 作品 ID 是合成值（published-xxx）⇒ 不构造必然 404 的链接', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const wrapper = await mountRecords([record({ result: { url: CONSOLE_URL, postId: 'published-lz3k9x' } })])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).not.toHaveBeenCalled()
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
+  it('V5 详情弹窗：derived ⇒ 锚点 href 为派生值 + 标注来源', async () => {
+    const wrapper = await mountRecords([record()])
+    await openDetail(wrapper, 'pl-1')
+    const link = wrapper.get('[data-testid="detail-link"]')
+    expect(link.attributes('href')).toBe(XHS_PUBLIC)
+    expect(link.text()).toBe(XHS_PUBLIC)
+    expect(wrapper.get('[data-testid="detail-link-derived-hint"]').text()).toBe('由平台作品 ID 推导生成')
+    expect(wrapper.find('[data-testid="detail-link-loginwall-hint"]').exists()).toBe(false)
+  })
+
+  it('V6 详情弹窗：无法解析出公开内容页 ⇒ 纯文本 + 登录说明，**不渲染 <a>**', async () => {
+    const wrapper = await mountRecords([record({ result: { url: CONSOLE_URL } })])
+    await openDetail(wrapper, 'pl-1')
+    expect(wrapper.find('[data-testid="detail-link"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="detail-link-plain"]').text()).toBe(CONSOLE_URL)
+    expect(wrapper.get('[data-testid="detail-link-loginwall-hint"]').text())
+      .toBe('以下为发布时页面地址（需登录平台查看）')
+  })
+
+  it('V7 详情弹窗：只记录了作品 ID、无链接记录 ⇒ 占位文案而非留空白', async () => {
+    // 公众号：永久链接需 __biz+mid+idx+sn 四元组，只有 mid 派生不出公开页（PRD §6.3）
+    const wrapper = await mountRecords([record({
+      platform: 'wechat_mp',
+      result: { mode: 'api', postId: '1000000001' },
+    })])
+    await openDetail(wrapper, 'pl-1')
+    expect(wrapper.find('[data-testid="detail-link"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="detail-link-absent"]').text()).toBe('未记录作品链接')
+  })
+
+  it('V8 详情弹窗：recorded 本身是公开内容页 ⇒ 原样使用且不标「推导」', async () => {
+    const url = 'https://www.bilibili.com/video/BV1xx411c7mD'
+    const wrapper = await mountRecords([record({ platform: 'bilibili', result: { url } })])
+    await openDetail(wrapper, 'pl-1')
+    expect(wrapper.get('[data-testid="detail-link"]').attributes('href')).toBe(url)
+    expect(wrapper.find('[data-testid="detail-link-derived-hint"]').exists()).toBe(false)
+  })
+
+  it('V11 platformWorkId 作为历史记录的作品 ID 回退来源（审核回写落库的锚点）', async () => {
+    const wrapper = await mountRecords([record({ result: { url: CONSOLE_URL }, platformWorkId: XHS_NOTE_ID })])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).toHaveBeenCalledTimes(1)
+    expect(tabCreateTabMock.mock.calls[0][0].url).toBe(XHS_PUBLIC)
+  })
+
+  it('V12 结构性不可派生平台（视频号）⇒ 如实不给链接', async () => {
+    const wrapper = await mountRecords([record({
+      platform: 'tencent_video',
+      result: { url: 'https://channels.weixin.qq.com/platform/post/create', postId: '1000000001' },
+    })])
+    expect(wrapper.find('.record-card').attributes('title')).toBe('暂无平台公开链接')
+    await openDetail(wrapper, 'pl-1')
+    expect(wrapper.find('[data-testid="detail-link"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="detail-link-loginwall-hint"]').exists()).toBe(true)
   })
 })

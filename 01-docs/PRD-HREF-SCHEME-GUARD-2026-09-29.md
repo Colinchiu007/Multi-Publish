@@ -5,6 +5,23 @@
 - 类型：🐛 Bug 修复 + 🔐 安全加固（QM-5 五步全跑 + QM-6 双模型外部评审）
 - 关联：`01-docs/PRD-TITLE-ASSISTANT-RELEVANCE-2026-09-28.md`（同一条数据链路上一次收口的是**相关性**，本次收口的是**协议**）
 
+> **📌 分层补丁（2026-10-07 追加）：本文只管「协议」，不管「目的地」**
+>
+> 本文的 `safeHttpUrl` 是**协议**判据（`http://` / `https://` 白名单），它**不能**回答「这个链接会落到哪个页面」。
+> 2026-10-07 的实测反例：`https://creator.xiaohongshu.com/…` 完全通过 `safeHttpUrl`，但它是**创作者后台**——
+> 发布记录页把它当「作品链接」呈现，用户点开看到的是平台**登录页**。
+>
+> 因此外链判据实际是**三层**，按 sink 分工、不可互相替代：
+>
+> | 层 | 判据 | 回答的问题 | 落点 |
+> | --- | --- | --- | --- |
+> | ① 目的地语义 | `resolvePublishedContentUrl` | 这是不是该平台的**公开内容页** | `packages/shared-utils/src/published-content-url(.browser).js` |
+> | ② 协议白名单 | `safeHttpUrl`（本文） | 能不能进 `href` | `packages/shared-utils/src/safe-http-url(.browser).js` |
+> | ③ 主进程兜底 | `isAllowedExternalUrl` | 交给系统浏览器前再验一次（更严：`new URL()` 解析 + 协议白名单 + 拒绝 userinfo） | `apps/desktop/electron/window.js` |
+>
+> ① 在 ② 之前：语义不通过就不产出 URL，协议判据无从谈起。
+> 详见 `01-docs/PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07.md`。
+
 ---
 
 ## 1. 背景与问题
