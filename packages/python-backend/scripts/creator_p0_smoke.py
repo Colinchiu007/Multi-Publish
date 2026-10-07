@@ -37,13 +37,19 @@ MIN_TRANSCRIPT_CHARS = 500
 
 DEFAULT_CHANNEL = os.environ.get("CREATOR_P0_CHANNEL", "@YouTube")
 
-# 四种输入形态：必须解析到同一个 channelId
+# 频道输入形态。**必须是以 https:// 开头的完整 URL**：实测依赖库的
+# `youtube_collector.py:141` 只在 `channel_id.startswith('http')` 时才进 URL 解析分支，
+# 传裸串（`youtube.com/@x` 或 `@x`）会被原样塞进 API 的 channelId 参数 → HTTP 400。
+# 且该库对 `@handle` 的处理是**降级成关键词搜索**（把 handle 当搜索词、channel_id 置 None），
+# 拿到的是「标题含该词的视频」而非该频道自己的作品 —— 因此 adapter 必须自己用
+# `channels.list?forHandle=` 解析 handle，不能依赖库的 URL 分支。
 CHANNEL_INPUT_FORMS = [
-    "UC_x5XG1OV2P6uZZ5FSM9Ttw",   # 频道 ID（YouTube 官方频道）
-    "youtube.com/@YouTube",       # handle URL
-    "youtube.com/c/YouTube",      # 旧式 /c/
-    "youtube.com/user/GoogleDevelopers",  # 旧式 /user/（故意用另一个频道验证 404 处理）
+    "https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw",  # 完整 URL + UC ID
+    "https://www.youtube.com/@GoogleDevelopers",                 # 完整 URL + @handle
+    "https://www.youtube.com/c/GoogleDevelopers",                # 完整 URL + 旧式 /c/
+    "https://www.youtube.com/user/GoogleDevelopers",             # 完整 URL + 旧式 /user/
 ]
+EXPECTED_CHANNEL_ID = "UC_x5XG1OV2P6uZZ5FSM9Ttw"
 
 results: list[tuple[str, bool, str]] = []
 
@@ -93,21 +99,23 @@ async def main() -> int:
             cid = (items[0].get("metadata", {}).get("channel_id") if items else "") or ""
             resolved[form] = cid
         except Exception as exc:  # noqa: BLE001 - 冒烟需要看到任何异常形态
-            resolved[form] = f"<error: {type(exc).__name__}: {exc}>"
+            resolved[form] = f"<error: {type(exc).__name__}: {str(exc)[:80]}>"
 
-    canonical = [v for v in resolved.values() if v and not v.startswith("<error")]
-    # 三种形态应指向同一频道；/user/ 那个指向别的频道，只验证「不抛未捕获异常且有明确结果」
-    first_form = resolved[CHANNEL_INPUT_FORMS[0]]
-    same_target = len(set(canonical)) >= 1 and first_form in canonical
+    got = {v for v in resolved.values() if v and not v.startswith("<error")}
+    all_ok = len(got) == 1 and EXPECTED_CHANNEL_ID in got
     record(
-        "E2E-1 频道解析（4 种形态）",
-        same_target,
-        " | ".join(f"{k} -> {v or '<empty>'}" for k, v in resolved.items()),
+        "E2E-1 频道解析（4 种形态归一）",
+        all_ok,
+        f"期望 {EXPECTED_CHANNEL_ID}；实得 {sorted(got) if got else '(无)'}；"
+        + " | ".join(f"{k.split('/')[-1]}->{v or '<empty>'}" for k, v in resolved.items()),
     )
+
+    # 用归一后的 canonical ID 作为后续步骤的输入（adapter 的真实做法）
+    channel = EXPECTED_CHANNEL_ID
 
     # ---------- E2E-2 作品枚举 ----------
     c = YouTubeCollector(api_key=api_key, fetch_transcript=False)
-    items = await c._fetch(channel_id=DEFAULT_CHANNEL)
+    items = await c._fetch(channel_id=channel)
     items = items if isinstance(items, list) else []
     with_ids = [i for i in items if (i.get("metadata") or {}).get("video_id")]
     record(
@@ -121,7 +129,7 @@ async def main() -> int:
     # ---------- E2E-3 字幕正文 ----------
     target = with_ids[0]["metadata"]["video_id"]
     c2 = YouTubeCollector(api_key=api_key, fetch_transcript=True)
-    fetched = await c2._fetch(channel_id=DEFAULT_CHANNEL)
+    fetched = await c2._fetch(channel_id=channel)
     fetched = fetched if isinstance(fetched, list) else []
     sample = next((i for i in fetched if (i.get("metadata") or {}).get("video_id") == target), None)
     if sample is None:
@@ -140,7 +148,7 @@ async def main() -> int:
     snaps = []
     for _ in range(3):
         cc = YouTubeCollector(api_key=api_key, fetch_transcript=False)
-        out = await cc._fetch(channel_id=DEFAULT_CHANNEL)
+        out = await cc._fetch(channel_id=channel)
         out = out if isinstance(out, list) else []
         snaps.append({(i.get("metadata") or {}).get("video_id") for i in out})
     record(

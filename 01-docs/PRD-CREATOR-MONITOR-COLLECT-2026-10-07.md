@@ -406,6 +406,33 @@ COMMIT
 
 **解析失败的 fail-closed**：`channels.list` 解析不出 `channelId` 时**拒绝写入**并提示 `creatorErrChannelNotFound`，**绝不退化成用用户输入当 ID 兜底**——那正是同一博主被拆成多行的根源。
 
+**⚠ P0 冒烟实测发现的依赖库缺陷（2026-10-07，必须由 adapter 兜住）**
+
+`youtube_collector.py:141-180` 的真实契约（实测验证）：
+
+| 输入 | 依赖库行为 | 结论 |
+|---|---|---|
+| `UC...` 频道 ID | 直接使用 | ✅ |
+| 完整 URL（**必须以 `https://` 开头**）+ `UC...` | 正则提取后使用 | ✅ |
+| 完整 URL + `/c/Name`、`/user/Name` | 调 `channels.list?forUsername=` 解析 | ✅ |
+| 完整 URL + `@handle` | ⚠️ **`search_query=handle`、`channel_id=None`，降级成关键词搜索** | ❌ **静默返回错误频道** |
+| 裸串（无 `http` 前缀，如 `youtube.com/@x` 或 `@x`） | **不进 URL 解析分支**，原样塞进 API 的 `channelId` 参数 → HTTP 400 | ❌ |
+
+**实测证据**（E2E-1）：同一频道的三种写法解析正确，但 `@GoogleDevelopers` 返回了 `UC-BsRijgl1O-H-sD4-Zw3UA`——**另一个频道**。日志 `[YouTube] @handle 格式需要搜索: GoogleDevelopers`。
+
+**为什么这比"报错"严重**：关键词搜索会返回**标题/描述含该词的任意视频**，其 `channel_id` 是那些视频作者的频道。系统读到的 `channel_id` "有值且合法"，UI 与日志都不会报错——**用户关注 A 博主，系统把 B 博主的内容当作 A 的作品推给他，全程无异常信号**。这是静默的数据正确性事故，不是可用性问题。
+
+**adapter 必须自己承担解析，不依赖库的 URL 分支**：
+
+| 步骤 | 实现 |
+|---|---|
+| 1. 归一化输入 | 裸串补全 `https://`；已是 URL 则原样使用 |
+| 2. 自行解析（**不走库的 `_fetch`**） | `UC…` 直取；`@handle` → `channels.list?forHandle=`；`/c/`、`/user/` → `channels.list?forUsername=` |
+| 3. 拿 canonical ID 后再调库 | 把 `UC…` 传给 `YouTubeCollector._fetch(channel_id=...)` |
+| 4. 解析失败即拒绝 | fail-closed，提示文案区分「格式不对」与「频道不存在」 |
+
+**已实测验证解析路径可用**（2026-10-07，真实 Key）：`forHandle=YouTube` → `UCBR8-60-B28hp2BmDPdntcQ`；`forHandle=GoogleDevelopers` → `UC_x5XG1OV2P6uZZ5FSM9Ttw`；`forUsername=Google` → `UCK8sQmJBp8GCxrOtXWBpyEA`；uploads playlist + `playlistItems` 返回真实最新作品与发布时间。
+
 **URL → channelId 解析矩阵（CCG 评审 i5）**：用户输入形态千差万别，必须逐条定义，否则"能解析但解析错"比"解析不了"更危险。
 
 | 输入形态 | 示例 | 解析路径 | units | 失败表现 |
