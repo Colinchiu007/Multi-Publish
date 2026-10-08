@@ -17,11 +17,17 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.strictEqual(catalog.length, 3)
     const [free, standard, pro] = catalog
     assert.strictEqual(free.priceMonthlyCents, 0)
-    assert.strictEqual(standard.priceMonthlyCents, 2900)
-    assert.strictEqual(standard.priceYearlyCents, 19900)
+    assert.strictEqual(standard.priceMonthlyCents, 5900)
+    assert.strictEqual(standard.priceYearlyCents, 49900)
     assert.strictEqual(pro.priceMonthlyCents, 7900)
-    assert.strictEqual(pro.priceYearlyCents, 59900)
+    assert.strictEqual(pro.priceYearlyCents, 69900)
     for (const item of catalog) assert.strictEqual(item.currency, 'CNY')
+  })
+
+  await t.test('官方积分月度配额：30 / 1600 / 2200', () => {
+    assert.strictEqual(getPlanEntitlement('free').quota.official_credit_monthly, 30)
+    assert.strictEqual(getPlanEntitlement('standard').quota.official_credit_monthly, 1600)
+    assert.strictEqual(getPlanEntitlement('pro').quota.official_credit_monthly, 2200)
   })
 
   await t.test('无限值约定 -1：pro 平台数 / standard AI 写稿（自有 Key）', () => {
@@ -53,9 +59,9 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.strictEqual(getPlanEntitlement('pro').quota.video_create_monthly, 3000)
     assert.strictEqual(standard.limits.concurrent_tasks, 3)
     assert.strictEqual(getPlanEntitlement('pro').limits.concurrent_tasks, 10)
-    // 官方积分档位：free 无 / standard 中 / pro 高
-    assert.strictEqual(free.quota.official_credit_monthly, 0)
-    assert.ok(standard.quota.official_credit_monthly > 0)
+    // 官方积分档位：free 体验额度 / standard 中 / pro 高（逐值断言见上方专用用例）
+    assert.ok(free.quota.official_credit_monthly > 0)
+    assert.ok(standard.quota.official_credit_monthly > free.quota.official_credit_monthly)
     assert.ok(getPlanEntitlement('pro').quota.official_credit_monthly > standard.quota.official_credit_monthly)
   })
 
