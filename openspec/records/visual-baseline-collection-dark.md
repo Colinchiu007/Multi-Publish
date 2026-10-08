@@ -2,9 +2,6 @@
 record: visual-baseline-collection-dark
 task: 重建过期的暗色像素基线 collection-dark.png（main push 基线新鲜度门禁红 237 px / 0.011%），并把「PR 侧看不见暗档」这一结构性盲区登记在案
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（本记录所属 PR = #3113，已由 `gh pr list --repo Colinchiu007/mulpub --head visual-baseline-collection-dark --json number,state,headRefOid` 回读取入，非凭印象；合并后按 git log origin/main --grep='(#3113)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：重建暗色基线 collection-dark.png（visual-baseline-collection-dark，2026-10-08）
@@ -29,7 +26,7 @@ sync_backfill_owner: 下一个会话（本记录所属 PR = #3113，已由 `gh p
 | TDD | N/A | 无新增逻辑；判据已由 `scripts/check-baseline-freshness.js` 与其测试（CI 里 `node --test scripts/check-baseline-freshness.test.js`）持有 |
 | QM-6 CCG 双模型外部评审 | N/A（判定过程如实登记） | 触发条件是 M+/中高风险运行时逻辑。本 PR 是**一张二进制基线 + 文档**，零逻辑分支；风险面是「这张图该不该换」，而该问题已由 BEFORE/AFTER 成对判据 + 三条件归因闭合，外部模型拿不到比这更多的信息。跨模型评审留给 §9.3 那条真正需要人过目的门禁改动 |
 | ⛔ 自伤一次并已修（如实登记） | 已纠正 | 回填 PR 号那次脚本用 `String.prototype.replace(needle, repl)`，而替换串含 `--grep='(#3113)$'` —— **`$'` 在替换串里是「匹配之后的全部尾部」特殊令牌**，于是文件从该点起被整段复制一遍（`wc -l` 38→86、`## 本次执行记录` 出现 2 次、取证命令文本被吞），并已随 `c4b78b427` 推到远端。正解两条：① 一律 `s.split(needle).join(repl)`（`join` 无 `$` 语义）；② 修复必须从**未受污染的 git 版本** `git show fedd5df28:<path>` 重建，禁止在坏文件上再打补丁（否则重复块会留在树里）。三条判据实跑：`^## 本次执行记录` 计数 **1**、`^\| 远程同步 \|` 计数 **1**、`--grep='(#3113)$' --format=%H\|%cI` 命中 **1**、`<该号>` 残留 **0**。**这条坑本仓已有 learnings 记录（`db51cc163`「沉淀 replace 的 $ 替换令牌坑」）仍然复发** —— 复发原因不是口径不存在，而是我**新写脚本时没回看它**。该坏提交由后续修复提交覆盖，PR 走 squash ⇒ 落地的只有最终 head |
-| 远程同步 | PENDING | 本条自己的欠账：PR 号 **已由 `gh pr list --repo Colinchiu007/mulpub --head visual-baseline-collection-dark --json number,state,headRefOid` 回读为 `3113`（state=OPEN，headRefOid=`fedd5df28fd7eea34124dc156d96b627c78e33b1`）**，非凭印象。合并后由回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#3113)$' --format=%H\|%cI` + `git ls-remote --heads origin visual-baseline-collection-dark` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 `gate-record-debt-ledger.json` 建键（建了会报「陈旧登记」） |
+| 远程同步 | PASS | 已合并：squash 落地 `8ac22d0d96838155269be0467d1925852074b413`（committer 2026-10-08T11:25:06+08:00）。取证两源一致：`git log origin/main --grep='(#3113)$' --format=%H|%cI` 唯一命中该 SHA 与时间，且 `gh pr view 3113 --json mergeCommit` 报同一 oid；`git ls-remote --heads origin visual-baseline-collection-dark` 返回 **0 行**证远端分支已随合并删除。合并前该分支还做过一次 re-sync（把 `origin/main@7c62f3e3d` 合进来，merge commit `cc1fcec61`），当场复测自证的适用范围判据 `git diff --name-only fedd5df28..HEAD` 命中 `apps/` 仍为 **0** ⇒ 那次 dispatch 的 0 px 结论对新 head 依然成立，未额外占第二轮 visual-test。CI 侧最终 head `cc1fcec61` 为 20 pass / 0 fail / 1 skipping（`release`，非 required）。 上方 frontmatter 的三个 `sync_*` 登记字段已在本条由 PENDING 转 PASS 的**同一次提交**内整段删除 |
 
 ## 明确留在场上的边界（不假装已闭合）
 
