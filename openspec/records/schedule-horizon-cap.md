@@ -1,6 +1,4 @@
 ---
-sync_reason: 远程同步 PENDING——PR #3176 开启中；合并后在状态列改写 PASS + merge SHA，并同一次提交删除 gate-record-debt-ledger.json 的登记项（回填与销账必须同一次发生）
-sync_backfill_owner: agent（PR #3176 自动合并后回填）
 ---
 
 # 头条排期上限取证与收窄（horizon-probe，2026-10-08）
@@ -72,11 +70,9 @@ UI 路线受阻的根因链（11 轮探针，probe-horizon7~13.cjs）：
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS |
 |--------|---------|
-| PR | #3176（horizon-probe → main） |
-| 回填约定 | 合并后本行状态列改写 `PASS` + merge SHA，并同一次提交删除 `scripts/gate-record-debt-ledger.json` 的登记项（回填与销账必须同一次发生） |
-
-<!-- frontmatter 登记字段（sync_reason / sync_backfill_owner / sync_status）由 ledger 行承载：scripts/gate-record-debt-ledger.json 键「本次执行记录：头条排期上限取证与收窄 30→7（schedule-horizon-cap，2026-10-08）」 -->
+| PR | #3176 已 squash 合并。merge SHA `7653ee5bbc005b6c7631280bef04e3dedb83e44b`，合并时间 `2026-10-09T02:20:35+08:00`（取证：`git log origin/main --grep='(#3176)$' --format=%H\|%cI` 唯一命中）。`git ls-remote --heads origin horizon-probe` 返回 0 行，证远端分支已删 |
+| 销账 | 本 PR 同一次提交删除 `scripts/gate-record-debt-ledger.json` 的登记项「本次执行记录：头条排期上限取证与收窄 30→7（schedule-horizon-cap，2026-10-08）」并删除 frontmatter `sync_*` 字段（回填与销账同一次发生） |
 
 ## 复核路径
