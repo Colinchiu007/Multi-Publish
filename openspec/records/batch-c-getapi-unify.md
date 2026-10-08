@@ -2,9 +2,6 @@
 record: batch-c-getapi-unify
 task: M-9 IPC 桥接层收敛 —— getApi 单一真源 + API Key 链路脱壳 + publisher 四处绕过清零
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 关联 PR 尚未合并，无 merge SHA 可取证
-sync_backfill_owner: 下一会话（合并后单开回填 PR 收口）
 ---
 
 ## 任务执行记录：批次 C（batch-c-getapi-unify，2026-10-08）
@@ -23,8 +20,8 @@ sync_backfill_owner: 下一会话（合并后单开回填 PR 收口）
 | 行尾 diff 对账 | PASS | 两口径 numstat 一致 |
 | 门禁自测 | PASS | check-max-lines rc=0；check-debt-budget rc=0；check-test-microtask-spin rc=0（1188 测试文件 0 自旋） |
 | QM-1 打包 / QM-4 视觉 | N/A | 无运行面/视觉改动，调用侧零改动 |
-| QM-6 CCG 跨家族外部评审 | 待跑 | 提交后执行 |
-| 远程同步 | PENDING | 合并后回填 |
+| QM-6 CCG 跨家族外部评审 | 已执行 | deep-review.sh（critic=claude）产出 7 条（5 Warning/Info 入实质）：i1 拒绝转信封缺 catch 已修并配运行时回归锁 tts-reject-envelope.test.js（反证撤 catch 转 2 红）；i2 域判据补 on()；i3 脱壳运行时验证 apikey-plain-ipc.test.js（走真实桥接层）；i4 UNAVAILABLE freeze；i5 PRD 语义纠正；i6/i7 评估后不改（理由见提交 b312eeec9） |
+| 远程同步 | PASS | merge SHA f03a53a1（PR #3174，2026-10-09）；git ls-remote 证远端分支 batch-c-getapi-unify 已删（0 行输出） |
 
 ## 关键判断与取舍
 
