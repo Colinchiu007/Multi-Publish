@@ -2,8 +2,6 @@
 record: docs-ops-resilience-addendum
 task: 回写架构文档实施状态（PR #3126 已合入）与 R1/R2 风险实测结论，纯文档增补
 date: 2026-10-08
-sync_reason: PR #3144 已开、CI 进行中，远程同步行写 PENDING；合并后在同一次提交内改写为 PASS + merge SHA 并删除本 frontmatter 的 sync_reason / sync_backfill_owner 字段
-sync_backfill_owner: agent（PR #3144 自动合并后回填）
 ---
 
 ## 本次执行记录：架构文档增补（docs-ops-resilience-addendum，2026-10-08）【docs-only】
@@ -14,7 +12,7 @@ sync_backfill_owner: agent（PR #3144 自动合并后回填）
 | 行尾对账 | PASS | `git diff --numstat origin/main HEAD` 与 `--ignore-cr-at-eol --numstat` 口径一致 |
 | 门禁脚本 | PASS | `classify-docs-only.js` → docs-only=true files=1；`check-no-brand-residue.js` rc=0；文档编码自检无 U+FFFD |
 | QM-1/QM-4/QM-6 | N/A | docs-only 豁免；事实核对均为只读探针与源码行号引用 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3144)$' --format=%H\|%cI`（PR 号以实际为准）回填并删 sync_* 字段，与销账同一次提交 |
+| 远程同步 | PASS | PR #3144 已 squash 合并。merge SHA `3385e62d9c35a29f62b80edb078a887baffc7be6`，合并时间 `2026-10-08T15:54:09+08:00`（取证：`git log origin/main --grep='(#3144)$' --format=%H\|%cI`）。`git ls-remote --heads origin docs-ops-resilience-addendum` 返回 0 行，证远端分支已删 |
 
 ### 事实核对清单（全部只读）
 
