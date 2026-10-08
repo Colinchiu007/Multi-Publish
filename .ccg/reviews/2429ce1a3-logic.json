@@ -1,0 +1,80 @@
+{
+  "sha": "2429ce1a3",
+  "axis": "logic",
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 185,
+      "claim": "listJobBlocks 用缩进层级判 job 级 if，会把 env: 下的 if: 键误判为 job 级门控（假红），或漏掉不在标准缩进位置的 job 级 if（假绿）",
+      "evidence": "第 185 行 `if (/^    if:\\s*\\S/.test(line)) cur.gated = true` 仅匹配行首 4 空格 + if:，不校验上下文是否为 job 直属键。真实 YAML 如 `jobs:\\n  test:\\n    env:\\n      if: SOME_VAR`（env 值恰为 if: 开头）会被误判 gated=true；又如 `jobs:\\n  test:\\n    if: ${{...}}` 写在 steps 之后能被捕获（正确），但若用 `if: >` 多行折叠且续行缩进不足 4 空格，续行虽属同一 if 但不再匹配（无害，因首行已命中）。更隐蔽的假绿：job 名含点号如 `test.v2:`（GitHub 实为合法，文档未明确禁止），正则 `/^  ([A-Za-z0-9_-]+):\\s*$/` 不匹配点号，导致该 job 整体不被解析、其中的测试引用视为「未被任何 job 点名」。",
+      "suggested_fix": "改用真实 YAML 解析器（如 js-yaml）加载 workflow 后，遍历 jobs 对象直接读取 job.if 字段；或至少在缩进判法上补充：1) 要求 if: 之前必须已见过该 job 的名字键；2) 显式排除 `env:`/`defaults:`/`permissions:` 等已知容器键下的 if:；3) 对 job 名正则放宽至 GitHub 允许的 `[a-zA-Z_][a-zA-Z0-9_-]*`（已满足），但需补充「解析到的 job 数 = YAML 里 jobs 键数」的规模断言防漏解析。",
+      "confidence": "high"
+    },
+    {
+      "severity": "MAJOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 268,
+      "claim": "collectUngatedCheck 用子串匹配（includes）判断测试被点名，会在 basename 互为子串、路径出现在 env/注释/字符串字面量时误判（假绿）",
+      "evidence": "第 268 行 `j.code.includes(file) || j.code.includes(base)`：1) basename 互为子串：`scripts/a.test.js` 与 `scripts/b-a.test.js`，后者被点名时前者 basename `a.test.js` 是后者子串 ⇒ 前者被误判已接线。2) inline 注释未剥离：listJobBlocks 第 197 行 `if (/^\\s*#/.test(line)) continue` 只跳过整行注释，`run: node --test scripts/x.test.js # also scripts/mirror.test.js` 的行尾注释保留在 code 中 ⇒ 被误判点名。3) env 变量/字符串字面量：`env:\\n  TEST_FILE: scripts/mirror.test.js` 会被计入 code ⇒ 误判。4) 相对路径写法差异：`./scripts/mirror.test.js` 与 `scripts/mirror.test.js` 不互为子串 ⇒ 漏判（假红）。",
+      "suggested_fix": "引入最小语义匹配：在 code 中按 shell 词边界匹配（前后为空白/引号/行首尾/&&/||/;/|/&），或要求出现在 `node --test` / `bash` / `pwsh` 等执行命令的参数位置。最小改动：先把 code 做一次 shell 词切分（按 `\\s+` 且保留带引号的参数），再在词集合里精确匹配 file 或 basename；同时把 inline 注释剥离逻辑从 stripComments 复用到 listJobBlocks（在追加 code 前把 `#` 及之后删掉）。",
+      "confidence": "high"
+    },
+    {
+      "severity": "MAJOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 56,
+      "claim": "MUST_LIVE_IN_UNGATED_JOB 登记表仅 1 条、纯人工维护，无法自动发现「本该登记却没登记」的测试（漏报）",
+      "evidence": "第 56-66 行仅登记 `scripts/quality-rhythm-spec-mirror.test.js`。判据 collectUngatedCheck 只遍历 registry keys（第 258 行），对检查域内其他命中 docs-only 白名单的测试完全不检查。AGENTS.md「进白名单前提锁」要求「任何路径要加进 CI_IGNORED_PATHS，它的校验必须先接线到不被 docs-only 短路的 job」，但无任何机制把「白名单路径」→「读取该路径的测试」→「该测试必须在 registry 里」链接起来。新增白名单路径时，开发者极易忘记同步登记表，导致新锁重蹈 #3114 覆辙。",
+      "suggested_fix": "在 collectCheck 中增加一轮反向扫描：对每个检查域内的测试文件，若它（或其源码 require/import/fs.readFileSync 等）读取的路径命中 CI_IGNORED_PATHS，则强制要求该测试在 MUST_LIVE_IN_UNGATED_JOB 有登记；否则报 `MISSING_UNGATED_REGISTRATION`。或至少在 CI_IGNORED_PATHS 变更的 PR 中，用 scripts/classify-docs-only.js 的白名单清单与 registry 求差集并报警。",
+      "confidence": "high"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/check-unwired-tests.test.js",
+      "line": 415,
+      "claim": "真实仓库测试把当前 job 数（>=20）和 ungated job 数（>=8）写成下界断言，解析器退化时可能仍满足下界而漏报（假绿）",
+      "evidence": "第 415-422 行 `assert.ok(jobs.length >= 20)` 与 `jobs.filter(j => !j.gated).length >= 8`。若解析器退化只解析出 21 个 job（正常 26）、其中 9 个 ungated（正常 12），断言仍通过，但已漏掉 5 个 job 的接线检查。commit msg 自己承认「下界而不是精确值：新增 job 是常态」，但未考虑「解析退化导致少解析」同属下界内的风险。",
+      "suggested_fix": "把下界改为「与上次主分支基线的差值不得超过 N」，或引入 `scripts/debt-baseline.json` 记录基线 job 数与 ungated 数，要求当前值 ≥ 基线值 × 0.9（允许合理增长、拦截大幅回落）。同时保留「解析到的 job 数 = YAML 里 jobs 顶层键数」的自洽断言（需真实 YAML 解析器配合）。",
+      "confidence": "medium"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/quality-rhythm-spec-mirror.test.js",
+      "line": 168,
+      "claim": "自锁「依赖面只能是 node 内置模块」把实现细节钉成契约，若后续需引入纯 JS 工具函数（如 path 解析的辅助）会被误拦，且错误信息建议「换成 node 内置实现」不切实际",
+      "evidence": "第 168-181 行解析 require() 并断言 external === []。changes job 确实没有 Install deps 步骤，但 node 内置模块不含 path/fs 等的高级工具（如 glob、递归读目录），若镜像锁需求升级（如对比 Scenario 的语义而非逐行文本），不得不引入第三方或自写工具，届时该自锁会变成阻碍而非保护。错误信息建议「要么换成 node 内置实现，要么把这条锁从 changes job 摘掉」——后者等于拆掉本次修复的核心防线。",
+      "suggested_fix": "将约束放宽为「不得引入需要安装的 npm 包」，允许引入本仓 `scripts/` 下的纯 JS 工具模块（相对路径 require）。把检查改为：`external = requires.filter(r => !(builtin || r.startsWith('node:') || r.startsWith('./') || r.startsWith('../')))`，且若 external 非空，报错时给出「可选方案：把工具函数提到 scripts/xxx.js 再相对引用」而非「摘掉锁」。",
+      "confidence": "medium"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 294,
+      "claim": "run() 同时跑单测与实检，单测失败会阻断实检，导致「实检本会通过」的 PR 被单测挡住（假红），且单测与实检共用同一 exit code 1 无法区分",
+      "evidence": "quality-gate.yml 第 273-274 行：`node --test scripts/check-unwired-tests.test.js && node scripts/check-unwired-tests.js`。若单测因环境差异（如真实仓库 job 结构变化导致「真实仓库测试」红）失败，实检不执行，CI 红但开发者看到的是单测红，误以为是检查器本身坏了而非接线真有问题。且两者 exit code 同为 1，CI 日志无法自动区分「单测挂了」vs「接线真缺了」。",
+      "suggested_fix": "拆成两步：先跑单测（可选 `continue-on-error: true` 仅告警），再跑实检（必须通过）。或在 run() 增加 `--mode=check-only` 跳过单测，CI 里显式分两个 step。错误码分离：单测失败 exit 3，实检失败 exit 1，解析错误 exit 2。",
+      "confidence": "low"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 205,
+      "claim": "listJobBlocks 抛错信息「workflow 里一个 job 都没解析出来」在单测玩具夹具（无 jobs: 段）下会误触发，导致测试夹具必须手造 jobs: 结构，增加测试维护成本",
+      "evidence": "第 205 行 `if (jobs.length === 0) throw new Error(...)`。单测 fixtures 用 `workflowBody: \"run: node --test scripts/a.test.js\\n\"`（无 jobs:），调用 listJobBlocks 会抛错。新增测试不得不使用 `jobsFixture` 手造完整 jobs 结构（第 324-330 行），旧有 12 条测试若复用 listJobBlocks 会全挂。这是「生产代码对测试夹具不友好」的反模式。",
+      "suggested_fix": "listJobBlocks 对「无 jobs: 段」返回空数组而非抛错，由调用方 collectCheck 根据 ungatedRegistry 是否非空决定是否报错：若 registry 非空且 jobs 为空 ⇒ 抛错（生产环境）；registry 为空 ⇒ 静默通过（单测/无注册锁时）。",
+      "confidence": "low"
+    }
+  ],
+  "refuted": [
+    {
+      "claim_reviewer_made": "step 级 if 写在 6 空格会被 ^    if: 命中造成假红",
+      "why_wrong": "代码第 185 行正则 `^    if:\\s*\\S` 要求行首恰好 4 空格。step 级 if 在 GitHub Actions 标准缩进为 6 空格（`      - name:`）+ 8 空格（`        if:`），均不匹配。新增测试「step 级 if 不得被当成 job 级门控」（第 356 行）已覆盖 8 空格场景并断言 gated=false。此风险不存在。"
+    },
+    {
+      "claim_reviewer_made": "job 级 if 必须出现在 steps: 之前，否则按位置判会漏报",
+      "why_wrong": "实现已删除位置守卫，改为纯缩进判（第 179 行注释明确：「刻意不要求出现在 steps: 之前」）。新增测试「job 级 if 写在 steps: 之后同样是整片门控」（第 378 行）已验证该场景 gated=true。此风险已被修复并测试锁定。"
+    }
+  ],
+  "overall": "本次改动正确解决了「接线住在会被 docs-only 短路的 job = 对纯文档 PR 零执行」的核心缺陷（复现 #3114），引入 MUST_LIVE_IN_UNGATED_JOB 登记表与 listJobBlocks/collectUngatedCheck 判据是正确方向。但实现层面存在三个高风险点：1) 缩进扫描法非真实 YAML 解析，易被 env 容器键下的 if:、非标准缩进、block scalar 误判；2) 子串匹配在 basename 互为子串、inline 注释、env 变量时会假绿；3) 登记表纯人工维护，无反向发现机制，新增白名单路径极易漏登记。建议优先修复 1/2（引入 js-yaml 或至少补语义边界），并为 3 增加白名单变更时的 registry 完整性校验。测试整体扎实，W1-W9 变异反证覆盖了核心分支，自锁设计（镜像锁自我验证接线位置与依赖面）是防御深度的好示范。"
+}
