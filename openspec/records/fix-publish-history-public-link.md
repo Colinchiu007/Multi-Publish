@@ -23,7 +23,7 @@ date: 2026-10-07
 | locale 成对（Gate 7） | ✅ | `check-locale-sync.js --keys` → PASS（446 个使用中 key 均存在于 zh/en）；`--cjk` → PASS（基线 1489 条，当前 1331 条，无新增硬编码） |
 | CHANGELOG 两门禁 | ✅ | 按 CI 差分口径：`--base=origin/main --head=HEAD` → 冗余份数 828 → 828、本 PR 新增副本=0；growth → PASS。**注**：`main` 上以绝对口径跑 `check-changelog-duplicate-entries.js` 亦为 rc=1 / 828 份重复（既有基线污染），本 PR 未使其变多，也未做越界去重 |
 | 变异反证 | ✅ | 把内容页白名单退化为「`safeHttpUrl` 通过即算内容页」（精确复刻旧判据）→ `published-content-url.test.js` 69 例转红、`PublishHistory.test.js` 的 V2/V3/V4/V5/V6/V11 精确转红（V11 报出 `expected 'https://creator.xiaohongshu.com/publish/publish' to be 'https://www.xiaohongshu.com/explore/6530a1b2c3d4e5f600112233'`，正是本 Bug）。还原后 `isPublicContentUrl` 两端函数体逐字 `IDENTICAL`、203 例全绿。**第一次尝试的变异只改「协议非法」分支，desktop 侧 96 例全绿——是个恒不触发的假变异，已作废重做** |
-| QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实记「未执行」，不以自审冒充通过 |
+| QM-6 CCG 双模型外部评审 | ✅ 已补执行（2026-10-08） | claude（critic）× opencode（proposer）跨家族对抗评审合并提交 `23822b73`，产物 `.ccg/review/ccg-deep-23822b73/`（critique-v1.md / adjudication.json）。critic 给 3 条问题、4 维度最低分 6；裁决：**i2 upheld（Warning，带 query 的内容页被错杀，判据与 youtube 规则自相矛盾）、i3 dismissed（douyin note 无生产可达路径）**；上一轮 claude 批次的 i1（占位行渲染缺失）同样 upheld、i4（userinfo）upheld、i1(wechat_mp 单参)/i2(question 派生)/i3(回采 no-op) dismissed——两轮合计 4 条 upheld 全部为跟进修复项，无一推翻本 PR 核心修复（「不给登录墙链接」），评审引擎状态 `self_play_blocked`（2 条 upheld 指回本 PR 外跟进）。判定记录 `.ccg/reviews/23822b73….json`（mode=DUAL）已回填 |
 | 远程同步 | PASS | 已合并 #3057 = `23822b73fecc6c8f8e6710c1dc7911e02ea4e1fc`，committer 2026-10-07T17:32:25+08:00。取证：GitHub `mergeCommit` 与远端一致，`git log origin/main --grep="(#3057)" --format="%H %cI"` 双源一致，`git ls-remote --heads origin fix-publish-history-public-link` 返回 **0 行**（远端分支已删） |
 
 ### 门禁实测明细（本机，2026-10-07）
@@ -45,7 +45,12 @@ date: 2026-10-07
 ### 遗留（不假装已闭合）
 
 - **QM-4 视觉未跑**：详情弹窗「作品链接」行由单锚点改为三态（新增 `detail-link-hint` / `detail-link-loginwall-hint` / `detail-link-absent` 三个 testid 与两行提示文案）。若 PR 合入前像素基线在该视图失配，**只更新该视图基线**，不得整体刷新。
-- **QM-6 未执行**：本机无 `codeagent-wrapper`。
+- **QM-6 评审 upheld 的 4 条跟进修复项（2026-10-08 裁决，均不推翻核心修复）**：
+  - **i1（Critical→实际 Minor，表现层）**：详情弹窗「作品链接」行的 `v-if` 在记录完全无链接证据（无 url、无 postId、无 platformWorkId）时整行不渲染，PRD §7.2 承诺的「未记录作品链接」占位文案缺失。修法：`v-if` 改无条件渲染该行 + 补 `result={}` 用例。
+  - **i2（Warning，判据不一致）**：`isPublicContentUrl` 的 `contentPathRe` 锚定 `pathname+search` 结尾，带 query 的真实分享链接（`/p/123?from=share`、`youtu.be/…?si=…`）被错杀，而 youtube 规则自身接受 `/watch?v=`——同一模块内标准不一。修法：正则只锚 pathname，query 放行（派生模板不带 query 已足够安全）。
+  - **i4（Warning，判据完备性）**：`isPublicContentUrl` 不校验 userinfo（`https://user:pass@host/…` 判为内容页），与主进程 `isAllowedExternalUrl` 拒绝 userinfo 的口径分裂。修法：`new URL(safe)` 后加 `username||password` 拒绝。无可达攻击路径，属判据完备性。
+  - **wechat_mp 单参判据（上一轮 i1）**：`contentPathRe` 只要 `__biz` 或 `mid` 之一即认内容页，比 PRD §6.3 的四元组声明松。修法：要求 `__biz` 且 `mid` 双参数。
+- **QM-6 评审 dismissed 的记录**：i2（question 页 + postId 派生）、i3（回采 no-op 行为变化，PRD §6.4 已声明）、i3（douyin note 无生产可达路径）、i8（douyin note 模板）——驳回理由与实测证据见 `.ccg/review/ccg-deep-23822b73/adjudication.json`。
 - **结构性不可派生的 7 个平台**（微信公众号、视频号、微博、TikTok、Twitter、Instagram、Facebook）本次**明确不给链接**。这是如实降级而非遗漏；后续若某平台能从发布结果取到第二成分（如公众号的 `__biz`），只需在 `PUBLIC_CONTENT_URL_RULES` 增一条规则，无需改视图。
 - **`main` 上 CHANGELOG 828 份重复副本**属既有污染，本 PR 未触碰；按 `quality-gate.yml:173-180` 的注释，清理由配套改 growth 口径的另案处理。
 - **`max-lines` 账本对 `PublishHistory.vue` 的登记值已陈旧**：登记 1205，而 main 实际已是 1379 行。本 PR 通过拆分把该文件压到 1363 行（增长 158 < 200）从而合规，**未改账本**（改账本等于把一个 1363 行文件的基线抬到 1457）。陈旧成因是该门禁按 **diff 作用域**检查：不被 PR 触碰的文件，其基线漂移永远不会被发现。这条口径问题需配套改门禁的另案处理。

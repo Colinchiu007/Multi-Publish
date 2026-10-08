@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "12e15fcbad2b7763",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "详情弹窗外层 div 的 v-if 为 `kind!=='absent' || postId || platformWorkId`。当 kind==='absent' 且无 postId/platformWorkId（真·无任何记录）时外层不渲染，`detailLinkAbsent`「未记录作品链接」永不显示。V7 因带入 postId='1000000001' 恰好使外层为真，掩盖了此缺陷。",
+      "highRiskDomains": [],
+      "prosecution": "实测证实：linkRenderState 条件为 kind!==absent || postId || platformWorkId。当记录 result={}（无 url、无 postId、无 platformWorkId）时三项皆假，整行不渲染——「未记录作品链接」占位文案不出现，与 PRD §7.2 表格「none+无 recordedUrl → detailLinkAbsent」承诺不符。严重度 Critical 由 critic 给出。",
+      "defense": "行为上是「极简展示」而非错误渲染：完全无链接证据的记录连「作品链接」行都不显示，用户不会看到空白行；V7 用例恰有 postId 才使行渲染。且 V7 测试锁定了有 postId 的路径。",
+      "verdict": "upheld",
+      "rationale": "PRD 明文承诺「none+无 recordedUrl → 显示未记录作品链接」，实现让该承诺在「完全无证据」的记录上落空——显示行为与规格不一致就是缺陷，与是否美观无关。severity=Critical 属评审口径偏严（无错误数据、无误导链接，仅占位缺失），实际应为 Minor，但问题本身成立。修法：v-if 改为无条件渲染该行（或补 kind===absent 分支），同步改 V7 加一条 result={} 的用例。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "isPublicContentUrl 对 `pathname+search` 跑 $ 锚定 regex。真实内容页带 query 时（如 `zhuanlan.zhihu.com/p/123?from=share`）search 非空使 `/^\\/p\\/\\d{4,}\\/?$/` 不匹配，本可 recorded 采用的页面被误判非内容页而诚实降级。youtu.be 短链带 query 同理。",
+      "highRiskDomains": [],
+      "prosecution": "实测：isPublicContentUrl(zhihu, /p/123?from=share)=false、youtu.be 带si参数=false。内容页正则锚定 pathname+search 的结尾，任何带 query 的真实分享链接都会被判非内容页，recorded 来源的合法内容页被整条丢弃。",
+      "defense": "设计取向是宁可错杀不可错放：带未知 query 的 URL 若原样放行，query 里的追踪参数会随链接泄漏给接收方；且主要落库来源（RPA 成功瞬间 URL）多不带分享 query。",
+      "verdict": "upheld",
+      "rationale": "判据自我矛盾：youtube 规则自己写了 /watch?v=… 带 query 形态（说明设计上接受 query），zhihu/youtu.be 等其它形态却拒绝带 query 的同一页面，标准不一致。且用户实际拿到的分享链接普遍带 query。修法：contentPathRe 只锚定 pathname，query 单独做白名单剥离（或直接允许任意 query，派生模板本身不带 query 已足够安全）。列跟进修复。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "douyin contentPathRe 允许 `note/[0-9a-f]{16,32}` 为内容页，但 postIdRe 仅 `^\\d{6,}$`、template 恒为 `/video/{id}`。note 型（hex id）内容页可被识别却无法派生，返回 none，同平台两条规则自相矛盾。",
+      "highRiskDomains": [],
+      "prosecution": "实测：isPublicContentUrl(douyin, /note/hex24)=true 但 postIdRe 只收纯数字，hex 笔记 ID 有 recorded 可识别、无 postId 可派生——同一平台「认得出页面、拼不出链接」不对称。",
+      "defense": "douyin 的发布链路（_publish_douyin）只产视频类作品，note 形态是采集/浏览场景出现的 URL；发布记录的 postId 恒为 aweme 纯数字 ID，hex note ID 不会出现在 result.postId 里，故实际无可达缺陷路径。",
+      "verdict": "dismissed",
+      "rationale": "不对称属实但无生产可达路径：本模块消费的是发布记录（发布链路只产 video/aweme 数字 ID），note URL 只会在 recorded 侧出现且已被正确识别（source=recorded 原样采用）。postIdRe 收窄到数字形态是刻意的防伪设计（防跨平台 ID 混用）。critic 建议「为 note 加模板」反而扩大猜测面。PRD §遗留已预留按需扩展。"
+    }
+  ]
+}
