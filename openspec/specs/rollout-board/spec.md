@@ -1,7 +1,7 @@
 # rollout-board Specification
 
 ## Purpose
-TBD - created by archiving change rollout-board. Update Purpose after archive.
+运营中心前端「生效看板」页（/rollout，adminOnly）的可复用规格：把客户端 ACK 回执数据（GET /api/v1/runtime/rollout）可视化为汇总卡片、分块确认率、未确认明细三区，覆盖 loading/空/错误/正常四态与版本切换。判据：ack_rate 小数→1 位小数百分比、block_rates 降序、degraded 行 🔴 标记、候选集不伪造、total===0 引导空态。
 ## Requirements
 ### Requirement: 生效看板页面
 
