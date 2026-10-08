@@ -323,6 +323,12 @@ jobs:
           # 产物侧的"声明确实生效"由 Build & Release 里 --asar 那一步守（两个维度互相看不见对方）。
           node --test .github/scripts/check-asar-test-files.test.js
           node .github/scripts/check-asar-test-files.js
+          # 打包内置种子数据（ops-center-resilience）：L3 种子随安装包发给用户，
+          # 必须持续证明 13 个数据块齐全 / 类型正确 / 体积达标 / 编码完好 / 指纹一致，
+          # 且 content_policy.word_list 已剔除——词库进包等于公开词库（design.md §4.4）。
+          # 脚本自带接线锁：它没挂在这里时 check-ops-seed.test.js 会直接红。
+          node --test .github/scripts/check-ops-seed.test.js
+          node .github/scripts/check-ops-seed.js
 
       # --- Gate 2c: 测试收集接线棘轮 + 此前从未被 CI 收集的锁 ---
       # 本仓不自动收集 scripts/ 与 .github/scripts/ 下的测试（vitest 只管 workspace，

@@ -11,16 +11,71 @@
 """
 import base64
 import datetime
+import hashlib
 import json
+import logging
+import math
 import re
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Announcement, ContentPolicy, UpdatePolicy
+from models import Announcement, ContentPolicy, RuntimeConfigVersion, UpdatePolicy
+from services import config_fingerprint
+
+logger = logging.getLogger(__name__)
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 SEVERITIES = ("info", "warning", "maintenance")
+
+
+# ─── 配置版本号 / 内容指纹（2026-10-08 ops-center-resilience）────────────
+# 实现已下沉到 services/config_fingerprint.py：该模块已逼近 max-lines 门禁（CI 按 LF 计 500 行），
+# 而 hash 计算 + 数值校验是边界清晰的纯函数单元。此处只做**转发**，不保留第二份实现 ——
+# 两处各写一份正是跨端漂移的来源。
+#
+# canonical_json 由本模块注入（与桌面端逐字节对齐的那个实现），避免指纹模块再复制一份序列化器。
+RUNTIME_BLOCKS = config_fingerprint.RUNTIME_BLOCKS
+assert_integer_numbers = config_fingerprint.assert_integer_numbers
+
+
+def compute_config_hash(payload: dict) -> str:
+    return config_fingerprint.compute_config_hash(payload, canonical_json)
+
+
+async def resolve_config_version(db: AsyncSession, config_hash: str) -> int:
+    """读时推导的版本号分配：内容指纹变则升版，没变则版本不动。
+
+    刻意不做「配置变更钩子」：那要改 39 个运营页面的写路径，回归面远大于收益。
+    代价是每次 bootstrap 多一次 SELECT（唯一索引覆盖，成本可忽略）。
+
+    **绝不向上抛异常**：本函数失败绝不能让整个 bootstrap 失败——bootstrap 一挂，
+    全部客户端的运行时策略（公告/版本/敏感词/菜单）同时失效，代价远大于版本号少一次。
+    任何异常一律降级为返回 0 并留日志。
+    """
+    try:
+        latest = (await db.execute(
+            sa.select(RuntimeConfigVersion).order_by(RuntimeConfigVersion.version.desc()).limit(1)
+        )).scalars().first()
+        if latest is not None and latest.config_hash == config_hash:
+            return latest.version
+        existing = (await db.execute(
+            sa.select(RuntimeConfigVersion).where(RuntimeConfigVersion.config_hash == config_hash)
+        )).scalars().first()
+        if existing is not None:
+            # 并发下另一个请求已占过同一个指纹的号，直接复用
+            return existing.version
+        next_version = (latest.version if latest is not None else 0) + 1
+        db.add(RuntimeConfigVersion(version=next_version, config_hash=config_hash))
+        await db.commit()
+        return next_version
+    except Exception as exc:  # noqa: BLE001 - 见上方 docstring：失败必须降级不得抛出
+        try:
+            await db.rollback()
+        except Exception:  # pragma: no cover - rollback 失败无进一步可做
+            pass
+        logger.warning("config_version 解析失败，降级为 0：%s", exc)
+        return 0
 
 
 def _now() -> str:
@@ -340,7 +395,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.rewrite_hard_constraint_service import get_default_runtime as get_default_hard_constraint
     from services.rewrite_ai_taste_service import list_runtime_entries as list_runtime_ai_taste_entries
 
-    return {
+    payload = {
         "announcements": await list_active_announcements(db),
         "update_policy": await get_update_policy(db),
         "content_policy": await get_content_policy(db),
@@ -356,6 +411,22 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "contentCategories": await _get_content_categories(db),
         "synced_at": _now(),
     }
+    # 配置版本号 + 内容指纹（2026-10-08 ops-center-resilience）。
+    # 两者都写进 payload 且早于签名步骤，因此落在 Ed25519 覆盖范围内——
+    # 客户端可以据此证明「这版号不是我伪造的」，否则 ACK 回执就不可信。
+    #
+    # hash 计算对「非整数数字」fail-closed（compute_config_hash 抛 ValueError）。
+    # 这里**必须**兜住：bootstrap 一挂，全部客户端的运行时策略（公告/版本/敏感词/菜单）
+    # 同时失效，代价远大于「看板少一个版本号」。降级为 hash=空串 + version=0，
+    # 客户端会因此永远判「hash 未变」⇒ 只发 24h 心跳，不会空烧流量。
+    try:
+        payload["config_hash"] = compute_config_hash(payload)
+        payload["config_version"] = await resolve_config_version(db, payload["config_hash"])
+    except ValueError as exc:
+        logger.error("配置内容含跨端不一致的数值，版本号降级为 0（策略仍正常下发）：%s", exc)
+        payload["config_hash"] = ""
+        payload["config_version"] = 0
+    return payload
 
 
 def canonical_json(payload: dict) -> str:

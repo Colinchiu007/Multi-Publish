@@ -719,3 +719,79 @@ class RewriteAiTasteEntry(Base):
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+
+class RuntimeConfigVersion(Base):
+    """运行时配置版本号历史（内容指纹 -> 单调递增版本号）
+
+    2026-10-08（ops-center-resilience）：bootstrap payload 此前只有 synced_at，
+    运营无法回答「改完设置到底生效没有」——没有版本号就没有任何可比较的基准。
+
+    设计要点（见 openspec/changes/ops-center-resilience/design.md §1.3）：
+    不引入配置变更钩子（那要改 39 个运营页面写路径，回归面过大），改为**读时推导**：
+    内容指纹变化才升版，内容未变则版本号不动。这样「点保存但数据没改」不会白白消耗版本号，
+    避免看板上的版本号虚高。config_hash 唯一约束兜住并发占号。
+    """
+
+    __tablename__ = "runtime_config_versions"
+    __table_args__ = (
+        sa.UniqueConstraint("config_hash", name="uq_runtime_config_version_hash"),
+    )
+
+    version = Column(Integer, primary_key=True, autoincrement=False)
+    config_hash = Column(String(16), nullable=False)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class RuntimeClientAck(Base):
+    """客户端生效回执快照（每 client_id 一行，保留最新）
+
+    2026-10-08（ops-center-resilience）：唯一能证明「运营改的配置真的被客户端应用了」的数据源。
+    刻意做成**快照表而非流水表**——生效看板回答的是「现在多少客户端在最新版」，
+    只需要最新态；历史变化由 client_degradation_events 流水表承担。
+    first_seen_at 只在首次插入时写入，支撑「活跃客户端总数」这个分母。
+    """
+
+    __tablename__ = "runtime_client_ack"
+
+    client_id = Column(String(64), primary_key=True)
+    config_version = Column(Integer, nullable=False, default=0)
+    config_hash = Column(String(16), default="")
+    client_version = Column(String(32), default="")
+    applied_blocks_json = Column(Text, default="{}")
+    skipped_blocks_json = Column(Text, default="[]")
+    degraded = Column(Integer, default=0)
+    degradation_tier = Column(String(16), default="")
+    ack_type = Column(String(16), default="applied")
+    degraded_since = Column(String, default="")
+    first_seen_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    last_ack_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class ClientDegradationEvent(Base):
+    """断连降级事件流水（一轮断连一行，保留 90 天）
+
+    2026-10-08（ops-center-resilience）：断连期间客户端物理上无法上报，
+    因此这条流水是「恢复后补报」时写入的（design.md §3.4）。
+    做成流水表而非快照表：要回答「上周有多少用户受断连影响过」必须留历史。
+    """
+
+    __tablename__ = "client_degradation_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String(64), nullable=False)
+    client_version = Column(String(32), default="")
+    channel = Column(String(16), default="runtime")
+    endpoint = Column(String(200), default="")
+    failure_kind = Column(String(16), default="network")
+    consecutive_failures = Column(Integer, default=0)
+    degraded_since = Column(String, default="")
+    recovered_at = Column(String, default="")
+    offline_seconds = Column(Integer, default=0)
+    serving_tier = Column(String(16), default="default")
+    received_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+    __table_args__ = (
+        sa.Index("ix_degradation_client_since", "client_id", "degraded_since"),
+        sa.Index("ix_degradation_received_at", "received_at"),
+    )

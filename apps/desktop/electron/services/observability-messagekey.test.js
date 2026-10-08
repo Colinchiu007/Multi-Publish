@@ -37,6 +37,15 @@ const TARGET_FILES = [
   path.join(SERVICES_DIR, 'ops-center-sync.js'),
   path.join(SERVICES_DIR, 'login-network-diagnostics.js'),
   path.join(SERVICES_DIR, 'auth-partition-reclaim.js'),
+  // 断连韧性（ops-center-resilience）：快照模块纳入登记域 —— 它用的是字面量 notify。
+  //
+  // 刻意**不**纳入 ops-resilience-reporter.js：它把 notify 收敛到 `this._notify(event, params)`
+  // 辅助函数里统一加 `OpsResilienceReporter` 前缀，调用点一律是变量事件名。
+  // 本门禁按**字面量** `notify('Module','key')` 扫描，硬纳入只会得到
+  //「文件应有至少一个 notify 调用」的反退化守卫误报，或者逼人写一个假调用来骗过它 ——
+  // 两者都是把「有门禁」变成「有门禁的样子」。真正的缺口是「间接调用的键无人登记」，
+  // 那是本文件规则 1/2 的适用范围问题，不该靠把文件塞进清单掩盖。
+  path.join(SERVICES_DIR, 'ops-runtime-snapshot.js'),
 ]
 
 // 实际迁移登记的 (module, event) 清单，按紧凑 key "module:event" 锁。
@@ -187,6 +196,16 @@ const ALLOWED_KEYS = new Set([
   // risk-suspender-store.js
   'RiskSuspender:persist-failed',
   'RiskSuspender:hydrate-read-failed',
+  // 断连韧性（ops-center-resilience）：三层降级水合 + L2 快照落盘
+  'OpsCenterSync:runtime-hydrated-from-snapshot',
+  'OpsCenterSync:runtime-hydrated-from-seed',
+  'OpsCenterSync:runtime-hydrated-fallback',
+  'OpsCenterSync:runtime-snapshot-skipped',
+  'OpsCenterSync:runtime-report-error',
+  'OpsRuntimeSnapshot:snapshot-read-failed',
+  'OpsRuntimeSnapshot:snapshot-persist-failed',
+  'OpsRuntimeSnapshot:seed-rejected',
+  'OpsRuntimeSnapshot:seed-parse-failed',
 ])
 
 // 解析单个文件中的 notify 调用：log.notify('Module', 'subdomain-event', {...})

@@ -3,6 +3,26 @@ const { normalizeClockTolerance, verifyEntitlementToken } = require('./entitleme
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
+/**
+ * 权益宽限期（design §6.3）：覆盖「周五晚断连 → 周一才发现」的最长常见周期。
+ * 判据必须是「没拿到有效响应」而非「请求失败」—— 见 sync() 里的 fetch catch 分支。
+ */
+const ENTITLEMENT_GRACE_SECONDS = 72 * 60 * 60
+
+/**
+ * 从未验证的令牌里只读一个数值字段（当前只用 exp）。
+ * 用途是给 verifyEntitlementToken 选一个「该令牌视为有效」的判定时刻，让过期令牌
+ * 仍能走完**同一套**绑定 + 签名校验（不在本文件复制任何验签逻辑）；
+ * 真正的过期与 72h 宽限判定由调用方用真实时钟做，伪造不出权益。
+ */
+function readTokenExp (token) {
+  try {
+    const encoded = String(token || '').split('.')[0]
+    const snapshot = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))
+    return Number.isFinite(snapshot.exp) ? snapshot.exp : null
+  } catch (_) { return null }
+}
+
 function normalizeApiUrl(value) {
   let url
   try { url = new URL(String(value || '').trim()) } catch (error) {
@@ -70,11 +90,58 @@ class EntitlementService {
     })
   }
 
+  /**
+   * 网络层异常的宽限判定（design §6.1/§6.2）——本 change 唯一改动的失败路径。
+   *
+   * 为什么只放宽这一条：`_clearForGeneration` 存在的理由是对的（响应结构非法 /
+   * 账号被停用时必须清权）。「网络抖一下付费用户被降级 free」是**唯一**需要修的误伤，
+   * 其余三条失败路径一律保持 fail-closed。
+   *
+   * 有本地快照才宽限：快照本身就是上次成功认证的证据；无快照时无法区分
+   * 「正版付费用户」与「未付费用户」，fail-open 等于让所有人白嫖。
+   * 过期 ≤72h 仍授权读但禁写（source='grace' 使 onlineOnly 写通道自动拒绝）。
+   */
+  async _applyGrace(generation, subject) {
+    const token = await this._queueStorageTask(async () => {
+      if (!this._isCurrentGeneration(generation)) return null
+      if (!this._storage || typeof this._storage.load !== 'function') return null
+      const cached = await this._storage.load()
+      return cached && typeof cached.token === 'string' ? cached.token : null
+    })
+    if (!token) return null
+    const verifyAt = (now) => verifyEntitlementToken(token, {
+      publicKeys: this._publicKeys, subject, deviceId: this._deviceId, now, clockTolerance: this._clockTolerance,
+    })
+    // 先按正常口径验一遍：未过期的快照直接通过（iat/签名/绑定/过期判定全部沿用既有实现）
+    let snapshot
+    try { snapshot = verifyAt(this._now()) } catch (_) { snapshot = null }
+    if (!snapshot) {
+      // 再按「该令牌视为有效」的判定时刻验一遍：仍要过绑定与签名校验，只是允许已过期。
+      // 任何一步失败（格式 / key / 绑定 / 签名）都落到 fail-closed，绝不放宽。
+      const exp = readTokenExp(token)
+      if (exp === null) return null
+      try { snapshot = verifyAt(exp - 1) } catch (_) { return null }
+      if (this._now() - exp > ENTITLEMENT_GRACE_SECONDS) return null // 宽限期耗尽 → 降级 free
+    }
+    if (!this._isCurrentGeneration(generation)) return null
+    this._current = {
+      ...normalizeEntitlement(snapshot),
+      subject,
+      deviceId: this._deviceId,
+      source: 'grace',
+      expiresAt: snapshot.exp,
+      graceExpiresAt: snapshot.exp + ENTITLEMENT_GRACE_SECONDS,
+    }
+    return this.getState()
+  }
+
   async sync({ subject, accessToken } = {}) {
     if (typeof subject !== 'string' || !subject || typeof accessToken !== 'string' || !accessToken) {
       throw new IdentityError('ENTITLEMENT_REQUEST_INVALID', '同步权益参数无效')
     }
     const generation = await this._beginOperation()
+    // 换账号时清空既有权益：宽限路径也要按新 subject 重新校验绑定，
+    // 否则旧账号的快照会被拿来给新账号授权
     if (this._current && this._current.subject !== subject) this._current = null
     let response
     try {
@@ -82,6 +149,9 @@ class EntitlementService {
         headers: { Authorization: `Bearer ${accessToken}`, 'X-Device-Id': this._deviceId },
       })
     } catch (error) {
+      // 网络层异常（超时/DNS/断网）→ 唯一进入宽限期的分支
+      const grace = await this._applyGrace(generation, subject)
+      if (grace) return grace
       throw new IdentityError('ENTITLEMENT_SYNC_FAILED', '权益服务暂时不可用', error)
     }
     if (!response || response.ok !== true || typeof response.json !== 'function') {

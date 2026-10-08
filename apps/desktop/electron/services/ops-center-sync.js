@@ -9,6 +9,11 @@
  *   - API Key 经 safeStorage 加密后存 settings（不落明文）
  *   - URL 必须 http(s)（非本机回环强制 https）；禁重定向；10s 超时；响应 ≤1MB
  *   - 目录/运行时结构校验失败 fail-closed（不写本地）
+ *
+ * 断连韧性（2026-10-07，ops-center-resilience）：本文件只做接线，逻辑在两个新模块里
+ *   - ops-runtime-snapshot.js：L2 快照（完整原始 payload）/ L3 种子 / canonicalJson 与 config_hash
+ *   - ops-resilience-reporter.js：降级事件本地队列 + 配置生效 ACK
+ *   （拆分的理由：本文件已在 max-lines 债务清单上，新逻辑继续塞进来会顶破门禁）
  */
 'use strict'
 
@@ -20,6 +25,9 @@ const { normalizeAppMenu } = require('./app-menu-config')
 const { resolveTrustAnchor } = require('./runtime-trust-anchor')
 // 统一内容类别（2026-10-03）：热门选题 / 采集库 / 账号标签 共用的单一真源
 const { normalizeContentCategories } = require('./content-categories')
+// 断连韧性：L2/L3 数据源 + canonicalJson/config_hash 真源（canonicalJson 自本文件迁入，导出保持不变）
+const { OpsRuntimeSnapshot, canonicalJson, replayLateBlock } = require('./ops-runtime-snapshot')
+const { OpsResilienceReporter, classifyFailureKind, resolveResilienceAuth, tagOpsError, RUNTIME_ENDPOINT } = require('./ops-resilience-reporter')
 
 const SETTING_KEY = 'opsCenterSync'
 const RUNTIME_SETTING_KEY = 'opsCenterRuntime'
@@ -69,23 +77,10 @@ function normalizeUrl(value) {
 }
 
 /**
- * canonical JSON 序列化：与 ops-center 后端 json.dumps(ensure_ascii=False, sort_keys=True,
- * separators=(",", ":")) 完全对齐（键字典序、字符串 JSON 转义、UTF-8 输出）。
- * 双端一致性由 ops-center-sync.test.js 固定向量锚定（含中文/转义/嵌套/空数组）。
+ * canonical JSON 序列化已迁至 ops-runtime-snapshot.js（config_hash 需要在客户端 / 导出脚本 /
+ * CI 校验三处算出同一个值，各自一份必然漂移）。此处保留具名导入与再导出，既有固定向量
+ * （ops-center-sync.test.js）与验签路径继续指向同一实现。
  */
-function canonicalJson (value) {
-  if (value === null) return 'null'
-  const t = typeof value
-  if (t === 'string') return JSON.stringify(value)
-  if (t === 'boolean') return value ? 'true' : 'false'
-  if (t === 'number') return JSON.stringify(value)
-  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']'
-  if (t === 'object') {
-    const keys = Object.keys(value).sort()
-    return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(value[k])).join(',') + '}'
-  }
-  throw new Error('cannot canonicalize type: ' + t)
-}
 
 /** Ed25519 验签：`{ ok: true }` 或 `{ ok: false, reason }`；缺失签名/签名非法一律拒绝（fail-closed） */
 function verifyRuntimeSignature (payload, publicKeyPem) {
@@ -128,6 +123,72 @@ class OpsCenterSync {
     this._onRuntimeUpdated = null
     // 方案C 零配置：运营中心自动发现 URL（由 bootstrap 经 setOpsCenterUrl 注入，优先于全局 env，避免污染其他读取者）
     this._autoOpsCenterUrl = ''
+    // 断连韧性（2026-10-07）：L2/L3 数据源与上报侧独立成模块，本类只留接线
+    this._snapshots = new OpsRuntimeSnapshot({ store, log: this._log, resourcesPath: this._resolveResourcesPath() })
+    // fetcher 必须显式注入：不注入时 reporter._fetcher 为 null，_postJson 一律返回
+    // {code:0, skipped:true}，而调用方按 code 0 判定成功 ⇒ 降级事件被出队丢弃、ACK 被记为
+    // 「已发」并空烧 24h 心跳窗口。测试因为注入了 fetcher 而全绿，生产却整条静默。
+    this._resilience = new OpsResilienceReporter({
+      store,
+      log: this._log,
+      fetcher: typeof fetch === 'function' ? fetch.bind(globalThis) : null,
+      getAuth: () => this._resilienceAuth(),
+    })
+    this._servingTier = 'default'
+    this._restoredFromDisk = false
+    // 保留用于重放的原始 payload：注入器可能晚于水合到达（setPlatformConfig 就是这样），
+    // 晚到时据此补喂对应数据块，避免「恢复了但少一块」且症状与未持久化无法区分。
+    this._replayPayload = null
+  }
+
+  /** 打包态的资源目录（开发态为空，只走 asar 内候选路径） */
+  _resolveResourcesPath() {
+    try { return process.resourcesPath ? String(process.resourcesPath) : '' } catch (_) { return '' }
+  }
+
+  /** 上报鉴权（catalog key 优先，其次零配置自动发现的 bearer；判据见 reporter 模块注释） */
+  _resilienceAuth() {
+    return resolveResilienceAuth({
+      manualUrl: this._getManualUrl(),
+      auto: this._getAutoContext(),
+      apiKeyConfigured: this.getConfig().apiKeyConfigured,
+      readEncryptedKey: () => this._readEncryptedKey(),
+    })
+  }
+
+  /** 当前配置由哪一层提供（L1 内存 / L2 本地快照 / L3 打包种子 / 代码内置默认值） */
+  getServingTier() {
+    return this._servingTier
+  }
+
+  /**
+   * 启动时从 L2/L3 水合运行时策略（design §4.1）。
+   * 为什么是重放原始 payload 而不是各管理器各自的持久化：6 个注入管理器的入参就是
+   * bootstrap 原始块，原样重喂一次即重放全部内存态（这正是「重启丢 6 类数据」的修复点）。
+   * 幂等：只跑一次；重放不改写 L2（L3 只读不落盘），syncedAt 停在快照里的服务端时间。
+   */
+  restoreRuntimeFromDisk() {
+    if (this._restoredFromDisk) return { tier: this._servingTier, replayed: false }
+    this._restoredFromDisk = true
+    const snapshot = this._snapshots.readSnapshotPayload()
+    if (snapshot) {
+      this.applyRuntime(snapshot, { replay: true, persistSnapshot: false })
+      this._replayPayload = snapshot
+      this._servingTier = 'L2'
+      this._log.notify('OpsCenterSync', 'runtime-hydrated-from-snapshot', { params: { tier: 'L2' } })
+      return { tier: 'L2', replayed: true }
+    }
+    const seed = this._snapshots.readSeed()
+    if (seed) {
+      this.applyRuntime(seed.payload, { replay: true, persistSnapshot: false })
+      this._replayPayload = seed.payload
+      this._servingTier = 'L3'
+      this._log.notify('OpsCenterSync', 'runtime-hydrated-from-seed', { params: { tier: 'L3', source: seed.meta.source, staleDays: seed.staleDays } })
+      return { tier: 'L3', replayed: true }
+    }
+    this._servingTier = 'default'
+    this._log.notify('OpsCenterSync', 'runtime-hydrated-fallback', { level: 'WARN', params: { tier: 'default' } })
+    return { tier: 'default', replayed: false }
   }
 
   /**
@@ -291,13 +352,26 @@ class OpsCenterSync {
     if (settled.status === 'fulfilled') {
       try {
         this.applyRuntime(settled.value)
+        this._servingTier = 'L1'
+        // 断连恢复补报 + 生效 ACK 都以「本轮成功应用」为触发点（失败路径不可能也不应该发）
+        this._resilience.recordApplied({ payload: settled.value, servingTier: this._servingTier })
+          .catch((e) => this._log.notify('OpsCenterSync', 'runtime-report-error', { level: 'WARN', error: String((e && e.message) || e) }))
         return { runtimeApplied: true, runtimeSyncedAt: settled.value.synced_at || '' }
       } catch (e) {
         this._log.notify('OpsCenterSync', 'runtime-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
         return { runtimeApplied: false, runtimeSyncedAt: '' }
       }
     }
-    this._log.notify('OpsCenterSync', 'runtime-sync-skipped', { level: 'WARN', error: String((settled.reason && settled.reason.message) || settled.reason) })
+    const error = settled.reason
+    this._log.notify('OpsCenterSync', 'runtime-sync-skipped', { level: 'WARN', error: String((error && error.message) || error) })
+    // 连接失败与契约破坏都只是「本轮没拿到可信配置」：既有值 / L2 快照 / syncedAt 一律不动，
+    // 同时记一条降级事件（design §4.3 + §3.4）。此处绝不区分二者 —— 分类由服务端校验决定。
+    this._resilience.recordFailure({
+      channel: 'runtime',
+      endpoint: RUNTIME_ENDPOINT,
+      failureKind: (error && error.failureKind) || classifyFailureKind(error),
+      servingTier: this._servingTier,
+    })
     return { runtimeApplied: false, runtimeSyncedAt: '' }
   }
 
@@ -401,6 +475,9 @@ class OpsCenterSync {
   /** 注入平台配置加载器（phase1 接线）；无 applyRemote 的对象视为未注入 */
   setPlatformConfig(pc) {
     this._platformConfig = pc && typeof pc.applyRemote === 'function' ? pc : null
+    // 补喂：setPlatformConfig 在 phase1 里位于 autoSyncOnStart **之后**，而 L2/L3 水合在
+    // autoSyncOnStart 开头就跑完了 ⇒ platform_defs 恢复不到。判据与理由见 replayLateBlock。
+    if (this._platformConfig) replayLateBlock(this._replayPayload, 'platform_defs', this._platformConfig, this._log, 'platform-defs')
   }
 
   /** 注入内容模板管理器（phase1 接线）；无 applyRemote 的对象视为未注入 */
@@ -462,9 +539,18 @@ class OpsCenterSync {
     this._onRuntimeUpdated = typeof fn === 'function' ? fn : null
   }
 
-  /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
-  applyRuntime(payload) {
+  /**
+   * 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 + 6 个注入管理器重放。
+   *
+   * @param {object} payload bootstrap 原始 payload（重放时用 L2/L3 的原文）
+   * @param {{replay?: boolean, persistSnapshot?: boolean}} [options]
+   *   replay=true           —— 来自 L2/L3 的重放：不推进 syncedAt（停在快照里的服务端时间）
+   *   persistSnapshot=false —— 只读水合，不写回 L2（L3 绝不能污染 L2 的「上次成功同步」语义）
+   * 连接失败与验签失败路径根本不会走到本方法，这正是 design §4.3 真值表的落点。
+   */
+  applyRuntime(payload, options) {
     if (!payload || typeof payload !== 'object') return
+    const { replay = false, persistSnapshot = !replay } = options || {}
     const next = {
       announcements: Array.isArray(payload.announcements) ? payload.announcements : [],
       updatePolicy: payload.update_policy && typeof payload.update_policy === 'object' ? payload.update_policy : null,
@@ -473,11 +559,17 @@ class OpsCenterSync {
       pipelineOptions: (payload.pipelineOptions && typeof payload.pipelineOptions === 'object') ? payload.pipelineOptions : null,
       appMenu: normalizeAppMenu(payload.appMenu),
       contentCategories: normalizeContentCategories(payload.contentCategories).items,
-      syncedAt: payload.synced_at || new Date().toISOString(),
+      syncedAt: payload.synced_at || (replay ? '' : new Date().toISOString()),
     }
     this._runtime = next
     this._sensitiveFilter = null // 触发惰性重建
     this._saveRuntimeState()
+    // L2 快照存**原始 payload**（design §4.2）：启动时同一份原文再喂一次 applyRuntime，
+    // 6 个注入管理器的内存态全部重放，无需为每个 setter 单独设计持久化格式。
+    if (persistSnapshot) {
+      const saved = this._snapshots.saveRawSnapshot(payload)
+      if (!saved.ok) this._log.notify('OpsCenterSync', 'runtime-snapshot-skipped', { level: 'WARN', params: { reason: saved.reason } })
+    }
     if (this._updatePolicyConsumer) {
       try { this._updatePolicyConsumer(next.updatePolicy) } catch (e) { this._log.notify('OpsCenterSync', 'update-policy-consumer-error', { level: 'WARN', error: String(e.message) }) }
     }
@@ -597,17 +689,21 @@ class OpsCenterSync {
   }
 
   async _fetchRuntime(baseUrl, auth) {
-    const data = await this._fetchJson('/api/v1/runtime/bootstrap', auth)
-    // Stage -1.6：运行时策略（公告/版本/敏感词/featureFlags/pipelineOptions）Ed25519 验签。
-    // 验签不通过 → 抛错，调用方整体拒绝应用任何运行时策略（fail-closed，pipelineOptions 永不经未验签路径合入）。
-    const signed = verifyRuntimeSignature(data, this._getRuntimePublicKey())
-    if (!signed.ok) {
-      const hint = signed.reason === 'NO_PRODUCTION_TRUST_ANCHOR'
-        ? '：打包版需在「运营中心同步配置」填写自定义 Ed25519 公钥作为信任锚' : ''
-      throw new Error('运行时策略验签失败（' + signed.reason + '），已拒绝应用任何运行时策略' + hint)
-    }
-    if (!data || !Array.isArray(data.announcements)) throw new Error('运行时策略响应结构错误（缺少 announcements 数组）')
-    return data
+    // 统一在出口打 failureKind：调用方（_applyRuntimeSettled）据此写降级事件，
+    // 判据集中在 reporter 模块，避免散落在各处 throw 的文案匹配。
+    try {
+      const data = await this._fetchJson('/api/v1/runtime/bootstrap', auth)
+      // Stage -1.6：运行时策略（公告/版本/敏感词/featureFlags/pipelineOptions）Ed25519 验签。
+      // 验签不通过 → 抛错，调用方整体拒绝应用任何运行时策略（fail-closed，pipelineOptions 永不经未验签路径合入）。
+      const signed = verifyRuntimeSignature(data, this._getRuntimePublicKey())
+      if (!signed.ok) {
+        const hint = signed.reason === 'NO_PRODUCTION_TRUST_ANCHOR'
+          ? '：打包版需在「运营中心同步配置」填写自定义 Ed25519 公钥作为信任锚' : ''
+        throw new Error('运行时策略验签失败（' + signed.reason + '），已拒绝应用任何运行时策略' + hint)
+      }
+      if (!data || !Array.isArray(data.announcements)) throw new Error('运行时策略响应结构错误（缺少 announcements 数组）')
+      return data
+    } catch (e) { throw tagOpsError(e) }
   }
 
   async _fetchJson(path, auth) {
@@ -650,6 +746,9 @@ class OpsCenterSync {
   /** 启动时 best-effort 自动同步（不阻塞启动；失败仅日志） */
   async autoSyncOnStart() {
     try {
+      // 先水合 L2/L3：本方法由 phase1 在 6 个管理器注入完毕之后调用（既有顺序），
+      // 因此此刻重放能真正把 6 类内存态喂回去 —— 顺序依赖写在这里的注释里以免被误删。
+      this.restoreRuntimeFromDisk()
       const cfg = this.getConfig()
       const auto = this._getAutoContext()
       if (!cfg.autoSync) return
