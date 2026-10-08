@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mount } from "@vue/test-utils";
+import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 
@@ -41,8 +41,54 @@ describe("CollectionView", () => {
     expect(w.text()).toContain("新建草稿");
   });
 
-  it("loadDrafts reads from electronAPI on mount", async () => {
+  // 回归锁（CCG 评审 i6）：页签角标的模板引用 creatorPendingTotal，
+  // 而它从未被定义过 —— `undefined > 0` 为 false，不抛错，角标**永远不显示**。
+  // 这类「引用了但没定义」是静默失效，测试看不出来，只有肉眼对比才发现。
+  it("博主监控页签的待采集角标：挂载时拉取并渲染", async () => {
+    const creatorPendingTotal = vi.fn().mockResolvedValue({ code: 0, total: 7 });
     window.electronAPI = {
+      creatorPendingTotal,
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+      storeListSetting: vi.fn().mockResolvedValue("[]"),
+      storeGet: vi.fn().mockResolvedValue(null),
+      storeGetWithDefault: vi.fn().mockResolvedValue(null),
+    };
+    const w = mountCollection();
+    await flushPromises();
+    expect(creatorPendingTotal).toHaveBeenCalled();
+    const badge = w.find('[data-testid="collection-tab-creator-badge"]');
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toBe("7");
+  });
+
+  it("角标为 0 时不渲染徽标（不留空壳）", async () => {
+    window.electronAPI = {
+      creatorPendingTotal: vi.fn().mockResolvedValue({ code: 0, total: 0 }),
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+      storeListSetting: vi.fn().mockResolvedValue("[]"),
+      storeGet: vi.fn().mockResolvedValue(null),
+      storeGetWithDefault: vi.fn().mockResolvedValue(null),
+    };
+    const w = mountCollection();
+    await flushPromises();
+    expect(w.find('[data-testid="collection-tab-creator-badge"]').exists()).toBe(false);
+  });
+
+  it("博主监控服务未就绪时不打断采集页", async () => {
+    window.electronAPI = {
+      creatorPendingTotal: vi.fn().mockRejectedValue(new Error("service-unavailable")),
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+      storeListSetting: vi.fn().mockResolvedValue("[]"),
+      storeGet: vi.fn().mockResolvedValue(null),
+      storeGetWithDefault: vi.fn().mockResolvedValue(null),
+    };
+    const w = mountCollection();
+    await flushPromises();
+    expect(w.exists()).toBe(true);
+    expect(w.find('[data-testid="collection-tab-creator-badge"]').exists()).toBe(false);
+  });
+
+  it("loadDrafts reads from electronAPI on mount", async () => {    window.electronAPI = {
       storeGetSetting: vi.fn().mockResolvedValue(JSON.stringify([
         { id: "d1", title: "Saved", content: "hello", source: "manual", created_at: "2026-07-05" }
       ]))

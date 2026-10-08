@@ -728,6 +728,18 @@ const collectedItems = ref([])  // 累计采集列表
 const addedToViral = ref(false)  // 当前采集结果是否已加入爆款库
 const collectSourceType = ref('url')
 const activeTab = ref('collect')  // 标签页: 'collect' | 'records'(文案库)
+
+// 博主监控页签的待采集角标（CCG 评审 i6：模板引用了它但从未定义）。
+// undefined > 0 为 false —— 不抛错，但角标**永远不显示**，属静默失效。
+// 这里显式初始化为 0 并在挂载时拉一次；不做「切到该页签才拉」，
+// 因为角标的意义就是**不切页也能看到有几个待采集**。
+const creatorPendingTotal = ref(0)
+async function refreshCreatorPendingTotal () {
+  try {
+    const r = await window.electronAPI?.creatorPendingTotal?.()
+    if (r && r.code === 0) creatorPendingTotal.value = Number(r.total) || 0
+  } catch (_) { /* 服务未就绪时保留 0，不打断采集页 */ }
+}
 const collectSources = ref([
   { type: 'url', name: 'URL 正文提取' },
   { type: 'rss', name: 'RSS 订阅源' },
@@ -1344,6 +1356,7 @@ onMounted(async () => {
   await loadDrafts();
   await loadCollectedItems()
   void loadCopyRewrites()
+  void refreshCreatorPendingTotal()
   void loadRewriteStrategies()
   void refreshStrategyPreview()
   // 统一内容类别：全应用单例，这里只需触发一次加载 + 订阅运营变更

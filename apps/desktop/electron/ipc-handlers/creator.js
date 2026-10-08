@@ -110,6 +110,21 @@ function registerHandlers (ipcMain, deps) {
     return { code: 0, items, totalPending: items.reduce((s, x) => s + x.pendingCount, 0) }
   })))
 
+  // ── 待采集总数（页签角标的读通道）───────────────────────────
+  // 为什么单独开一个通道而不复用 creator:list：角标要在**父组件**渲染
+  // （Collection.vue 的 tab 按钮上），而列表数据在 CreatorMonitor 子组件里。
+  // 让父组件拉整份列表等于切页重复拉一次全量数据。
+  // 口径与 creator:list 的 totalPending 保持同源（各博主 pending 之和）。
+  ipcMain.handle('creator:pending-total', withSenderCheck(wrap(async () => {
+    const creators = await creatorStore.listCreators()
+    let total = 0
+    for (const c of creators) {
+      if (c.enabled === 0 || c.status === 'paused_by_user') continue
+      total += creatorStore.countPending(c.id)
+    }
+    return { code: 0, total }
+  })))
+
   // ── 关注博主 ────────────────────────────────────────────────
   ipcMain.handle('creator:follow', withSenderCheck(wrap(async (payload) => {
     const input = requireString(payload, 'input')
