@@ -371,6 +371,34 @@ Python 明文轨仍被策略硬阻，见 4d）。注意 preload 是**位置参�
 `data/accounts/xiaohongshu/*` 不存在（没有任何可复用的 python 侧 profile）⇒ 探针路线
 **仍需用户扫码**，只有 (b) 桌面路线免扫码。两路登录态来源不同，不能互相替代。
 
+## 4j. CCG 深评（`1476985bd` 批次）四项裁决与两处落地（2026-10-09）
+
+触发：doc-only 提交命中敏感内容 3 处 ⇒ 判定需深评（`.ccg/reviews/1476985bd….json`
+`deepReview.required=true`）。双模型第 1 轮出 8 条 findings（minScore 6），其中 4 条
+Warning 进入对抗裁决，裁决全文见 `.adversarial/ccg-deep-1476985b/adjudication.json`
+（逐条 prosecution / defense / verdict / rationale）。
+
+| 争议 | 裁决 | 可验证依据 | 处置 |
+|------|------|-----------|------|
+| i1 词表仍含裸「验证码」「风控」，良性弹窗误判即中止草稿 | **dismissed** | 本轨口径是桌面实战表 `publish-risk.js:14`（含 `风控\|verify\|验证\|captcha\|滑块`）的**收紧版**；注释排除的是控件说明类裸词（「滑块」「验证」），不是验证产物名；唯一调用点 `xiaohongshu.py:218` 在任何填写/点击之前，误判与正确路径都会停在同一条线，且产出是带错误码可重试的 `XHS_RISK_BLOCKED` 而非静默损失 | 不动词表。收紧只把「请输入验证码」换成「请完成安全验证」照样命中，而放宽召回会放过真实拼图层——两侧代价不对称。精化等 2.3b 活体回传真实风控层文案后再做 |
+| i2 纯文本草稿被当合法路径，平台拒收（A 轨已写明 ≥1 图） | **dismissed** | `_confirm_saved`（`xiaohongshu.py:290-316`）是 fail-closed：需 XHR 成功码 / URL 跳 success / 草稿箱回查命中标题三者之一，全无则 `CODE_UNCONFIRMED` 并留痕「不伪造成功」。所谓静默放行不成立；`test_text_only_draft_skips_upload_wait` 钉的是「无媒体不白等 30s」且断言 `uploaded == []` 与不含 `CODE_UPLOAD_FAILED` | 不动。网页草稿箱是否同 API 一样拒收纯文字，属 2.4 待取的活体证据；在此之前按「不凭想象改契约面」不加前置校验 |
+| i3 日志用例钉死显示 label「编辑器」，改名即假红 | **upheld** | 日志由 `label` 插值生成，实参是给用户看的措辞（`xiaohongshu.py:409`），与上一轮 i4 刚移除的字面量耦合同类；辩护端要的「必须钉内容」与指控端无分歧，分歧只在锚点 | 已修：`dom.await_control` 新增 `key` 形参并写进日志前缀（`[title_input] 编辑器在 …内未就绪…`），调用点透传，测试改断言机器可读键名 `title_input`。措辞与断言解耦 |
+| i4 占位轨靠 `[""]` 恒真碰巧命中，过滤空串即静默漏判；武装后绕过词表 | **upheld** | `visible_texts` 用 `… or ""` 保留空串（`xiaohongshu_dom.py:39`），占位轨判的是**列表真值**（:51）——把「存在」压在「文案列表非空」这个副作用上，任何按文案语义的正当清理都会静默废掉这条轨 | 已修：新增 `dom.visible_count(page, sel, *, limit)` 返回可见元素个数，占位轨改为 `visible_count(...) > 0`，`visible_texts` 不再保留空串（空串对文案轨永远匹配不到正则，零行为变化）。存在性语义写进两处 docstring，并明确「占位轨准确性完全押在选择器精度上，回填须由活体取证把关」 |
+
+**回归保护与破坏-恢复自证**（防静态守卫假绿，沿用本仓既有做法）：
+新增 `test_overlay_track_uses_presence_not_text_list`——形状是「有可见容器、零文案」
+（`counts[sel]=1` 且不设 `item_texts`），先断言 `_visible_texts(...) == []` 证明文案轨
+确实拿不到东西，再断言 `_risk_present(...) is True`。把占位轨退回 `visible_texts` 真值
+⇒ 该用例红（`assert False is True`，`test_xiaohongshu_dom_hardening.py:269`）；恢复 ⇒ 绿。
+即这条用例同时钉住「存在性成立」与「不再依赖空串保留」两个语义。
+
+**验证口径**：`packages/python-backend` 下 `pytest tests/test_xiaohongshu_dom_hardening.py`
+`tests/test_p4_wait_until.py` ⇒ 43 passed；`ruff check` 三个改动文件 ⇒ All checks passed
+（同目录另有 3 处既有 `I001/F401` 位于 `account_paths.py` 等未触碰文件，属存量，不在本批范围）；
+四道门禁全部通过：`check-max-lines.js`（无新增超大文件、挂账与现实一致）、
+`check-debt-budget.js`（filesOver500 98 ≤ 基线 101）、`check-step-failfast.js`（6 个多测试
+步骤全 fail-fast）、`check-no-brand-residue.js`（PASS）。
+
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
@@ -382,6 +410,7 @@ Python 明文轨仍被策略硬阻，见 4d）。注意 preload 是**位置参�
 | 2.3b `RISK_OVERLAY_SELECTOR` / `DRAFT_BOX_ITEM_SELECTOR` 回填 | 待办 | 依赖 2.1/2.2 |
 | 2.4 真实草稿箱活体验收 | 待办 | 依赖 2.1/2.2/2.3b（(b) 路走 `rpa_vm`，与 4h 的 API permit 断裂无关；无需重新扫码） |
 | 2.6 运行态取证（tab CDP，免扫码） | 已完成 | 取到 API 轨 permit 契约断裂证据（4h） |
+| CCG 深评（`1476985bd`）四项裁决 + i3/i4 落地 | 已完成（4j） | 深评第 1 轮即达 stall 出口，改走 self-play 裁决（`confidenceWeight 0.6`），无高危域项 |
 | 2.7 API 轨 permit 契约修正 | 待办（范围外，待用户确认） | 需先取 permit 完整回包结构，禁止按键名猜 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |
 

@@ -44,6 +44,8 @@
   - 阻塞实测：5 次启动（18:56:47 / 19:00:38 / 19:08:53 / 19:12:32 / 19:18:58）实例存活 7s～3.5min，日志一律在 `accounts:batch-check-login` 之后截断且**无崩溃栈**；CDP 间歇 `ECONNREFUSED`（端口看似 LISTENING 亦拒连）。驱动连 `listAccounts()` 都未取到，本地证据仅 `fatal: connect ECONNREFUSED`
   - 已就绪的采集面（`.agent_context/tier2/tier2_live_verify.js`，gitignored）：`publish:batch` 图文模式（引擎内 `draftOnly=true`；逐行核对该分支**早于**发布按钮点击即 return ⇒ 结构上不可能公开发布）+ `queue:status/history` 轮询 + 任务期间抓创作者中心 tab 的存草稿钮/发布钮/toast/保存态/风控层/草稿箱入口/输入控件计数 ⇒ 用户在场时一条命令同时产出 2.2 与 2.4
   - 顺带漂移证据：登录态选择器 `[class*="avatar"],[class*="userInfo"],.user-avatar` 在该页超时未命中，靠 dashboard-host 兜底判活——与 2.3b 属同一类"候选过期"缺陷，活体取证时一并采集
+- [x] 2.9 CCG 深评（`1476985bd` 批次）四项对抗裁决 + 两处落地（2026-10-09，详见 PRD §4j 与 `.adversarial/ccg-deep-1476985b/adjudication.json`）：i1（词表裸词）与 i2（纯文本草稿）**dismissed**——前者口径来自桌面实战词表的收紧版且唯一调用点在任何页面动作之前（误判与正确路径停在同一条线），后者被 `_confirm_saved` 的 fail-closed 否证（无正面确认即 `CODE_UNCONFIRMED`，不伪造成功）；i3（日志用例钉显示 label）与 i4（占位轨靠 `[""]` 恒真）**upheld** 并已修——`dom.await_control` 增 `key` 形参把机器可读控件名写进日志前缀、测试改断言 `title_input`；新增 `dom.visible_count` 让占位轨判存在性而非文案列表真值，`visible_texts` 不再保留空串。回归保护 `test_overlay_track_uses_presence_not_text_list` 已做破坏-恢复自证（退回旧写法即红于 `assert False is True`）
+  - 范围自证：本项是**评审驱动的既有缺陷修正**，不是新增能力；上两项 dismissed 的复核口径（活体词表精化、网页草稿箱是否拒收纯文字）分别落在 2.3b 与 2.4，不在本轮凭想象改
 
 ## 3. 收口
 

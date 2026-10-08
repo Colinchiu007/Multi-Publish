@@ -251,6 +251,23 @@ class TestErrorNormalization:
         assert result.success is False
         assert xhs.CODE_RISK_BLOCKED in (result.error or "")
 
+    @pytest.mark.asyncio
+    async def test_overlay_track_uses_presence_not_text_list(self, publisher, monkeypatch):
+        """CCG i4：占位轨判的是"有可见容器"，不是"文案列表非空"。
+
+        原实现靠 visible_texts 把空 inner_text 也塞进列表、再看列表真值 —— 哪天有人
+        过滤空串（那是文案轨的正确清理），纯图形/拼图验证层就静默漏判。改用显式存在性
+        计数后，本用例不再依赖"空串被保留"这个实现细节。
+        """
+        monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR", '[class*="verify"]', raising=False)
+        page = _base_page()
+        sel = '[class*="verify"]'
+        page.visible.add(sel)
+        page.counts[sel] = 1  # 有容器、零文案：真实拼图验证层的形状
+        assert sel not in page.item_texts
+        assert await publisher._visible_texts(page, sel) == []  # 文案轨确实拿不到东西
+        assert await publisher._risk_present(page) is True
+
 
 class TestRegression:
     @pytest.mark.asyncio
@@ -520,9 +537,11 @@ class TestUploadReadinessPoll:
 
     @pytest.mark.asyncio
     async def test_editor_ready_timeout_leaves_a_reason_in_logs(self, publisher, monkeypatch):
-        """CCG i4：超时留痕用行为断言，不再靠源码里的字面措辞（措辞一改就假红）。
+        """CCG i4：超时留痕用行为断言，且钉在机器可读控件名上，而非给用户看的措辞。
 
         本仓日志走 loguru（非 stdlib logging），caplog 抓不到，故挂一个临时 sink。
+        断言「编辑器」会把显示 label 钉死（改名即假红，正是上一轮 CCG i4 移除的耦合类）；
+        断言 `title_input` 钉的是选择器候选链的键名，措辞怎么改都不会假红。
         """
         monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 0.05, raising=False)
         monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
@@ -534,7 +553,7 @@ class TestUploadReadinessPoll:
             await _flow(publisher, page, FakeMonitor(), media_paths=[])
         finally:
             logger.remove(sink_id)
-        assert any("编辑器" in m for m in messages), f"编辑器超时未留原因: {messages}"
+        assert any("title_input" in m for m in messages), f"编辑器超时未留可归因的原因: {messages}"
 
     @pytest.mark.asyncio
     async def test_text_only_draft_skips_upload_wait(self, publisher, monkeypatch):

@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "212cb2b45148f4e2",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "RISK_TEXT_PATTERN 仍含裸「验证码」「风控」，违背自定“只收强指认短语”原则；可见良性弹窗（如账号绑定“输入验证码”）命中即判风控中止存草稿，正是 4c-b 要防的误判类。",
+      "highRiskDomains": [],
+      "prosecution": "词表注释自己写的是「只收风控语境的强指认短语，不收裸『滑块』『验证』这类单词」，但同一张表里留着「验证码」和「风控」两个裸词。可构造的失败场景：用户在同一浏览器 profile 里刚做过手机/账号绑定，creator 发布页首屏还挂着「请输入验证码」的可见 modal，宿主选择器（RISK_TEXT_HOSTS[0]，即 class 含 modal 的容器）命中它，文案轨正则匹配「验证码」，risk_present 返回 True，直接以 XHS_RISK_BLOCKED 中止，用户的草稿一步都没保存，而真实原因只是他自己在输绑定码。这属于 4c-b 明确要防的「误判比漏判更有害」类。",
+      "defense": "三点可核对：(1) 口径来源是同源物——本仓桌面实战词表 apps/desktop/electron/services/publish-risk.js:14 的 RISK_RE 本身就含 风控|verify|验证|captcha|滑块，比 python 轨宽得多；python 轨是在它基础上收紧，而「风控」「验证码」正是收紧后仍保留的实战成员，不是凭空新增。(2) 注释排除的对象是控件说明类裸词（「滑块」「拖动滑块」「验证」），这类词出现在裁剪/旋转等编辑弹窗的操作指引里；「验证码」指的是一个验证产物本身，不是操作指引。(3) 失败场景要成立，前提是有一个可见且挡住页面的绑定弹窗（该检查点在 xiaohongshu.py:218，紧跟 goto、在任何填写或点击之前）——而弹窗既然可见并遮挡，后续 _await_editor_ready 与 _set_field 也必然失败；此时返回一个带明确错误码、可重试的 XHS_RISK_BLOCKED，优于继续盲动作后产出无确认的半成品。也就是说这条误判没有额外损失，它选择的正是同一条停止线。",
+      "verdict": "dismissed",
+      "rationale": "指控依赖一个零证据的假设场景（发布页首屏同时存在可见绑定验证码弹窗），而辩护端三点都是文件里可复查的事实：词表是桌面实战表（publish-risk.js:14）的收紧版本、被排除项的注释原文针对控件说明裸词、唯一调用点在任何页面动作之前且失败是显式错误码而非静默损失。更关键的是收紧词表并不能消除这条风险——「请输入验证码」改成「请完成安全验证」照样命中，而放宽召回会直接放过真实拼图验证层；两侧代价不对称，现有取舍（保守停止 + 显式错误码）是本轨既定设计。留痕：真正能降误判的是 Tier2 活体取证回传的真实风控层形状（tasks 2.3b），届时按实测文案精化词表，而不是现在凭想象删词。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "4h 实测「小红书不支持纯文字笔记」，但 if media_paths: 分支与 test_text_only_draft_skips_upload_wait 把纯文本草稿当合法路径静默放行，可能产出平台拒收草稿，同 4e 的缺陷交付类。",
+      "highRiskDomains": [],
+      "prosecution": "packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js:198 已写明「至少需要 1 张图片：小红书不支持纯文字笔记」，说明平台契约拒收纯文字；python 轨却在 if media_paths: 处整块跳过上传，且 test_text_only_draft_skips_upload_wait 的注释明确把纯图文/正文草稿称为合法路径。结果是走一条平台注定拒收的链路，并把无媒体当成正常状态钉进测试，与 4e「能力看起来在、实际从不触发」同属缺陷交付类。",
+      "defense": "失败面被确认环节封住：_save_as_draft 到 _confirm_saved（xiaohongshu.py:290-316）要求三重正面证据之一（被 watch 的草稿 XHR 成功码 / URL 跳到 success / 草稿箱回查命中标题），全都没有就返回 CODE_UNCONFIRMED 并显式留痕「无正面确认，按失败上报（不伪造成功）」。因此纯文本最坏的产出是失败的草稿尝试加明确错误码，不是静默成功的拒收草稿。另外该测试钉的不是纯文本能成功，而是无媒体时不为上传控件白等 30s——它断言 page.uploaded == [] 且结果不含 CODE_UPLOAD_FAILED，正是为了避免把无媒体误报成上传控件坏了这一类错误归因。",
+      "verdict": "dismissed",
+      "rationale": "可验证的分歧点是是否静默放行，而 _confirm_saved 的 fail-closed 直接否证它：无确认即失败，且代码自带不伪造成功这句注释。剩下的只是错误信息精度问题（当前是 CODE_UNCONFIRMED，而非 api 轨 XHS_NO_IMAGE 那样的精确指认），属可诊断性而非缺陷交付；且是否真拒收纯文字草稿是 API 契约的源证据，creator 网页草稿箱是否同一规则尚无活体证据（2.4 待取）。按同一原则（不凭想象改契约面），精化前置条件应等 2.4/2.3b 实测回来再决定，不在本轮动。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "test_editor_ready_timeout_leaves_a_reason_in_logs 断言日志含「编辑器」，钉死显示 label 字面量；改名即假红，正是 CCG i4 刚移除的格式化耦合类。",
+      "highRiskDomains": [],
+      "prosecution": "被测日志由 f-string 插值 label 生成（xiaohongshu_dom.py:83），label 实参是编辑器（xiaohongshu.py:409），一个纯给用户看的显示措辞。测试 assert any(编辑器 in m ...) 等于把这条措辞钉死：任何一次文案润色（改标题框、编辑区）都会让一个与行为无关的用例变红，而这正是上一轮 i4 移除源码字面量耦合时确立的同类缺陷。",
+      "defense": "上一轮修正的真实目标是从读源码正则断言改为跑起来看行为，方向正确；保留 label 断言是为了避免退化成有任何 warning 就算过，那会放掉真正要防的回归（超时不留任何原因）。即断言需要某种内容锚点，问题只是锚点选了易变项。",
+      "verdict": "upheld",
+      "rationale": "双方对要钉内容没有分歧，分歧只在锚点选择，而 key 是严格更优的锚点：它同时满足可归因（证明这条留痕确实来自编辑器就绪这一步，而非任意无关 warning）与稳定（title_input 是候选链的字典键，改动它属于功能变更而非文案润色，红得有意义）。修复已落地：dom.await_control 新增 key 形参并把其写进日志前缀（形如 [title_input] 编辑器在 ... 未就绪），调用点 xiaohongshu.py 透传 key，测试改为断言 title_input 出现在消息里。显示措辞与被钉内容就此解耦。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "overlay 轨靠 visible_texts 列表真值成立；无文案图形验证层靠空串恒真碰巧命中，日后过滤空串即静默漏判，且武装后的选择器绕过词表对任意可见元素阻断。",
+      "highRiskDomains": [],
+      "prosecution": "两处偶然耦合：(a) visible_texts 用 out.append((await item.inner_text()) or '') 保留空串（xiaohongshu_dom.py:39），而占位轨 if overlay_selector and await visible_texts(...)（:51）判的是列表真值——纯图形/拼图验证层没有任何文案，命中全靠列表里那个空串没被过滤。谁按文案语义做正当清理（if text: out.append(text)），占位轨立刻静默恒假，且没有任何用例当场变红。(b) 占位轨一旦回填（Tier2 目标），它完全绕开词表：只要选择器命中任一可见元素就判风控并中止草稿，误判面由选择器精度独自承担，而该精度今天还是零活体证据。",
+      "defense": "(a) 形状是被测试显式要求的：test_overlay_selector_alone_blocks_without_risk_wording 就是为钉住占位轨独立成立、不被文案轨顺手兜住而写（上一轮破坏验证实测过删掉整条轨仍绿），行为本身正确，只是实现方式依赖了返回列表的副作用。(b) 占位轨的存在性语义是设计意图——风控层出现即中止，本就不该要求它带文案；精度问题属于回填工序的验收门槛（tasks 2.3b 要求活体取证），不是这条轨的逻辑缺陷。",
+      "verdict": "upheld",
+      "rationale": "(a) 成立且已修：语义上存在与文案是两件事，把它们压在同一个返回值上是可被正当重构静默破坏的耦合。修复：新增 dom.visible_count(page, sel, limit=) 显式返回可见元素个数，占位轨改为 visible_count(...) > 0，visible_texts 不再保留空串（空串对文案轨永远匹配不到正则，过滤它零行为变化）。回归保护用 test_overlay_track_uses_presence_not_text_list：该用例给一个有容器、零文案的形状，先断言 _visible_texts(...) == []（文案轨确实拿不到东西）再断言 _risk_present(...) is True；破坏-恢复实测——把占位轨退回 visible_texts 真值即红（assert False is True），恢复即绿（35 passed）。(b) 不成立为缺陷、成立为约束：已在 risk_present 的 docstring 里把这条轨的准确性完全押在选择器精度上、回填必须由活体取证把关写进代码注释，与 PRD 4i 和 tasks 2.3b 同口径，避免回填时被当成免检通道。"
+    }
+  ]
+}

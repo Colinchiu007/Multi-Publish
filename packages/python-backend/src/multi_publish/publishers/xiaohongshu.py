@@ -391,7 +391,8 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
     async def _await_control(self, page, key: str, *, label: str, timeout_s: float, interval_s: float):
         """轮询候选链中首个可见控件，返回 locator 或 None；超时留痕但不臆断失败。"""
         return await dom.await_control(
-            page, self._candidates_for(key), label=label, timeout_s=timeout_s, interval_s=interval_s
+            page, self._candidates_for(key), key=key, label=label,
+            timeout_s=timeout_s, interval_s=interval_s,
         )
 
     async def _await_upload_input(self, page):
