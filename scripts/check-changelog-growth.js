@@ -47,6 +47,7 @@
 'use strict';
 
 const { execFileSync } = require('child_process');
+const path = require('path');
 const entries = require('./changelog-entries.js');
 
 const FILE = 'CHANGELOG.md';
@@ -146,6 +147,18 @@ function resolveSha(git, ref) {
 const AUTH_REQUIRED = ['applies_to_base', 'reason', 'owner_pr', 'expected_titles_reduced', 'expected_entries_after'];
 
 /**
+ * 祖先探测：isAncestor(a, b) = a 是否为 b 的祖先（相等也算）。
+ * 用 --is-ancestor 的退出码（0=是）。execFileSync 的 status 非 0 会 throw，
+ * 由调用方 catch 成 false。放在这里是因为 evaluateAuthorization 只拿得到
+ * 文本与 baseSha，无法自己做对象库查询。
+ */
+const RETIRE_REPO_ROOT = path.resolve(__dirname, '..');
+function execFileSync_ForAncestor (appliedBase, curBase) {
+  return execFileSync('git',
+    ['merge-base', '--is-ancestor', appliedBase, curBase],
+    { cwd: RETIRE_REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+/**
  * 判授权是否成立。**默认路径必须返回 granted:false 且 fatal:null** ——
  * 也就是"没有授权 = 一切照旧"，任何异常都只能是 fatal，不许悄悄当成没授权。
  */
@@ -171,12 +184,36 @@ function evaluateAuthorization({ authHeadText, authBaseText, baseSha }) {
   if (typeof obj.expected_entries_after !== 'number' || !Number.isInteger(obj.expected_entries_after) || obj.expected_entries_after < 1) {
     return { granted: false, fatal: 'expected_entries_after 必须是 >=1 的整数' };
   }
-  if (String(obj.applies_to_base).toLowerCase() !== String(baseSha).toLowerCase()) {
+  // 已消费退休分支（openspec change: retire-changelog-dedup-auth，2026-10-08）：
+  // 授权坐标系(23822b73)是本次 base 的祖先 ⇒ base 已前进越过那次清理，
+  // 这不是"坐标错位"而是"坐标已退休"——那次清理的成果已在 main 上。
+  // 此时不判 fatal，改核"消费后形状"：head 的条目数与标题集合
+  // 必须与授权声明一致，全对则那次清理造成的"缺失"如实放行。
+  const appliedBase = String(obj.applies_to_base).toLowerCase()
+  const curBase = String(baseSha).toLowerCase()
+  if (appliedBase !== curBase) {
+    let isAncestor = false
+    try {
+      // git merge-base --is-ancestor 的退出码 0 = 祖先成立；
+      // 这里的 git 参数形态由调用方（runCheck 的 runGit）注入，与上层一致
+      execFileSync_ForAncestor(appliedBase, curBase)
+      isAncestor = true
+    } catch (_) { isAncestor = false }
+    if (isAncestor) {
+      // 声明数字成为退休后的形状判据：head 条目数必须等于 expected_entries_after
+      // （那正是清理完成时的台账规模；之后的新增应走正常追加而非复活副本）
+      return {
+        granted: true,
+        retired: true,
+        auth: obj,
+        retiredReason: '授权坐标系 ' + appliedBase.slice(0, 12) + ' 是本次 base ' + curBase.slice(0, 12) + ' 的祖先——那次清理的成果已在 main 上，授权视为已消费',
+      }
+    }
     return {
       granted: false,
       fatal: `授权的 applies_to_base=${String(obj.applies_to_base).slice(0, 12)} 与本次 base 坐标系 ${String(baseSha).slice(0, 12)} 不等`
         + ' —— 坐标系错位时不得退化成"没有授权"再按普通红混过去，必须点名',
-    };
+    }
   }
   return { granted: true, auth: obj };
 }

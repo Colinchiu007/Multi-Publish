@@ -39,3 +39,9 @@
 > 实跑偏差记录：3.6 的「反证驱动」首版因取失败用例名的正则被空格截断，把 M1/M3/M4 误报成"没打中"；
 > 改正取名方式后重跑，七条全部 PASS（结果与教训记在 openspec/records/changelog-history-dedup.md）。
 > 1.3 落地后条目域由 1,158 收敛为 canonical（坐标系以授权文件的 `applies_to_base` 为准，合并前最后一次钉 `06073943b`，当场实测 canonical **1,188** / 前缀口径 **1,158**，差 30 条；开发期间还读过 `cbce32541`=1,185 与 `6fb99307b`=1,187，均为漂移读数），故 4.2 的行数以重测为准，未沿用 proposal 初稿里的窄口径数字。**本轮实测还抓到一条现场证据**：main 合进来的 `# [unreleased] gate(docs): …Gate 12c…`（小写 `[unreleased]`）对前缀口径完全隐身 —— 分裂不是历史洁癖，正在产生新盲区。
+
+## 收尾（2026-10-08，retire-changelog-dedup-auth）
+
+- [x] 授权已在 88669579 消费完毕（841 份副本清理，269 个多副本标题各剩 1 份）
+- [x] 授权文件保留在 main 上作为登记证；坐标系随 base 前进而退休
+- [x] 退休条款由 openspec change: retire-changelog-dedup-auth 落地（evaluateAuthorization 新增已消费退休分支，祖先成立且形状匹配时放行）
