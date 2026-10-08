@@ -66,6 +66,9 @@ function registerAllHandlers(ipcMain, deps) {
   require('./approval-gate')(ipcMain, deps)
   // Backlot Replay 生产回放
   require('./replay')(ipcMain, deps)
+  // 播客 RSS 频道（小宇宙收录链路）。必须注册：缺了它渲染端「播客频道」页
+  // 拿到的是 Electron 原生 "No handler registered"，对用户毫无意义。
+  require('./podcast')(ipcMain, deps)
   // 全自动管道
   require('./auto-pipeline')(ipcMain, deps)
   // 自动化任务（定时 / 应用启动触发，后台执行）
