@@ -195,3 +195,22 @@ dev 态那条也补了**反断言** `not.toBe(realKey.trim())`——
    完整日志（8.7MB），过期后只剩 **162 字节占位**。**要拉必须第一时间拉。**
 3. **Windows runner 的 vitest 日志是纯文本不是 zip**，`zipfile.ZipFile` 会抛异常——
    先 `file` 一下再决定怎么解。
+
+## 收尾补记（2026-10-08）
+
+- 分支 rebase 到最新 main（`4e8092bd` → `a43287ac`）。冲突仅在 `.quality-gates.md`
+  （追加型文档，双方都往末尾加内容），保留双方内容后完成。
+- rebase 后重跑本地验证：公钥加固逻辑 **5/5** 全过（packaged 拒收自签公钥、
+  dev 态放行且拿到的是 forged 而非真实公钥、非布尔 `isPackaged` 抛错、
+  身份未启用时不越权拦截）。
+- 七个门禁全过，含 `check-max-lines`，且 `auth-service.js` 未被触碰。
+
+- **本环境无法本地判定 `QG Static` 的真实失败点**，三条理由：
+  1. 失败 job 的日志归档已过期（只返回 162 字节占位）
+  2. 本地跑 `stage-remotion-runtime.test.js` 是 `MODULE_NOT_FOUND`
+     （缺 pnpm workspace 链接）——属**沙箱假红**，与 CI 上的失败不是同一回事
+  3. main 自身的 CI 也在跑（rollup=PENDING），无法据此判断红因归属
+
+  ⇒ 只能靠「job 一失败就立刻抓日志」定位，不要靠本地猜测。
+  本轮我曾因猜测连错三次（先怀疑 `parseEntitlementPublicKeys` 断言、再猜
+  `restore()` 该不该拆、再猜 `.snap` 扩展名判定），全部被数据否掉。
