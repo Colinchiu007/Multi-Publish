@@ -1,4 +1,25 @@
-<<<<<<< HEAD
+# [未发布] fix(shared-utils): 作品链接判据四项收紧——评审 upheld 跟进修复（2026-10-08，fix-public-link-followups）
+
+## 背景
+
+CCG 双模型评审（claude=critic × opencode=proposer，裁决书 `.ccg/review/ccg-deep-23822b73/`）对 #3057 的判据模块提出 2 upheld + 1 dismissed。本刀把 4 条 upheld 全部修复（F3/F4 在上一轮合并提交的判据上叠加），dismissed 项维持原判。
+
+## 修复（判据真源 `packages/shared-utils/src/published-content-url(.browser).js`）
+
+- **F2 contentPathRe 只锚 pathname，引入可选 `queryRe`**：旧判据把 query 并进锚定，带 query 的真实内容页（`/p/123456?from=share`、`youtu.be/…?si=…`）被错杀——而 youtube 规则自身接受 `/watch?v=`，标准不一。baijiahao / youtube / wechat_mp 三个 search 型平台同步迁移：baijiahao `path=/s + queryRe id=`、youtube `path=/watch|短链 + queryRe「v 若存在必须是 11 位」`、wechat_mp `path=/s + queryRe「__biz 且 mid 双参」`。query 里的追踪参数由落库侧 `sanitizePublishResultUrl` 处理，本判据不重复担责。
+- **F3 拒绝 userinfo**：`new URL(safe)` 后追加 `username||password` 拒绝。渲染层是「能不能进 href」的唯一守门员，不能靠下游主进程更严判据豁免自己——那正是 #3057 修复的成因模式。
+- **F4 wechat_mp 双参**：`__biz` 且 `mid` 齐全才认内容页（PRD §6.3 四元组声明对齐）；平台真实永久链接必然同时携带，收紧不影响正常形态。
+- **F1（视图层）**：详情弹窗「作品链接」行改**无条件渲染**——旧 `v-if` 在完全无链接证据的记录上整行消失，PRD §7.2「未记录作品链接」占位承诺落空。
+
+## 测试与反证
+
+- 新增 shared-utils 10 例 + 视图 2 例（先写并确认转红再实现）；全套 103 + 72 例绿。
+- **变异反证四项全部精确捕获**：F2 恢复 query 并入锚定 → 9 红；F3 去掉 userinfo 拒绝 → 2 红；F4 双参退回单参 → 恰好 F4 两条红；F1 恢复旧 v-if → 恰好 F1 红。还原后孪生 `isPublicContentUrl` 与 wechat_mp 规则段双端逐字 IDENTICAL。
+- 规则表结构新增 `queryRe` 字段，CJS/ESM parity 用例继续逐字锁定。
+
+## 文档
+
+- `01-docs/PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07.md` 追加 §13（评审结论与跟进修复）。
 # [未发布] docs(security): rgj7（libheif）可达性追踪完成——两条 sharp 公告均无可达路径，升级安全收益确证（2026-10-08，rgj7-reachability）
 
 ### 追踪结论：`GHSA-rgj7-g3m4-5g8c` 不可达
@@ -320,7 +341,6 @@ main push run `37640317864` 的基线新鲜度门禁报 `❌ collection-dark.png
 另记一条度量口径（本轮踩过）：**定位漂移区域不能用 `pixelmatch` 的输出图扫非零像素** —— 它连匹配的像素也写成非零淡色，包围盒会摊成整页；正解是按逐像素严格相等求差集。两个度量的像素数不可互相校验（严格 3114 px vs `pixelmatch(0.1)` 237 px），后者是门禁里那个数，前者才是「哪里变了」的现场。
 
 见 `docs/visual-capture-settle-and-attribution.md` §9、`openspec/records/visual-baseline-collection-dark.md`。
-=======
 # [unreleased] fix(desktop): IPC 韧性三项 —— 超时兜底 / 权限不足兜底 / 卸载清理（M-13 + M-14 + M-16）
 
 ## 缺陷
@@ -365,7 +385,6 @@ main push run `37640317864` 的基线新鲜度门禁报 `❌ collection-dark.png
 - 不批量改造调用方（本批只补桥接层能力；哪些调用点该设上限属独立 change）
 - 不虚拟滚动（M-15 报告明说「不建议现在上」，改做分页，放后续批次）
 - 不合并 9 份 `getApi()`（M-9，属独立重构）
->>>>>>> 3e4f27c8 (fix(desktop): IPC 韧性三项 —— 超时兜底 / 权限不足兜底 / 卸载清理（M-13 + M-14 + M-16）)
 
 # [未发布] docs(creator): B 站审核回写修复的真机端到端复验入库（带一个天然对照组）（2026-10-07，keyfix-live-verify）
 # [未发布] fix(定时发布): 收口真机 E2E 遗留三项（直连 7050 真因 / 排期假成功 / 到点发布验证）

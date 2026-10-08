@@ -1075,4 +1075,31 @@ describe('PublishHistory 作品链接必须落到平台公开内容页', () => {
     expect(wrapper.find('[data-testid="detail-link"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="detail-link-loginwall-hint"]').exists()).toBe(true)
   })
+
+  // F1（QM-6 评审 upheld，PR #3155 裁决书）：完全无链接证据（无 url、无 postId、
+  // 无 platformWorkId）的记录，「作品链接」行也必须渲染——显示「未记录作品链接」
+  // 占位，与 PRD §7.2「none+无 recordedUrl → detailLinkAbsent」承诺一致。
+  // 旧实现三项皆假时整行不渲染，占位文案落空。
+  it('F1 完全无链接证据的记录 ⇒ 「作品链接」行仍渲染并显示占位文案', async () => {
+    const wrapper = await mountRecords([record({ result: {} })])
+    await openDetail(wrapper, 'pl-1')
+    expect(wrapper.find('[data-testid="detail-link"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="detail-link-plain"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="detail-link-absent"]').text()).toBe('未记录作品链接')
+  })
+
+  // F2（QM-6 upheld）：带 query 的真实内容页（分享链接普遍形态）不得被错杀——
+  // 旧判据锚定 pathname+search 结尾，?from=share 直接判非内容页，recorded 来源
+  // 被整条丢弃，用户看到「暂无公开链接」而非可点的真链接。
+  it('F2 带 query 的内容页 ⇒ recorded 原样采用', async () => {
+    const shared = 'https://zhuanlan.zhihu.com/p/123456789?from=share'
+    const wrapper = await mountRecords([record({
+      platform: 'zhihu',
+      result: { url: shared, postId: '123456789' },
+    })])
+    await wrapper.find('.record-title-row h2').trigger('click')
+    await flushHistory()
+    expect(tabCreateTabMock).toHaveBeenCalledTimes(1)
+    expect(tabCreateTabMock.mock.calls[0][0].url).toBe(shared)
+  })
 })
