@@ -20,6 +20,7 @@ date: 2026-10-07
 | 行尾与 diff 对账 | PASS | `git diff --cached --numstat` 与 `git diff --cached --ignore-cr-at-eol --numstat` 两口径逐行一致（合计 +108 / −21）⇒ 无 CRLF/LF 混写。删除行归因：−21 行全部来自三处改动的旧实现被就地替换（`run-tests.js` −5 / `xiaohongshu-draft.js` −11 / 测试 −5），**无整文件重写、无整文件删除**（新增记录为 +38 / −0）。新增记录文件按仓库既有约定写为 CRLF（参照 `xhs-draft-publish.md`：41 CRLF / 0 孤立 LF；本文件 38 CRLF / 0 孤立 LF、无 BOM） |
 | QM-1 打包 / QM-4 视觉 | N/A | 改动面为 `packages/api-publish-engine/`（发布链 + 其测试 + 测试运行器），**未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`** ⇒ QM-1 打包门禁不触发；未触任何渲染面 ⇒ QM-4 视觉 N/A |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机 `codeagent-wrapper` 不存在（`Get-Command codeagent-wrapper` 无命中）⇒ 如实记为未执行，**不以自审冒充通过**；双模型评审由父任务/后续会话补 |
+<<<<<<< Updated upstream
 | 远程同步 | PASS | merge SHA `664c9b0646d1662a59ff3805afa21c103c3c50fa`（2026-10-08T19:35:15+08:00）。取证：`git log origin/main --grep='(#3076)
 
 ### 故意没做的事（不假装已覆盖）
@@ -34,6 +35,9 @@ date: 2026-10-07
 - **接线判定仍是双真源**：`check-unwired-tests.js` 以「列在 `VITEST_FILES`」判接线，本次通过「`tests/` 纳入扫描」消除了本例假绿，但**判据本身**未改（白名单 + 实际执行的一致性仍靠约定而非机械校验）。根治需让门禁比对「实际执行集合」而非白名单，本次未做。
 - `getCsdnSign` / `getKuaishouSign` 仍是简化实现（同类「形态通过、语义未验证」隐患），本次只治理小红书，其余留待专项。
  --format=%H|%cI` → `664c9b06…3c50fa|2026-10-08T19:35:15+08:00`；`git ls-remote --heads origin fix-xhs-api-chain` 返回 0 行（远端分支已删） |
+=======
+| 远程同步 | PASS | 已合并 #3076 = `664c9b0646d1662a59ff3805afa21c103c3c50fa`（squash，committer 2026-10-08T19:35:15+08:00）。取证：`git log origin/main --grep='(#3076)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin fix-xhs-api-chain` 返回 **0 行**（远端分支已删）。补记：本文件为 #3164 批量回填的漏项，由本次回填 PR 就地闭合 |
+>>>>>>> Stashed changes
 
 ### 故意没做的事（不假装已覆盖）
 
