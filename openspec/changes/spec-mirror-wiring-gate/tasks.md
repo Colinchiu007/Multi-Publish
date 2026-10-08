@@ -55,6 +55,32 @@
 ## 6. 交付
 
 - [x] 6.1 `node scripts/check-unwired-tests.js` 在真实仓库：`检查域内测试文件 67 个 / OK`
-- [ ] 6.2 QM-6 双模型外部评审（混合 PR + 改门禁判据本体），发现逐条处置并落盘原件
+- [x] 6.2 QM-6 双模型外部评审（混合 PR + 改门禁判据本体），发现逐条处置并落盘原件
+      —— 本机 CC Switch `:15721` 实测未监听 ⇒ 走替代通道 `opencode run --model opencode/{nemotron-3-ultra-free, ling-3.1-flash-free}`
+      双轴并行；两轴共 **13 条发现**（logic 7 / maintainability 6），原件落
+      `.ccg/reviews/2429ce1a3-{logic,maintainability}.json`；逐条处置见 `openspec/records/spec-mirror-wiring-fix.md`。
+      **第一次派发整体作废重跑**：opencode 按 `git --git-common-dir` 定项目根 ⇒ 读到的是共享主工作区（main 的旧副本），
+      grep 我新增的符号 0 命中；改为全部传绝对路径后才产出真产物
 - [ ] 6.3 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
 - [ ] 6.4 归档本 change；归档产出的主规格 Purpose 由 Gate 12d 看着（不得留 TBD）
+
+## 7. 评审反哺轮（按 13 条发现逐条处置后追加的判据与锁）
+
+- [x] 7.1 `listJobBlocks` 三处加固：① 认不出的 2 空格 job 键一律抛错（过去会把它的正文累加给上一个不被门控的 job ⇒ 伪造合法接线）；
+      ② 整行注释的早退必须排在未知 job 键判据**之前**（本仓 build.yml 真实存在两空格缩进的 `# --- …（change: …）`，
+      顺序颠倒会让整道门禁在真实仓库上误抛）；③ run 正文游标：只有 `run/script/command` 体里的行算点名
+- [x] 7.2 `mentionsFile` 重写：词边界 + 歧义 basename 不回退（与 `collectCheck` 的同名串号守卫同口径）
+      + 行尾注释剥离；已知残余（以登记路径结尾的更长路径仍算命中）写进函数注释而不是假装不存在
+- [x] 7.3 登记值结构化 `{ reason, resolveWhen }`，测试分别断言非空并显式拒绝空洞值
+- [x] 7.4 镜像锁新增**差分锁**：同一份 `quality-gate.yml` 上 `parseJobs` 与生产 `listJobBlocks` 的
+      `{name,gated}` 序列必须逐 job 相等 ⇒ 两份实现只修一边当场红；上一版那句"两者判据不同域"的注释不诚实，已改为真实理由
+- [x] 7.5 `listJobBlocks` 的两条退化出口（目录缺失 / 零个 yml）补**直接调用**断言 —— 经 `collectCheck` 走不到（被 `readWorkflowText` 先抛）
+- [x] 7.6 旧的"真实仓库"用例改为四参全传（只传两参时它的绿不覆盖新判据）
+- [x] 7.7 规模下界按实测收紧：job 数 20→24、不被门控数 8→10（实测 26 / 12）
+- [x] 7.8 三条 CLI 进程入口锁（rc=0 打 OK / root 取自 `--root` 而非 cwd / 不存在的 root 必须 rc=2）
+- [x] 7.9 spec delta 修订：删掉不可执行化的 Scenario（启发式禁止属**决策**，留在 proposal「刻意不做」与 AGENTS.md），
+      新增「点名只认 run 正文，同名文件不得互相冒领」Scenario
+- [x] 7.10 反证扩到 **17 条**（W10–W17 为本轮新增，W4b 改成三层复合拆线），逐条实跑全部 PASS、`RESTORE_ISSUE=0`
+      —— 中途两条 `NOT_RED`/`WRONG_CAUSE` 的处置过程本身就是产物，见记录里「反证自己的两种骗法」一节
+- [x] 7.11 测试数最终口径：`check-unwired-tests.test.js` 12 → **30**；`quality-rhythm-spec-mirror.test.js` 5 → **8**
+

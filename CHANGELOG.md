@@ -35,13 +35,41 @@ YAML 映射键序自由，`if:` 写在 `steps:` 之后同样是 job 级门控，
 逐条核到「该测试是否真的用 `fs` 读到了仓库内那个文件」只剩 1 条为真，其余 5 条全是夹具里编出来的假路径。
 一次引入 5 个假阳的门禁，结局是逼人把登记表清空 —— 与没有门禁等效且更糟。口径固定为：**登记由人做，登记的正确性由判据锁**。
 
+### 外部评审回来之后又改了什么（13 条发现，两轴各跑一次才算数）
+
+CC Switch `:15721` 实测未监听 ⇒ 按既有替代通道跑 `opencode` 双轴。**第一次派发整体作废**：opencode 把项目根定在
+`git --git-common-dir` 的所在目录（= 共享主工作区），于是它读的是 main 的旧副本、`grep` 我新增的符号 0 命中。
+**判"外部评审没发现问题"之前，必须先证明评审读到的是被评审的代码** —— 这条通道特性以前只记在"产物有没有落盘"层面。
+
+回来后成立并改掉的四条要害：
+
+- `listJobBlocks` 把认不出的 2 空格 job 键当普通正文累加给**上一个** job ⇒ 那个不被门控的 job 冒充成点名承载者（假绿）。现在一律抛错。
+- 整行注释的早退必须排在"未知 job 键"判据**之前**：本仓 build.yml 真实存在两空格缩进的 `# --- …（change: …）`，
+  顺序颠倒会让整道门禁在真实仓库上误抛 —— 修一个假绿方向时把另一个方向踩实，这种互相遮挡只有跑真仓库才发现。
+- 接线资格判据的 basename 回退比 `collectCheck` 弱一档（同名兄弟文件互相冒领）⇒ 两套判据口径分裂是"同一指标两种契约"的又一个落点。
+- 点名判据从"整份 job 正文做子串匹配"收口成"只在 step 的 run 正文里找 + 词边界"：`env: TARGET: scripts/x.test.js` 里那个字符串不会执行任何东西。
+
+另有三条否证同样落盘（`env:` 子键结构上撞不到 `^    if:`；依赖面锁早就放行相对 `require`；退出码本就分 1/2 两档），
+以及一条把重复实现变成产物的改法：`parseJobs` 与生产 `listJobBlocks` 两份解析器保留，但新增**差分锁** ——
+同一份 workflow 上两者的 `{name,gated}` 序列必须逐 job 相等，一边修一半当场红。
+
+### 反证自己的第三种骗法：死支路上的守卫
+
+W15（取消歧义 basename 守卫）首跑 `NOT_RED`。不是锁没抱住，而是我把词边界写成"前置字符不得是 `/`"，
+于是 basename 回退支路在真实形状下**永远走不到** —— 守卫成了死支路上的死代码。把前置字符放宽到允许 `/` 与 `.`
+（`./scripts/x.test.js` 这类写法必须能命中）之后，守卫重新可观测，W15 立刻红。
+**否证的对象必须是"危害"而不是"某一行代码"**：写判据时要顺带问"这条支路在什么输入下会被执行"。
+同理，整行注释早退 / 行尾 `#` 剥离 / run 正文限定是三层冗余防线，拆任意一层都不会红 ——
+所以那条反证改成**三层同时拆**的复合注入，并把"为什么必须复合"写进注释而不是假装单点可证。
+
 ### 取证
 
-9 条变异反证（W1–W9）逐条实跑，全部 `PASS` 且收尾 `restored_byte_identical=true`；
-真实仓库现场：`检查域内测试文件 67 个 / OK`、解析到 26 个 job（14 被 job 级 `if:` 门控 / 12 不被门控）、
-`node --test scripts/check-unwired-tests.test.js` 20 条全绿、`scripts/quality-rhythm-spec-mirror.test.js` 7 条全绿。
-规约见 `openspec/changes/spec-mirror-wiring-gate/`，执行记录见 `openspec/records/spec-mirror-wiring-fix.md`。
-
+17 条变异反证（W1–W17，含 W4b 三层复合）逐条实跑全部 `PASS`，`RESTORE_ISSUE=0`、逐条 `restored_byte_identical=true`；
+真实仓库现场：`检查域内测试文件 67 个 / OK`、`listJobBlocks` 解析 26 个 job（14 被 job 级 `if:` 门控 / 12 不被门控）、
+`node --test scripts/check-unwired-tests.test.js` **30** 条全绿、`scripts/quality-rhythm-spec-mirror.test.js` **8** 条全绿。
+按 merge-base `2475fa74c` 起算的行尾对账：`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相等（10 个文件）。
+规约见 `openspec/changes/spec-mirror-wiring-gate/`，执行记录（含 13 条发现的逐条处置表）见 `openspec/records/spec-mirror-wiring-fix.md`，
+评审原件见 `.ccg/reviews/2429ce1a3-logic.json` 与 `.ccg/reviews/2429ce1a3-maintainability.json`。
 ### 遗留（不假装已闭合）
 
 登记表当前只有 1 条登记项，它是**逐条人工核对**的结果而不是全域清点的完备集：命中白名单输入 yet 只住在可跳过 job 的

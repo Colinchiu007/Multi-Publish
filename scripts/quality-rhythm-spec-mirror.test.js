@@ -132,9 +132,13 @@ const SELF_BASENAME = "quality-rhythm-spec-mirror.test.js"
 
 /**
  * 按两空格缩进的 job 键切分 jobs: 段，返回 [{ name, hasJobLevelIf, code }]。
- * code = 该 job 的可执行正文（已剥 YAML 注释行）—— 注释里提一句文件名不构成接线，
- * 这个口径与 scripts/check-unwired-tests.js 的 stripComments 一致，但这里刻意只做
- * "这个 job 有没有引用我" 这一件事，不复用另一处的 step 级解析器（两者判据不同域）。
+ * code = 该 job 的可执行正文（已剥 YAML 注释行）—— 注释里提一句文件名不构成接线。
+ *
+ * 这是生产判据 `scripts/check-unwired-tests.js` 的 listJobBlocks 的**第二份实现**，
+ * 理由不是"判据不同域"（那话不成立：两边判的都是 job 级 if 门控），而是：
+ * 本锁要能在生产解析器**自己坏掉**时仍然给出独立结论，否则一条锁引用的解析函数和被它保护的
+ * 判据共用同一个 bug，会一起沉默放行。代价是口径漂移风险 —— 由下面那条
+ * 「两份解析器逐 job 同结论」的差分锁封住（一边修一半必须红）。
  */
 function parseJobs(workflowText) {
   const text = workflowText.replace(/\r\n/g, "\n")
@@ -165,6 +169,21 @@ function workflowsInRepo() {
   assert.ok(names.length > 0, "workflows 目录为空 —— 解析退化不得读成「没有需要接线的 job」")
   return names.map((f) => ({ file: f, text: fs.readFileSync(path.join(dir, f), "utf8") }))
 }
+
+test("本锁的 job 解析必须与生产判据 listJobBlocks 逐 job 同结论（两份实现必须互证）", () => {
+  // 这里刻意留着第二份解析器（parseJobs），但**不许它只是重复**：
+  // 两份实现若各修一半，漂移必须在这一条锁上暴露，而不是各自沉默地放行。
+  // 上一版的注释写的是"两者判据不同域"——那是不诚实的措辞（判的都是 job 级 if 门控），已按实测改掉。
+  const root = path.join(__dirname, "..")
+  const { listJobBlocks } = require("./check-unwired-tests.js")
+  const prod = listJobBlocks(root)
+    .filter((j) => j.workflow === "quality-gate.yml")
+    .map((j) => `${j.name}|${j.gated ? "gated" : "ungated"}`)
+  const wfText = fs.readFileSync(path.join(root, ".github", "workflows", "quality-gate.yml"), "utf8")
+  const mine = parseJobs(wfText).map((j) => `${j.name}|${j.hasJobLevelIf ? "gated" : "ungated"}`)
+  assert.ok(prod.length >= 5, `生产判据只解析到 ${prod.length} 个 job —— 规模下界防"解析退化成空集合"`)
+  assert.deepEqual(mine, prod, "两份 job 解析器口径漂移：一边修的 bug 不得让另一边继续放行")
+})
 
 test("本锁必须被点名在至少一个没有 job 级 if 的 job 里（docs-only 短路的 job 不算接线）", () => {
   const all = []
@@ -203,6 +222,7 @@ test("本锁的依赖面只能是 node 内置模块（changes job 没有 Install
     [],
     `本锁引入了第三方包 ${JSON.stringify(external)} —— 它同时被点名在没有 Install deps 的 changes job，` +
       `那里 require 任何 npm 包都会当场 MODULE_NOT_FOUND（本机有 node_modules 复现不了）。` +
-      `要么换成 node 内置实现，要么把这条锁从 changes job 摘掉并同步改上一条接线锁`,
+      `正解顺序：①换成 node 内置实现 ②把工具函数落在本仓 scripts/ 下用相对路径 require（相对路径已放行，` +
+      `它不需要安装）③最后才考虑把这条锁从 changes job 摘掉——那等于拆掉本轮修的防线，必须同步改接线锁`,
   )
 })

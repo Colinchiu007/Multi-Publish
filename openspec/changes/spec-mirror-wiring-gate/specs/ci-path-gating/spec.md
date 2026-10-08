@@ -21,6 +21,14 @@
 - **THEN** `scripts/check-unwired-tests.js` MUST 返回非零，并在 `where` 里点名是哪几个 job
 - **AND** 同一条锁另有点名落在无 job 级 `if:` 的 job 时 MUST 判合规（正控与负控 MUST 成对存在）
 
+#### Scenario: 点名只认 step 的 run 正文，且同名文件不得互相冒领
+
+- **WHEN** 某 job 的 `env:` 值、`with:` 参数或其它 YAML 映射值里出现该测试路径
+- **THEN** MUST NOT 判其被点名 —— 那只是一个字符串，不会执行任何东西
+- **AND** 同一路径出现在 `node --test scripts/x.test.js` / `bash scripts/x.test.sh` 这类 run 正文里 MUST 判其被点名
+- **AND** 当该文件名的 basename 在全仓不唯一时，MUST 只认整相对路径（与既有「未接线棘触」的同名串号守卫同口径），
+  否则 `scripts/a/x.test.js` 的点名会冒领 `scripts/b/x.test.js` 的接线
+
 #### Scenario: job 级门控按缩进层级判，不按相对位置判
 
 - **WHEN** 某 job 的 `if:` 写在 `steps:` **之后**（YAML 映射键序自由）
@@ -39,12 +47,6 @@
 - **WHEN** 登记项指向的测试文件已不存在
 - **THEN** MUST 判「过时」并变红（防止用"删掉文件"或"清空清单"逃避判据）
 - **AND** 真实仓库上登记清单的内容 MUST 以精确相等钉住，新增登记须同 PR 把点名补进不被短路的 job
-
-#### Scenario: 不得用启发式自动判据代替登记
-
-- **WHEN** 有人提出"从测试源码提取路径字面量、与白名单求交即可自动判红"
-- **THEN** 该提案 MUST 被拒绝并给出实测精度证据（本仓清点：6 条可疑逐条核对后仅剩 1 条为真）
-- **AND** 口径固定为：登记由人做，登记的正确性由上述判据锁
 
 #### Scenario: 被接进 changes job 的锁只能依赖 node 内置模块
 

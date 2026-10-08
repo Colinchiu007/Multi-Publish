@@ -1,0 +1,64 @@
+{
+  "sha": "2429ce1a3",
+  "axis": "maintainability",
+  "findings": [
+    {
+      "severity": "MAJOR",
+      "file": "openspec/records/spec-mirror-wiring-fix.md",
+      "line": 20,
+      "claim": "执行记录「行尾与 diff 对账」行的数字停在 W3 返工前的中间态，与提交快照不符，审计证据过期",
+      "evidence": "记录声称 check-unwired-tests.js 110/4、check-unwired-tests.test.js 193/0、被改文件行数 crlf=339/511/208/1476；git show --numstat 2429ce1a3 实测为 112/4 与 222/0，提交快照中两文件实际为 341/540 行。两处差值（2 与 29）恰好等于提交信息所述 W3 返工补入的测试 4.4（if 写在 steps: 之后）与新变异 W9 的行数，说明该行取证于返工前、事后未刷新——而这行的全部价值就是作为新鲜证据",
+      "suggested_fix": "合并前对当前提交重跑 git diff --numstat 与 --ignore-cr-at-eol --numstat，把该行刷新为 112/4、222/0、crlf=341/540/208/1476；或在该行注明取证对应的中间提交 SHA",
+      "confidence": "high"
+    },
+    {
+      "severity": "MAJOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 210,
+      "claim": "collectUngatedCheck 的 basename 回退匹配重新引入了 collectCheck 明确防御的「同名串号」hazard，新判据口径比旧判据弱一档，单独看会在同 basename 兄弟文件场景假绿",
+      "evidence": "cut.js:210 jobs.filter(j => j.code.includes(file) || j.code.includes(base)) 对歧义 basename 无守卫；对照 cut.js:237-238，collectCheck 对 basenameCount>1 的文件要求 workflow 写全相对路径才认作引用。场景：登记的 scripts/a/x.test.js 与兄弟 scripts/b/x.test.js 同名，workflow 在无 job 级 if 的 job 里只点名兄弟的全路径时，includes(base) 命中 => 新判据判合规，而该锁实际无处执行。当前靠 cut.js:274 findings 并集（旧判据在同场景会红 TEST_NOT_COLLECTED_BY_CI）兜底，两判据不会互相掩盖、用户最终看到哪条取决于并集，但新判据本身不可单独信任—— registry 增长后这是与本次修复同类的假绿形态",
+      "suggested_fix": "在 collectUngatedCheck 内复用同一 basename 计数：歧义时只认 j.code.includes(file) 全路径、不认裸 basename；或把该守卫抽成共享函数供两处调用，消除口径分裂",
+      "confidence": "high"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 224,
+      "claim": "collectCheck 第 4 参 ungatedRegistry 缺省为 {}，与其余两参缺省生产登记表不对称——少传一个参数就静默关掉整条新判据",
+      "evidence": "cut.js:224 ungatedRegistry = {}（exemptions/nestedAcks 缺省为 KNOWN_UNWIRED/KNOWN_NESTED_WORKFLOWS 两个生产登记表）；cut.test.js:163 的「真实仓库」用例只传 2 参，因此该用例的绿并不证明接线资格判据在真仓通过（真仓口径在 :530 另测）。cut.js:257-259 注释说明这是为让无 jobs: 段的玩具夹具不触发 listJobBlocks 抛错而刻意为之，但缺省值本身是「静默关门」形态，与本仓「退化不得读成合规」的总纪律相抵",
+      "suggested_fix": "保留 {} 缺省但在函数 JSDoc/注释里把「第 4 参缺省 = 不查接线资格」写成显式不变量，并把 cut.test.js:163 的真仓用例改为传全四参（或与 :530 用例合并），避免后来者照 2 参形态抄",
+      "confidence": "medium"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 167,
+      "claim": "listJobBlocks 的三条 fail-closed 分支中，「workflows 目录缺失」与「无 yml 文件」两条既无直接测试、又经 collectCheck 不可达（readWorkflowText 先抛）",
+      "evidence": "cut.js:167（未找到 workflows 目录）与 :169（目录下没有 workflow 文件）各自抛错；但 collectCheck 在 cut.js:226 先调 readWorkflowText（cut.js:150-157 同条件先抛），这两条守卫只能被直接调用触达。spec Scenario 3 列出三种退化条件（目录缺失/无 yml/0 job）MUST 抛错，实际测试只覆盖 0 job 一条（check-unwired-tests.test.js:498）",
+      "suggested_fix": "为 listJobBlocks 补两条直接调用断言（删 .github 目录、空 workflows 目录），或在 spec/注释里注明「经 collectCheck 的退化由 readWorkflowText 兜底，本函数守卫为纵深防御」",
+      "confidence": "high"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/quality-rhythm-spec-mirror.test.js",
+      "line": 139,
+      "claim": "parseJobs 是 listJobBlocks 的第二份近重复实现（同 job 键正则、同 4 空格 if: 正则），且「两者判据不同域」的辩护注释名不副实",
+      "evidence": "mirror.test.js:139-160 与 cut.js:165-197 的 job 切分与门控判定逻辑同构（同为 /^  ([A-Za-z0-9_-]+):\\s*$/ 切 job、同为 /^    if:\\s*\\S/ 判 job 级门控）；mirror.test.js:137 注释称「两者判据不同域」，但两者判的都是「job 级 if 门控」这同一域。仓库纪律（AGENTS.md「词素切分唯一实现」等条）明确禁止同类判据的第二份实现；两解析器日后只在一边修 bug 即口径漂移",
+      "suggested_fix": "镜像测试直接 require 生产脚本的 listJobBlocks（该脚本只依赖 node 内置模块，在无 Install deps 的 changes job 可跑），或把注释改成刻意独立的真实理由（如「防止生产解析器与该锁同坏时互相掩盖」）",
+      "confidence": "medium"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/check-unwired-tests.js",
+      "line": 65,
+      "claim": "登记表把「原因 + 销账条件」塞进同一字符串值，销账条件仅靠子串匹配强制，空洞的销账条件（如「销账条件：无」）可通过",
+      "evidence": "cut.js:65-69 登记值为拼接散文；check-unwired-tests.test.js:528 的强制是 assert.ok(String(reason).includes(\"销账\"))，只验子串存在、不验销账条件非空洞。与 KNOWN_UNWIRED 的 trim().length > 10 同为弱强制、属既有房风，但对「清单只能缩小」这条安全判据而言是形式合规",
+      "suggested_fix": "登记值结构化为 { reason, resolveWhen } 两字段、测试分别断言非空且 resolveWhen 含具体条件；或至少在注释里承认子串检查是绊线而非校验器",
+      "confidence": "medium"
+    }
+  ],
+  "spec_scenarios_uncovered": [
+    "Scenario 5「不得用启发式自动判据代替登记」：无对应可执行测试。其 THEN（拒绝启发式提案、给出 6 条可疑逐条核对后仅剩 1 条为真的实测精度证据、口径固定为登记由人做）由 scripts/check-unwired-tests.js:61-64 注释与 proposal.md 承载，属决策记录类要求、按现有写法无法用测试表达（其余 5 个 Scenario 均有对应测试：Scenario 1 -> check-unwired-tests.test.js:332 负控 + :367 正控；Scenario 2 -> :392 step 级 if 不误判 + :418 if 写在 steps: 之后仍判门控；Scenario 3 -> :498 解析退化抛错 + :511 规模下界；Scenario 4 -> :474 登记消失判过时 + :511 清单精确钉住；Scenario 6 -> quality-rhythm-spec-mirror.test.js:193 依赖面锁）"
+  ],
+  "overall": "规格意图已实现且核心数字属实：新判据按 job 级结构（而非整份 workflow 子串）核对「点名住在哪个 job」，Gate 2b2 落点正确（changes job 无 job 级 if、位于 classify 之后、纯 node 内置依赖，实测承载于 changes 与 static-gates 两处），记录中的测试条数 20/7、job 解析 26/14/12、检查域 67 经实测全部吻合；Gate 2b2 与 static-gates 对同一条锁的重复执行属有意且无害（秒级、确定性输入），changes job 不装 npm 依赖的风险由 mirror.test.js:193 的依赖面锁封死。两个主要扣分项：执行记录的对账行数字停在 W3 返工前中间态（110/4、193/0 vs 实际 112/4、222/0，审计证据需刷新），以及 collectUngatedCheck 的 basename 回退比 collectCheck 弱一档（同名兄弟文件场景下新判据单独看会假绿、现靠旧判据并集兜底）。另注：2429ce1a3 不在当前 main 历史中（与记录 frontmatter 的 sync PENDING 一致），题述 diff 文件 .tmp/mw/diff-2429ce1a3.txt 在工作区不存在，本评审直接对提交对象取证。"
+}

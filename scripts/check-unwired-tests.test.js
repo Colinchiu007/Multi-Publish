@@ -1,6 +1,7 @@
 "use strict"
 
 const assert = require("node:assert/strict")
+const cp = require("node:child_process")
 const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
@@ -508,14 +509,113 @@ test("job 解析退化必须抛错，不得读成「没有需要核对的接线�
   }
 })
 
+test("无法识别的 job 键必须抛错 —— 把正文累加给上一个 job 会伪造出合法接线", () => {
+  // 一个 2 空格缩进、但名字不合 job_id 规则的键（点号 / 引号），若被当成"普通正文"继续累加，
+  // 前一个**不被门控**的 job 就会冒充成点名的承载者 ⇒ 方向是假绿。
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: echo nothing",
+      "  weird.job:",
+      "    if: always()",
+      "    steps:",
+      "      - run: node --test scripts/mirror.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    assert.throws(
+      () => checker.listJobBlocks(root),
+      /无法识别的 job 键/,
+      "解析看不懂的 job 键必须出声，不得静默把它的内容算给前一个 job",
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("两空格缩进的整行注释不得被误判成未知 job 键", () => {
+  // 本仓 build.yml 里真实存在两空格缩进的 `# --- …（change: …）` 注释行。
+  // 若"未知 job 键"判据跑在它前面，整道门禁会在真实仓库上抛错 —— 那是把假绿修成必然红，不可接受。
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "  # --- 两空格缩进的段落注释（change: demo）---",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/mirror.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const jobs = checker.listJobBlocks(root)
+    assert.equal(jobs.length, 1, "注释行不得产生 job，也不得抛错")
+    assert.equal(jobs[0].gated, false)
+    assert.ok(!jobs[0].code.includes("# ---"), "整行注释不得进入可执行正文")
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("互为子串的 basename 不算点名", () => {
+  // 登记项 scripts/a.test.js 若被 "scripts/ba.test.js" 这行冒充成点名，
+  // 就会把"没有任何不被跳过的 job 跑它"读成"有" —— 方向是假绿。
+  const { root } = jobsFixture(
+    ["scripts/a.test.js", "scripts/ba.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/ba.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, { "scripts/a.test.js": "已点名（假）" }, {}, {
+      "scripts/a.test.js": "输入命中 docs-only 白名单",
+    })
+    assert.equal(r.ungatedViolations[0].code, "TEST_ONLY_IN_SKIPPABLE_JOB",
+      "ba.test.js 的点名不得替 a.test.js 顶罪")
+    assert.match(r.ungatedViolations[0].where, /未被任何 job 点名/)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("行尾注释里的文件名不算点名", () => {
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: echo nothing # node --test scripts/mirror.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, { "scripts/mirror.test.js": "已点名（假）" }, {}, {
+      "scripts/mirror.test.js": "输入命中 docs-only 白名单",
+    })
+    assert.equal(r.ungatedViolations[0].code, "TEST_ONLY_IN_SKIPPABLE_JOB",
+      "行尾注释里的点名不是执行，与整行注释同口径")
+  } finally {
+    cleanup(root)
+  }
+})
+
 test("真实仓库：接线资格清单只能缩小，且登记的锁确实住在不被跳过的 job", () => {
   const root = path.join(__dirname, "..")
   const jobs = checker.listJobBlocks(root)
   // 规模下界（2026-10-08 实测：解析到 26 个 job，其中 14 个被 job 级 if 门控、12 个不被门控）。
-  // 下界而不是精确值：新增 job 是常态；但一旦解析退化（少一大半），本断言当场红。
-  assert.ok(jobs.length >= 20, `真实仓库解析到的 job 数异常：${jobs.length} —— 解析退化会让本判据假绿`)
+  // 下界取「实测减两成」而不是贴脸值：正常新增 job 不会顶到上界，而解析退化（只解析到部分 workflow、或整片早退）会立刻掉到下界之下。
+  assert.ok(jobs.length >= 24, `真实仓库解析到的 job 数异常：${jobs.length} —— 解析退化会让本判据假绿`)
   assert.ok(
-    jobs.filter((j) => !j.gated).length >= 8,
+    jobs.filter((j) => !j.gated).length >= 10,
     `不被跳过的 job 只剩 ${jobs.filter((j) => !j.gated).length} 个：若接线面整体被门控，这条门禁就失去意义`,
   )
   assert.deepEqual(
@@ -523,9 +623,15 @@ test("真实仓库：接线资格清单只能缩小，且登记的锁确实住�
     ["scripts/quality-rhythm-spec-mirror.test.js"],
     "接线资格登记表只能缩小；新增登记须在同 PR 把点名补进不被跳过的 job",
   )
-  for (const [file, reason] of Object.entries(checker.MUST_LIVE_IN_UNGATED_JOB)) {
-    assert.ok(String(reason).trim().length > 10, `登记 ${file} 缺少可用原因`)
-    assert.ok(String(reason).includes("销账"), `登记 ${file} 必须写明销账条件，否则清单只会增不会减`)
+  for (const [file, ack] of Object.entries(checker.MUST_LIVE_IN_UNGATED_JOB)) {
+    assert.ok(String(ack && ack.reason ? ack.reason : "").trim().length > 10, `登记 ${file} 缺少可用原因`)
+    assert.ok(String(ack && ack.resolveWhen ? ack.resolveWhen : "").trim().length > 10,
+      `登记 ${file} 必须写明销账条件（散文里塞一句"销账"不算，见下条）`)
+    assert.doesNotMatch(
+      String(ack.resolveWhen).trim(),
+      /^(无|N\/A|暂无|待定)[。.]?$/,
+      `登记 ${file} 的销账条件是空洞占位 —— 判据要挡的是"以后没人能销账"，不是"字段存在"`,
+    )
   }
   const r = checker.collectCheck(root, checker.KNOWN_UNWIRED, checker.KNOWN_NESTED_WORKFLOWS, checker.MUST_LIVE_IN_UNGATED_JOB)
   assert.deepEqual(r.ungatedViolations.map((v) => v.file), [], "登记的锁必须真的住在不被 docs-only 短路的 job 里")
@@ -537,4 +643,125 @@ test("真实仓库：接线资格清单只能缩小，且登记的锁确实住�
     carriers.some((j) => !j.gated && j.name === "changes"),
     `该锁的承载 job 应为不被门控的 changes，实际：${JSON.stringify(carriers.map((j) => [j.workflow, j.name, j.gated]))}`,
   )
+})
+
+// —— 点名匹配的两条「假绿」方向（QM-6 两轴各自独立命中，逐条核过代码后确认都成立）——
+
+test("同 basename 跨目录时，兄弟文件的点名不得冒领", () => {
+  // collectCheck 早就有这条守卫（同名文件必须写全相对路径），接线资格判据的第一版漏了它：
+  // 只点名 scripts/a/x.test.js 时，includes(basename) 会让 scripts/b/x.test.js 也被判成已接线。
+  const { root } = jobsFixture(
+    ["scripts/a/x.test.js", "scripts/b/x.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/a/x.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, { "scripts/a/x.test.js": "已接 changes" }, {}, {
+      "scripts/b/x.test.js": { reason: "输入命中 docs-only 白名单", resolveWhen: "输入不再命中" },
+    })
+    assert.equal(r.ungatedViolations.length, 1, "同名兄弟文件的点名不得顶掉这一条红")
+    assert.equal(r.ungatedViolations[0].file, "scripts/b/x.test.js")
+    assert.match(r.ungatedViolations[0].where, /未被任何 job 点名/)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("环境变量字面量里的路径不算点名", () => {
+  // `env: TARGET=scripts/mirror.test.js` 只是把字符串塞进环境，不会执行任何东西。
+  // 若它被当成接线，「没有任何 job 跑这条锁」就会被读成「有」—— 方向同样是假绿。
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    env:",
+      "      TARGET: scripts/mirror.test.js",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: echo nothing",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, {}, {}, {
+      "scripts/mirror.test.js": { reason: "输入命中 docs-only 白名单", resolveWhen: "输入不再命中" },
+    })
+    assert.equal(r.ungatedViolations[0].code, "TEST_ONLY_IN_SKIPPABLE_JOB")
+    assert.match(r.ungatedViolations[0].where, /未被任何 job 点名/)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("listJobBlocks 的退化出口各自都必须抛错（前两条经 collectCheck 走不到）", () => {
+  // spec 的 Scenario 3 列了三种退化（目录缺失 / 目录里没有 yml / 解析出 0 个 job）。
+  // 前两条若只靠 collectCheck 触发，实际会被 readWorkflowText 先抛 —— 那就没测到本函数的守卫，
+  // 所以必须**直接调用** listJobBlocks。
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "unwired-degrade-"))
+  try {
+    const noWorkflows = path.join(tmp, "no-workflows")
+    fs.mkdirSync(noWorkflows, { recursive: true })
+    assert.throws(
+      () => checker.listJobBlocks(noWorkflows),
+      /未找到 workflows 目录/,
+      "workflows 目录缺失必须抛错",
+    )
+    const emptyWf = path.join(tmp, "empty-wf")
+    fs.mkdirSync(path.join(emptyWf, ".github", "workflows"), { recursive: true })
+    assert.throws(
+      () => checker.listJobBlocks(emptyWf),
+      /没有 workflow 文件/,
+      "目录存在但零个 yml 必须抛错，不得读成「无需核对」",
+    )
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+// —— CLI 进程入口契约：判据在单测里跑对，不代表从命令行跑也对。
+// 上一轮 Gate 12d 实测过 `process.exit(main())` 漏传 argv 会让所有命令行选项静默失效，
+// 所以 root / --json / 抛错退出码这三条都必须从进程入口跑一次。
+function runCli (args, cwd) {
+  try {
+    const out = cp.execFileSync(
+      process.execPath,
+      [path.join(__dirname, 'check-unwired-tests.js')].concat(args),
+      { cwd: cwd || __dirname, encoding: 'utf8', maxBuffer: 1 << 24, stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    return { rc: 0, out, err: '' }
+  } catch (e) {
+    return { rc: e.status == null ? -1 : e.status, out: String(e.stdout || ''), err: String(e.stderr || '') }
+  }
+}
+
+test('CLI：真实仓库上 rc=0 且打印 OK', () => {
+  const r = runCli(['--root=' + path.join(__dirname, '..')])
+  assert.equal(r.rc, 0, 'rc 必须为 0，stderr=' + r.err.slice(0, 200))
+  assert.match(r.out, /OK: 全部测试均已接线或按欠账登记/)
+})
+
+test('CLI：root 取自 --root 而不是 cwd（从别处调用结果一致）', () => {
+  const repo = path.join(__dirname, '..')
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'unwired-cli-'))
+  try {
+    const a = runCli(['--root=' + repo, '--json'], elsewhere)
+    assert.equal(a.rc, 0, '从临时目录调用仍应 rc=0，stderr=' + a.err.slice(0, 200))
+    const j = JSON.parse(a.out)
+    assert.equal(j.ok, true)
+    assert.ok(j.checked >= 40, '检查域规模不得退化：' + j.checked)
+    assert.deepEqual(j.findings, [])
+  } finally {
+    fs.rmSync(elsewhere, { recursive: true, force: true })
+  }
+})
+
+test('CLI：--root 指向不存在的目录必须 rc=2 并出声，不得静默 rc=0', () => {
+  const r = runCli(['--root=' + path.join(os.tmpdir(), 'definitely-missing-unwired-root')])
+  assert.equal(r.rc, 2, '抛错路径的退出码必须区别于「有违规」的 1，stdout=' + r.out.slice(0, 200))
+  assert.match(r.err, /未找到 workflows 目录|无法枚举目录/)
 })
