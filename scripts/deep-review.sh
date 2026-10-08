@@ -281,8 +281,25 @@ EOF
       _RB_CODE=ABS
       _RB_MSG="已把绝对目录 $_rb_prepended 补到 PATH 最前；裸名解析到 $_rb_real"
     else
-      _RB_CODE=PATH
-      _RB_MSG="裸名解析到 $_rb_real（候选目录里没找到可 prepend 的，已按原样使用）"
+      # PATH 分支不得直接计为可用（QM-6 评审 i1 的源头同病，plan-review.sh
+      # 已在 #3148 修掉同款；见 openspec/records/plan-review-deps.md）：
+      # 裸名命中但候选目录未命中，说明后端来自「来历不明」的 PATH 条目——
+      # 恰是本脚本要防的坏环境（无盘符条目按 cwd 解析 / Go wrapper ErrDot）。
+      # 此时「command -v 成功」推不出「wrapper 能起」，静默计入可用 =
+      # wrapper 起不来仍当双后端用，无告警无修法。
+      # 修法：从命中项反推绝对目录并 prepend（升级成 ABS）；推不出就按 MISS。
+      # ${_rb_real%/*} 参数展开取目录，不经 dirname——本脚本连 ROOT 都不用它。
+      _rb_dir="${_rb_real%/*}"
+      if [ -n "$_rb_dir" ] && [ "$_rb_dir" != "$_rb_real" ] && [ -d "$_rb_dir" ]; then
+        PATH="$_rb_dir:$PATH"
+        export PATH
+        _RB_CODE=ABS
+        _RB_MSG="裸名命中来自非候选目录，已把其所在目录 $_rb_dir 补到 PATH 最前（裸名 → $_rb_real）"
+      else
+        _RB_CODE=MISS
+        _RB_MSG="裸名解析到 $_rb_real，但无法定位其目录以修复 PATH——按缺失处理"
+        return 1
+      fi
     fi
     return 0
   fi
@@ -325,7 +342,9 @@ report_backends() {
     resolve_backend "$_rb_b" || true
     say "  · $_rb_b  [$_RB_CODE] $_RB_MSG（$_rb_why）"
     case "$_RB_CODE" in
-      PATH|ABS) _rb_n=$((_rb_n + 1)) ;;
+      # PATH 档已废除（⑩）：裸名来自非候选目录时要么升级 ABS 要么 MISS，
+      # 不再有「已按原样使用」的中间态。
+      ABS) _rb_n=$((_rb_n + 1)) ;;
       MISS)
         _rb_rc=2
         say "      ↳ 修法：装一个（npm i -g $_rb_pkg），"

@@ -314,3 +314,41 @@ test("不得回潮成被动告警：后端体检必须在补 PATH 之后再判�
   assert.match(src, /PATH="\$[A-Za-z_]+:\$PATH"/, "必须存在把目录 prepend 进 PATH 的恢复动作")
   assert.match(src, /export PATH/, "恢复后的 PATH 必须导出，否则子进程（wrapper）看不到")
 })
+
+// ⑩（PR #3148 QM-6 评审 i1 的源头同病，见 openspec/records/plan-review-deps.md）：
+// 裸名经「来历不明」的 PATH 条目命中、候选目录不含它时，不得计为可用。
+//
+// 旧 PATH 分支：`_RB_CODE=PATH` + 「已按原样使用」直接计入 _rb_n——
+// 但该后端正来自本脚本文档盖章的坏环境（无盘符条目按 cwd 解析 /
+// Go wrapper ErrDot），「command -v 成功」推不出「wrapper 能起」，
+// 静默计入可用 = wrapper 起不来仍当双后端用，无告警无修法。
+// 修法（与 plan-review.sh #3148 同款）：反推命中项所在目录并 prepend
+// （升级 ABS）；推不出按 MISS。
+test("PATH 分支：裸名来自非候选目录时必须反推目录 prepend（不得静默计可用）", () => {
+  const home = makeFakeHome({})
+  const stray = path.join(home, "stray-bin")
+  for (const tool of ["claude", "opencode"]) writeStub(stray, tool)
+  // stray-bin 显式放进 PATH；HOME 候选链与 CCG_BACKEND_BIN_DIRS 都不含它
+  const { rc, out } = runCheckDeps(home, {
+    PATH: `${BARE_PATH}:${toPosixPath(stray)}`,
+  })
+  assert.doesNotMatch(
+    out,
+    /已按原样使用/,
+    "旧 PATH 分支文案「已按原样使用」不得再出现（i1 反模式回潮检测）",
+  )
+  assert.match(
+    out,
+    /已把其所在目录 .* 补到 PATH 最前|找不到/,
+    "非候选目录的裸名命中必须升级为 ABS 或按 MISS",
+  )
+  assert.equal(rc, 0, "反推 prepend 成功后两个后端都应可用")
+})
+
+// process.execPath 是 Windows 形态；Git Bash 需要 /c/... 形态。
+// CI（ubuntu）上 execPath 本身就是 POSIX 形态，原样拼即可。
+function toPosixPath(p) {
+  const q = p.replace(/\\/g, "/")
+  const m = q.match(/^([A-Za-z]):(.*)$/)
+  return m ? `/${m[1].toLowerCase()}${m[2]}` : q
+}
