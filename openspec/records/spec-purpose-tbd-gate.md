@@ -142,8 +142,10 @@ step [8] "Gate 12d - Spec Purpose presence (changes job)" -> completed/success
 
 通道：CC Switch `:15721` 实测 DOWN（`Get-NetTCPConnection -LocalPort 15721 -State Listen` 无输出）⇒ 按既有替代通道
 `opencode run`，两轴分别 `opencode/nemotron-3-ultra-free`（后端）与 `opencode/ling-3.1-flash-free`（工程）。
-**评审对象钉 `68c4010d9`**（= 首提交 + 合并 `origin/main bc1e75210` 后的 head）；原件落盘
-`.tmp/qm6/out-backend.txt`（19,528 B）/ `.tmp/qm6/out-frontend.txt`（11,013 B 剥 ANSI 后）。
+**评审对象钉 `68c4010d9`**（= 首提交 + 合并 `origin/main bc1e75210` 后的 head）。
+原件当时落在该 worktree 的 gitignored `.tmp/qm6/`（`out-backend.txt` 19,528 B、`out-frontend.txt` 剥 ANSI 后 11,013 B），
+**那不是长期坐标** —— 它随 worktree 收尾即消失，本记录也不要求任何人去找它：两条轴的 severity、正文、
+以及逐条修 / 否证的依据，已全部转写进下面这张表，后续核对一律以本表为准。
 判成败只看产物里的 JSON 正文，不看 rc（该通道有 rc=0 + 空 stdout 的先例）。
 
 | 编号 | 轴 / severity | 发现 | 处置 | 依据 |
@@ -220,3 +222,38 @@ step [8] "Gate 12d - Spec Purpose presence (changes job)" -> completed/success
   勾选状态与事实之间的差异到此为止：读到 `tasks.md` 未勾 5.3 时，以本节为准。
 - 流程面的一条方法论遗留（本轮最贵的一课）：**给脚本加参数化行为时，反证必须有一条从进程入口打进去**。
   `process.exit(main())` 丢 argv 那个缺陷，前 7 格反证全部失明 —— 它们只调导出函数，从不经过 CLI。
+
+## 我这条线索引入过一次回归，以及自家 CI 为什么没拦住（2026-10-08 追记）
+
+**回归**：归档 PR #3114 给真源 `openspec/specs/openspec-integration/spec.md` 加了第 12 条 Requirement
+（「主规格的 Purpose 完整性必须有门禁」），却没同步它的 vendored 契约镜像
+`.quality-rhythm/integrations/openspec/spec-contract.md` ⇒ `scripts/quality-rhythm-spec-mirror.test.js`
+的「镜像不得自行发明或漏掉 Requirement」变红。
+
+**CI 当时拦不住的原因（三条都是实测，不是推测）**：
+
+| 观测 | 取值 |
+|------|------|
+| 那条锁跑在哪个 job | `static-gates`，job 级 `if: needs.changes.outputs.docs-only != 'true'`（用 `node -e` 解析 workflow 逐 job 扫 `run` 正文，唯一落点就是这里，`quality-gate.yml:252`） |
+| #3114 当时的 check 结论 | `QG Changes=pass`、**`QG Static=skipping`**、`Gate Result=pass` ⇒ PR 侧全绿并合并 |
+| main 侧后果 | push 事件跑全量：run `37716816985` @ `b8ed51da1` = `completed/failure`，`QG Static` 失败步 = step 8 `Gate 2b - Desktop dev scripts (node --test)`，日志正文 `not ok 2 - 镜像不得自行发明或漏掉 Requirement` —— 卡住当时所有 open PR 的 QG Static |
+
+**谁修的**：不是本会话。别的会话已在 #3116（`7c62f3e3d`，主题即「同步 vendored 契约镜像漏掉的第 12 条
+Requirement（解掉 main 上卡住全部 open PR 的 QG Static 红）」）修好。我是**复核后**才写这句，不是照抄：
+真源该 Requirement 计数 = 1、镜像计数 = 1、`node --test scripts/quality-rhythm-spec-mirror.test.js` ⇒ `5 / 5 / 0 fail`。
+我自己那条 `fix-spec-contract-mirror` 分支因此删除（无提交，未推远端），不重复别人的落地。
+
+**为什么这仍算我的**：AGENTS.md「门禁断言随实现迁移同步」要求"改真源必须同 PR 同步住锁着旧前提的镜像/基线"，
+而 `openspec-integration` 这条真源恰好有一个 vendored 镜像 —— 我做归档时只想著"主规格要有这条契约"，
+**没查"还有谁在抄这份契约"**。⇒ 口径：动 `openspec/specs/<cap>/spec.md` 之前，先
+`git grep -l "<其中一条 Requirement 标题>"` 全仓找镜像/副本，不要只在 `openspec/` 内部找。
+
+**留下的系统性缺口（本记录只登记、未修，需另行决定）**：这条锁的输入包含 `openspec/specs/**`，
+而 `openspec/**` 在 docs-only 白名单里 ⇒ 按 AGENTS.md「进白名单前提锁」（同族先例 #2718 账本 JSON /
+#2745 执行记录 / #3000 文档绝对路径 / #3099 本门禁自身），锁本身却只待在会被短路的 `static-gates`。
+后果就是上表：纯文档 PR 可以合法地把这条契约改漂而 PR 侧全绿，红只在 main 上爆，而 main 一红同时卡住全部 open PR。
+修法很小且机械 —— 在 `quality-gate.yml` 的 `changes` job 里把
+`node --test scripts/quality-rhythm-spec-mirror.test.js` 也点一次名（`static-gates` 那份保留；
+两处跑同一条锁不构成交叉判定，只构成"docs-only PR 也拦得住"）。没和本记录的措辞修正放进同一个 PR 的原因：
+那会让那个 PR 变成混合 PR（改 `.github/workflows/`）从而走全套重型 CI，与「纯载体销账」通道不同，
+留待确认后单独一 PR。
