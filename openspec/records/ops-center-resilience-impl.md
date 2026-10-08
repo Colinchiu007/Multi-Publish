@@ -32,10 +32,33 @@ PRD：`01-docs/PRD-OPS-CENTER-RESILIENCE-2026-10-08.md`
 |---|---|---|---|
 | Gate 12b 文本编码完整性 | `fail 3` | 两处**刻意的 U+FFFD 测试夹具**（种子门禁要表达「文件含 U+FFFD 就失败」）+ 一处真损坏（追加测试时引入） | 判据改用 `String.fromCharCode(0xfffd)` 表达同一语义 —— **源码层面是 ASCII，运行时展开成真替换字符**。写字面量会让这条判据永远红，逼人加豁免（等于自己关掉校验）或直接删判据（更糟） |
 | 债务熔断（max-lines） | `NEW_OVER_LIMIT` × 2 | `ops-resilience-reporter.js` 503 行、`runtime_service.py` 540 行（CI 按 **LF** 计，本地 PowerShell 口径是 473/457，差在 CRLF） | 按仓库既有 mixin/composable 范式拆分：`ops-resilience-protocol.js`（载荷构造/校验/鉴权解析）与 `config_fingerprint.py`（hash 计算 + 数值校验）。**未抬基线绕过** |
+| Gate 11 ESLint | 4 errors | ① 两处 `no-useless-assignment`（`let x = 初值` 紧接着在 try/catch 里被无条件覆盖，初值确实无用）；② 一处 `Parsing error: Unexpected token const` —— **我把 `ops-center-sync.test.js` 的 DEV 私钥数组改写时误删了数组体，只剩 `const DEV_PRIVATE_KEY = [`**，文件语法直接坏掉，而本地 vitest 仍跑的是上一轮结果；③ 一处 `no-loss-of-precision`（9007199254740993 作字面量在**解析期**就被舍入，测不到「超范围」这件事） | ①②③ 逐个改掉。②那个语法错误值得记：**它是被 ESLint 抓到的，不是被测试抓到的** —— 我改完密钥声明后没有重跑该测试文件就提交了 |
 
-> **口径差异值得记一笔**：本地用 PowerShell `Get-Content | Measure-Object -Line` 数出的是**逻辑行**，
-> CI 按 LF 字符计数。CRLF 文件两者差一条，所以「本地刚好 499 行」不等于「CI 通过」。
-> 判超限时**一律以 CI 的 LF 口径为准**。
+> **口径差异值得记一笔**：本地 PowerShell `Measure-Object -Line` 数的是**逻辑行**，CI 按 LF 字符计数。
+> CRLF 文件两者差一条，所以「本地刚好 499 行」不等于「CI 通过」。判超限一律以 CI 的 LF 口径为准。
+| Gate 11 ESLint | 4 errors | ① 两处 `no-useless-assignment`（`let x = 初值` 紧接着在 try/catch 里被无条件覆盖，初值确实无用）；② 一处 `Parsing error: Unexpected token const` —— **我把 `ops-center-sync.test.js` 的 DEV 私钥数组改写时误删了数组体，只剩 `const DEV_PRIVATE_KEY = [`**，文件语法直接坏掉，而本地 vitest 仍跑的是上一轮结果；③ 一处 `no-loss-of-precision`（9007199254740993 作字面量在**解析期**就被舍入，测不到「超范围」这件事） | ①②③ 逐个改掉。②那个语法错误值得记：**它是被 ESLint 抓到的，不是被测试抓到的** —— 我改完密钥声明后没有重跑该测试文件就提交了 |
+
+> **这一条最值得记**：① 语法错误说明「改了文件 → 立刻跑它的测试」这一步被我漏了；
+> ③ 说明「测试通过」不等于「测的是你以为的那件事」——
+> 那个断言里，字面量已经被舍入，所以它在**测一个已经变成安全范围内的数字**。
+
+---
+
+## 「夹具比生产更顺」的第三个实例（本轮新增，值得单独记）
+
+把 `ops-center-sync.test.js` 的 DEV 密钥改成进程内生成后，74 条用例立刻红 —— 因为该文件的
+`signRuntimePayload` 用新私钥签名，而验签走 `_getRuntimePublicKey()`：
+夹具的 `makeStore()` **没预置信任锚**，于是回退到**内置默认公钥**（生产演示用的固定公钥），
+与新私钥不配对。
+
+**这与前两个实例同源**：夹具少配一个东西，实现就得替你兜住。
+修法是在 `makeStore()` 里预置 DEV 锚（一处生效，不逐个改用例）。
+
+顺带修正了一条**恒真断言**：原用例叫「正确签名 → ok:true（内置默认公钥）」，
+在密钥解耦后已经不成立；改写成「未打包态回退到内置默认锚」——
+断言 `reason === 'SIGNATURE_MISMATCH'`（证明**确实走到了默认锚**而不是压根没验），
+并用配对公钥再验一次作为反向自证。
+**变异反证**：把该断言改成 `ok:true` 后恰好只有它变红（1 failed / 74 passed）。
 
 ---
 

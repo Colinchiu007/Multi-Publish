@@ -113,7 +113,7 @@ class EntitlementService {
       publicKeys: this._publicKeys, subject, deviceId: this._deviceId, now, clockTolerance: this._clockTolerance,
     })
     // 先按正常口径验一遍：未过期的快照直接通过（iat/签名/绑定/过期判定全部沿用既有实现）
-    let snapshot = null
+    let snapshot
     try { snapshot = verifyAt(this._now()) } catch (_) { snapshot = null }
     if (!snapshot) {
       // 再按「该令牌视为有效」的判定时刻验一遍：仍要过绑定与签名校验，只是允许已过期。

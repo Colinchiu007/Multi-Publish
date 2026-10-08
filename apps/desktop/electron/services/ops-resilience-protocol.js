@@ -140,7 +140,7 @@ function resolveResilienceAuth ({ manualUrl, auto, apiKeyConfigured, readEncrypt
   const url = manualUrl || (auto && auto.url ? auto.url : '')
   if (!url) return null
   if (!manualUrl && auto && !apiKeyConfigured) return { url, getAccessToken: auto.getAccessToken }
-  let apiKey = ''
+  let apiKey
   try { apiKey = typeof readEncryptedKey === 'function' ? String(readEncryptedKey() || '') : '' } catch (_) { apiKey = '' }
   if (apiKey) return { url, apiKey }
   return auto ? { url, getAccessToken: auto.getAccessToken } : null

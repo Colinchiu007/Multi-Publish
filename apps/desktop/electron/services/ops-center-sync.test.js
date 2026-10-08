@@ -20,17 +20,21 @@ const nodeCrypto = require('crypto')
 
 const { OpsCenterSync, normalizeUrl, canonicalJson, verifyRuntimeSignature, DEFAULT_RUNTIME_PUBLIC_KEY } = require('./ops-center-sync')
 
-// DEV 测试密钥对：与 ops-center-sync.js 默认公钥 / .env.example DEV 私钥配对（2026-09-02 生成）。
-// 本文件是该 DEV 私钥在本仓的**既有持有者**；ops-center-sync.resilience.test.js 从这里导入，
-// 以免第二处内联副本被 CCG 的 HARDCODED_PRIVATE_KEY（critical）规则拦下。
-// （⚠️ 测试文件之间互相 import 会让 vitest 把对方的用例再注册一遍，所以只导出常量、不导出用例。）
-const DEV_PRIVATE_KEY = [
-
-const DEV_PUBLIC_KEY = [
-  '-----BEGIN PUBLIC KEY-----',
-  'MCowBQYDK2VwAyEAr6a4g942N23o31XNIcwFGX9VhSu2jlGA9dT1bfJIDpg=',
-  '-----END PUBLIC KEY-----',
-].join('\n')
+// DEV 测试密钥对（2026-09-02 生成，原本与 ops-center-sync.js 的 DEFAULT_RUNTIME_PUBLIC_KEY /
+// .env.example 的 DEV 私钥同源）。
+//
+// 本轮起改为**进程内实时生成**，原因有二：
+//  1) pre-commit 的 CCG `verify-security` 以 HARDCODED_PRIVATE_KEY（critical）拦截本文件 —
+//     该规则 `extensions: ['*']` 且**没有** excludePaths，测试夹具的假私钥不在豁免范围
+//     （扫描器自己的注释写着「测试夹具里的假凭据不是泄漏」，但那条豁免只加在别的规则上）。
+//     规则只扫本次变更的文件，所以本文件此前一直靠「没被改动」侥幸通过。
+//  2) 更根本：DEV 私钥与**生产默认公钥同源**，任何拿到仓库的人都能给未配置自定义信任锚的
+//     打包版下发整份运行时策略（公告/版本策略/敏感词/应用菜单）。把它从仓库里拿掉是净收益。
+//
+// 这里验的是**验签通路本身**（能验过 / 各种失败原因各归其位 / 换锚行为），不需要特定固定密钥。
+const DEV_KEY_PAIR = nodeCrypto.generateKeyPairSync('ed25519')
+const DEV_PRIVATE_KEY = DEV_KEY_PAIR.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+const DEV_PUBLIC_KEY = DEV_KEY_PAIR.publicKey.export({ type: 'spki', format: 'pem' }).toString()
 
 /** 对 payload 去掉 signature 后做 canonical JSON + Ed25519 签名，返回带 signature 的对象（模拟 ops-center 服务端） */
 function signRuntimePayload (payload, privPem = DEV_PRIVATE_KEY) {
@@ -59,6 +63,11 @@ function makeStore (initial) {
   const rows = {}
   // 唯一使用 initial 的用例（"恢复路径同样归一化"）预置的是 opsCenterRuntime 行
   if (initial) rows[RUNTIME_KEY] = initial
+  // 预置 DEV 信任锚：本文件的 signRuntimePayload 用进程内生成的 DEV 私钥签名，验签自然
+  // 走 OpsCenterSync._getRuntimePublicKey()。不在这里预置的话，验签会回退到**内置默认锚**
+  // ——那是给生产演示用的固定公钥，与本文件的私钥不配对，于是每个「同步成功」用例都会红。
+  // （这正是「夹具比生产更顺」的第三种形态：夹具少配一个东西，实现就得替你兜。）
+  rows[SYNC_KEY] = JSON.stringify({ url: '', apiKeyEnc: '', autoSync: true, runtimePublicKey: DEV_PUBLIC_KEY })
   const readRow = (k) => {
     if (!(k in rows)) return null
     try { return JSON.parse(rows[k]) } catch { return rows[k] }
@@ -650,9 +659,17 @@ describe('canonicalJson 固定向量（与 ops-center json.dumps 双端对齐）
 })
 
 describe('verifyRuntimeSignature（Ed25519 验签）', () => {
-  it('正确签名 → ok:true（内置默认公钥）', () => {
+  it('不传公钥且未打包 → 回退内置默认锚（DEV 演示环）', () => {
+    // 本文件的签名私钥是进程内生成的，与**内置默认公钥不配对**（那是刻意解耦：把 DEV 私钥
+    // 从仓库里拿掉，见上方注释）。所以这里要断言的是「未打包态回退到内置默认锚」这个
+    // **分支被走到**，而不是「随便什么签名都能验过」——
+    // 后者那种断言恒真，等于没有断言。
     const payload = signRuntimePayload({ announcements: [{ title: 'x', severity: 'info', content: '' }], synced_at: '2026-09-02T00:00:00Z' })
-    expect(verifyRuntimeSignature(payload)).toEqual({ ok: true })
+    // 用不配对的私钥 → 应当因签名不匹配而被拒，且 reason 明确是 SIGNATURE_MISMATCH
+    //（若是 NO_PRODUCTION_TRUST_ANCHOR / INVALID_PUBLIC_KEY，说明压根没走到默认锚）
+    expect(verifyRuntimeSignature(payload)).toEqual({ ok: false, reason: 'SIGNATURE_MISMATCH' })
+    // 同一 payload 换成配对公钥 → 验过，证明上一步确实是「锚不匹配」而非「签名坏了」
+    expect(verifyRuntimeSignature(payload, DEV_PUBLIC_KEY)).toEqual({ ok: true })
   })
 
   it('显式传入配对的自定义公钥 → ok:true', () => {

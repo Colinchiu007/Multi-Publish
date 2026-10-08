@@ -456,7 +456,12 @@ describe('computeConfigHash 对跨端不一致数值的 fail-closed（与 Python
   })
 
   it('超出双精度安全范围的整数拒绝（JS Number 已丢精度）', () => {
-    expect(() => computeConfigHash({ feature_flags: { limit: 9007199254740993 } }))
+    // 用 Number(bigint) 而不是直接写字面量：9007199254740993 作为 JS 字面量在**解析期**就被
+    // 舍入成 9007199254740992，等于测不到「超出安全范围」这件事；ESLint 的 no-loss-of-precision
+    // 也会拦。写成 BigInt 再转，能如实表达「这个值超出安全范围」而不丢精度。
+    const beyondSafe = Number(BigInt('9007199254740993'))
+    expect(beyondSafe).toBeGreaterThan(Number.MAX_SAFE_INTEGER)
+    expect(() => computeConfigHash({ feature_flags: { limit: beyondSafe } }))
       .toThrow(/双精度安全整数范围/)
   })
 
