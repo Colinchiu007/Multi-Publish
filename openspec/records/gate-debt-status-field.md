@@ -4,7 +4,7 @@ task: 把 sync_status 纳入 check-gate-record-debt.js 的「已收口却仍留�
 date: 2026-10-08
 sync_status: PENDING
 sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007/mulpub --head gate-debt-status-field --json number,state,headRefOid` 在开 PR 后当场回读取入本行与「远程同步」行，不凭印象填；合并后按 git log origin/main --grep='(#<该号>)$' --format=%H|%cI 取 merge SHA，回填并整段删除本 frontmatter 的三个 sync_* 字段）
+sync_backfill_owner: 下一个会话（PR 号 **3140** 已由 `gh pr list --repo Colinchiu007/mulpub --head gate-debt-status-field --json number,state,headRefOid` 回读取入（state=OPEN，headRefOid=`55521d26e68e9f9d9922f0b2d0ff241e358ca9fc`），非凭印象；合并后按 git log origin/main --grep='(#3140)$' --format=%H|%cI 取 merge SHA，回填并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：sync_status 纳入登记字段残留判据（gate-debt-status-field，2026-10-08）
@@ -24,7 +24,7 @@ sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007
 | eslint | N/A（口径如实） | CI 的 eslint 步骤是 `pnpm exec eslint electron/ src/ --quiet`（`quality-gate.yml:494`，域在 `apps/desktop`），**不覆盖仓库根 `scripts/`**；根 `package.json` 无 lint script、根目录无 eslint 配置。故本 PR 的语法证据是 `node --check` 两个文件均通过 + 31 例全跑，不假报"eslint 已过" |
 | QM-1 打包 / QM-2 代码必检 / QM-4 视觉 / QM-6 | N/A（逐条给理由） | QM-1 触发条件是改 `apps/desktop/electron/**` 或 `packages/rpa-engine/**`，本 PR 零命中；QM-2 六项均为渲染/主进程代码检查，不适用；QM-4 零 UI 文件；QM-6 触发条件是 M+/中高风险运行时逻辑（主进程服务/IPC/核心引擎/安全/状态机/持久化），本 PR 是 9 行判据 + 28 行测试、无分支于生产路径。**但**它是门禁改动，所以把该走的补偿做齐了：人工授权 ✅、TDD 先红后绿 ✅、变异反证 ✅、真实仓库不误红 ✅、反向用例锁住"不得放宽登记要求" ✅ |
 | 本地门禁汇总 | PASS（提交 `e3ea9f2e4` 后实跑） | `classify-docs-only --base=origin/main --head=HEAD` ⇒ **`docs-only=false` / files=3**（改了 `scripts/` 工具脚本自身 ⇒ 混合 PR，重型门禁照跑）；`check-no-brand-residue.js` ⇒ `PASS（扫描 7308 个 tracked 文件，无品牌残留…）`；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `OK`（`变更文件 3 个（A=1 M=2 D=0）｜新增记录 1 篇`）；**被本 PR 改动的那个门禁自己** ⇒ `node scripts/check-gate-record-debt.js` **退出码 0** + 顶部 `OK…记录文件登记字段无残留`，现场 `远程同步行 252 / 执行记录 454 / 已登记欠账 9 / 记录文件 108 篇`（这条是关键：判据改宽后**真实树不误红**，且本篇仍带三字段属合法登记）；`.github/scripts/check-max-lines.js` ⇒ `✅ 无新增超大文件，挂账清单与现实一致`；`check-unwired-tests.js` ⇒ `检查域内测试文件 68 个 / OK: 全部测试均已接线或按欠账登记`（未新增测试**文件**，两条用例进既有 `check-gate-record-debt.test.js`，该文件已由 Gate 2c 点名执行）；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更`。锁本体 `node --test scripts/check-gate-record-debt.test.js` ⇒ **31 pass / 0 fail**。行尾两口径 numstat 逐文件相同（`33/0`、`9/4`、`28/0`）⇒ 无幽灵行 |
-| 远程同步 | PENDING | 本条自己的欠账：PR 号由 `gh pr list --head gate-debt-status-field --json number,state,headRefOid` 回读后填入（**不凭印象写号**）；合并后由回填 PR 改写为 PASS + merge SHA，并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段 —— 按本 PR 自己刚补宽的那条判据，**三个都必须删**，本篇就是它的第一次自我适用 |
+| 远程同步 | PENDING | 本条自己的欠账：PR 号 **3140**（回读来源见 frontmatter，同一次 `gh pr list --json number,state,headRefOid`）；合并后由回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#3140)$' --format=%H\|%cI` + `gh pr view 3140 --json mergeCommit` 同 SHA + `git ls-remote --heads origin gate-debt-status-field` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段 —— 按本 PR 自己刚补宽的那条判据，**三个都必须删**，本篇就是它的第一次自我适用 |
 
 ## 明确留在场上的边界（不假装已闭合）
 
