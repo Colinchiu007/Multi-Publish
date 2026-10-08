@@ -155,11 +155,11 @@ onMounted(() => load())
   text-align: center;
 }
 .stat-value {
-  font-size: 24px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
 }
 .stat-sub {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
 .stat-label {
@@ -180,7 +180,7 @@ onMounted(() => load())
 }
 .block-name {
   font-family: monospace;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
