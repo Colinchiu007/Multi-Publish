@@ -847,6 +847,9 @@ function registerHandlers(ipcMain, deps) {
   // 诊断通道：只输出 cookie 名，供确认发布链硬凭据是否存在（详见同目录说明文件）
   const { registerCredentialDiagnostics } = require('./account-credential-diagnostics')
   registerCredentialDiagnostics({ deps, withSenderCheck, EC, ipcLog, ipcMain })
+  // probe 调试通道：主进程内实跑小红书 API 草稿链（见 xiaohongshu-draft-probe.js 顶部安全边界）
+  const { registerXiaohongshuDraftProbe } = require('./xiaohongshu-draft-probe')
+  registerXiaohongshuDraftProbe({ deps, withSenderCheck, EC, ipcLog, ipcMain })
 }
 
 module.exports = registerHandlers

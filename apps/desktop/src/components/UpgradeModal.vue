@@ -208,7 +208,7 @@ const simulatedPaymentAvailable = import.meta.env.DEV
  *
  * | 层 | 位置 | 定价/授权模型 |
  * |---|---|---|
- * | 权威源 | `packages/api-publish-engine/src/auth/plan-matrix.js` | free ¥0 / standard ¥29月 ¥199年 / **pro ¥79月 ¥599年**（三档订阅） |
+ * | 权威源 | `packages/api-publish-engine/src/auth/plan-matrix.js` | free ¥0 / standard ¥59月 ¥499年 / **pro ¥79月 ¥699年**（三档订阅，`PLAN_MATRIX_VERSION=2026-10-08`） |
  * | 后端下单 | `electron/services/payment-manager.js` `PLANS` | **只有 pro，amount: 99 一次性** |
  * | 授权落库 | `electron/services/license-manager.js` `activate()` | **买断**（`expiresAt = null`），全文件零订阅概念 |
  * | 本组件 | 此文件 | 写死「¥99 /永久」「确认支付 ¥99」 |

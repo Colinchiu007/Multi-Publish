@@ -1,5 +1,10 @@
 # 会员中心功能设计（Member Center Design Spec）
 
+
+> ⚠️ **定价已于 2026-10-08 更新为 v1.2 定案**（`PLAN_MATRIX_VERSION = 2026-10-08`）。
+> 本文档中 `¥29/月 · ¥199/年` 与 `官方积分 0/500/3000` 为 **2026-09-23 旧值，已作废**。
+> 现行口径见 `01-docs/pricing-strategy.md` §1 与 `01-docs/DEEP-ANALYSIS-CREDIT-PRICING-2026-10-08.md` §6.1b。
+
 > 版本 v1 | 日期 2026-09-23 | 状态：✅ CEO 签字通过（2026-09-23），进入实施计划
 > 范围：Multi-Publish 桌面端「会员中心」页面的产品规格 + 后端底座契约
 > 关联真源：`apps/desktop/src/views/MemberCenter.vue`、`apps/desktop/electron/services/identity/*`、`packages/api-publish-engine/src/publish-api-server.js`、`ops-center/docs/pricing-strategy.md`
@@ -40,7 +45,7 @@
 > feature 名沿用代码既有枚举（`cloud_publish`、`ai_write`、`video_create`、`schedule_batch` 等），最终以 `BaseAdapter.KNOWN_METHODS` / `requireFeature` 清单为准。
 > 带 `*` 的数值为「运营可配」（`config.yaml`），下表给默认值。金额/配额以服务端为唯一真源，客户端禁止硬编码。
 
-| 能力 | 免费 free | 标准 standard ¥29/月（¥199/年） | 专业 pro ¥79/月（¥599/年） |
+| 能力 | 免费 free | 标准 standard ¥59/月（¥499/年） | 专业 pro ¥79/月（¥699/年） |
 |---|---|---|---|
 | 支持平台数 | 5 | 15 | 不限 |
 | 每日发布内容数 | 5 | 50 | 不限（默认上限 1000，运营可配） |
@@ -48,7 +53,7 @@
 | 视频创作 | ✗ | ✓ 500*/月 | ✓ 3000*/月 |
 | 定时/批量发布 `schedule_batch` | ✗ | ✓ | ✓ |
 | 数据看板 | 基础 | ✓ | ✓ |
-| 官方积分配额（按档） | 无 | 中 | 高 |
+| 官方积分配额 | 30 体验 | 1600/月 | 2200/月 |
 | 自有 Key | 无限 | 无限 | 无限 |
 | 并发任务数 | 1 | 3 | 10 |
 

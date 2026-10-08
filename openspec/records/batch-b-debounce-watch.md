@@ -21,8 +21,13 @@ date: 2026-10-07
 | 行尾 diff 对账 | PASS | 待提交前用 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径核对 |
 | 门禁自测 | 待跑 | `check-max-lines.js` / `check-unwired-tests.js` / `check-locale-sync.js` / `check-gate-record-debt.js` / `classify-docs-only.js` |
 | QM-1 打包 / QM-4 视觉 | N/A | 未改 `apps/desktop/electron/` 与 `packages/rpa-engine/`；视觉变化仅新增一个提示 span，由组件测试覆盖 |
+<<<<<<< Updated upstream
 | QM-6 CCG 跨家族外部评审 | 已执行 | deep-review.sh（critic=claude）产出 8 条（1 Critical + 5 Warning + 2 Info），i1/Critical 已修复并有反证闭环的回归锁；i5 已处置（常量同源）；其余记录在 PRD §6 |
 | 远程同步 | PASS | merge SHA 73edb4e6（PR #3133，2026-10-08）；git ls-remote 证远端分支 batch-b-debounce-watch 已删（0 行输出） |
+=======
+| QM-6 CCG 跨家族外部评审 | 待跑 | opencode 后端可用（真实 exe 需加 PATH）；claude 后端仍"进程启动、输出不落盘" |
+| 远程同步 | PASS | 已合并 #3133 = `73edb4e61cbb6228ea131b2145b9e98712dd9075`（squash，committer 2026-10-08T20:05:26+08:00）。取证：`git log origin/main --grep='(#3133)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin` 对应分支返回 0 行。补记：本文件为 #3164 批量回填的漏项，由本次回填 PR 就地闭合 |
+>>>>>>> Stashed changes
 
 ## 关键判断与取舍
 

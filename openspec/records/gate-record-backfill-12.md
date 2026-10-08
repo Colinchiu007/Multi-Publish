@@ -2,9 +2,6 @@
 record: gate-record-backfill-12
 task: 回填三篇新载体记录的远程同步行并销账（gate-record-backfill-11 / sync-status-field-cleanup / gate-debt-status-field）
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（PR 号 **3145** 已由 `gh pr list --repo Colinchiu007/mulpub --head gate-record-backfill-12 --json number,state,headRefOid` 回读取入（state=OPEN，headRefOid=`9b87476f627badfffcd3a6a6025dea12ff350a3c`），非凭印象；合并后按 git log origin/main --grep='(#3145)$' --format=%H|%cI 取 merge SHA，回填并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：回填三篇记录的远程同步欠账（gate-record-backfill-12，2026-10-08）【docs-only】
@@ -46,7 +43,7 @@ sync_backfill_owner: 下一个会话（PR 号 **3145** 已由 `gh pr list --repo
 | 行尾 | PASS | 三篇工作副本都是 LF（`attr=text=auto` ⇒ 索引与 worktree 均 `i/lf w/lf`），脚本按 `split('\n')/join('\n')` 逐行处理、不碰任何一行的行尾；提交后两口径 numstat 逐文件对账 |
 | 本地门禁汇总 | PASS（提交 `1032d7b55` 后实跑） | `classify-docs-only --base=origin/main --head=HEAD` ⇒ **`docs-only=true` / files=4**（四篇全在 `openspec/records/` 下）；`check-no-brand-residue.js` ⇒ `PASS（扫描 7312 个 tracked 文件，无品牌残留…）`；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `OK`；`.github/scripts/check-max-lines.js` ⇒ `✅ 无新增超大文件，挂账清单与现实一致`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`；`check-gate-record-debt.js` ⇒ **退出码 0** + 顶部 `OK`（详见「Gate 2c」行）。行尾两口径 numstat 逐文件相同（`1/4` ×3 + `58/0`）⇒ 无幽灵行 |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道，零运行时文件、零逻辑分支 |
-| 远程同步 | PENDING | 本条自己的欠账：PR 号 **3145**（回读来源见 frontmatter，同一次 `gh pr list --json number,state,headRefOid`）；合并后由下一批回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#3145)$' --format=%H\|%cI` + `gh pr view 3145 --json mergeCommit` 同 SHA + `git ls-remote --heads origin gate-record-backfill-12` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段。**注意**：自 #3140 起，少删任意一个字段都会被门禁当场判红（不再是"能过但留死字段"） |
+| 远程同步 | PASS | 已合并 #3145 = `67a5047ff8aaab28bf57e2146a161ad32aa8afeb`（squash，committer 2026-10-08T15:40:13+08:00）。取证：`git log origin/main --grep='(#3145)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin` 对应分支返回 0 行。补记：本文件为 #3164 批量回填的漏项，由本次回填 PR 就地闭合 |
 
 ### 账池现状与这套机制的下界（实测，不推算）
 
