@@ -69,6 +69,52 @@
       </nav>
 
       <div class="member-center-main" :data-testid="`member-center-${activeKey}`">
+        <!--
+          价目目录（2026-10-07）：数据来自服务端 GET /api/v1/plans，随权益同步一并取，
+          经 `identity:state-changed` 推送到 `identityStore.plans`。
+          `plan-matrix.js` 是定价唯一真源——此前的金额是营销文档里手写的。
+
+          三态刻意区分，**不做硬编码兜底**：
+            plans === null            → 取价失败或未取到（显示「暂不可用」，不显示空目录）
+            plans.length === 0        → 服务端确实没有配置套餐
+            有数据                    → 显示真实价格
+          购买入口仍保持关闭（见 UpgradeModal 的 paymentChannelUnavailable）。
+        -->
+        <section
+          class="member-center-plans"
+          data-testid="member-center-plans"
+          :aria-busy="plansLoading"
+        >
+          <h3 class="member-center-plans-title">{{ t('memberCenter.plansTitle') }}</h3>
+          <p v-if="plans === null" class="member-center-plans-unavailable" data-testid="plans-unavailable">
+            {{ t('memberCenter.plansUnavailable') }}
+          </p>
+          <p v-else-if="plans.length === 0" class="member-center-plans-unavailable" data-testid="plans-empty">
+            {{ t('memberCenter.plansEmpty') }}
+          </p>
+          <ul v-else class="member-center-plans-list">
+            <li
+              v-for="plan in plans"
+              :key="plan.id"
+              class="member-center-plan"
+              :class="{ 'is-current': plan.id === currentPlanId }"
+              :data-testid="`plan-${plan.id}`"
+            >
+              <span class="member-center-plan-label">
+                {{ plan.id === currentPlanId ? t('memberCenter.planCurrentSuffix', { label: plan.label }) : plan.label }}
+              </span>
+              <span class="member-center-plan-price" :data-testid="`plan-${plan.id}-price`">
+                <template v-if="plan.priceMonthlyCents === 0">{{ t('memberCenter.planFree') }}</template>
+                <template v-else>
+                  {{ formatPrice(plan.priceMonthlyCents, plan.currency) }} / {{ t('memberCenter.perMonth') }}
+                  <span class="member-center-plan-yearly">
+                    · {{ formatPrice(plan.priceYearlyCents, plan.currency) }} / {{ t('memberCenter.perYear') }}
+                  </span>
+                </template>
+              </span>
+            </li>
+          </ul>
+        </section>
         <div v-if="errorMessage" class="member-center-error-box">
           <p class="member-center-error" role="alert">{{ errorMessage }}</p>
           <IdentityDiagnostics />
@@ -117,6 +163,19 @@ const activeKey = ref('overview')
 
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
 const entitlement = computed(() => identityStore.entitlement)
+// 价目目录（2026-10-07）：来自服务端 /api/v1/plans，null = 未取到/取价失败。
+// **不提供硬编码兜底**——取不到就显示「暂不可用」，绝不拿记忆里的金额冒充。
+const plans = computed(() => identityStore.plans)
+const plansLoading = computed(() => status.value === 'signing_in' || status.value === 'refreshing')
+const currentPlanId = computed(() => (entitlement.value && entitlement.value.plan) || 'free')
+
+// 服务端价格单位是**分**（整数，无浮点误差），这里才做除法。
+// 仅用于展示，不参与任何计算或比较。
+function formatPrice(cents, currency) {
+  if (!Number.isInteger(cents)) return '—'
+  const symbol = currency === 'CNY' ? '¥' : currency + ' '
+  return symbol + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)
+}
 // A2 单一真源：登录且有服务端权益快照时，升级 CTA 以 entitlement.plan 为准，不再读本地 licenseStore。
 const showUpgradeCta = computed(() => {
   if (!hasSessionIdentity.value) return false

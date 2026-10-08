@@ -180,3 +180,84 @@ describe('EntitlementService', () => {
     expect(fixture.service.getState()).toMatchObject({ subject: 'sub-b', features: ['feature-b'] })
   })
 })
+
+// 2026-10-07：取真实价目目录（/api/v1/plans）。
+//
+// 逃逸分析：`UpgradeModal` 此前**不显示任何价格**（正式包显示「付费通道筹备中」），
+// 营销文档里的 ¥29/¥199/¥79/¥599 是手写的。没有测试覆盖「UI 显示的价格从哪来」，
+// 于是「凭记忆写死价格」和「从服务端取价」在测试视角下完全等价。
+describe('价目目录 /api/v1/plans（2026-10-07）', () => {
+  const { EntitlementService } = require('./entitlement-service')
+
+  const PLANS_BODY = {
+    plans: [
+      { id: 'free', label: '免费版', currency: 'CNY', priceMonthlyCents: 0, priceYearlyCents: 0 },
+      { id: 'standard', label: '标准版', currency: 'CNY', priceMonthlyCents: 2900, priceYearlyCents: 19900 },
+      { id: 'pro', label: '专业版', currency: 'CNY', priceMonthlyCents: 7900, priceYearlyCents: 59900 },
+    ],
+  }
+
+  function makeService(fetcher) {
+    return new EntitlementService({
+      apiUrl: 'https://api.example.com',
+      deviceId: 'device-1',
+      publicKeys: {},
+      storage: { read: async () => null, write: async () => {}, clear: async () => {} },
+      fetcher,
+    })
+  }
+
+  it('携带 Bearer 请求 /api/v1/plans 并返回规范化目录', async () => {
+    const seen = []
+    const service = makeService(async (url, init) => {
+      seen.push({ url, init })
+      return { ok: true, status: 200, json: async () => PLANS_BODY }
+    })
+
+    const plans = await service.fetchPlans({ accessToken: 'tok-1' })
+
+    expect(seen[0].url).toBe('https://api.example.com/api/v1/plans')
+    expect(seen[0].init.headers.Authorization).toBe('Bearer tok-1')
+    expect(plans).toHaveLength(3)
+    expect(plans[1]).toMatchObject({ id: 'standard', priceMonthlyCents: 2900, priceYearlyCents: 19900 })
+  })
+
+  it('拒绝缺失/非法的 accessToken（不发明请求）', async () => {
+    let called = 0
+    const service = makeService(async () => { called++; return { ok: true, status: 200, json: async () => PLANS_BODY } })
+    await expect(service.fetchPlans({ accessToken: '' })).rejects.toThrow()
+    await expect(service.fetchPlans({})).rejects.toThrow()
+    expect(called).toBe(0)
+  })
+
+  it('非 2xx ⇒ 抛错（不返回半截数据）', async () => {
+    const service = makeService(async () => ({ ok: false, status: 401, json: async () => ({ error: 'Unauthorized' }) }))
+    await expect(service.fetchPlans({ accessToken: 't' })).rejects.toThrow()
+  })
+
+  it('响应结构非法 ⇒ 抛错，绝不返回空数组冒充「没有套餐」', async () => {
+    // 空数组会让 UI 渲染出「无价格」的空目录，看起来像服务端没配价格——
+    // 这与「取价失败」是两回事，必须能区分。
+    const service = makeService(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    await expect(service.fetchPlans({ accessToken: 't' })).rejects.toThrow()
+  })
+
+  it('丢弃缺 id 或价格非整数的条目，但保留其余合法条目', async () => {
+    const service = makeService(async () => ({
+      ok: true, status: 200, json: async () => ({
+        plans: [
+          { id: 'good', label: '好', currency: 'CNY', priceMonthlyCents: 100, priceYearlyCents: 1000 },
+          { label: '无 id', currency: 'CNY', priceMonthlyCents: 1, priceYearlyCents: 1 },
+          { id: 'bad', currency: 'CNY', priceMonthlyCents: '2900', priceYearlyCents: 19900 },
+        ],
+      }),
+    }))
+    const plans = await service.fetchPlans({ accessToken: 't' })
+    expect(plans.map((p) => p.id)).toEqual(['good'])
+  })
+
+  it('网络异常 ⇒ 抛错（由调用方决定降级为 null，不在此处伪造）', async () => {
+    const service = makeService(async () => { throw new Error('network down') })
+    await expect(service.fetchPlans({ accessToken: 't' })).rejects.toThrow()
+  })
+})
