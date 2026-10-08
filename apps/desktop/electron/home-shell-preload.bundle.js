@@ -436,7 +436,9 @@ var require_account = __commonJS({
         // （scheduler:create/list/cancel）与 BatchManager（batch:*），与 SQLite scheduled_tasks 表无关。
         storeGetSetting: (key) => ipcRenderer2.invoke("store:get-setting", key),
         storeSetSetting: (key, value) => ipcRenderer2.invoke("store:set-setting", key, value),
-        storeListCallbackLogs: (limit) => ipcRenderer2.invoke("store:list-callback-logs", limit)
+        storeListCallbackLogs: (limit) => ipcRenderer2.invoke("store:list-callback-logs", limit),
+        // probe 调试通道：主进程内实跑小红书 API 草稿链（draft:true 落草稿箱，不公开发布）
+        probeXiaohongshuDraftChain: (accountId, opts) => ipcRenderer2.invoke("xiaohongshu:probe-draft-chain", { accountId, ...opts || {} })
       };
     }
     module2.exports = { createAccountApi };

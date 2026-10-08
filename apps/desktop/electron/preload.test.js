@@ -202,12 +202,13 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(124)
   })
 
-  it('account 模块应导出 50 个方法（49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
+  it('account 模块应导出 51 个方法（50 + probeXiaohongshuDraftChain，2026-10-08 小红书 API 草稿链受控调试通道；49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(50)
+    expect(Object.keys(r).length).toBe(51)
     // 新增方法必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(r)).toContain('accountCredentialNames')
+    expect(Object.keys(r)).toContain('probeXiaohongshuDraftChain')
   })
 
   it('system 模块应导出 149 个方法', () => {
@@ -226,8 +227,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(149)
   })
 
-  it('合并后 api 总键数应为 337（2026-10-07：336 + identityDiagnosticReport，身份诊断报告；上一基线 336 = 335 + accountCredentialNames 小红书 AT 凭据诊断，且 337 - 3 个 scheduled_tasks 死桥接后回落；更早 336 = 331 + 账号云同步 5，337 = 336 + batchCancel 批量排期取消）', () => {
-    expect(Object.keys(api).length).toBe(337)
+  it('合并后 api 总键数应为 338（2026-10-08：337 + probeXiaohongshuDraftChain，小红书 API 草稿链受控调试通道；上一基线 337 = 336 + identityDiagnosticReport，身份诊断报告；更早 336 = 335 + accountCredentialNames 小红书 AT 凭据诊断，且 337 - 3 个 scheduled_tasks 死桥接后回落）', () => {
+    expect(Object.keys(api).length).toBe(338)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
