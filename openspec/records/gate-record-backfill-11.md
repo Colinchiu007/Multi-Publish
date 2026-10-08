@@ -39,10 +39,18 @@ sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007
 
 ### 明确排除的一条（不猜）
 
-`openspec/records/schedule-hardening.md` 同样顶着 PENDING，但**三条证据一条都不成立**：
-`git log origin/main --grep='schedule-hardening'` **零命中**（main 上根本没有它的合并提交），
-且它的「远程同步」行里 PR 号仍是字面 `(#NNNN)` 占位。远端分支虽已不存在，但「分支没了」不等于「已合并」
-（也可能是清理掉或尚未提 PR）。⇒ **不动它**：那是别的会话的在制品，替它猜一个 SHA 就是把记录写成假证据。
+`openspec/records/schedule-hardening.md` 在**我开始取证的那一刻**确实也顶着 PENDING，且三条证据一条都不成立：
+`git log origin/main --grep='schedule-hardening'` 零命中、它的「远程同步」行里 PR 号还是字面 `(#NNNN)` 占位。
+当时 origin/main = `2e53ae336`。⇒ 按「分支没了不等于已合并，替它猜 SHA 就是把记录写成假证据」判为**排除**。
+
+**但这条排除是有时间戳的，而且已经过期了**：建本 worktree 时 base 变成 `c440285fd`，
+那正是另一会话的回填 PR #3127 落地的那次提交 —— 它把 `schedule-hardening` 收成了 PASS
+（PR #3123，merge SHA `2475fa74c270710445ac9cb8961e24c5f86c853c`，`git log --grep='(#3123)$'` 可复核），并删掉了它的 `sync_*` 字段。
+本 PR **不碰该文件**（diff 里没有它）。
+
+留下的方法论：**「排除」不是一个可以写完就放着的结论，它和「回填」一样带时效**。
+跨 base 之后必须重取，否则记录里会出现一条"当时对、现在错"的排除理由，而下一个会话会照读。
+这也是本仓既有口径「为合并背书的两源核对会在并发合并中过期 ⇒ 必须在请求合并那一刻重取」在**排除侧**的镜像。
 
 ### 回填动作与门禁
 
@@ -52,8 +60,8 @@ sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007
 | 回填与销账同一次 | PASS | 三篇各自：`远程同步` 行 PENDING→PASS（含 merge SHA + committer + 三源取证写法）**且**同一次提交内删除 frontmatter 的三个 `sync_*` 字段；回读 `sync_fields=0` |
 | 未新增 ledger 键 | PASS | 三篇都是**新载体**（登记随文件的 `sync_*` 走），按既有口径不得在 `scripts/gate-record-debt-ledger.json` 建键 —— 建了会当场报「陈旧登记」（#3089 那批实测踩过）。本 PR 未触碰该文件 |
 | 行尾 | PASS | 三篇工作副本均为 LF（`attr=text=auto`，索引与 worktree 都是 `i/lf w/lf`），脚本按 `split('\n')/join('\n')` 逐行处理、不碰任何一行的行尾；提交后两口径 numstat 逐文件对账 |
-| Gate 2c | PENDING | 提交后复跑 `node scripts/check-gate-record-debt.js`，结果回填于「本地门禁汇总」行 |
-| 本地门禁汇总 | PENDING | 提交后统一复跑并回填：`classify-docs-only` / `check-no-brand-residue.js` / `check-pr-exec-record.js --mode=enforce` / `check-gate-record-debt.js` / `check-docs-sync.sh` / `check-max-lines.js` + 两口径 numstat |
+| Gate 2c | PASS（提交 `0e4dfd59c` 后复跑） | `node scripts/check-gate-record-debt.js` ⇒ 顶部 `OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留`；现场 `远程同步行 251 条 / 执行记录 453 篇（全部 ## 标题 461 个）/ 已登记欠账 8 条 / 记录文件 102 篇`。**形状判据**：本批收了 3 条、开 1 条 ⇒ 「远程同步行」总数不变（改的是状态列不是行数）、「已登记欠账」必须不变（本篇是新载体，登记随文件走、不建 ledger 键）、「记录文件」因本篇 +1。绝对数会随 base 漂，可复核的是这三条形状 |
+| 本地门禁汇总 | PASS（提交 `0e4dfd59c` 后实跑） | `classify-docs-only --base=origin/main --head=HEAD` ⇒ **`docs-only=true` / files=4**（四篇全在 `openspec/records/` 下）；`check-no-brand-residue.js` ⇒ `PASS（扫描 7269 个 tracked 文件，无品牌残留…）`；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `OK`（`变更文件 4 个（A=1 M=3 D=0）｜新增记录 1 篇｜载体M=3`）；`.github/scripts/check-max-lines.js` ⇒ `超限文件=98 挂账=98 墓碑=1 ✅ 无新增超大文件，挂账清单与现实一致`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`。行尾两口径 numstat 逐文件相同（`1/4` ×3 + `65/0`）⇒ 无幽灵行 |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道，零运行时文件 |
 | 远程同步 | PENDING | 本条自己的欠账：PR 号回读后填入；合并后由下一批回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#<该号>)$' --format=%H\|%cI` + `gh pr view <该号> --json mergeCommit` 同 SHA + `git ls-remote --heads origin gate-record-backfill-11` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 ledger 建键。（这一行是**表格行**而不是 bullet —— `ROW_RE = /^\|\s*远程同步\s*\|/` 只认表格行） |
 
@@ -62,4 +70,10 @@ sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007
 回填批次**必然**给自己留一条新 PENDING（本批 3 收 1 开），于是"清账"这件事永远清不到零 ——
 账池大小的下界就是"最近一批还没被收"。这不是缺陷（它保证每条记录都被**下一个**会话核对一遍），
 但它意味着：**不能以「PENDING 计数为 0」为收口目标**，只能以「每条 PENDING 都有对应的三源闭合或明确的未合并理由」为目标。
-本批后 origin/main 上新载体未收口 = 1 篇（本篇）+ 1 篇未合并（`schedule-hardening`，如实保留）。
+本批后未收口账池（**在 `c440285fd` + 本 PR 提交后的工作树上实测**，不是推算）：
+
+- 新载体：`grep -l "^| 远程同步 | PENDING" openspec/records/*.md` ⇒ **2 个命中**，其中 `_TEMPLATE.md` 是模板里的示例文本（不是欠账），真实欠账只有本篇 1 条；
+- legacy 源：`.quality-gates.md` 里 **1 条** PENDING 行 —— 即 `:6980` 那条孤立记录，ledger 原文写明「该块丢了 `## ` 标题、不代其他会话改写归属」，属**已登记的故意保留**，不是漏收；
+- 另有 12 篇记录仍带 `sync_status:` 字段但状态列已是 PASS —— 门禁按「行」判不按「字段」判，所以它们不计入欠账；`check-gate-record-debt.js` 现场 `已登记欠账 8 条` 与本批前**完全相同**（本批未建也未销任何 ledger 键）。
+
+⇒ 收口目标只能写成「每条 PENDING 都有三源闭合或明确的保留理由」，本批后该不变量成立。
