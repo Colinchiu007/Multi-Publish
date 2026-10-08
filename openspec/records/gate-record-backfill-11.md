@@ -4,7 +4,7 @@ task: 回填三篇新载体记录的远程同步行并销账（gate-record-backf
 date: 2026-10-08
 sync_status: PENDING
 sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007/mulpub --head gate-record-backfill-11 --json number,state,headRefOid` 在开 PR 后当场回读取入本行与「远程同步」行，不凭印象填；合并后按 git log origin/main --grep='(#<该号>)$' --format=%H|%cI 取 merge SHA，回填并整段删除本 frontmatter 的三个 sync_* 字段）
+sync_backfill_owner: 下一个会话（PR 号 **3128** 已由 `gh pr list --repo Colinchiu007/mulpub --head gate-record-backfill-11 --json number,state,headRefOid` 回读取入（state=OPEN，headRefOid=`461f527777311227cd134b6dba47bae8173b757a`），非凭印象；合并后按 git log origin/main --grep='(#3128)$' --format=%H|%cI 取 merge SHA，回填并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：回填三篇记录的远程同步欠账（gate-record-backfill-11，2026-10-08）【docs-only】
@@ -63,7 +63,7 @@ sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007
 | Gate 2c | PASS（提交 `0e4dfd59c` 后复跑） | `node scripts/check-gate-record-debt.js` ⇒ 顶部 `OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留`；现场 `远程同步行 251 条 / 执行记录 453 篇（全部 ## 标题 461 个）/ 已登记欠账 8 条 / 记录文件 102 篇`。**形状判据**：本批收了 3 条、开 1 条 ⇒ 「远程同步行」总数不变（改的是状态列不是行数）、「已登记欠账」必须不变（本篇是新载体，登记随文件走、不建 ledger 键）、「记录文件」因本篇 +1。绝对数会随 base 漂，可复核的是这三条形状 |
 | 本地门禁汇总 | PASS（提交 `0e4dfd59c` 后实跑） | `classify-docs-only --base=origin/main --head=HEAD` ⇒ **`docs-only=true` / files=4**（四篇全在 `openspec/records/` 下）；`check-no-brand-residue.js` ⇒ `PASS（扫描 7269 个 tracked 文件，无品牌残留…）`；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `OK`（`变更文件 4 个（A=1 M=3 D=0）｜新增记录 1 篇｜载体M=3`）；`.github/scripts/check-max-lines.js` ⇒ `超限文件=98 挂账=98 墓碑=1 ✅ 无新增超大文件，挂账清单与现实一致`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`。行尾两口径 numstat 逐文件相同（`1/4` ×3 + `65/0`）⇒ 无幽灵行 |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道，零运行时文件 |
-| 远程同步 | PENDING | 本条自己的欠账：PR 号回读后填入；合并后由下一批回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#<该号>)$' --format=%H\|%cI` + `gh pr view <该号> --json mergeCommit` 同 SHA + `git ls-remote --heads origin gate-record-backfill-11` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 ledger 建键。（这一行是**表格行**而不是 bullet —— `ROW_RE = /^\|\s*远程同步\s*\|/` 只认表格行） |
+| 远程同步 | PENDING | 本条自己的欠账：PR 号 **3128**（回读来源见 frontmatter，同一次 `gh pr list --json number,state,headRefOid`）；合并后由下一批回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#3128)$' --format=%H\|%cI` + `gh pr view 3128 --json mergeCommit` 同 SHA + `git ls-remote --heads origin gate-record-backfill-11` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 ledger 建键。（这一行是**表格行**而不是 bullet —— `ROW_RE = /^\|\s*远程同步\s*\|/` 只认表格行） |
 
 ### 这套机制自身的一处不闭合（登记，不在本 PR 改）
 
