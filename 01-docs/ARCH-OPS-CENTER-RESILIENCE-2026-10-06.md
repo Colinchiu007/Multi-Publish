@@ -21,7 +21,26 @@
 | 批量断连怎么让官方知道？ | 客户端**降级也上报**（失败遥测队列）+ 服务端**异常率熔断告警**（§5） |
 | 改完设置怎么知道生效了？ | 根因是 bootstrap payload **没有配置版本号**（只有 `synced_at`）。方案：加 `config_version` + 客户端 **ACK 回执** + 运营中心**生效看板**（§6） |
 
-> ⚠️ **一个必须先澄清的事实**：代码中会员 API 指向 `auth.iart.work`（`config/identity-public.json:8`），而运营中心是 `ops.iart.work`（同文件 `:22`）——**这是两台不同主机**。且 `cloud-account-core.js:67` 注释称 `/api/v1/me/*` 由 ops-center 提供，但 ops-center 仓库内**不存在该路由**。部署前请先确认生产拓扑（详见 §8 风险 R1）。
+> ⚠️ **一个必须先澄清的事实**：代码中会员 API 指向 `auth.iart.work`（`config/identity-public.json:8`），而运营中心是 `ops.iart.work`（同文件 `:22`）——**这是两台不同主机**。且 `cloud-account-core.js:67` 注释称 `/api/v1/me/*` 由 ops-center 提供，但 ops-center 仓库内**不存在该路由**。
+> ✅ **已于 2026-10-08 实测确认**：`auth.iart.work` 存活且 `/api/v1/me` 返回 401（端点真实存在），`ops.iart.work` TLS 握手失败（未部署）——**会员 API 与 ops-center 是两套独立服务，本方案 §2.3/§4.7 的判断成立**。
+
+---
+
+## 0.1 实施状态更新（2026-10-08）
+
+本方案的核心设计**已实施并合入 main**（PR #3126「断网不再让用户受损 —— 三层降级 / 权益宽限期 / 配置生效可验证」，merge SHA `acfea7d3`，OpenSpec change：`openspec/changes/ops-center-resilience/`）。
+
+| 方案条目 | 实施物 | 状态 |
+|---|---|---|
+| §4.2 L2 快照（存原始 payload） | `apps/desktop/electron/services/ops-runtime-snapshot.js`（key `opsCenterRuntimeSnapshot`，存原始 bootstrap payload，成功同步且验签通过才写） | ✅ 已合入 |
+| §4.5 L3 内置种子（剔除敏感词库） | `apps/desktop/resources/ops-seed/runtime-bootstrap.json`（14 字段，`content_policy.word_list` 已剔除、无签名）+ `.github/scripts/check-ops-seed.js` CI 校验 | ✅ 已合入 |
+| §4.7 权益宽限期 | `entitlement-service.js`：`ENTITLEMENT_GRACE_SECONDS = 72h`，过期快照在宽限期内以 `source: 'grace'` 授权（写操作 onlineOnly 拒绝），过期后降级 free | ✅ 已合入（72h 与 §4.7 建议一致） |
+| §6.2 配置版本号 | 服务端 `config_fingerprint.py`（13 个下发块 canonical JSON SHA-256 前 16 位）+ `resolve_config_version()`（hash 相同不递增版本，fail-closed） | ✅ 已合入 |
+| §6.2 ACK 回执 | 客户端 `ops-resilience-reporter.js`（hash 比对、变化才 ACK、24h 心跳、恢复后补报）+ 服务端 `POST /api/v1/runtime/ack` | ✅ 已合入 |
+| §5.2 降级遥测 | 客户端降级队列（上限 200 条）+ `POST /api/v1/telemetry/degradation` + `GET /summary` | ✅ 已合入 |
+| §6.3 生效看板 / §6.3 审计补全 / A-4 健康看板 / A-5 外部探针 | 服务端已有 `GET /api/v1/runtime/rollout` 聚合端点（total/acked/stale/degraded）；**前端看板页、`config_audit_log` 写入点补全、外部探针、告警接入仍未做** | ⬜ 待后续 change |
+
+> 剩余项与 tasks.md §5「不在本 change 范围内的外部清单」一致：A-4/A-5/A-6、V-4/V-5/V-6、D-6/D-7。部署 ECS 前至少需完成 A-5（外部探针）与 §7 检查清单第 1 项（信任锚）。
 
 ---
 
@@ -498,8 +517,8 @@ async def update_app_menu(...): ...
 
 | ID | 风险 | 影响 | 建议动作 |
 |---|---|---|---|
-| **R1** | `/api/v1/me/*` 生产归属未定（代码指 `auth.iart.work`，但 `cloud-account-core.js:67` 注释称由 ops-center 提供，ops-center 仓库内无此路由） | 会员/账号通道的降级方案可能选错目标 | **部署前实测** `curl https://ops.iart.work/api/v1/me` 与 `curl https://auth.iart.work/api/v1/me`，确认哪台承载 |
-| **R2** | `docs/settings-persistence-contract.md:93` 记载 `ops.iart.work`「从未部署（task #19）」，与 `docs/ops-center-ecs-deployment.md:96` 的生产域名建议并存 | 若仍未部署，通道 A 全部读类功能当前即降级态 | 部署前确认实际状态 |
+| **R1** | ~~`/api/v1/me/*` 生产归属未定~~ | ✅ **已实测关闭（2026-10-08）**：`curl https://auth.iart.work/api/v1/me` 返回 401（端点真实存在、主机存活），`https://ops.iart.work` TLS 握手失败（未部署）。**确认会员 API 由独立主机 `auth.iart.work` 承载，与 ops-center 无关**。§2.3/§4.7 的方案对象不变 | 已实测，无需动作 |
+| **R2** | ~~`ops.iart.work` 是否已部署~~ | ⚠️ **实测（2026-10-08）确认仍未部署**：TLS 握手失败（HTTP 000）。注意本机 DNS 被代理 Fake-IP 网段（198.18.x）接管，两域名解析到保留地址，**从开发机无法验证公网真实状态**；部署时需在服务器侧用 `curl https://ops.iart.work/health` 复测。部署前通道 A 全部读类功能维持降级态，符合预期 | ECS 部署时一并验证 |
 | **R3** | 零配置登录态下 `rate-limit.js:38` 硬要求 `apiKeyConfigured` → 限流自检无法上报 | 限流规则无法校准 | D-7 修复 |
 | **R4** | L3 seed 含 `content_policy` 敏感词库 | 词库进包 = 可被逆向 | seed 生成时**剔除** `content_policy.word_list`，只保留 `enabled` 开关 |
 | **R5** | ACK 上报会新增客户端→服务端流量 | 当前 bootstrap 是拉取，加 ACK 后变成双向 | ACK 用 hash 比对，变化才发（§6.4），量级可控 |
