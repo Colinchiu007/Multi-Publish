@@ -348,6 +348,14 @@ Python 明文轨仍被策略硬阻，见 4d）。注意 preload 是**位置参�
 （`.agent_context/tier2/live/verify-*.json`，本地不入库）。
 这不是本 change 引入的问题，但它决定了 2.2/2.4 只能**在用户在场、应用稳定时**执行。
 
+**疑似关联点（未证实，留给后续调查，属本 change 范围外）**：三次死亡的最后一行都落在
+启动期批量登录检测里。`electron/publishers/account-manager.js:604` 的
+`RENDER_CRASH_PRONE_OPEN_PLATFORMS = {toutiao, wechat_mp, baijiahao}` **不含 douyin**，
+而 douyin 的 HTTP 检查实测为 inconclusive ⇒ 会继续走隐藏浏览器检查（19:19:04 的最后一行正是
+`checkLoginStatus: start douyin:…`）。但另一次死亡前是 wechat_mp 的"skip hidden browser"行
+（并未开浏览器），所以**不能把因果下结论**，只记录相关性；真需修复应另开 change 用
+崩溃栈/`render-process-gone` 事件取证，而不是照这条推断直接改名单。
+
 **已就绪的取证驱动**（本地 `.agent_context/tier2/tier2_live_verify.js`，零依赖 raw CDP）：
 走真实发布队列 `publish:batch` + 图文模式（引擎内 `draftOnly=true`，该分支**早于**发布按钮
 点击即 `return`，已逐行核对 ⇒ 绝不公开发布），随后轮询 `queue:status/history`，并在任务
