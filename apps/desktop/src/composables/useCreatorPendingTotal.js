@@ -16,6 +16,7 @@
  * 让父组件拉整份列表 = 切页时重复拉一次全量数据。
  */
 import { ref, onMounted } from 'vue'
+import { creatorPendingTotal as fetchPendingTotal } from '@/api/publisher'
 
 export function useCreatorPendingTotal () {
   // 显式 0 起步：`undefined > 0` 为 false —— 不抛错但角标永不显示，
@@ -24,7 +25,7 @@ export function useCreatorPendingTotal () {
 
   async function refreshCreatorPendingTotal () {
     try {
-      const r = await window.electronAPI?.creatorPendingTotal?.()
+      const r = await fetchPendingTotal()
       if (r && r.code === 0) creatorPendingTotal.value = Number(r.total) || 0
     } catch (_) {
       // 服务未就绪（依赖缺失 / 未接线）时保留 0，不打断采集页。
