@@ -18,7 +18,7 @@ sync_backfill_owner: 下一个会话
 | 防止再次发生（QM-5 ⑤） | PASS | ① 方法面完整性锁（新增 `.test.js`，CI 由 vitest 收集）；② `getClaimToken` 的标量返回形状写进 e2e 断言（`expect(typeof tok).toBe('number')`）；③ `collectBatch` 的数组签名同时写进实现注释、handler 注释与 stub 断言三处 |
 | 行尾与 diff 对账 | PASS | pre-commit `check-line-endings` 与 `git diff --numstat` 两口径逐文件相等 |
 | 接线棘轮 | PASS | `creator-store-surface.test.js`（`electron/services/**`）与 `creator-wiring.e2e.test.js` 同目录，均被 `apps/desktop/vitest.config.js` 的 `include` 覆盖，无需额外登记 |
-| QM-1 打包 / QM-4 视觉 | QM-1 PASS / QM-4 N/A | 见下方「QM-1 打包证据」；视觉面零变化（无新样式/文案，`/collection` 未动） |
+| QM-1 打包 / QM-4 视觉 | QM-1 PASS / QM-4 PASS | QM-1 见下方「QM-1 打包证据」。QM-4：本轮动过渲染层（页签按钮抽成 `CollectionCreatorTab.vue`），DOM 等价性逐属性核对（role/aria-selected/class/data-testid/徽标 span 全同，事件同落 `switchTab('creator')`）；CI 实证 QG Visual = success（`/collection` 与基线一致） |
 | QM-6 CCG 双模型外部评审 | PASS（带降级声明） | **决策层 4 轮**跨家族（`opencode` × `claude`，产物在 `.adversarial/ccg-plan-wiring-plan/`）：Critical 走势 2 → 1 → 0 → 1，**最低维度分始终 5、未达 8.0 阈值、未形式收敛**。停止自动迭代的原因是结构性的：proposer 后端（opencode）输入上限实测 7,800 字符（边约 8,125–8,145），每轮「修订」步骤都因超限失败，proposer 无法在循环内消化意见；引擎自身处方同样是「压缩方案后再分轮」。`codex` 后端在本机不可用（wrapper 的 Go `exec.LookPath` 解析到相对路径即拒绝执行，已试注入原生 exe 目录 / 剔 PATH 空段 / 换 cwd 三种方式均未奏效）。全部意见已逐条消化，见 `01-docs/PRD-CREATOR-WIRING-2026-10-07.md` |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
 
