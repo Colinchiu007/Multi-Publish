@@ -2,9 +2,6 @@
 record: fix-public-link-followups
 task: 作品链接判据四项收紧（QM-6 评审 upheld 跟进修复：F1 占位行/F2 query/F3 userinfo/F4 wechat_mp 双参）
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 合并本 PR 的会话（回填与销账必须同一次提交）
 ---
 
 ## 本次执行记录：作品链接判据四项收紧（fix-public-link-followups，2026-10-08）
@@ -21,7 +18,7 @@ sync_backfill_owner: 合并本 PR 的会话（回填与销账必须同一次提�
 | QM-1 打包 | N/A | 未触碰 `electron/` 构建产物路径与 `packages/rpa-engine/`；`verify-worktree-deps.js` OK（11 个 workspace 消费方指向本 worktree） |
 | QM-4 视觉 | N/A（构造性） | F1 只让「完全无链接证据」的记录多显示一行占位文案（此前整行消失）；无样式/布局改动，静态渲染不变 |
 | QM-6 双模型外部评审 | ✅（上游已闭合） | 本刀即 #3155 评审裁决的跟进修复；裁决书与评审原文已在 `.ccg/review/ccg-deep-23822b73/`（PR #3155 入库） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep="(#NNNN)$" --format="%H %cI"` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-public-link-followups` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并 #3166 = `facb2ad0811d35d6efcbf50ef32e058a5ddb7673`，committer 2026-10-08T21:51:32+08:00。取证：GitHub `mergeCommit` 与远端一致，`git log origin/main --grep="(#3166)" --format="%H %cI"` 双源一致，`git ls-remote --heads origin fix-public-link-followups` 返回 **0 行**（远端分支已随 squash 删除） |
 
 ### 遗留（不假装已闭合）
 
