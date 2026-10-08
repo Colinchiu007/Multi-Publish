@@ -71,6 +71,17 @@ async function flushHistory () {
   await nextTick()
 }
 
+// M-11：筛选改动现在走 300ms 防抖（useDebouncedWatchSources 默认），所以改完筛选条件
+// 必须**显式推进时间**才能等到补页加载。原 flushHistory 只 flush 微任务 —— 防抖前那够用，
+// 防抖后不够。这里补一个真实等待，保持用例原有语义不变（不靠改断言绕过行为变更）。
+//
+// 之所以用真实等待而不是假定时器：本文件既有大量用例依赖真实微任务/宏任务交错，
+// 假定时器会把它们一起改变。只在确需等防抖的两条用例里加这一步，影响面可控。
+const FILTER_DEBOUNCE_MS = 300
+async function flushFilterDebounce () {
+  await new Promise((r) => setTimeout(r, FILTER_DEBOUNCE_MS + 80))
+}
+
 describe('PublishHistory', () => {
   beforeEach(() => {
     i18n.global.locale.value = 'zh'
@@ -421,6 +432,7 @@ describe('PublishHistory', () => {
     await flushHistory()
     await wrapper.get('[data-testid="history-search"]').setValue('唯一待重试')
     await flushHistory()
+    await flushFilterDebounce()
 
     expect(historyListMock).toHaveBeenNthCalledWith(2, { limit: 50, offset: 50 })
     expect(wrapper.findAll('.record-card')).toHaveLength(1)
@@ -429,6 +441,7 @@ describe('PublishHistory', () => {
     await wrapper.get('[data-testid="history-search"]').setValue('')
     await wrapper.get('[data-testid="status-filter"]').setValue('failed')
     await flushHistory()
+    await flushFilterDebounce()
     expect(wrapper.findAll('.record-card')).toHaveLength(1)
     expect(wrapper.text()).toContain('第二页唯一待重试记录')
   })
@@ -448,6 +461,7 @@ describe('PublishHistory', () => {
     await flushHistory()
     await wrapper.get('[data-testid="history-search"]').setValue('重复页')
     await flushHistory()
+    await flushFilterDebounce()
 
     expect(historyListMock).toHaveBeenCalledTimes(2)
     expect(historyListMock).toHaveBeenNthCalledWith(2, { limit: 50, offset: 50 })

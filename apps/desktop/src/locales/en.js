@@ -778,6 +778,8 @@ export default {
     resume_stage_not_found: 'The failed stage could not be located, so the task cannot be resumed from the breakpoint. Please start generation again.',
     optionsSaved: 'Options saved ✓',
     optionsRestored: 'Restored your last-used options',
+    voicePreviewUnsupported: 'Speech synthesis is not available in this environment',
+    voicePreviewText: 'Welcome to the video creation pipeline. This is a voice preview clip to check the current speed and volume.',
     draftLoadFailed: 'Draft not found. Please go back and try again',
     splitSceneCount: 'Split into {count} scenes',
     optimizeProgress: '{done}/{total} scenes optimized',
@@ -1873,6 +1875,10 @@ export default {
     cancelSelection: 'Cancel selection',
     recordsCount: (ctx) => ctx.named('count') + ' records',
     filteredFrom: (ctx) => 'Filtered from ' + ctx.named('count') + ' tasks',
+    // M-11: wording when the filter scan did not reach the end of the table.
+    // "loaded" rather than "all" so a miss isn't misread as "does not exist".
+    filteredFromLoaded: (ctx) => 'Filtered from ' + ctx.named('count') + ' loaded tasks',
+    filterScanTruncatedHint: 'Match range is large; stopped paging further. Please narrow the filters.',
     loadingRecords: 'Loading publish records...',
     recordsLoadFailed: 'Failed to load publish records',
     loginRequiredTitle: 'Sign in to view publish records',

@@ -118,7 +118,7 @@
     "apps/desktop/src/views/CreateView.vue": 5656,
     "apps/desktop/src/views/ModelProviders.vue": 1496,
     "apps/desktop/src/views/Publish.vue": 1773,
-    "apps/desktop/src/views/PublishHistory.vue": 1364,
+    "apps/desktop/src/views/PublishHistory.vue": 1394,
     "apps/desktop/src/views/ResultView.vue": 1888,
     "ops-center/backend/services/model_preset_service.py": 1221,
     "packages/api-publish-engine/src/publish-api-server.js": 1537,

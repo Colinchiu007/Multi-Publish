@@ -778,6 +778,8 @@ export default {
     resume_stage_not_found: '未定位到失败阶段，无法从断点继续，请重新启动生成。',
     optionsSaved: '选项已保存 ✓',
     optionsRestored: '已恢复上次的选项设置',
+    voicePreviewUnsupported: '当前环境不支持语音合成',
+    voicePreviewText: '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。',
     draftLoadFailed: '未找到要带入的草稿，请返回上一页重新发起',
     splitSceneCount: '拆分为了 {count} 个场景',
     optimizeProgress: '共 {total} 个场景，已完成 {done} 个',
@@ -1888,6 +1890,10 @@ export default {
     cancelSelection: '取消选择',
     recordsCount: (ctx) => '共 ' + ctx.named('count') + ' 条记录',
     filteredFrom: (ctx) => '已从 ' + ctx.named('count') + ' 条任务中筛选',
+    // M-11：筛选扫描未覆盖全表时的口径。与 filteredFrom 的区别是"已加载"而非"全部"，
+    // 避免用户把"没扫到"误读成"不存在"。
+    filteredFromLoaded: (ctx) => '已在已加载的 ' + ctx.named('count') + ' 条任务中筛选',
+    filterScanTruncatedHint: '匹配范围较大，已停止继续翻页；请补充更具体的筛选条件。',
     loadingRecords: '正在加载发布记录...',
     recordsLoadFailed: '发布记录加载失败',
     loginRequiredTitle: '登录后查看发布记录',
