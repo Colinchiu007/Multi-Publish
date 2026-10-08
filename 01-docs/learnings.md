@@ -16726,3 +16726,51 @@ PR #3053 回填时踩过一次「登记被判陈旧」，这次接线又踩到�
 
 反过来，`.quality-gates.md` 里的记录**必须**登记 ledger —— 它的键是 `##` 标题，
 且门禁要求「新增未收口行必须带原因进 ledger」。这条不对称很容易记反。
+
+## 挂账基线漂移审计（2026-10-08，接线 PR #3124 期间实测）
+
+PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 行 / 容差 200`），
+归因时顺手把 origin/main 的全部挂账文件跑了一遍。结论：**这是系统性问题，不是孤例。**
+
+实测口径：`.github/scripts/max-lines-baseline.json` 的登记值 vs `git show origin/main:<file>` 的实际行数。
+
+| 指标 | 值 |
+|---|---|
+| 挂账文件总数 | 98 |
+| 被上游推高（d > 0） | **40** |
+| 已越过 200 容差 | **0**（main 此刻仍绿，但余量很薄） |
+
+漂移最大的前几名：
+
+| +d | 登记 | 实际 | 文件 |
+|---|---|---|---|
+| **+199** | 2721 | 2920 | `apps/desktop/src/views/Collection.vue` |
+| +181 | 1356 | 1537 | `packages/api-publish-engine/src/publish-api-server.js` |
+| +175 | 605 | 780 | `apps/desktop/src/views/FilmEngineeringView.vue` |
+| +159 | 1205 | 1364 | `apps/desktop/src/views/PublishHistory.vue` |
+| +150 | 629 | 779 | `apps/desktop/electron/services/publisher-router.js` |
+| +145 | 553 | 698 | `apps/desktop/electron/services/auth-view-manager.js` |
+| +140 | 3866 | 4006 | `apps/desktop/electron/services/story2video-stages.js` |
+| +135 | 505 | 640 | `apps/desktop/electron/services/batch-manager.js` |
+| +103 | 534 | 637 | `apps/desktop/src/composables/usePublishFlow.js` |
+| +100 | 570 | 670 | `apps/desktop/electron/services/ops-center-sync.js` |
+
+### 这意味着什么
+
+1. **不是「谁碰了谁倒霉」。** `Collection.vue` 那 199 行是多个 PR 累加的，
+   任何 PR 只要再往里加 2 行就会撞同一道门禁 —— 与它做了什么无关。
+2. **`--update` 不是解法。** 门禁注释里已写明：把当前行数洗成新基线等于「承认接受漂移」，
+   而且会把**所有人**的未登记增长一并合法化，此后 `NEW_OVER_LIMIT` 形同虚设。
+3. **正解是按 06 号技术债的批量拆分流程逐个还款**，还完一个用 `--prune <path>` 立碑，
+   碑会取消该路径的挂账豁免（重新超限时按新增债务阻断）。
+4. 拆分时注意：**纯搬运场景**（只挪代码、不改逻辑）才允许基线更新类操作；
+   一旦顺手重写，基线与现实就对不上了。
+
+### 本轮的实际处置（可作范式）
+
+`Collection.vue` 的应对不是 `--update`，而是把页签抽成
+`features/collection/CollectionCreatorTab.vue` + `composables/useCreatorPendingTotal.js`，
+本 PR 对该文件的净增量压到 **-1 行**，CI「债务熔断检查」随即 pass。
+
+**注意这治的是症状**：只要没人还那 199 行，下一个 PR 照样会被拦。
+本条登记留作后续批量还款的输入，不是「已修复」。
