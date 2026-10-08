@@ -197,6 +197,56 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 
 ---
 
+# [未发布] feat(podcast): 播客 RSS 频道 P0 落地——主进程持久化+IPC+preload、渲染层页面、正交闸锁（2026-10-09，podcast-rss-channel）
+
+## 背景
+
+引擎与文档刀（下一条）落地后，本刀把 RSS 通道做成可用功能：用户在「播客 RSS 频道」页配置频道、录入单集、一键构建 `feed.xml` 并做不合格自检。范围以 `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md` §八 IPC 合同、§九~§十一 交互/显示项/文案为准。
+
+## 新增（主进程）
+
+- `apps/desktop/electron/services/podcast-channel-service.js`：频道/单集/feed 三份持久化（`<userData>/podcast/` 下 `channel.json`/`episodes.json`/`feed.xml`）。① 路径解析 `userDataDir` 与 `app.getPath('userData')` **同构**（两者得到同一目录，有行为锁），禁止在模块顶层读 `app.getPath`（惰性解析，保证纯 Node 下可做真实文件往返）；② `feed.xml` 走「临时文件 + `renameSync`」原子替换，Windows 仅对 `EPERM/EACCES/EBUSY` 做有界退避 `[20,40,80,160,320,640]ms`，超预算原样抛出，失败清理 `.tmp.*`；③ 读回 JSON 损坏即 `PODCAST_STORE_CORRUPT` fail-closed，**不得**当成"还没有配置"；④ 构建失败透传引擎 `PODCAST_FEED_INVALID` + `issues`，且**绝不写文件**（禁止半成品覆盖上一版）；⑤ 单集保存按 `id` → `guid` 原地更新，`guid||audioUrl||resolvedAudioUrl` 全链判重在引擎构建层以 `EPISODE_DUPLICATE` 兜底（不在服务层重复实现第二份切词口径）；⑥ 服务层错误码用 `PODCAST_*` 命名空间，与引擎 `CHANNEL_/EPISODE_/FEED_` 码分列，两套并存不互相吞掉。
+- `apps/desktop/electron/ipc-handlers/podcast.js`：8 通道 `podcast:channel:get/save`、`podcast:episode:list/save/remove`、`podcast:feed:build/verify`、`podcast:endpoints:list`，全部**字面量**注册（`ipcMain.handle('podcast:…')`）——`electron/tests/ipc-contract.test.js` 用正则从源码清点通道名，间接/循环注册会让通道对契约锁**隐身**并误报「preload 通道无 handler」。信封 `{code:0,data}` / `{code,message,issues}` 复用 `core/error-codes`；`unwrapObject` 形态守卫（数组/标量/键在但值非对象一律判缺失，避免"分类明明选了却报不能为空"式的键名断链）；空 `id` 不下沉到服务层；日志只记通道名与错误消息，**禁记草稿标题原文与音频 URL**。
+- `apps/desktop/electron/preload/podcast.js` + `preload/index.js` / `index.bundle.js` / `home-shell-preload.bundle.js`：暴露 `electronAPI.podcast`（渲染层无该命名空间时降级为 `IPC_UNAVAILABLE` 提示而非静默）。
+
+## 新增（渲染层）
+
+- `apps/desktop/src/views/PodcastChannelView.vue` + `src/composables/usePodcastChannel.js`：三区块（频道配置 / 单集列表 / RSS 输出与分发端指引）。表单↔引擎键名的**唯一映射点**是模块级 `channelFormToPayload`/`channelPayloadToForm`（表单持 `category`+`subCategory`，引擎读 `categoryId="Top/Sub"`），反向映射供编辑回填；时长展示复用引擎 `formatDuration` 单一口径。路由、侧边菜单、`useTabDocumentTitle` 同步注册。
+- locales `podcast` 命名空间 zh/en **成对**落盘（`check-locale-sync.js --pair-base` 与 `--cjk` 双 PASS）。
+- 分发端指引卡片：`podcastEndpointHref` 走共享 https 判据（无 `href-scheme-contract` 例外新增）、`target=_blank` 配 `rel=noopener`、审核时效引用目录 `timing` + `verifiedAt` 并附「以对方后台当日实况为准」；空态与失败态如实（`EPISODES_EMPTY` 不硬凑、未构建与"构建出来但不合格"分档、自检异常点名单集）。
+
+## 新增（正交闸锁与收敛）
+
+- `packages/api-publish-engine/test/publish-mode-config.test.js` +3 条（实跑 13/13）：`publishMode` 值域仍精确三态、`normalizeMode('rss')` 与 `decideRoute({mode:'rss'})` 必须抛 `unknown publishMode`（**不得**静默回落 `api-then-dom`——回落等于把 RSS 推进 DOM/API 轨调度去点不存在的选择器）、`platforms.yaml` 平台键不得含三个分发端 id。文件头原本自称"归一 fail-closed"却无对应断言，本刀补齐。
+- `podcast-endpoints.test.js` 已承担分发端 id 不进登录 URL/平台名/发布能力/会话标记表的结构锁；`platform-definitions.test.js` 的 15 平台数不变是第二道。
+- 双实现收敛（PRD R3）：`packages/api-publish-engine/src/podcast/feed-schema.js` 早期草稿移出源码树（唯一真源 = `shared-utils/podcast-rss.js`，仓库内零引用；草稿留档 `%TEMP%` 可恢复，本机缺 `mavis-trash` 故 `safe-delete.js` 按设计拒绝删除，改走可逆移出）。
+
+## 未包含（如实）
+
+`headImpl` 的主进程 `net` 版 HEAD provider 未接（缺省不注入即跳过网络检查，生产默认零真实出站，日志标 `head=off`），外链巡检属 F9；P1 直传已有规则层 `podcast-hosting-upload.js`（34 例锁）但除自身测试外无消费者，上传与 `resolvedAudioUrl` 回填属 P1 刀；新视图的像素用例登记与首张 CI 基线必须在同一次发生，本刀未登记（AGENTS QM-4 第 7 条：基线只能取 CI artifact）；P2 代托管未启动。
+
+# [未发布] feat(podcast): 播客 RSS 频道发布（自动覆盖小宇宙收录）——RSS 协议通道立项：引擎+目录+全套文档（2026-10-09，podcast-rss-channel）
+
+## 背景
+
+小宇宙无官方发布 API，"发布到小宇宙"的真实机制是 RSS 收录（托管出 Podcast RSS → App 内一次性人工提交 → 此后聚合端定时抓取自动同步新单集）。调研报告 `01-docs/INVESTIGATE-XIAOYUZHOU-PODCAST-2026-10-09.md` 与三项架构决策（D1 托管形态分期 A/B/C、D2 `publishMode` 三态不扩第四态、D3 Apple/Spotify 以「分发端目录+指引」形态纳入）全部定稿后，本刀落地通道地基。
+
+## 新增（引擎与目录，随本 PR 首次入库）
+
+- `packages/shared-utils/src/podcast-rss.js`：Podcast RSS（iTunes RSS 2.0）生成/校验/自检单一真源。纯函数零出站（`headImpl` 注入）；`buildFeed` 校验不过抛 `PODCAST_FEED_INVALID` 且**不产出文件**（fail-closed）；URL 字段复用共享协议判据并收紧 https-only；时长 `MM:SS`/`HH:MM:SS` 两档；单集判重键 `trim(guid||audioUrl||resolvedAudioUrl)`。
+- `packages/shared-utils/src/podcast-endpoints.json` + `.js`（CJS）/`.browser.js`（ESM 孪生）：分发端目录（xiaoyuzhou/apple_podcasts/spotify），承载提交方式、`requiresManualFirstSubmit`、审核时效、步骤与 `verifiedAt` 取证日期；**不进入平台登记契约面**（测试断言分发端 id 不出现在登录 URL/平台名/发布能力/会话标记表，15 平台数不变）。
+- 测试 33 例（`podcast-rss.test.js` 25 + `podcast-endpoints.test.js` 8），本机实跑全绿。
+
+## 新增（文档）
+
+- `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md`：P0/P1/P2 功能列表与验收标准、频道/单集数据模型（与引擎常量逐项对齐）、全部校验码表（触发条件/提示文案/阻断语义/自检码分列）、首次接入时序与"RSS 生效"验收主判据、IPC 合同表（标注规划未实现）、页面三区块交互/显示项、locales `podcast` 命名空间 zh/en 全清单、非功能需求（纯本地构建/日志隐私/零强制出站）、风险与开放问题（含聚合端缓存带宽前提与外链失效缓解）。
+- `docs/adr/0008-podcast-rss-is-protocol-channel-not-platform.md`：RSS 走正交协议通道，不新增发布平台登记、不扩 publishMode 三态。
+- `openspec/changes/podcast-rss-channel/`（proposal/design/tasks/specs delta）；主 PRD 索引、i18n-glossary 播客术语、本条 CHANGELOG、`.quality-gates.md` 执行记录（混合 PR，不适用 docs-only 快速通道）。
+
+## 未包含（如实）
+
+主进程 IPC/持久化、渲染层页面与 locales 落盘、P1 OSS/COS 直传、P2 代托管均为规划未实现，拆分与阻塞关系见 openspec tasks；`packages/api-publish-engine/src/podcast/feed-schema.js` 早期草稿与真源存在口径漂移，实现刀启动前删除或对齐（PRD R3）。
+
 # [未发布] fix(shared-utils): 作品链接判据四项收紧——评审 upheld 跟进修复（2026-10-08，fix-public-link-followups）
 
 ## 背景
