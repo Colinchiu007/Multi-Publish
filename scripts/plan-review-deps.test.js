@@ -33,32 +33,12 @@ const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
 const { spawnSync } = require("node:child_process")
+const { resolveGitBash, toPosixPath } = require("./lib/ccg-test-helpers")
 
 const ROOT = path.join(__dirname, "..")
 const PLAN_REVIEW = path.join(ROOT, "scripts", "plan-review.sh")
 
 // 与 ccg-bash-entry.test.js / deep-review-deps.test.js 同一探测链。
-function resolveGitBash() {
-  if (process.env.MP_GIT_BASH) return process.env.MP_GIT_BASH
-  const candidates = []
-  try {
-    const { execFileSync } = require("node:child_process")
-    const git = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()
-    if (git) candidates.push(path.join(git, "..", "..", "usr", "bin", "bash.exe"))
-  } catch { /* git 不在 PATH 时走硬编码候选 */ }
-  candidates.push(
-    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-    "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
-    "D:\\Program Files\\Git\\usr\\bin\\bash.exe",
-  )
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      const gitRoot = c.replace(/[\\/]usr[\\/]bin[\\/]bash\.exe$|[\\/]bin[\\/]bash\.exe$/, "")
-      if (gitRoot && fs.existsSync(path.join(gitRoot, "usr", "bin", "dirname.exe"))) return c
-    }
-  }
-  return "bash"
-}
 
 // 造「方案 + 判定器 + 引擎 + 假 HOME」最小环境，让脚本跑到依赖体检段。
 // 判定器（ccg-review-decider.js）在仓库 scripts/ 下本来就存在，直接用；
@@ -107,11 +87,6 @@ function run(scriptArgs, extraEnv) {
 // 「半贫瘠」PATH：node 必须可解析（否则脚本在体检段之前就死于
 // 「找不到 node」，测不到目标行为），而后端 CLI 故意不在。
 // node 目录从当前进程派生（fnm/系统 node 均可）；Git Bash 需 /c/... 形态。
-function toPosixPath(p) {
-  const q = p.replace(/\\/g, "/")
-  const m = q.match(/^([A-Za-z]):(.*)$/)
-  return m ? `/${m[1].toLowerCase()}${m[2]}` : q
-}
 function bashPath() {
   const nodeDir = path.dirname(process.execPath)
   const posix = path.sep === "\\" ? toPosixPath(nodeDir) : nodeDir

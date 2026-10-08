@@ -30,6 +30,7 @@ const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
 const { spawnSync } = require("node:child_process")
+const { resolveGitBash, toPosixPath } = require("./lib/ccg-test-helpers")
 
 const ROOT = path.join(__dirname, "..")
 const DEEP_REVIEW = path.join(ROOT, "scripts", "deep-review.sh")
@@ -38,27 +39,6 @@ const PS_ENTRY = path.join(ROOT, "scripts", "ccg-review.ps1")
 
 // 与 start-mp-task.ps1 / run-bash-gate.ps1 / deep-review-deps.test.js 同一探测链：
 // MP_GIT_BASH 覆盖 → git --exec-path 派生 → 硬编码候选 → 裸 bash（CI 上系统 bash）。
-function resolveGitBash() {
-  if (process.env.MP_GIT_BASH) return process.env.MP_GIT_BASH
-  const candidates = []
-  try {
-    const { execFileSync } = require("node:child_process")
-    const git = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()
-    if (git) candidates.push(path.join(git, "..", "..", "usr", "bin", "bash.exe"))
-  } catch { /* git 不在 PATH 时走硬编码候选 */ }
-  candidates.push(
-    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-    "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
-    "D:\\Program Files\\Git\\usr\\bin\\bash.exe",
-  )
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      const gitRoot = c.replace(/[\\/]usr[\\/]bin[\\/]bash\.exe$|[\\/]bin[\\/]bash\.exe$/, "")
-      if (gitRoot && fs.existsSync(path.join(gitRoot, "usr", "bin", "dirname.exe"))) return c
-    }
-  }
-  return "bash"
-}
 
 // 造一个「后端齐全」的家目录，让体检能走到最后 —— 我们要验的是 shell 判定，不是后端解析。
 let seq = 0

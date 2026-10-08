@@ -162,7 +162,8 @@ scripts/*.js
 !scripts/classify-docs-only.js
 !scripts/lock-timing-audit.js
 # 执行记录存在性判据（change: enforce-gate-record-presence）；其 .test.js 由下面
-# !scripts/*.test.js 兜住，但脚本本体必须逐条放行，否则 git add 当场报错、CI 永远看不见它
+# !scripts/*.test.js
+!scripts/lib/ccg-test-helpers.js 兜住，但脚本本体必须逐条放行，否则 git add 当场报错、CI 永远看不见它
 !scripts/check-pr-exec-record.js
 !scripts/check-changelog-growth.js
 # 主规格 Purpose 去 TBD 门禁（change: spec-purpose-tbd-gate）；测试文件由下面 !scripts/*.test.js 兜住
