@@ -54,11 +54,17 @@ function loadSeed (seedPath) {
   } catch (e) {
     throw new Error('种子文件不是合法 JSON：' + seedPath + '（含 BOM 或语法错误）— ' + e.message)
   }
+  // U+FFFD 用转义而不是字面量：CI 的 Gate 12b（文本编码完整性）扫本次变更文件里的
+  // 裸 U+FFFD，而这个判据本身就必须能表达「文件含 U+FFFD」—— 写字面量会让门禁永远红，
+  // 于是这条判据要么被加豁免（等于自己关掉校验），要么被删（更糟）。
+  // 转义在源码层面是 ASCII，运行时展开成真正的替换字符，语义完全一致。
+  const REPLACEMENT_CHAR = String.fromCharCode(0xfffd)
+
   return {
     raw,
     bytes: buf.length,
     hasBom,
-    hasReplacementChar: text.includes('�'),
+    hasReplacementChar: text.includes(REPLACEMENT_CHAR),
   }
 }
 

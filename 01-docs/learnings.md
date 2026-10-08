@@ -17689,3 +17689,18 @@ YouTube Data API 的 `quotaExceeded` / `rateLimitExceeded` 返回 **403（4xx）
    那是**上游 1dd05b12（#2792）留下的历史债**，本 PR 副本数 828 → 828、新增 0，
    跑 dedup 反而会在一个 PR 里夹带 828 处无关改动。**判棘轮类门禁必须先看 workflow 里
    传了什么参数**，不能想当然用默认调用。
+
+## 夹具比生产更顺 = 测试替实现兜住了缺陷（2026-10-08，ops-center-resilience）
+
+- 同一个 PR 里两个独立缺陷，根因相同：**单元测试夹具比生产接线「更顺」**，于是测试替实现兜住了问题，全绿放行。
+  - 其一：platform_defs 恢复不回来。生产里 setPlatformConfig（phase1-context.js:457）比 L2/L3 水合（:240）**晚 217 行到达**，注入器就绪时水合已完成；既有测试却把 6 个管理器全接在水合**之前**才调用恢复。症状是「单块数据没恢复」，与「压根没做持久化」**完全一样**，极难归因。
+  - 其二：上报链路在生产中整条空转。构造 OpsResilienceReporter 时**没传 fetcher** ⇒ _postJson 一律返回 {code:0, skipped:true} ⇒ 调用方按 code !== 0 判「成功」⇒ 降级事件被出队删除、ACK 被记为已发；而测试夹具**总是注入 fetcher**。
+- 写测试时直接问三句：**夹具的注入顺序与生产一致吗？夹具里有没有「总是存在」而生产可能为空的依赖？「跳过 / no-op」的返回值会不会和「成功」混淆？**
+- 修法不要靠调生产代码顺序（顺序依赖是隐式契约，下次插桩就静默打翻）：保留重放 payload + 注入器晚到时**补喂**，对顺序不敏感。
+
+## 本地全绿 ≠ CI 通过：max-lines 按 LF 计数、编码门禁扫裸 U+FFFD（2026-10-08，ops-center-resilience）
+
+- **行数口径**：本地 PowerShell Measure-Object -Line 数的是逻辑行，CI 的 check-max-lines.js 按 **LF 字符**计数。CRLF 文件两者差一条 —— 本地「473 行，离 500 还有余量」实际 CI 报 **503 行超限**。判超限一律以 CI 的 LF 口径为准。
+- **不要抬基线绕过**：碰到 NEW_OVER_LIMIT / LEDGER_GREW 就 --update 台账，等于自己把「存量挂账不许继续膨胀」这道闸门关掉。正确做法是按既有 mixin / composable 范式拆文件（本轮拆出 ops-resilience-protocol.js 与 config_fingerprint.py，行为不变、两端测试零修改即通过）。
+- **刻意造坏字符的夹具会被编码门禁拦下**：种子门禁要验证「文件含 U+FFFD 就失败」，夹具里写真的 U+FFFD 替换字符 ⇒ CI Gate 12b 扫本次变更文件里的裸 U+FFFD ⇒ 这条判据让它自己永远红。正解**不是豁免、也不是删判据**（两者都是关门禁的不同写法），而是换表达：String.fromCharCode(0xfffd)，源码层面 ASCII、运行时展开成真替换字符，判据强度不变。
+- **变异没注入 ≠ 测试没锁住**：PowerShell [IO.File]::WriteAllLines / WriteAllText 写回可能静默不落盘。做反向变异看到「全绿」时，先回读确认变异真的进了文件 —— 否则「变异没生效」与「测试没锁住」在输出上完全一样。本轮就踩过一次：第一次变异脚本返回成功、测试全绿，实际文件没变。

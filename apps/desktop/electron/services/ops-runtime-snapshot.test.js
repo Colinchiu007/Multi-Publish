@@ -464,7 +464,7 @@ describe('computeConfigHash 对跨端不一致数值的 fail-closed（与 Python
     expect(computeConfigHash({ feature_flags: { on: true, off: false, max: 100, min: 0 } })).toMatch(/^[0-9a-f]{16}$/)
   })
 
-  it('错误信息必须带路径：39 个运营页面，���说「含非整数」等于让人自己猜', () => {
+  it('错误信息必须带路径：39 个运营页面，只说「含非整数」等于让人自己猜', () => {
     expect(() => computeConfigHash({ platform_defs: [{ key: 'douyin', maxCoverSize: 1.5 }] }))
       .toThrow(/platform_defs\[0\]\.maxCoverSize/)
   })

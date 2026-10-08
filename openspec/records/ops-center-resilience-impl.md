@@ -26,6 +26,19 @@ PRD：`01-docs/PRD-OPS-CENTER-RESILIENCE-2026-10-08.md`
 
 ---
 
+## CI 首轮抓到的两个问题（本地全绿，CI 才暴露）
+
+| 门禁 | 症状 | 根因 | 处置 |
+|---|---|---|---|
+| Gate 12b 文本编码完整性 | `fail 3` | 两处**刻意的 U+FFFD 测试夹具**（种子门禁要表达「文件含 U+FFFD 就失败」）+ 一处真损坏（追加测试时引入） | 判据改用 `String.fromCharCode(0xfffd)` 表达同一语义 —— **源码层面是 ASCII，运行时展开成真替换字符**。写字面量会让这条判据永远红，逼人加豁免（等于自己关掉校验）或直接删判据（更糟） |
+| 债务熔断（max-lines） | `NEW_OVER_LIMIT` × 2 | `ops-resilience-reporter.js` 503 行、`runtime_service.py` 540 行（CI 按 **LF** 计，本地 PowerShell 口径是 473/457，差在 CRLF） | 按仓库既有 mixin/composable 范式拆分：`ops-resilience-protocol.js`（载荷构造/校验/鉴权解析）与 `config_fingerprint.py`（hash 计算 + 数值校验）。**未抬基线绕过** |
+
+> **口径差异值得记一笔**：本地用 PowerShell `Get-Content | Measure-Object -Line` 数出的是**逻辑行**，
+> CI 按 LF 字符计数。CRLF 文件两者差一条，所以「本地刚好 499 行」不等于「CI 通过」。
+> 判超限时**一律以 CI 的 LF 口径为准**。
+
+---
+
 ## QM-1 取证（打包实证）
 
 ```

@@ -136,7 +136,10 @@ test('第 4 条：UTF-8 BOM 即失败（且报出可操作原因，不是笼统�
 
 test('第 4 条：U+FFFD 替换字符即失败', () => {
   const dir = tmp()
-  const seed = makeSeed({ announcements: [{ title: '坏�字符' }] })
+  // 用 String.fromCharCode 而非字面量：CI Gate 12b 扫本次变更文件里的裸 U+FFFD，
+  // 夹具里写一个字面量就等于让门禁永远红（与被测判据同义，却与仓库门禁互斥）。
+  const BAD = String.fromCharCode(0xfffd)
+  const seed = makeSeed({ announcements: [{ title: `坏${BAD}字符` }] })
   const r = validateFile(writeSeed(dir, seed))
   assert.ok(r.errors.some((e) => e.includes('SEED_REPLACEMENT_CHAR')))
 })
