@@ -451,4 +451,67 @@ describe('PodcastChannelView 视图行为', () => {
     expect(sent.episodeType).toBeUndefined()
     expect(mockNotifySuccess).toHaveBeenCalledWith(zh.podcast.channel.saved)
   })
+
+  it('自检徽标 ok 取自引擎 issues 口径：envelope.ok=true 但 issues 非空时必须显示「自检未通过」（QM-6 W1 回归）', async () => {
+    // 主进程成功路径恒回 code=0（preload 剥壳后 envelope.ok 恒为 true），
+    // 渲染层若沿用 envelope.ok，FEED_NOT_BUILT 也会显示「自检通过」。
+    podcastApi.feedVerify.mockResolvedValue({
+      ok: true,
+      itemCount: 0,
+      issues: [{ code: 'FEED_NO_ITEMS', field: 'feed' }],
+      checks: [],
+    })
+    const w = await renderView()
+    await w.find('[data-testid="podcast-feed-verify"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="podcast-verify-fail"]').exists()).toBe(true)
+    expect(w.find('[data-testid="podcast-verify-pass"]').exists()).toBe(false)
+  })
+
+  it('保存频道校验失败：逐项展示引擎 issues 并定位字段，不得只有通用码（QM-6 W4 / F1 验收）', async () => {
+    podcastApi.channelSave.mockResolvedValue({
+      ok: false,
+      code: 'PODCAST_CHANNEL_INVALID',
+      issues: [{ code: 'CHANNEL_TITLE_REQUIRED', field: 'title' }],
+    })
+    const w = await renderView()
+    await w.find('[data-testid="podcast-channel-save"]').trigger('click')
+    await flushPromises()
+    const list = w.find('[data-testid="podcast-channel-save-issues"]')
+    expect(list.exists()).toBe(true)
+    expect(list.text()).toContain(zh.podcast.errors.CHANNEL_TITLE_REQUIRED)
+    expect(list.text()).toContain('title')
+  })
+
+  it('保存单集校验失败：逐项展示引擎 issues；保存成功清单清空（QM-6 W4）', async () => {
+    podcastApi.episodeSave.mockResolvedValueOnce({
+      ok: false,
+      code: 'PODCAST_EPISODE_INVALID',
+      issues: [{ code: 'EPISODE_AUDIO_NOT_HTTPS', field: 'episodes[0].audioUrl' }],
+    })
+    const w = await renderView()
+    await w.find('[data-testid="podcast-episode-add"]').trigger('click')
+    await w.find('[data-testid="podcast-episode-field-title"]').setValue('第一期')
+    await w.find('[data-testid="podcast-episode-field-audio-url"]').setValue('http://cdn.example.com/e1.mp3')
+    await w.find('[data-testid="podcast-episode-field-duration"]').setValue('60')
+    await w.find('[data-testid="podcast-episode-field-size"]').setValue('1000')
+    await w.find('[data-testid="podcast-episode-save"]').trigger('click')
+    await flushPromises()
+    const list = w.find('[data-testid="podcast-episode-save-issues"]')
+    expect(list.exists()).toBe(true)
+    expect(list.text()).toContain(zh.podcast.errors.EPISODE_AUDIO_NOT_HTTPS)
+    // 二次保存成功 → 清单必须清空（残留旧问题会误导用户）
+    podcastApi.episodeSave.mockImplementation(async (episode) => ({ ok: true, episode }))
+    await w.find('[data-testid="podcast-episode-save"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="podcast-episode-save-issues"]').exists()).toBe(false)
+  })
+
+  it('所有者邮箱字段下必须展示公开提示（PRD §九.A / QM-6 W3），zh/en 成对', async () => {
+    const w = await renderView()
+    const hint = w.find('[data-testid="podcast-owner-email-privacy-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe(zh.podcast.channel.ownerEmailPrivacy)
+    expect(en.podcast.channel.ownerEmailPrivacy).toBeTruthy()
+  })
 })

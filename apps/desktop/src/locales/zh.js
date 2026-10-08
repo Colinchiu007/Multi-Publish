@@ -311,6 +311,7 @@ knowledgeBase: {
       fieldAuthor: '作者/主播名',
       fieldOwnerName: '所有者名称',
       fieldOwnerEmail: '所有者邮箱',
+      ownerEmailPrivacy: '该邮箱会公开出现在 RSS 中（写入 itunes:email），聚合端与订阅者均可见。',
       fieldExplicit: '分级',
       fieldEpisodeType: '更新方式',
       fieldCoverUrl: '封面地址',

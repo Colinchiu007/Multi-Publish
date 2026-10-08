@@ -233,9 +233,9 @@ function sortedEpisodes (episodes) {
 }
 
 function buildItem (ep) {
-  const url = ep.resolvedAudioUrl || ep.audioUrl
+  const url = ep.audioUrl || ep.resolvedAudioUrl
   const mime = ep.mime || audioMimeFromUrl(url)
-  const guid = String(ep.guid || url).trim()
+  const guid = String(ep.guid || '').trim() || url
   const lines = ['    <item>']
   lines.push(`      <title>${escapeText(ep.title)}</title>`)
   lines.push(`      <description>${escapeText(ep.description || '')}</description>`)

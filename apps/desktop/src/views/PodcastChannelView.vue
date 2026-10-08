@@ -42,6 +42,7 @@
         <label class="podcast-field">
           <span>{{ t('podcast.channel.fieldOwnerEmail') }}</span>
           <input v-model="channelForm.ownerEmail" data-testid="podcast-field-owner-email">
+          <small class="podcast-hint" data-testid="podcast-owner-email-privacy-hint">{{ t('podcast.channel.ownerEmailPrivacy') }}</small>
         </label>
         <label class="podcast-field">
           <span>{{ t('podcast.channel.fieldExplicit') }}</span>
@@ -93,6 +94,9 @@
         </button>
       </div>
       <p v-if="channelError" class="podcast-error" data-testid="podcast-channel-error">{{ errorText(channelError) }}</p>
+      <ul v-if="channelSaveIssues.length" class="podcast-issue-list" data-testid="podcast-channel-save-issues">
+        <li v-for="(it, i) in channelSaveIssues" :key="'csi' + i" class="podcast-issue">{{ issueText(it) }} <code>{{ it.field }}</code></li>
+      </ul>
     </section>
 
     <!-- 区块二：单集管理 -->
@@ -174,6 +178,9 @@
           <button type="button" data-testid="podcast-episode-cancel" @click="closeEpisodeForm">{{ t('podcast.episodes.cancel') }}</button>
         </div>
         <p v-if="episodeFormError" class="podcast-error" data-testid="podcast-episode-form-error">{{ episodeFormError }}</p>
+        <ul v-if="episodeSaveIssues.length" class="podcast-issue-list" data-testid="podcast-episode-save-issues">
+          <li v-for="(it, i) in episodeSaveIssues" :key="'esi' + i" class="podcast-issue">{{ issueText(it) }} <code>{{ it.field }}</code></li>
+        </ul>
       </div>
       <div v-else class="podcast-actions">
         <button type="button" data-testid="podcast-episode-add" @click="startNewEpisode">{{ t('podcast.episodes.add') }}</button>
@@ -313,6 +320,8 @@ const editingEpisode = ref(null)
 const editingIsNew = ref(true)
 const pendingDeleteId = ref('')
 const episodeFormError = ref('')
+const channelSaveIssues = ref([])
+const episodeSaveIssues = ref([])
 
 const availableSubCategories = computed(() => subCategoriesOf(channelForm.value.category))
 const nonChannelIssues = computed(() => {
@@ -330,8 +339,14 @@ function onCategoryChange () {
 
 async function onSaveChannel () {
   const res = await saveChannel({ ...toFormPayload(channelForm.value) })
-  if (res && res.ok) notifySuccess(t('podcast.channel.saved'))
-  else notifyError(errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION'))
+  if (res && res.ok) {
+    channelSaveIssues.value = []
+    notifySuccess(t('podcast.channel.saved'))
+  } else {
+    // F1 验收：校验失败必须逐项展示引擎 issues（定位到字段），不能只报通用码
+    channelSaveIssues.value = Array.isArray(res && res.issues) ? res.issues : []
+    notifyError(errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION'))
+  }
 }
 
 /** 表单 → 频道载荷：空串的可选项不进载荷；显式枚举按合同键名透传 */
@@ -348,12 +363,14 @@ function startNewEpisode () {
   editingEpisode.value = makeEpisodeDraft()
   editingIsNew.value = true
   episodeFormError.value = ''
+  episodeSaveIssues.value = []
 }
 
 function startEditEpisode (ep) {
   editingEpisode.value = { ...ep, explicit: ep.explicit || '' }
   editingIsNew.value = false
   episodeFormError.value = ''
+  episodeSaveIssues.value = []
 }
 
 function closeEpisodeForm () {
@@ -371,9 +388,12 @@ async function onSaveEpisode () {
   if (payload.sizeBytes === '' || payload.sizeBytes == null) delete payload.sizeBytes
   const res = await saveEpisode(payload)
   if (res && res.ok) {
+    episodeSaveIssues.value = []
     notifySuccess(t('podcast.episodes.saved'))
     closeEpisodeForm()
   } else {
+    // F1 验收：单集校验失败逐项展示引擎 issues，通用码只进 toast
+    episodeSaveIssues.value = Array.isArray(res && res.issues) ? res.issues : []
     episodeFormError.value = errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION')
     notifyError(episodeFormError.value)
   }

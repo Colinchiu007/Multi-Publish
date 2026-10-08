@@ -24,12 +24,12 @@
   - [x] 3.5 `headImpl` 注入点 + 隐私锁（仅 HEAD 不读体；**缺省不注入即跳过网络检查**，生产默认零真实出站，日志标 `head=off`；日志只记通道名与校验码，禁记草稿标题原文与音频 URL）。主进程 `net` 版 HEAD provider **未接**：P0 自检只跑本地结构校验，接线属 F9 巡检刀（PRD 未实现面 §十二 如实登记）
   - [x] 3.6 回归：`podcast-rss.test.js`(25)+`podcast-endpoints.test.js`(8)+`podcast-channel-service.test.js`+`ipc-handlers/podcast.test.js`+`preload/podcast.test.js`+`usePodcastChannel-contract.test.js`+`PodcastChannelView.test.js`+`href-scheme-contract.test.js`+`ipc-contract.test.js` 全绿；shared-utils 消费面按「消费者并集」跑
 
-- [x] 4. 渲染层——P0 [阻塞于 3]（4.5 除外，见该条）
+- [x] 4. 渲染层——P0 [阻塞于 3]（4.1~4.5 全部闭合；4.5 登记已闭合，首张像素基线仍待 CI artifact，见该条）
   - [x] 4.1 页面三区块（频道配置/单集列表/RSS 输出与分发端指引）+ 视图注册进路由与侧边菜单。**偏差声明**：状态承载用 `src/composables/usePodcastChannel.js`（PRD 原写 `stores/podcast.js`），理由：本页面为单页自持状态、无跨页共享需求，与仓内同类页面（`use*` 域组合式）口径一致；表单↔引擎键名的映射**唯一实现点**是模块级 `channelFormToPayload`/`channelPayloadToForm`，由 `usePodcastChannel-contract.test.js` 证明该映射是承重的（摘掉即报「播客分类不能为空」）
   - [x] 4.2 locales `podcast` 命名空间 zh/en **成对**落盘：`check-locale-sync.js --pair-base` PASS、`--cjk` PASS（基线 1489 → 当前 1332，无新增硬编码）
   - [x] 4.3 分发端指引卡片：`podcastEndpointHref` 判据 + `target=_blank rel=noopener` + `verifiedAt`「以对方后台当日实况为准」；`href-scheme-contract.test.js` 全域扫描通过（例外清单未扩大）
   - [x] 4.4 空态/失败态文案如实（EPISODES_EMPTY 不硬凑；自检异常点名单集；未构建与「构建出来但不合格」分档显示）
-  - [ ] 4.5 QM-4：新视图登记视觉用例**两份清单**（all-views `viewTests` + run-pixel-tests `pixelTests`），基线只能取 CI 产物。**本刀未做且不可在同刀闭合**：像素基线只能来自 CI artifact（AGENTS QM-4 MUST 第 7 条），本机 `test:visual:update-baseline` 产物禁止入库；本 PR 先只保留既有清单视图，登记与首张 CI 基线必须**同次**发生，作为紧随其后的独立视觉刀。风险已写入 `.quality-gates.md`：侧边菜单新增条目会改变所有含侧栏视图的全页像素，若 `QG Visual` 因此变红，正解是按同一次 run 的 CI 渲染重建受影响基线（非提阈值）
+  - [x] 4.5 QM-4：新视图登记视觉用例**两份清单**（all-views `viewTests` + run-pixel-tests `pixelTests`），基线只能取 CI 产物。**登记已在本刀闭合、基线仍在 CI 侧**：用例名 `podcast-channel`，`route: '/podcast'`，`waitFor: '.podcast-channel-page [data-testid="podcast-page-title"]'`（指向页面主标题本身，渲染不出来即本条失败，不是"截一张空白页当基线"），两份清单**逐字一致**（由 `tests/visual-ci.test.js` 的双清单漂移锁守）；`base-screenshots/.gitignore` 同步放行 `!podcast-channel.png` 与 `!podcast-channel-dark.png`（根 `*.png` 会**静默**吞掉基线 PNG，`git add` 不报错也不收，漏放行的后果是 CI 永远缺基线）。本机复跑 `vitest run tests/visual-ci.test.js electron/tests/visual-view-runner.test.js` → **2 files / 34 tests passed**。触发登记的直接动因是全量回归里那条红：`electron/tests/visual-view-runner.test.js` 从 `src/router/index.js` 抽全部 `path:` 并要求每条被 `viewTests` 覆盖，报「路由 /podcast 缺少单视图门禁」。**首张基线不得本机生成**（AGENTS QM-4 MUST 第 7 条：只能来自同一次 CI run 的 `quality-gate-visual-reports` artifact），故首次 `QG Visual` 对本条必然报 `ERR_VISUAL_BASELINE_MISSING`，按那次 run 的渲染回填并自证「新基线 vs 同一次 CI 渲染 = 0 px」，**禁止**提阈值消化。风险已写入 `.quality-gates.md`：侧边菜单新增条目会改变所有含侧栏视图的全页像素，若 `QG Visual` 因此变红，正解是按同一次 run 的 CI 渲染重建受影响基线（非提阈值）
 
 - [x] 5. 正交通道分叉与闸守护——P0 收尾 [阻塞于 3]
   - [x] 5.1 发布任务入口通道类型分流：**无需新增分流代码，靠"不存在条目 + 既有闭值域归一"两道既有闸**（小宇宙/Apple/Spotify 在 `config/platforms.yaml`、`publish-capabilities.json`、`platform-definitions.js`、rpa 选择器四处全缺，DOM/API 轨根本无从选中）；`publishMode` 三态值域不动（ADR-0008）。本刀补上此前缺失的行为锁（文件头原本自称"归一 fail-closed"但无对应断言）：`publish-mode-config.test.js` 新增三条 —— 值域精确 `['api-only','api-then-dom','dom-only']`、`normalizeMode('rss')` 与 `decideRoute({mode:'rss'})` 必须抛 `unknown publishMode`（**不得**静默回落 `api-then-dom`，回落即把 RSS 推进轨调度去点不存在的选择器）、`platforms.yaml` 平台键不得含三个分发端 id。实跑 13/13 通过（原 10 条）
@@ -38,7 +38,7 @@
 
 - [ ] 6. 验收闭环——P0 [阻塞于 3,4,5]
   - [ ] 6.1 真实链路人工核对一次：生成 feed → 部署可达 → 小宇宙 App 提交 → 审核期不改 feed 地址 → 收录后追加单集验证小时级同步（验收主判据=RSS 生效，聚合端展示人工核对）
-  - [ ] 6.2 QM-1 打包验证（触 `apps/desktop/electron/` 后必须）+ QM-6 双模型评审（M+/中高风险）
+  - [x] 6.2 QM-1 打包验证（触 `apps/desktop/electron/` 后必须）+ QM-6 双模型评审（M+/中高风险）——QM-1 两次实跑（首刀 `mp-pod-qm1b.txt`；修复刀复跑 `mp-pod-qm1c.txt`：build:dir rc=0、asar 含窄面孪生与修复行、解包 require ok、启动 12s 无禁发噪声）；QM-6 后端模型实回 1 Critical+4 Warning+3 Info **全部处置**（每条变异反证实测变红后还原全绿，评审产物 `.ccg/reviews/54e217e3….json`、`c5f44f2e….json` 入库），前端模型三次重试挂起按降级口径如实记录（详见 `.quality-gates.md` QM-6 行）
 
 - [ ] 7. P1 用户自有 OSS/COS 直传（形态 B）[阻塞于 6 完成]
   - [ ] 7.1 另行规格化（openspec 新 change 或本 change 追加 delta）：`oss-uploader.js` 改「用户自配 AK/bucket/endpoint/前缀」形态、AK 进 credential-store、直传回填 `resolvedAudioUrl`、外链巡检（PRD F7~F9）

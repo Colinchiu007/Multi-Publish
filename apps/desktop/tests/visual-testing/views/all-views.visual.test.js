@@ -83,6 +83,11 @@ const viewTests = [
   routeView('knowledge-base', '/knowledge-base', '.cohere-page-header .page-title:has-text("知识库")'),
   routeView('performance-insights', '/performance-insights', '.cohere-page-header .page-title:has-text("效果洞察")'),
   routeView('member-center', '/member-center', '.member-center-view .page-title:has-text("会员中心")'),
+  // 播客频道（2026-10-09，ADR-0008 协议通道）：等待条件指向页面主标题本身，
+  // 页面渲染不出来即这条用例失败，而不是"截了一张空白页当基线"。
+  // 基线只能取自 CI 产物（AGENTS.md QM-4 第 7 条），首次运行必然报 ERR_VISUAL_BASELINE_MISSING，
+  // 由那次 run 的 quality-gate-visual-reports 产物回填，不得用本机截图代替。
+  routeView('podcast-channel', '/podcast', '.podcast-channel-page [data-testid="podcast-page-title"]'),
 ];
 
 function createRunner(options = {}) {

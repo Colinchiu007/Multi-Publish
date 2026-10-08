@@ -64,6 +64,14 @@ export default defineConfig({
       // 未登记此 alias 时 /create 与 /publish 会整页渲染失败（详见孪生文件头注释）。
       '@multi-publish/shared-utils/src/platform-schedule-capability':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/platform-schedule-capability.browser.js'),
+      // 播客分发端目录（ADR-0008 / podcast-rss-channel）：渲染进程消费 ESM 孪生版，
+      // 数据单一来源 podcast-endpoints.json（CJS/ESM 双版本 parity 测试锁定）。
+      '@multi-publish/shared-utils/src/podcast-endpoints':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/podcast-endpoints.browser.js'),
+      // Podcast RSS 引擎的窄面孪生（只承载分类/枚举目录与时长格式化；feed 构建与校验留在主进程）。
+      // 未登记此 alias 时渲染层会拉到 CJS 主进程版而跨边界（由 scripts/check-renderer-cjs-boundary 拦截）。
+      '@multi-publish/shared-utils/src/podcast-rss':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/podcast-rss.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。

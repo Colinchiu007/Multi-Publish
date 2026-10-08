@@ -26,17 +26,15 @@
  */
 import { ref, computed } from 'vue'
 import i18n from '@/i18n'
-import { listPodcastEndpoints } from '@multi-publish/shared-utils/src/podcast-endpoints.browser'
-// 共享引擎（CJS，vite commonjs include 已覆盖 packages/shared-utils）：只消费枚举与目录，禁止改写
-import podcastRss from '@multi-publish/shared-utils/src/podcast-rss'
-
-const {
+import { listPodcastEndpoints } from '@multi-publish/shared-utils/src/podcast-endpoints'
+// 共享引擎的 ESM 孪生（vite alias 登记，见 apps/desktop/vite.config.js）：只消费枚举与目录，禁止改写
+import {
   ITUNES_CATEGORIES,
   EXPLICIT_VALUES,
   EPISODE_TYPE_VALUES,
   EPISODE_FEED_TYPE_VALUES,
   formatDuration,
-} = podcastRss
+} from '@multi-publish/shared-utils/src/podcast-rss'
 
 /** IPC 不可用 / 调用抛错的自有错误码（与引擎校验码同层展示，走 podcast.errors.*） */
 export const IPC_UNAVAILABLE = 'PODCAST_IPC_UNAVAILABLE'
@@ -309,10 +307,13 @@ export function usePodcastChannel () {
     verifyResult.value = null
     try {
       const res = await call('feedVerify')
-      verifyResult.value = res && res.ok !== undefined
+      // ok 取自引擎语义（issues 为空才算通过），不沿用 IPC envelope 的 ok——
+      // 主进程成功路径恒回 code=0，envelope.ok 对任何有 issues 的结果都是 true。
+      const issues = Array.isArray(res?.issues) ? res.issues : null
+      verifyResult.value = issues
         ? {
-            ok: res.ok === true,
-            issues: Array.isArray(res.issues) ? res.issues : [],
+            ok: issues.length === 0,
+            issues,
             checks: Array.isArray(res.checks) ? res.checks : [],
             itemCount: Number(res.itemCount) || 0,
           }

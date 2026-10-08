@@ -11,9 +11,13 @@ import {
   matchCoverSize,
   audioMimeFromUrl,
   ITUNES_CATEGORIES,
+  EXPLICIT_VALUES,
+  EPISODE_TYPE_VALUES,
+  EPISODE_FEED_TYPE_VALUES,
   COVER_MIN_PX,
   SUMMARY_MAX
 } from '../podcast-rss.js'
+import * as rssEsm from '../podcast-rss.browser.js'
 
 const NOW = new Date(Date.UTC(2026, 9, 9, 8, 0, 0))
 
@@ -190,6 +194,21 @@ describe('podcast-rss · feed 构建', () => {
     const xml = buildFeed(CHANNEL, [{ ...EPISODE, mime: 'audio/wav' }], { now: NOW })
     expect(xml).toContain('type="audio/wav"')
   })
+
+  it('audioUrl 与 resolvedAudioUrl 共存时 enclosure 取 audioUrl——与校验侧 resolveEnclosure 同优先级（QM-6 Critical 回归）', () => {
+    const ep = { ...EPISODE, resolvedAudioUrl: 'http://bad.example.com/x.mp3' }
+    expect(validateFeed(CHANNEL, [ep]).ok).toBe(true)
+    const xml = buildFeed(CHANNEL, [ep], { now: NOW })
+    expect(xml).toContain('enclosure url="https://cdn.example.com/e1.mp3"')
+    expect(xml).not.toContain('http://bad.example.com')
+  })
+
+  it('guid 为纯空白时与校验侧同口径视为缺省，回落 enclosure URL（QM-6 W2 回归）', () => {
+    const ep = { ...EPISODE, guid: '   ' }
+    const xml = buildFeed(CHANNEL, [ep], { now: NOW })
+    expect(xml).toContain('<guid isPermaLink="false">https://cdn.example.com/e1.mp3</guid>')
+    expect(xml).not.toContain('<guid isPermaLink="false"></guid>')
+  })
 })
 
 describe('podcast-rss · 解析与自检', () => {
@@ -249,5 +268,33 @@ describe('podcast-rss · 共享工具口径', () => {
   it('matchCoverSize 支持大小写 x 与空格', () => {
     expect(matchCoverSize('3000 X 3000')).toEqual({ w: 3000, h: 3000 })
     expect(matchCoverSize('bad')).toBe(null)
+  })
+})
+
+// 渲染层经 vite alias 消费 podcast-rss.browser.js（见 apps/desktop/vite.config.js）。
+// 孪生是**窄面**（只承载分类/枚举目录与时长格式化），漂移会让浏览器侧下拉与主进程校验口径分裂，
+// 由本 describe 按 podcast-endpoints 孪生先例逐字比对。
+describe('podcast-rss · CJS/ESM 孪生 parity（窄面孪生）', () => {
+  it('孪生导出集合恰好等于渲染层消费的窄面（只能按渲染层真实需求扩大）', () => {
+    expect(Object.keys(rssEsm).sort()).toEqual([
+      'EPISODE_FEED_TYPE_VALUES',
+      'EPISODE_TYPE_VALUES',
+      'EXPLICIT_VALUES',
+      'ITUNES_CATEGORIES',
+      'formatDuration'
+    ])
+  })
+
+  it('枚举与分类目录与主进程版逐字同构', () => {
+    expect(rssEsm.EXPLICIT_VALUES).toEqual(EXPLICIT_VALUES)
+    expect(rssEsm.EPISODE_TYPE_VALUES).toEqual(EPISODE_TYPE_VALUES)
+    expect(rssEsm.EPISODE_FEED_TYPE_VALUES).toEqual(EPISODE_FEED_TYPE_VALUES)
+    expect(JSON.stringify(rssEsm.ITUNES_CATEGORIES)).toBe(JSON.stringify(ITUNES_CATEGORIES))
+  })
+
+  it('formatDuration 与主进程版在边界表上逐点一致', () => {
+    for (const sec of [0, 1, 59, 60, 65, 3599, 3600, 3723, 86399, 86400, -5, 12.9, '75', null, undefined, NaN]) {
+      expect(rssEsm.formatDuration(sec)).toBe(formatDuration(sec))
+    }
   })
 })

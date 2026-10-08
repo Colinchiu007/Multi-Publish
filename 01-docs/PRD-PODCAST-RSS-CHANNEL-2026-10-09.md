@@ -114,7 +114,7 @@
 | `durationSec` | integer | ✅ | 1~86400 | 音频时长（秒） | `<itunes:duration>`，格式 `MM:SS`（不足一小时）/`HH:MM:SS` |
 | `sizeBytes` | integer | ✅ | ≥1 正整数 | enclosure `length` 声明（聚合端断点续传与缓存依据） | `<enclosure length>`；缺失即 `EPISODE_SIZE_REQUIRED` |
 | `mime` | enum | — | `AUDIO_MIME_VALUES`；未显式声明时按音频 URL **pathname 扩展名**派生（`.m4a/.aac/.ogg/.wav/.mp4` 对应类型，其余/无法解析一律 `audio/mpeg`；URL 查询串不参与派生） | 音频类型 | `<enclosure type>` |
-| `guid` | string | — | ≤500 字符 | 全局唯一标识（幂等/判重主键，§八.4） | `<guid isPermaLink="false">`；缺省= enclosure URL |
+| `guid` | string | — | ≤500 字符 | 全局唯一标识（幂等/判重主键，§八.4） | `<guid isPermaLink="false">`；缺省= enclosure URL；`trim` 后为纯空白视同缺省（与判重键同口径，绝不产出空 `<guid></guid>`；回归锁 `podcast-rss.test.js`「guid 为纯空白时与校验侧同口径视为缺省，回落 enclosure URL（QM-6 W2 回归）」） |
 | `pubDate` | date/string | — | 可被 `new Date()` 解析；缺省=构建时刻 | 发布时间（排序键） | `<pubDate>` RFC-2822 GMT |
 | `number` | integer | — | ≥1 | 期号 | `<itunes:episode>` |
 | `season` | integer | — | ≥1 | 季号 | `<itunes:season>` |
@@ -165,6 +165,8 @@
 ### 6.3 校验码表——单集（全部阻断生成 feed）
 
 enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` → `localFilePath`（有则报托管未配置）→ 都没有报必填缺失。
+
+**产出口径必须与校验口径同序（QM-6 Critical 回归锁）**：`buildItem` 产出 `<enclosure url>` 与 guid 缺省回落时取 `audioUrl || resolvedAudioUrl`，优先级与 `resolveEnclosure` 逐字一致。若两处漂移（如产出侧 `resolvedAudioUrl` 优先），会出现「校验全绿、feed 里却是 http/非法地址」的病态载荷——聚合端直接拒收。回归锁：`packages/shared-utils/src/__tests__/podcast-rss.test.js`「audioUrl 与 resolvedAudioUrl 共存时 enclosure 取 audioUrl——与校验侧 resolveEnclosure 同优先级（QM-6 Critical 回归）」（`resolvedAudioUrl` 为 `http://`、`audioUrl` 为合法 https 时，`validateFeed` 通过且 feed 内 enclosure 必须是那条 https）。
 
 | 码名 | 触发条件 | 用户提示建议 | 前端展示位置 | 阻断生成 |
 | --- | --- | --- | --- | --- |
@@ -280,7 +282,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 
 页面「播客频道」三区块（已实现，2026-10-09 渲染层刀；下述为规范，实现偏差见 §9.1）：
 
-**A. 频道配置区**：表单字段=§5.2；【保存】随时可用（半成品允许，字段内联显示 §6.2 issues）；封面尺寸输入框旁实时显示校验结果（正方形/1400~3000/无法解析三态）；`ownerEmail` 字段下固定提示「该邮箱会公开出现在 RSS 中」。
+**A. 频道配置区**：表单字段=§5.2；【保存】随时可用（半成品允许），保存被校验拒绝时 §6.2 issues 以**区块下方逐条清单**渲染（`podcast-channel-save-issues`，每条 `issueText` 文案 + `<code>field</code>` 定位字段，保存成功即清空；B 区单集表单同口径 `podcast-episode-save-issues`；回归锁 `PodcastChannelView.test.js`「保存频道校验失败：逐项展示引擎 issues 并定位字段，不得只有通用码（QM-6 W4 / F1 验收）」）；封面尺寸输入框旁实时显示校验结果（正方形/1400~3000/无法解析三态）；`ownerEmail` 字段下固定提示「该邮箱会公开出现在 RSS 中（写入 itunes:email），聚合端与订阅者均可见。」（`podcast-owner-email-privacy-hint`，文案唯一实现 zh/en 成对，见 §11.1）。
 
 **B. 单集列表区**：倒序列表（期号/标题/时长/体积/发布日期/外链状态徽标）；【添加单集】打开表单：音频来源二选一「粘贴外链 / 选择本地文件（P0 提示需先有外链，P1 走直传）」；外链失焦即做 https 协议判据预检；【保存】走 `podcast:episode:save`（幂等语义）；【删除】需确认弹窗；体积人类可读（KB/MB/GB，渲染层格式化，`sizeBytes` 原值持久化）；时长 `HH:MM:SS`/`MM:SS`（与引擎 `formatDuration` 同口径，禁止第二份实现）。
 
@@ -301,8 +303,10 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | C 区【复制 RSS 地址】复制公网地址、未部署时禁用 | 按钮复制的是**本地 feed 文件路径**（`podcast-feed-copy` → `onCopyFeedPath`），失败时 `podcast.publish.copyFailed` 提示；无「公网地址」概念 | 与 O3（feed 公网可达机制属 P1）一致：P0 无公网地址可复制，故复制本地路径而非禁用一个空按钮；文案已按「复制路径」写，不冒充「RSS 地址」 |
 | B 区【删除】需确认弹窗 | 行内二次确认（`podcast-episode-delete-confirm-text` + yes/no 两个按钮），非模态弹窗 | 等价满足「破坏性动作必须确认」；不接入浮层挂起合同（`overlay view suspension`）正是因为不是模态浮层 |
 | 音频来源「选择本地文件」入口 | P0 仅提供外链输入；本地文件与直传入口未渲染 | 与 §四 P0 范围一致，非偏差 |
+| §6.2/§6.3 表「前端展示位置：字段内联」 | issues 渲染在**区块下方的逐条清单**（每条带 `<code>field</code>` 指明字段），非输入框正下方的内联提示 | 口径统一说明：「字段内联」按「逐条列出并指明所属字段」理解；判定仍只有引擎一份，渲染层只做 `issueText` 文案映射，不产生第二份校验 |
+| 提交入口链接判据取用点（QM-6 Info） | 视图层直接调共享判据 `safeHttpUrl(ep.submitUrl)`，未包一层 `podcastEndpointHref(ep.id)` | 两者**同一唯一实现**（`podcastEndpointHref` 内部即 `safeHttpUrl(submitUrl)`，目录侧包装），协议口径无分裂；`docUrl` 本就只能走 `safeHttpUrl`。§十 表格相应按「共享协议判据」表述 |
 
-其余条目（半成品可保存、字段内联 issues、`ownerEmail` 公开提示、倒序列表、时长/体积格式化、自检 `checks[]` 明细、提交指引卡片按 `ENDPOINT_ORDER` 与 `requiresManualFirstSubmit`/`timing`/`steps`/`verifiedAt` 展示、生成中按钮禁用防重复点击）均已按规范落地。
+其余条目（半成品可保存、`ownerEmail` 公开提示已实际渲染（`podcast-owner-email-privacy-hint`，回归锁「所有者邮箱字段下必须展示公开提示（PRD §九.A / QM-6 W3），zh/en 成对」）、倒序列表、时长/体积格式化、自检 `checks[]` 明细、提交指引卡片按 `ENDPOINT_ORDER` 与 `requiresManualFirstSubmit`/`timing`/`steps`/`verifiedAt` 展示、生成中按钮禁用防重复点击）均已按规范落地。另有两条必须写明的口径（QM-6 回归）：① 自检通过/未通过徽标的 `ok` 取自**引擎语义**（`issues.length === 0`），**不沿用 IPC envelope 的 `ok`**——主进程成功路径恒回 `code:0`，envelope.ok 对任何带 issues 的结果都是 true，沿用会把「自检发现问题」渲染成「自检通过」（唯一实现 `usePodcastChannel.verifyFeed`；回归锁「自检徽标 ok 取自引擎 issues 口径：envelope.ok=true 但 issues 非空时必须显示『自检未通过』（QM-6 W1 回归）」）；② 保存失败**不得只弹通用码 toast**——失败分支同时把 `res.issues` 落进区块清单（见 §九.A），通用提示与逐条清单并存。
 
 ## 十、显示项
 
@@ -315,7 +319,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | 封面校验结果 | `coverSize` 解析态 | 「3000×3000 ✓」/「非正方形 ✗」/「边长须在 1400~3000」/「无法解析尺寸」 |
 | 单集计数 | `total` / `ITEMS_MAX` | `n / 1000`；达上限时【添加】禁用并说明 |
 | feed 生成时刻 | `lastBuildDate` | 界面本地化；feed 内 GMT |
-| 分发端卡片 | `name/submitChannel/timing/steps/verifiedAt` | `submitUrl` 仅 web 端显示为链接（过 `podcastEndpointHref`）；app 端显示「在小宇宙 App 内操作」；`evidence` 为内部取证字段，默认不整段外显（可折叠"收录依据"） |
+| 分发端卡片 | `name/submitChannel/timing/steps/verifiedAt` | `submitUrl` 仅 web 端显示为链接（绑定前过共享协议判据 `safeHttpUrl`，与 `podcastEndpointHref` 同一实现）；app 端显示「在小宇宙 App 内操作」；`evidence` 为内部取证字段，默认不整段外显（可折叠"收录依据"） |
 | 空态 | 无单集 / 自检无结果 | 如实文案：「还没有单集——feed 至少需要 1 期才能生成」/「尚未自检」；**不得硬凑**目录内容或示例数据填充列表 |
 
 ## 十一、提示文字（locales `podcast` 命名空间，zh/en 成对）
@@ -341,7 +345,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | podcast.channel.author | 作者/主播 | Author |
 | podcast.channel.ownerName | 所有者名称 | Owner Name |
 | podcast.channel.ownerEmail | 所有者邮箱 | Owner Email |
-| podcast.channel.ownerEmailPrivacy | 该邮箱会公开出现在 RSS 中 | This email is published in the RSS feed |
+| podcast.channel.ownerEmailPrivacy | 该邮箱会公开出现在 RSS 中（写入 itunes:email），聚合端与订阅者均可见。 | This email is published in the RSS feed (written to itunes:email) and visible to aggregators and subscribers. |
 | podcast.channel.explicit | 内容分级 | Explicit Rating |
 | podcast.channel.feedType | 节目类型 | Feed Type |
 | podcast.channel.category | 播客分类 | Podcast Category |
@@ -488,7 +492,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | `podcast-rss.test.js` 25 例 + `podcast-endpoints.test.js` 8 例 | ✅ 已实现，本机实跑 33 passed（2026-10-09） |
 | 主进程服务 / IPC handlers（§8.1） | ✅ 已实现并接线（2026-10-09）：`electron/services/podcast-channel-service.js`（`channel.json`/`episodes.json`/`feed.xml` 三份、原子替换 + Windows 有界退避、损坏即 `PODCAST_STORE_CORRUPT` fail-closed）+ `electron/ipc-handlers/podcast.js`（8 通道，**字面量**注册以让 `ipc-contract.test.js` 看得见）+ `electron/preload/podcast.js`（`electronAPI.podcast`，已在 `preload/index.js` 与两个 bundle 暴露）。**唯一未接**：`headImpl` 的主进程 `net` 版 HEAD provider —— 缺省不注入即跳过网络检查（生产零真实出站，日志标 `head=off`），接线属 F9 巡检刀 |
 | 渲染层页面 / 状态 / locales `podcast` 命名空间（§九~§十一） | ✅ 已实现（2026-10-09）：`src/views/PodcastChannelView.vue`（三区块）+ `src/composables/usePodcastChannel.js` + 路由/侧边菜单/`useTabDocumentTitle` 注册 + zh/en **成对** locale。**偏差声明**：状态用域组合式 `usePodcastChannel` 而非 §九原写的 `stores/podcast.js`（本页单页自持、无跨页共享，与仓内同类页口径一致）；表单↔引擎键名（`category`+`subCategory` ↔ `categoryId`）的唯一映射点是模块级 `channelFormToPayload`/`channelPayloadToForm`，由 `usePodcastChannel-contract.test.js` 证明其承重 |
-| 视觉回归登记（QM-4） | ❌ **本刀未做，且不可在同刀闭合**：像素基线只能取 CI artifact（AGENTS QM-4 第 7 条），登记与首张基线必须同次发生。侧边菜单新增条目会改变所有含侧栏视图的全页像素，若 `QG Visual` 变红，正解是按同一次 run 的 CI 渲染重建受影响基线，**不得**提阈值 |
+| 视觉回归登记（QM-4） | 🟡 **登记已闭合（2026-10-09 修复刀），首张基线仍在 CI 侧**：用例 `podcast-channel` 已**同时**写入两份清单（`tests/visual-testing/views/all-views.visual.test.js` 的 `viewTests` 与 `tests/visual-testing/scripts/run-pixel-tests.js` 的 `pixelTests`），`route=/podcast`、`waitFor=.podcast-channel-page [data-testid="podcast-page-title"]` 两份**逐字一致**（等待条件指向页面主标题本身，页面渲染不出即本条失败；由 `tests/visual-ci.test.js` 的双清单漂移锁守），`base-screenshots/.gitignore` 同步放行 `!podcast-channel.png` 与 `!podcast-channel-dark.png`（根 `*.png` 会静默吞掉基线，漏放行的表现是 CI 永远缺基线而非报错）。本机 `vitest run tests/visual-ci.test.js electron/tests/visual-view-runner.test.js` → 2 files / 34 tests passed。**基线只能取自 CI artifact**（AGENTS QM-4 第 7 条），所以首次 `QG Visual` 对本条必然报 `ERR_VISUAL_BASELINE_MISSING`，须按那次 run 的 `quality-gate-visual-reports` 渲染回填并自证 0 px。侧边菜单新增条目会改变所有含侧栏视图的全页像素，若 `QG Visual` 因此变红，正解同样是按同一次 run 的 CI 渲染重建受影响基线，**不得**提阈值 |
 | OSS/COS 直传（P1 F7~F9） | 🟡 **规则层已实现、尚未接线**：`electron/services/podcast-hosting-upload.js`（托管配置资格 fail-closed、`object_key` 派生禁标题/禁穿越、公网 URL 拼接、OSS V1 待签串结构断言、签名头不外泄凭证、MIME 复用共享实现）+ 34 例锁；除自身测试外无消费者，上传动作与回填 `resolvedAudioUrl` 属 P1 刀（tasks §7） |
 | 代托管（P2） | ❌ 规划，未启动（三前置条件见 §三） |
 | `api-publish-engine/src/podcast/feed-schema.js` 草稿 | ✅ 已从源码树移出（R3 闭合，见上表 R3 行；仓库内零引用） |

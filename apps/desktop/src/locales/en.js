@@ -312,6 +312,7 @@ knowledgeBase: {
       fieldAuthor: 'Author / Host',
       fieldOwnerName: 'Owner Name',
       fieldOwnerEmail: 'Owner Email',
+      ownerEmailPrivacy: 'This email is published in the RSS feed (written to itunes:email) and visible to aggregators and subscribers.',
       fieldExplicit: 'Rating',
       fieldEpisodeType: 'Update Order',
       fieldCoverUrl: 'Cover URL',

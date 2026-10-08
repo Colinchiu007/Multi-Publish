@@ -50,6 +50,9 @@ const pixelTests = [
   { name: 'intelligence', route: '/intelligence', waitFor: '.cohere-main .page-title:has-text("内容情报")' },
   { name: 'keyword-monitor', route: '/keywords', waitFor: '.cohere-main .page-title:has-text("关键词监测")' },
   { name: 'collection', route: '/collection', waitFor: '.cohere-main .collection-tab-btn.active' },
+  // 播客频道（2026-10-09，ADR-0008 协议通道）：等待页面主标题本身，渲染不出来即本条失败。
+  // route/waitFor 必须与 all-views 的 viewTests 逐字一致（visual-ci「双清单漂移」锁）。
+  { name: 'podcast-channel', route: '/podcast', waitFor: '.podcast-channel-page [data-testid="podcast-page-title"]' },
 ];
 
 function createRunner(options = {}) {
