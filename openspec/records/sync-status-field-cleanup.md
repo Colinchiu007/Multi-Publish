@@ -2,9 +2,6 @@
 record: sync-status-field-cleanup
 task: 删掉 11 篇已回填记录里遗留的死字段 sync_status: PASS，并登记门禁「登记字段无残留」这句话超出其实际检查范围
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（PR 号 **3131** 已由 `gh pr list --repo Colinchiu007/mulpub --head sync-status-field-cleanup --json number,state,headRefOid` 回读取入（state=OPEN，headRefOid=`de76f63827ebcc73bdc222a0ad7250fc94de4d98`），非凭印象；合并后按 git log origin/main --grep='(#3131)$' --format=%H|%cI 取 merge SHA，回填并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：清理已回填记录里的死字段（sync-status-field-cleanup，2026-10-08）【docs-only】
@@ -52,7 +49,7 @@ AGENTS.md 两处（`:93`「删除 frontmatter 的 `sync_*` 三字段」、`:99`�
 | 本地门禁汇总 | PASS（提交 `be1845e3e` 后实跑） | `classify-docs-only --base=origin/main --head=HEAD` ⇒ **`docs-only=true` / files=12**（11 篇被清记录 + 本篇）；`check-no-brand-residue.js` ⇒ `PASS（扫描 7270 个 tracked 文件，无品牌残留…）`；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `OK`（`变更文件 12 个（A=1 M=11 D=0）｜新增记录 1 篇｜载体M=11`）；`.github/scripts/check-max-lines.js` ⇒ `超限文件=98 挂账=98 墓碑=1 ✅ 无新增超大文件，挂账清单与现实一致`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`。**清理后复核**：`grep -c "^sync_status: PASS" openspec/records/*.md` 非零文件数 = **0**；仍带 `sync_status:` 的只剩 3 篇 —— `_TEMPLATE.md`（模板示例）、`gate-record-backfill-11.md`（未收口的活账）、本篇，三者都**应当**带着它 |
 | 为什么不顺手把门禁补宽 | 已决定 | 改 `check-gate-record-debt.js` 的判据属"谁来守门"的改动，AGENTS.md 要求人工过目；且改宽判据会**立刻**让别的并发会话写回的 `sync_status` 变红，那应当是一次有意的、带测试的变更，不是清理 PR 的搭车。本 PR 只把树清成符合既有文档口径，并把缺口留在记录里 |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道，零运行时文件、零逻辑分支 |
-| 远程同步 | PENDING | 本条自己的欠账：PR 号 **3131**（回读来源见 frontmatter，同一次 `gh pr list --json number,state,headRefOid`）；合并后由下一批回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#3131)$' --format=%H\|%cI` + `gh pr view 3131 --json mergeCommit` 同 SHA + `git ls-remote --heads origin sync-status-field-cleanup` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段 —— **本篇按 AGENTS.md 口径删三个，不留 `sync_status: PASS`**，正是本 PR 要确立的那个写法 |
+| 远程同步 | PASS | 已合并：squash 落地 `d1535e89436ca4386d587e041226ac473c6bcbdd`（committer 2026-10-08T13:04:31+08:00）。取证两源一致：`git log origin/main --grep='(#3131)$' --format=%H|%cI` 唯一命中该 SHA 与时间，`gh pr view 3131 --json mergeCommit` 报同一 oid；`git ls-remote --heads origin sync-status-field-cleanup` 返回 **0 行**证远端分支已随合并删除。该记录清掉 11 篇遗留的 `sync_status: PASS`，并点名"门禁不看这个字段"—— 那处缺口已由 #3140（`2542a9b29`）补上。 本 frontmatter 的三个 `sync_*` 登记字段（`sync_status` / `sync_reason` / `sync_backfill_owner`）已在本条由 PENDING 转 PASS 的**同一次提交**内整段删除 |
 
 ### 明确留在场上的边界
 
