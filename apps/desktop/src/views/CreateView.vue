@@ -1008,6 +1008,7 @@ import {
   COST_LABELS,
   STABILITY_MAP,
 } from './video-creation/create-view-module-utils'
+import { useS2VVoicePreview } from '@/composables/useS2VVoicePreview'
 
 // 折叠区摘要所依赖的配置字段（'output.' 前缀 = 取 activeOutputConfig）。
 // 用于判定该组是否仍为出厂默认，默认时摘要后缀显示「（默认）」。
@@ -1774,21 +1775,16 @@ export default {
     canGoBack() { return this.viewHistoryIndex > 0; },
     canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
 
-    // M-12：S2V 选项的**浅层快照**，供 watch 比较用。
+    // M-12：S2V 选项的浅层快照，供 watch 比较用。
     //
-    // 原先 watch 块里是 `s2vConfig` / `s2vOutputConfig` 两条 deep watch。`s2vConfig` 内有
-    // 多层嵌套（如 subtitleStyle），用户拖滑块或逐字输入时，每次变更都要对两个对象做完整
-    // 深度遍历，再触发这个 5600 行组件的依赖链重算 —— 而这里只关心"值变了没变"。
+    // 原为 s2vConfig / s2vOutputConfig 两条 deep watch：多层嵌套下每次写入都要
+    // 完整深度遍历 + 触发本组件的依赖链重算，而这里只关心"值变了没变"。
     //
-    // 序列化开销 O(对象大小)，deep watch 开销 O(遍历 + 依赖收集 + 重算) 且每次嵌套写入
-    // 都会发生。用 JSON.stringify 而非逐字段叶子 getter 是因为字段集会随配置档扩展，
-    // 逐字段列举会漏（漏掉的字段此后永久失去响应），序列化天然覆盖全字段。
-    // 前提：S2V 配置是纯数据（选项值 / 样式值），可 JSON 序列化。
+    // 用序列化而非逐字段叶子 getter：字段集会随配置档扩展，逐字段会漏，
+    // 漏掉的字段此后永久失去响应且静默（CCG i6：undefined 成员会被丢弃、
+    // 键序影响比较；当前配置是纯数据，风险可控）。
     s2vOptionsSnapshot() {
-      return JSON.stringify({
-        config: this.s2vConfig ?? null,
-        output: this.s2vOutputConfig ?? null,
-      })
+      return JSON.stringify({ config: this.s2vConfig ?? null, output: this.s2vOutputConfig ?? null })
     },
   },
   watch: {
@@ -1800,13 +1796,10 @@ export default {
         this.loadHistory()
       }
     },
-    // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
-    //
-    // M-12：原先这里是 `s2vConfig` / `s2vOutputConfig` 两条 **deep** watch。
-    // 改为监听 `s2vOptionsSnapshot`（定义在 computed 块）—— 一个可比较的浅层快照。
-    // 注意 handler 的签名：快照是一个值，只要它变了就说明"值变了"；
-    // deep watch 的开销是 O(深度遍历 + 依赖收集 + 重算)，且每次嵌套属性写入都会发生，
-    // 而此处只关心值是否变化，并不关心结构增删。
+    // M-12：监听上面的 computed 快照（浅层比较）替代两条 deep watch。
+    // ★ 这里的键必须是 computed 里的名字 ★ —— Options API 的 watch 块中方法名即
+    // 被监听的属性名，写错就是一个永不触发的 handler（自动保存被静默删掉）。
+    // 守卫见 options-api-watch-sources.test.js / s2v-options-autosave.test.js
     s2vOptionsSnapshot() {
       if (this.s2vConfigProfileApplying) return
       this.s2vActiveConfigProfile = ''
@@ -1947,28 +1940,8 @@ export default {
       if (!Object.prototype.hasOwnProperty.call(this.s2vOpenSections, section)) return
       this.s2vOpenSections[section] = Boolean(event?.target?.open)
     },
-    // 旁白试听（2026-08-31）：使用浏览器内置 SpeechSynthesis API 按当前语速/音量播放试听文本
-    previewS2VVoice() {
-      try {
-        if (!window.speechSynthesis) {
-          this.showS2VOptionsToast('当前环境不支持语音合成')
-          return
-        }
-        window.speechSynthesis.cancel()
-        const utterance = new SpeechSynthesisUtterance('欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。')
-        const speed = Number(this.s2vConfig.voiceSpeed) || 1
-        const volume = Math.min(1, Math.max(0, Number(this.s2vConfig.voiceVolume) || 1))
-        utterance.rate = speed
-        utterance.volume = volume
-        utterance.lang = "zh-CN"
-        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-        window.speechSynthesis.speak(utterance)
-      } catch (e) {
-        if (process.env.NODE_ENV === "development") {
-          console.warn("[previewS2VVoice] SpeechSynthesis failed:", e)
-        }
-      }
-    },
+    // 旁白试听：浏览器内置 SpeechSynthesis（实现在 useS2VVoicePreview）
+    previewS2VVoice() { this._s2vVoicePreview.previewS2VVoice(this.s2vConfig, this.showS2VOptionsToast) },
     categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
     costLabel(cost) { return COST_LABELS[cost] || cost },
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
@@ -5629,7 +5602,7 @@ export default {
     },
   },
   async mounted() {
-    this._s2vAlive = true
+    this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview()
     this.refreshS2VTemplates()
     this.startStageClock()
     // 「设置 → 模型设置」弹窗关闭后重新加载模型服务商列表（2026-08-12 Bug 修复）：

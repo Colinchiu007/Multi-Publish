@@ -434,6 +434,7 @@ import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { useDebouncedWatchSources } from '@/composables/useDebouncedRef'
+import { useFilterScan } from '@/composables/useFilterScan'
 import { usePlatformStore } from '@/stores/platforms'
 import { usePublishHistoryContentLink, CARD_INTERACTIVE_SELECTOR } from '@/composables/usePublishHistoryContentLink'
 import { useIdentity } from '@/composables/useIdentity'
@@ -477,9 +478,6 @@ const actionMessage = ref('')
 const deletingSelected = ref(false)
 const showPublishTypeDialog = ref(false)
 const PAGE_SIZE = 50
-let pendingFilterLoad = null
-// 扫描期间筛选条件是否被改过（true ⇒ 在途循环尽快让位，结束后用新条件重扫）
-let filterScanStale = false
 const loadedPageSignatures = new Set()
 
 const publisherOptions = computed(() => [...new Set(records.value.map(publisherName))].sort((a, b) => a.localeCompare(b, getAppLocale() === 'en' ? 'en' : 'zh-CN')))
@@ -696,61 +694,20 @@ function loadMoreRecords () {
 //   - 往返次数：把最坏情况从「不限」压到 20 次串行 IPC；
 //   - 不给用户一个静默的错误结果：触顶后把 `filterScanTruncated` 置真，界面改用
 //     「已在已加载 N 条中筛选」而不是「已从 N 条中筛选」，如实说明没有扫完全表。
-// 筛选扫描的页数上限放在独立模块，供组件与测试同源引用。
-// 该上限是临时值（M-15 落地服务端过滤后应移除），源码与测试必须同源，
-// 否则将来改值会让测试莫名其妙变红（CCG 外部评审 i5）。
-import { FILTER_SCAN_MAX_PAGES } from '@/composables/useDebouncedRef'
-
-/**
- * 当前生效的筛选签名。
- *
- * 为什么需要：补页扫描是串行的、可持续数十秒。扫描途中用户改了筛选条件时，
- * 原实现因 `pendingFilterLoad` 非空而**直接返回旧扫描的 Promise**，
- * 于是跑完的是旧条件的扫描、得到旧结果，新条件要等用户再动一下才生效
- * （CCG 外部评审 i1 / Critical）。用签名比对即可在中途察觉并重启。
- */
-function currentFilterSignature () {
-  return JSON.stringify([
-    searchQuery.value,
-    publisherFilter.value,
-    contentTypeFilter.value,
-    statusFilter.value,
-    publishModeFilter.value,
-    platformFilter.value,
-    dateFilter.value,
-  ])
-}
-
-async function loadRemainingRecordsForFilters () {
-  if (!hasActiveFilters.value || !hasMoreRecords.value) return null
-
-  const startedWith = currentFilterSignature()
-  // 已在扫描中：只登记"条件已变"，由在途循环自己中止并重启，避免两条扫描并存
-  if (pendingFilterLoad) {
-    filterScanStale = true
-    return pendingFilterLoad
-  }
-
-  pendingFilterLoad = (async () => {
-    for (let page = 0; page < FILTER_SCAN_MAX_PAGES; page++) {
-      // 条件在扫描途中变了 ⇒ 放弃本轮，交给下面的重启逻辑用新条件重扫
-      if (filterScanStale || currentFilterSignature() !== startedWith) break
-      if (!hasActiveFilters.value || !hasMoreRecords.value) break
-      const loaded = await loadRecords({ append: true })
-      if (!loaded) break
-    }
-    // 循环退出后仍有更多记录 ⇒ 本次筛选没有覆盖全表，如实告知而不是假装扫完
-    filterScanTruncated.value = hasActiveFilters.value && hasMoreRecords.value
-  })().finally(() => {
-    pendingFilterLoad = null
-    // 条件在扫描期间变过 ⇒ 用新条件再扫一轮（只重启一次，避免抖动时反复重启）
-    if (filterScanStale) {
-      filterScanStale = false
-      if (hasActiveFilters.value && hasMoreRecords.value) void loadRemainingRecordsForFilters()
-    }
-  })
-  return pendingFilterLoad
-}
+// M-11 的筛选补页扫描实现在 useFilterScan（可单测、组件只传依赖进来）。
+// FILTER_SCAN_MAX_PAGES 与测试同源引用（CCG i5）；该上限是临时值，
+// M-15 落地服务端过滤后应移除。
+const { loadRemainingRecordsForFilters } = useFilterScan({
+  loadRecords,
+  hasActiveFilters,
+  hasMoreRecords,
+  signature: () => JSON.stringify([
+    searchQuery.value, publisherFilter.value, contentTypeFilter.value,
+    statusFilter.value, publishModeFilter.value, publishModeFilter.value,
+    platformFilter.value, dateFilter.value,
+  ]),
+  onSettled: (truncated) => { filterScanTruncated.value = truncated },
+})
 
 // M-11：7 个筛选源原先直接 watch，任何一个变化都立刻触发一次「把整张表翻完」的
 // 串行加载 —— 用户每敲一个字符就是一轮上百次的 IPC 往返。
