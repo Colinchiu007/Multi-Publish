@@ -2,9 +2,6 @@
 record: spec-mirror-wiring-fix
 task: 把「门禁接线住在哪个 job」从文档纪律升级为机械登记表，并把 vendored 契约镜像锁接进不被 docs-only 短路的 changes job
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三字段）
 ---
 
 ## 本次执行记录：接线资格登记表 + Gate 2b2（spec-mirror-wiring-fix，2026-10-08）
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 真实仓库解析现场 | ✅ | `listJobBlocks` 解析 26 个 job：14 被 job 级 `if:` 门控 / 12 不被门控（下界据实测收紧到 ≥24 / ≥10）；该镜像锁的承载 job 断言为**不被门控的 `changes`** |
 | QM-6 CCG 双模型外部评审 | ✅ PASS | 本机 CC Switch `:15721` 实测未监听 ⇒ 走既有替代通道 `opencode run --model opencode/{nemotron-3-ultra-free, ling-3.1-flash-free}` 双轴，并**跑了三遍**（第一遍因通道把项目根定在共享主工作区而作废；后两遍绑定同一提交 `2429ce1a3`）。共 **20 条发现**（第一遍 logic 7 + maintainability 6，第二遍 maintainability 7；含 1 CRITICAL、5 MAJOR）；原件仓库内坐标 `.ccg/reviews/2429ce1a3-logic.json`、`.ccg/reviews/2429ce1a3-maintainability.json`；逐条处置见下两张表 |
 
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin spec-mirror-wiring-fix` 返回 0 行证远端分支已删；回填后删除 frontmatter 三个 `sync_*` 字段 |
+| 远程同步 | ✅ | PR #3132 已 squash 合并：`git log origin/main --grep='(#3132)$' --format=%H\|%cI` 取得 `e32210e6a93c87f2ffac9a9fa8065e67d880921d\|2026-10-08T13:37:10+08:00`；`git ls-remote --heads origin spec-mirror-wiring-fix` 返回 **0 行**（远端分支随合并删除）；CI 现场 19 pass / 0 fail / 0 pending，唯一 skipping 是 `release`（不在 required context 清单内），ruleset+protection 并集里的 9 条 required 逐个回读为 pass；新门禁在 PR 面上真的执行过的证据：run 37730561593 / `QG Changes` step [9] `Gate 2b2 - Spec mirror contract (changes job)` = `completed/success`（step [3] 是 docs-only 分类器，2b2 排在它之后）。 |
 
 ### QM-6 逐条处置（13 条，判据一律"读代码 + 跑一次"，不接受静态判读）
 
