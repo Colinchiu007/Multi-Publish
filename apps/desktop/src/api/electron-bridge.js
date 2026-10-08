@@ -3,9 +3,18 @@
  *
  * 所有 Vue 组件通过此模块访问 Electron IPC，不直接调用 window.electronAPI。
  * 提供一致的错误处理、fallback 支持和事件监听管理。
+ *
+ * M-9：getApi 是全仓**唯一定义**（契约测试 ipc-exposure-contract 有守卫）。
+ * 此前 8 个 api/*.js 各自复制一份、防御强度不一，且全部绕过 toPlainIpcValue
+ * 脱壳 —— 模型服务商配置（含 API Key）原样过 IPC。收敛到本文件后，
+ * 各 api 文件改用 invokeWithFallback / invoke 获得脱壳与统一 fallback 语义。
  */
 
-function getApi() {
+/**
+ * 取 Electron 暴露面（contextBridge 注入的 electronAPI）。
+ * @returns {object|null} 非渲染环境或 preload 未注入时返回 null
+ */
+export function getApi() {
   return (typeof window !== "undefined" && window.electronAPI) || null;
 }
 
@@ -176,4 +185,4 @@ export function invokeNamespace(ns, method, ...args) {
   return scoped[method](...args.map(toPlainIpcValue));
 }
 
-export { getApi, isPermissionError, PERMISSION_ERROR_NAME };
+export { isPermissionError, PERMISSION_ERROR_NAME };

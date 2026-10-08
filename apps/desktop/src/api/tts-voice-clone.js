@@ -1,17 +1,16 @@
-function getTtsVoiceCloneApi () {
-  if (typeof window === 'undefined' || !window.electronAPI) return null
-  const api = window.electronAPI.ttsVoiceClone
-  return api && typeof api === 'object' ? api : null
-}
+/**
+ * Renderer ↔ preload 的 TTS 音色克隆 API。
+ *
+ * M-9 收敛：删掉本地 getTtsVoiceCloneApi / toPlainIpcValue 副本，改走
+ * electron-bridge 的 invokeNamespace（ns=ttsVoiceClone）。每个导出直接
+ * 写 ns/method 字面量（不经参数转发），让契约测试的对账看得见每条路径。
+ *
+ * 行为对齐：旧实现方法缺失 / 主进程拒绝时回 TTS_VOICE_CLONE_API_UNAVAILABLE
+ * 信封 —— invokeNamespace 缺方法时返回 undefined，这里补上同一信封，语义一致。
+ */
+import { invokeNamespace } from './electron-bridge'
 
-function toPlainIpcValue (value) {
-  if (value === null || typeof value !== 'object') return value
-  try {
-    return JSON.parse(JSON.stringify(value))
-  } catch (_) {
-    return null
-  }
-}
+const NS = 'ttsVoiceClone'
 
 function unavailable (data = undefined) {
   return data === undefined
@@ -19,42 +18,32 @@ function unavailable (data = undefined) {
     : { code: -1, message: 'TTS_VOICE_CLONE_API_UNAVAILABLE', data }
 }
 
-function invalidArguments () {
-  return { code: -1, message: 'TTS_VOICE_CLONE_INVALID_ARGUMENTS' }
+export async function getTtsVoiceCloneRequirements (input) {
+  const r = await invokeNamespace(NS, 'requirements', input)
+  return r === undefined ? unavailable(null) : r
 }
 
-async function callTtsVoiceCloneApi (method, input, fallbackData) {
-  const api = getTtsVoiceCloneApi()
-  if (!api || typeof api[method] !== 'function') return unavailable(fallbackData)
-  const plainInput = toPlainIpcValue(input)
-  if (!plainInput || typeof plainInput !== 'object' || Array.isArray(plainInput)) return invalidArguments()
-  try {
-    return await api[method](plainInput)
-  } catch (_) {
-    return unavailable(fallbackData)
-  }
+export async function chooseTtsVoiceCloneSamples (input) {
+  const r = await invokeNamespace(NS, 'chooseSamples', input)
+  return r === undefined ? unavailable({ paths: [] }) : r
 }
 
-export function getTtsVoiceCloneRequirements (input) {
-  return callTtsVoiceCloneApi('requirements', input, null)
+export async function listTtsVoiceClones (input) {
+  const r = await invokeNamespace(NS, 'list', input)
+  return r === undefined ? unavailable({ voices: [] }) : r
 }
 
-export function chooseTtsVoiceCloneSamples (input) {
-  return callTtsVoiceCloneApi('chooseSamples', input, { paths: [] })
+export async function addTtsVoiceClone (input) {
+  const r = await invokeNamespace(NS, 'add', input)
+  return r === undefined ? unavailable(null) : r
 }
 
-export function listTtsVoiceClones (input) {
-  return callTtsVoiceCloneApi('list', input, { voices: [] })
+export async function deleteTtsVoiceClone (input) {
+  const r = await invokeNamespace(NS, 'deleteClone', input)
+  return r === undefined ? unavailable(null) : r
 }
 
-export function addTtsVoiceClone (input) {
-  return callTtsVoiceCloneApi('add', input, null)
-}
-
-export function deleteTtsVoiceClone (input) {
-  return callTtsVoiceCloneApi('deleteClone', input, null)
-}
-
-export function renameTtsVoiceClone (input) {
-  return callTtsVoiceCloneApi('rename', input, null)
+export async function renameTtsVoiceClone (input) {
+  const r = await invokeNamespace(NS, 'rename', input)
+  return r === undefined ? unavailable(null) : r
 }
