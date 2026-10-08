@@ -72,6 +72,27 @@ function pickSafeResponseFields (payload) {
   return Object.keys(out).length ? out : null
 }
 
+/**
+ * 异常消息脱敏（CCG 深度审查 i2，ccg-deep-4bce18b2）：
+ * err.message 可能内嵌带 query 的完整 URL（axios/第三方库拼接），query 里可能有
+ * token / traceid 之类请求侧敏感参数——与 extractFailedEndpoint 同一脱敏原则，
+ * 不能只信任上游「消息恰好不带敏感内容」的假设。
+ * 处理：消息内的 URL 剥掉 query（保留 origin+path）、连续空白折叠、整体截断 200。
+ */
+function sanitizeMessage (raw) {
+  let s = String(raw == null ? '' : raw)
+  s = s.replace(/https?:\/\/[^\s'"<>]+/g, (m) => {
+    try {
+      const u = new URL(m)
+      return u.origin + u.pathname
+    } catch (_) {
+      return m.split('?')[0]
+    }
+  })
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.slice(0, 200)
+}
+
 function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipcMain }) {
   const { AccountManager } = deps
 
@@ -176,11 +197,13 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
       // axios 把响应体放在 err.response.data；err.payload/err.data/err.body 是别的客户端形态
       const respBody = (err.response && err.response.data) || err.payload || err.data || err.body || null
       const safePayload = pickSafeResponseFields(respBody)
+      // 消息统一脱敏后才允许进日志与回传（URL 去 query，见 sanitizeMessage 注释）
+      const safeMessage = sanitizeMessage(err.message)
       ipcLog('warn', 'xiaohongshu:probe-draft-chain', 'failed',
-        `accountId=${accountId} code=${err.code || ''} message=${err.message}`)
+        `accountId=${accountId} code=${err.code || ''} message=${safeMessage}`)
       return {
         code: EC.REQUEST_ERROR,
-        message: err.message,
+        message: safeMessage,
         data: {
           stage: 'publish',
           success: false,
