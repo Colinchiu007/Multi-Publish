@@ -2,7 +2,6 @@
 record: fix-bilibili-article-route
 task: bilibili 图文任务不得路由进视频链——改 fail-closed 前置校验并自解释报错
 date: 2026-10-07
-sync_status: PASS
 ---
 
 ## 本次执行记录：bilibili 图文路由缺陷（fix-bilibili-article-route，2026-10-07）

@@ -2,7 +2,6 @@
 record: xhs-draft-publish
 task: 打通小红书草稿箱发布——真实 XYW_ 签名 + 三步上传链路
 date: 2026-10-07
-sync_status: PASS
 ---
 
 ## 本次执行记录：小红书草稿箱发布（xhs-draft-publish，2026-10-07）

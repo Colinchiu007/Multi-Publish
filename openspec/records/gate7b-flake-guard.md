@@ -2,7 +2,6 @@
 record: gate7b-flake-guard
 task: Gate 7b 基线新鲜度门禁补两轮有界重试终判——单张视图采集 flake 不再卡死任意 PR
 date: 2026-10-05
-sync_status: PASS
 ---
 
 ## 本次执行记录：Gate 7b 两轮有界重试终判——采集 flake 不卡 PR（gate7b-flake-guard，2026-10-05）

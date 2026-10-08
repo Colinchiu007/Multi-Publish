@@ -2,7 +2,6 @@
 record: fix-tencent-video-verify
 task: 视频号发布成功却判 verification timeout（假失败）——补齐成功文案形态
 date: 2026-10-07
-sync_status: PASS
 ---
 
 ## 本次执行记录：视频号假失败（fix-tencent-video-verify，2026-10-07）

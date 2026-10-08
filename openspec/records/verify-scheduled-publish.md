@@ -2,7 +2,6 @@
 record: verify-scheduled-publish
 task: 验证定时发布功能是否正常实现和完整（涵盖所有操作与流程），有问题就修复，并对标参考产品 4.0 逆向工程的实现方式
 date: 2026-10-06
-sync_status: PASS
 ---
 
 # 执行记录：定时发布全链路验证与修复（verify-scheduled-publish，2026-10-06）

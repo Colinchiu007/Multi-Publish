@@ -2,7 +2,6 @@
 record: docs-only-head-sha
 task: CI 变更集取源修到语义层——docs-only 与执行记录判据改取检出合并提交的双亲，决策搬进被单测的 scripts/ci-pr-changeset.js
 date: 2026-10-05
-sync_status: PASS
 ---
 
 ## 本次执行记录：CI 变更集取源修到语义层（docs-only-head-sha，2026-10-05）

@@ -2,7 +2,6 @@
 record: e2e-hot-topics-crash-and-cookie
 task: 热门选题 E2E 三连修——wechat_mp/baijiahao 隐藏窗口原生崩溃 + API 直连轨 session 分区 cookie 回退
 date: 2026-10-06
-sync_status: PASS
 ---
 
 ## 本次执行记录：热门选题 E2E 三连修（e2e-hot-topics-crash-and-cookie，2026-10-06）
