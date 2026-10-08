@@ -9,7 +9,10 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
+from loguru import logger
 
 from multi_publish.models import PlatformType
 from multi_publish.publishers import xiaohongshu as xhs
@@ -28,6 +31,10 @@ class FakeLocator:
         return self
 
     async def is_visible(self):
+        calls = self._page.visibility_calls
+        calls[self._sel] = calls.get(self._sel, 0) + 1
+        if self._sel in self._page.visible_after:
+            return calls[self._sel] > self._page.visible_after[self._sel]
         return self._sel in self._page.visible
 
     async def count(self):
@@ -66,6 +73,9 @@ class FakeLocator:
 class FakePage:
     def __init__(self):
         self.visible: set[str] = set()
+        # 延迟挂载：selector -> 需要前 N 次可见性查询返回 False（模拟 SPA 控件晚到）
+        self.visible_after: dict[str, int] = {}
+        self.visibility_calls: dict[str, int] = {}  # 每个 selector 被查询可见性的次数
         self.counts: dict[str, int] = {}
         self.not_fillable: set[str] = set()
         self.item_texts: dict[str, list[str]] = {}
@@ -215,10 +225,48 @@ class TestErrorNormalization:
     async def test_risk_overlay_maps_risk_blocked(self, publisher, monkeypatch):
         monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR", '[class*="verify"]', raising=False)
         page = _base_page()
-        page.counts['[class*="verify"]'] = 1
+        # 选择器轨同样要求可见：仅存在于 DOM 的验证容器不算风控
+        page.visible.add('[class*="verify"]')
+        page.item_texts['[class*="verify"]'] = ["请完成安全验证"]
         result = await _flow(publisher, page, FakeMonitor(), draft=True)
         assert result.success is False
         assert xhs.CODE_RISK_BLOCKED in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_overlay_selector_alone_blocks_without_risk_wording(self, publisher, monkeypatch):
+        """overlay 占位轨必须独立成立，而不是被文本轨顺手兜住。
+
+        与上一条的分工：上一条同时给了「安全验证」文案，文本轨也能判真，所以把
+        overlay 轨整条删掉它照样绿（本轮破坏验证实测到的假绿）。占位轨的本职是
+        Tier2 回填后那些**没有可匹配文案**的风控层（纯图形/拼图验证码），
+        所以这里只放一个可见容器、文案刻意避开词表。
+        """
+        monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR", '[class*="verify"]', raising=False)
+        page = _base_page()
+        page.visible.add('[class*="verify"]')
+        page.item_texts['[class*="verify"]'] = ["请按提示操作"]
+        # 反向自证：这条文案必须匹配不到文本轨，否则本用例并没有单独钉住 overlay 轨
+        assert not re.search(xhs.RISK_TEXT_PATTERN, "请按提示操作", re.I)
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is False
+        assert xhs.CODE_RISK_BLOCKED in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_overlay_track_uses_presence_not_text_list(self, publisher, monkeypatch):
+        """CCG i4：占位轨判的是"有可见容器"，不是"文案列表非空"。
+
+        原实现靠 visible_texts 把空 inner_text 也塞进列表、再看列表真值 —— 哪天有人
+        过滤空串（那是文案轨的正确清理），纯图形/拼图验证层就静默漏判。改用显式存在性
+        计数后，本用例不再依赖"空串被保留"这个实现细节。
+        """
+        monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR", '[class*="verify"]', raising=False)
+        page = _base_page()
+        sel = '[class*="verify"]'
+        page.visible.add(sel)
+        page.counts[sel] = 1  # 有容器、零文案：真实拼图验证层的形状
+        assert sel not in page.item_texts
+        assert await publisher._visible_texts(page, sel) == []  # 文案轨确实拿不到东西
+        assert await publisher._risk_present(page) is True
 
 
 class TestRegression:
@@ -315,3 +363,267 @@ class TestTier2EndpointArming:
         result = await _flow(publisher, page, monitor, draft=True)
         assert result.success is False
         assert xhs.CODE_UNCONFIRMED in (result.error or "")
+
+
+class TestRiskTextTrack:
+    """风控文本轨：占位选择器为空时，risk 归一不得静默失效（与端点空占位同一类缺陷）。"""
+
+    @pytest.mark.asyncio
+    async def test_modal_with_risk_wording_maps_risk_blocked(self, publisher):
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["请完成安全验证，拖动滑块完成下方拼图"]
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is False
+        assert xhs.CODE_RISK_BLOCKED in (result.error or "")
+        assert PUBLISH_SEL not in page.clicked  # 风控下不得继续动作
+
+    @pytest.mark.asyncio
+    async def test_risk_wording_without_overlay_host_is_not_risk(self, publisher):
+        # 无常驻浮层时，标题/正文里出现「验证」二字不得误判风控
+        page = _base_page()
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert xhs.CODE_RISK_BLOCKED not in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_benign_modal_text_is_not_risk(self, publisher):
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["笔记标题", "草稿箱", "封面"]
+        assert await publisher._risk_present(page) is False
+
+    def test_text_track_constants_arming(self):
+        # 默认值必须非空：否则本轨与 2.3a 的空占位同样恒假
+        assert xhs.RISK_TEXT_HOSTS
+        assert xhs.RISK_TEXT_PATTERN
+
+    @pytest.mark.asyncio
+    async def test_hidden_risk_template_is_not_risk(self, publisher):
+        """CCG i1（Critical）：SPA 常驻的隐藏 modal 模板带默认风控文案，不得误判风控。
+
+        误判风控会直接中止用户草稿保存，比漏判更有害 —— 可见性是文本轨的硬前提。
+        """
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.counts[host] = 1  # 在 DOM 里，但不可见
+        page.item_texts[host] = ["请完成验证，拖动滑块继续"]
+        assert await publisher._risk_present(page) is False
+
+    @pytest.mark.asyncio
+    async def test_risk_wording_in_second_element_of_one_host_is_caught(self, publisher):
+        """CCG i2：`[class*="modal"]` 命中多个容器时，风控层不在 DOM 首位也必须抓到。"""
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["笔记封面", "账号存在风险，请完成安全验证"]
+        assert await publisher._risk_present(page) is True
+
+    @pytest.mark.asyncio
+    async def test_risk_wording_in_a_later_host_is_caught(self, publisher):
+        """宿主轨必须真跨宿主，而不是只测 hosts[0]。
+
+        风控层常挂在 dialog/overlay 而非 modal 宿主；若轮询退化成"只查首宿主"，
+        漏判风控会让流程继续走向发布——比误判更违反红线。全部用例都塞进
+        hosts[0] 时，删掉 `for host in hosts[1:]` 仍全绿，即本条覆盖的缺口。
+        """
+        assert len(xhs.RISK_TEXT_HOSTS) >= 2, "宿主常量不足两条，跨宿主轮询无从可测"
+        first, second = xhs.RISK_TEXT_HOSTS[0], xhs.RISK_TEXT_HOSTS[1]
+        page = _base_page()
+        page.visible.add(first)
+        page.item_texts[first] = ["笔记封面"]
+        page.visible.add(second)
+        page.item_texts[second] = ["安全验证"]
+        assert await publisher._risk_present(page) is True
+
+    @pytest.mark.asyncio
+    async def test_bare_slider_crop_wording_is_not_risk(self, publisher):
+        """CCG i1 另一半：可见裁剪弹窗里的「拖动滑块」是控件说明，不是风控。
+
+        词表曾含裸「滑块」与「拖动滑块」，封面裁剪等良性容器会误判风控并中止草稿
+        保存；收紧为强指认短语后，真实滑块验证仍靠同容器内的「安全验证」命中。
+        """
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["裁剪封面：拖动滑块调整比例"]
+        assert await publisher._risk_present(page) is False
+
+    @pytest.mark.asyncio
+    async def test_real_slider_verify_still_caught(self, publisher):
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["安全验证：拖动滑块完成拼图"]
+        assert await publisher._risk_present(page) is True
+
+    def test_host_scan_limit_is_imported_and_bounded(self):
+        """CCG i1 衍生：整页 modal 模板下扫描必须有上限，否则 inner_text 拖垮发布链路。"""
+        assert hasattr(xhs, "RISK_HOST_SCAN_LIMIT")
+        assert 0 < xhs.RISK_HOST_SCAN_LIMIT <= 16
+
+    @pytest.mark.asyncio
+    async def test_visible_hosts_beyond_scan_limit_are_not_read(self, publisher):
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = [f"文案{i}" for i in range(xhs.RISK_HOST_SCAN_LIMIT + 5)]
+        assert await publisher._visible_texts(page, host) == [
+            f"文案{i}" for i in range(xhs.RISK_HOST_SCAN_LIMIT)
+        ]
+
+
+class TestUploadReadinessPoll:
+    """PR-1 回归保护：上传控件晚挂载时绝不静默跳过媒体。
+
+    静态守卫 test_p4_wait_until 要求 xiaohongshu.py 里保留两处条件等待
+    （上传控件 + 编辑器），PR-1 把上传控件那一处换成了一次性 `_resolve_visible`，
+    守卫变红——而它是对的：SPA 下首屏没挂载就解析 ⇒ file_input 为 None ⇒
+    `if file_input is not None` 静默不传图，随后照样填标题存草稿，
+    产出的是"无媒体草稿"。用户验收口径是草稿箱里内容完整，这属于缺陷交付。
+    """
+
+    @pytest.mark.asyncio
+    async def test_late_mount_upload_input_is_awaited_then_used(self, publisher, monkeypatch):
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_WAIT_TIMEOUT_S", 2.0, raising=False)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.01, raising=False)
+        sel = publisher._candidates_for("upload_input")[0]
+        page = _base_page()
+        page.visible_after[sel] = 2  # 前两次查询不可见，第三次起可见
+        page.visible.add(DRAFT_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        assert page.uploaded == [["a.jpg"]], f"延迟挂载的上传控件未被等待，媒体被静默跳过: {result.error}"
+
+    @pytest.mark.asyncio
+    async def test_media_requested_but_upload_input_never_appears_fails_closed(
+        self, publisher, monkeypatch
+    ):
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_WAIT_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.01, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        assert result.success is False
+        assert xhs.CODE_UPLOAD_FAILED in (result.error or "")
+        assert page.uploaded == []
+        # 红线：传不上图就不该继续把空媒体草稿存进草稿箱
+        assert DRAFT_SEL not in page.clicked
+
+    def test_upload_ceiling_keeps_the_original_tolerance(self):
+        """CCG i3：等待改为条件轮询后，上限必须沿用改造前的 30s 上传兜底时长。
+
+        只收紧快路径（命中即返回），不放宽容忍度也不额外收紧——把 30s 换成 10s
+        会把慢网首屏判成上传失败，属于另一种常态化误伤。
+        """
+        assert xhs.UPLOAD_FALLBACK_WAIT_TIMEOUT_S == 30.0
+
+    def test_editor_ceiling_keeps_the_original_tolerance(self):
+        """CCG 二轮 i1：上一条准则同样管编辑器就绪，上一轮却把它留在了 10s。
+
+        改造前 `_await_editor_ready` 用的就是 30s 上限；轮询改造的收益在"命中即返回"，
+        砍上限买不到任何东西，只会让慢首屏更早掉进下游的 XHS_TITLE_FAILED 误诊
+        （标题其实只是还没挂载）。两个常量仍分开命名：归属由哨兵值用例证明。
+        """
+        assert xhs.NAVIGATE_READY_TIMEOUT_S == 30.0
+
+    @pytest.mark.asyncio
+    async def test_control_vanishing_after_hit_is_not_reported_as_never_mounted(self, publisher, monkeypatch):
+        """CCG 二轮 i2：轮询命中后控件被摘掉，不得当成"从未挂载"。
+
+        旧实现在 wait_until 返回 True 之后又 `resolve_visible` 一次，抖动窗口里第二次
+        解析拿到 None ⇒ 报 CODE_UPLOAD_FAILED「上传控件在 30s 内未挂载」，把一次瞬时
+        重渲染说成站点结构问题。改为复用轮询中拿到的 locator 后，locator 是惰性的：
+        元素真不在会在 set_input_files 上抛错，由调用方给出准确文案。
+        """
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.01, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+
+        class VanishingLocator(FakeLocator):
+            async def is_visible(self):
+                calls = self._page.visibility_calls
+                calls[self._sel] = calls.get(self._sel, 0) + 1
+                return calls[self._sel] == 1 and self._sel in self._page.visible
+
+        page = _base_page()
+        sel = publisher._candidates_for("upload_input")[0]
+        page.visible.add(sel)
+        page.visible.add(DRAFT_SEL)
+        page.locator = lambda s: VanishingLocator(page, s)  # 首查可见，之后一律不可见
+
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        assert page.uploaded == [["a.jpg"]], f"命中后二次解析把控件抖动吞掉了: {result.error}"
+        assert xhs.CODE_UPLOAD_FAILED not in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_upload_path_uses_the_upload_fallback_ceiling(self, publisher, monkeypatch):
+        """CCG i3 的可验证面：失败留痕里的上限就是上传路径实际生效的那个常量。
+
+        两个等待常量取不同哨兵值，谁出现在错误文案里就证明映射归谁——比在源码里
+        抠 `timeout_s=...` 字面量稳（重排参数/换调用形式都不会假红，也不会假绿）。
+        """
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_WAIT_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.01, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 9.99, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        assert "0.05" in (result.error or ""), f"上传等待未使用 UPLOAD_FALLBACK_* 上限: {result.error}"
+        assert "9.99" not in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_upload_wait_poll_count_matches_its_own_ceiling(self, publisher, monkeypatch):
+        """i3 的第二道：轮询次数证"真正生效的上限"归属，只盯错误文案会被骗过。
+
+        若 `timeout_s=` 与消息各用各的常量（消息对、等待错），上一条仍会绿。
+        0.05s / 0.01s ≈ 6 次查询；误用 9.99s 上限则是 ~1000 次。
+        """
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_WAIT_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.01, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 9.99, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        sel = publisher._candidates_for("upload_input")[0]
+        calls = page.visibility_calls.get(sel, 0)
+        assert 1 <= calls < 50, f"上传轮询 {calls} 次与 0.05s 上限不符（疑似用错等待常量）"
+
+    @pytest.mark.asyncio
+    async def test_editor_ready_timeout_leaves_a_reason_in_logs(self, publisher, monkeypatch):
+        """CCG i4：超时留痕用行为断言，且钉在机器可读控件名上，而非给用户看的措辞。
+
+        本仓日志走 loguru（非 stdlib logging），caplog 抓不到，故挂一个临时 sink。
+        断言「编辑器」会把显示 label 钉死（改名即假红，正是上一轮 CCG i4 移除的耦合类）；
+        断言 `title_input` 钉的是选择器候选链的键名，措辞怎么改都不会假红。
+        """
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+        page = FakePage()  # 标题控件始终不可见 ⇒ 编辑器就绪轮询必然超时
+        page.visible.add(DRAFT_SEL)
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            await _flow(publisher, page, FakeMonitor(), media_paths=[])
+        finally:
+            logger.remove(sink_id)
+        assert any("title_input" in m for m in messages), f"编辑器超时未留可归因的原因: {messages}"
+
+    @pytest.mark.asyncio
+    async def test_text_only_draft_skips_upload_wait(self, publisher, monkeypatch):
+        # 无媒体时不该为上传控件白等（纯图文/正文草稿仍是合法路径）
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_WAIT_TIMEOUT_S", 30.0, raising=False)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.01, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=[])
+        assert page.uploaded == []
+        assert xhs.CODE_UPLOAD_FAILED not in (result.error or "")
+
+    def test_upload_poll_constant_is_imported_in_publisher(self):
+        # 静默失效守卫：等待时长常量必须真的被发布器引用，而不是只存在于选择器表里
+        assert hasattr(xhs, "NAVIGATE_READY_TIMEOUT_S")
+        assert hasattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S")

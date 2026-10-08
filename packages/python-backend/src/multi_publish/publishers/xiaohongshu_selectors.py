@@ -73,6 +73,28 @@ DRAFT_BOX_ITEM_SELECTOR = '[class*="draft"] [class*="title"]'
 # 风控/验证弹层选择器（Tier2 取证回填），命中即判 risk_blocked 并停止。
 RISK_OVERLAY_SELECTOR = ""
 
+# 风控文本轨（与上面的占位选择器并行）：占位为空时 `if not RISK_OVERLAY_SELECTOR`
+# 会让 risk 归一恒假——即 PR-1 声称交付的 risk_blocked 实际从不触发。本轨用"浮层容器
+# + 浮层内文案"双条件判定，文案口径取自本仓桌面轨已实战使用的风控词表
+# （apps/desktop/electron/services/publish-risk.js 的 RISK_RE），属源证据非活体取证。
+# 只在浮层/弹窗/验证容器内匹配，避免页面常驻文案（如侧栏「草稿箱」「验证封面」）误判。
+RISK_TEXT_HOSTS: list[str] = [
+    '[class*="modal"]',
+    '[class*="dialog"]',
+    '[class*="overlay"]',
+    '[class*="verify"]',
+    '[class*="captcha"]',
+]
+# 词表只收"风控语境的强指认短语"，不收裸「滑块」「验证」这类单词：封面裁剪、图片旋转
+# 等良性可见弹窗同样含「拖动滑块调整比例」，裸词会误判风控并中止用户的草稿保存（误判
+# 比漏判更有害）。真实滑块验证必然同时出现「安全验证/验证码」，不会因收紧词表而漏判。
+RISK_TEXT_PATTERN = (
+    r"安全验证|请完成验证|验证码|操作频繁|账号存在风险|风控|risk control"
+)
+# 单个宿主容器内最多扫描的可见元素数，防止 `[class*="modal"]` 命中整页模板时逐元素
+# inner_text 拖垮发布链路。真实风控层是页面上最靠前的可见容器之一。
+RISK_HOST_SCAN_LIMIT = 8
+
 CREATOR_URL = "https://creator.xiaohongshu.com/"
 
 # 机器可读错误码前缀，便于上层 outcomeOfResult 归一（risk/login 绝不降级换号）。
@@ -84,7 +106,11 @@ CODE_TITLE_FAILED = "XHS_TITLE_FAILED"
 CODE_UNCONFIRMED = "XHS_UNCONFIRMED"
 
 # 脆弱等待改造：固定 sleep 换成条件轮询 + 具名上限。
-NAVIGATE_READY_TIMEOUT_S = 10.0
+# 上限口径（CCG 二轮 i1）：**两个等待都沿用改造前的 30s 容忍度**。上一轮把常量对调
+# 修好了上传那一处，却让编辑器就绪停在 10s——那是同一条准则的违背：轮询的收益是
+# "命中即返回"（快路径），砍上限只会把慢首屏推向下游的 XHS_TITLE_FAILED 误诊。
+# 两个常量仍分开命名：喂给哪个等待由行为用例用哨兵值证明，而不是靠值相等来混用。
+NAVIGATE_READY_TIMEOUT_S = 30.0
 NAVIGATE_READY_POLL_INTERVAL_S = 0.5
 UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0
 UPLOAD_FALLBACK_POLL_INTERVAL_S = 0.5

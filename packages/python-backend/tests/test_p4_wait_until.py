@@ -6,8 +6,8 @@
 改为条件轮询（判据 + 具名上限 + 超时原因），上限沿用原时长，只让快路径提前返回。
 """
 import asyncio
-import io
 import os
+import re
 import time
 
 from multi_publish.publishers.base import wait_until
@@ -81,11 +81,37 @@ def test_sleep_never_crosses_deadline():
 
 
 def test_xiaohongshu_publisher_no_longer_blind_sleeps():
-    src = io.open(os.path.join(PUBLISHERS_DIR, "xiaohongshu.py"), encoding="utf-8").read()
-    assert "await asyncio.sleep(30)" not in src, "上传兜底仍是无条件 sleep(30)"
-    assert "await asyncio.sleep(3)" not in src, "导航后仍是无条件 sleep(3)"
-    assert src.count("wait_until(") >= 2
-    # 上限沿用原时长，只收紧快路径，不放宽容忍度
-    assert "UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0" in src
-    # 超时必须有原因留痕
-    assert "改为轮询编辑器就绪" in src and "编辑器在" in src
+    src = open(os.path.join(PUBLISHERS_DIR, "xiaohongshu.py"), encoding="utf-8").read()
+    # 轮询实现已按行数门禁拆到 xiaohongshu_dom.py（发布器侧只留传参适配器），
+    # 所以"实现在哪"和"谁在调用"必须分两头断言：只看一头都会在另一头被删时假绿。
+    dom = open(os.path.join(PUBLISHERS_DIR, "xiaohongshu_dom.py"), encoding="utf-8").read()
+    # 盲等禁令的范围必须跟着"实现搬去哪"一起搬：只扫发布器时，DOM 模块就是
+    # 加回无条件长等待的免费区（本守卫早已读 dom，却只断言 wait_until 存在性）。
+    # 按 sleep 的数值字面量判、不按 `sleep(30)` 这种串判：set_cover 的 sleep(2) 是
+    # 合法的收尾等待，3s 及以上的无条件等待才是回退；串判会既漏 3.5 也误伤重构。
+    for name, text in (("xiaohongshu.py", src), ("xiaohongshu_dom.py", dom)):
+        for literal in re.findall(r"asyncio\.sleep\(\s*([0-9]+(?:\.[0-9]+)?)\s*\)", text):
+            assert float(literal) < 3.0, f"{name} 出现无条件盲等 asyncio.sleep({literal})"
+    # 两处控件必须各自真等：上传控件 + 编辑器（标题框）。少一处就会退化成静默跳过媒体。
+    # 断言调用图而非 `wait_until(` 出现次数：两处轮询共用一个 _await_control 是改进，
+    # 按次数断言会把这种收敛误判成回退。
+    assert "wait_until(" in dom, "条件轮询实现被删除——回退为脆弱等待"
+    assert "await dom.await_control(" in src, "发布器不再经由 DOM 模块轮询"
+    assert src.count("await self._await_control(") >= 2, "上传控件与编辑器就绪各自须有一处轮询调用"
+    for helper in ("_await_upload_input", "_await_editor_ready", "_await_control"):
+        assert f"async def {helper}(" in src, f"就绪轮询 {helper} 被删除"
+    # 常量必须由发布器读取后传参：DOM 模块若自己 import 选择器常量，
+    # monkeypatch 发布器模块的同名常量就会静默失效——能力声称存在但配置不再起作用，
+    # 正是本轨反复清理的"静默失效"类，所以在此钉死结构而不是只靠注释。
+    assert "xiaohongshu_selectors" not in dom, "DOM 模块不得自带常量 import，否则 patch 发布器常量失效"
+    # 上限沿用原时长，只收紧快路径，不放宽容忍度。
+    # 断言生效值而非常量子串：常量定义已由 xiaohongshu.py 移到 xiaohongshu_selectors.py，
+    # 依赖文件内字面量会让守卫在纯重构后假红（值对、位置变）。
+    from multi_publish.publishers import xiaohongshu as xhs
+
+    assert xhs.UPLOAD_FALLBACK_WAIT_TIMEOUT_S == 30.0
+    assert xhs.NAVIGATE_READY_TIMEOUT_S == 30.0
+    # 「超时须留原因」「哪个常量喂给哪个等待」属行为性质，交由
+    # tests/test_xiaohongshu_dom_hardening.py 的行为用例断言（caplog / 错误文案哨兵值）。
+    # 本守卫不再抠 label 与日志措辞的字面量——改引号或换个说法就假红，正是 PR-1
+    # 那次守卫假红的同一失效类（CCG i4）。

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "40234e1bc470201e",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "    2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "风控文本轨的多宿主循环零覆盖：全部用例都把风控文案放进 hosts[0]，删掉 hosts[1:] 的循环仍全绿；且 test_risk_wording_in_second_visible_host_is_caught 实为同一宿主内第 2 个元素，名字与行为不符，跨宿主轮询从未被测。",
+      "highRiskDomains": [],
+      "prosecution": "dom.risk_present 的文本轨是 `for host in hosts:` 外层循环 + 每宿主按序读可见元素的内层循环。取证：改动前 tests/test_xiaohongshu_dom_hardening.py 里 6 处风控用例全部写 `host = xhs.RISK_TEXT_HOSTS[0]`，包括名字声称覆盖第二位宿主的那条（第 415-421 行把两条文案塞进同一个 host 的 item_texts）。也就是说内层元素循环有测、外层宿主循环零测。失效场景具体且属红线：真实风控层常挂在 dialog/overlay 宿主而不是 modal 宿主，一旦后续重构把外层循环写成只查首宿主（或在首宿主返回空时提前 return），漏判风控 ⇒ 流程继续走向发布，正是本 change 要根除的「草稿误公开发布」同类失效。而全量用例仍会绿，回归网等于对这条红线不设防。",
+      "defense": "RISK_TEXT_HOSTS 是常量清单，顺序由 xiaohongshu_selectors.py 单点维护；宿主循环只有 3 行、语义直白，靠读代码即可确认。且真实活体取证（2.2/2.3b）尚未回填宿主清单，现在为一条可能整体改写的清单补跨宿主用例，成本高于收益。",
+      "verdict": "upheld",
+      "rationale": "辩护的两点都不成立：① 「代码只有 3 行」不构成回归保护——本轨反复清理的正是这种「读起来显然对、改起来静默失效」的类，且本条的失效方向是漏判风控（红线），不是误判；② 「等活体回填」不改变结构性事实：跨宿主轮询是文本轨的存在前提，与清单具体内容无关，清单怎么改这条用例都该跟着测。落地方式取最小改动：保留原用例（它测的是内层元素顺序，有效）并改名成如实的 test_risk_wording_in_second_element_of_one_host_is_caught，新增 test_risk_wording_in_a_later_host_is_caught 把文案放进 RISK_TEXT_HOSTS[1]、并先断言清单长度 ≥2（清单被缩到一条时用例自证「无从可测」而不是静默绿）。破坏-恢复实测：把外层循环改成 `for host in hosts[:1]:` ⇒ 恰好 1 条红（新用例，`assert False is True` 于 :438）；恢复 ⇒ 46 passed。",
+      "fixApplied": "packages/python-backend/tests/test_xiaohongshu_dom_hardening.py（改名 1 条 + 新增 1 条跨宿主用例）"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "拆分后盲 sleep 守卫只扫 xiaohongshu.py：守卫读了 dom 却只断 wait_until( 存在；set_cover 的 sleep(2) 已随拆分进 dom，未来在 dom 里加 sleep(30) 会静默绿。",
+      "highRiskDomains": [],
+      "prosecution": "test_xiaohongshu_publisher_no_longer_blind_sleeps 为守 500 行门禁把实现搬进 xiaohongshu_dom.py 后，确实把 dom 源码读进来了，但对「盲等」的两条断言是「await asyncio.sleep(30) not in src」与「await asyncio.sleep(3) not in src」——只看发布器。也就是说守卫的禁止范围没有跟着实现一起搬。失效场景：本轨已发生过的真实回退形态就是「在实现所在文件加回无条件等待」；今后任何人往 dom 的 set_cover 或 await_control 里加 asyncio.sleep(30)，守卫全绿，而它守的正是「改造为条件轮询」这条已被 PRD 记为结论的性质。另外按字面串判还有一处漏：sleep(3.5)、sleep(05) 这类同义写法同样绕过。",
+      "defense": "守卫并非完全没覆盖 dom：它断言 `wait_until(` 在 dom 中存在、且断言 dom 不得 import 选择器常量，结构性收敛仍在；同时 set_cover 的 `sleep(2)` 是封面弹窗收尾的合法短等待，若把守卫扩到 dom 就会立刻假红，说明作者是有意为之的窄化。",
+      "verdict": "upheld",
+      "rationale": "辩护恰好证明了问题：正因为存在合法的 sleep(2)，用「串是否出现」判禁止就是错的口径——它既必须在假红与漏判之间二选一，又挡不住 3.5 这类写法。改为按数值判并把范围跟着实现搬到两侧：对两个源文件正则抽出所有 `asyncio.sleep(<数值字面量>)`，逐个断言 < 3.0。这样合法短等待不误伤（现状 1、2、2 全通过），任何一侧加回 ≥3s 无条件等待即红。破坏-恢复实测：往 dom 的 set_cover 插入 `await asyncio.sleep(30)` ⇒ 守卫红于 `+ where 30.0 = float('30')`（同一改动在旧守卫下全绿，即本条指控的直接证据）；删回 ⇒ 66 passed（含 test_new_publishers.py）。",
+      "fixApplied": "packages/python-backend/tests/test_p4_wait_until.py（盲等禁令改为跨 xiaohongshu.py + xiaohongshu_dom.py 的数值判，新增 import re）"
+    }
+  ],
+  "adjudicatedAt": "2026-10-09T04:24:00+08:00",
+  "summary": "2/2 upheld。两条同属「守卫的覆盖范围没有跟着代码搬家」这一类：i1 是外层宿主循环零测（漏判风控＝红线失效），i2 是盲等禁令只扫旧文件。均已在测试侧落地，破坏-恢复各自自证。运行时行为本轮未改动，故本批无生产代码变更。"
+}

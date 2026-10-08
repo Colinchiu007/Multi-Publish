@@ -15,5 +15,14 @@
 ## Impact
 
 - Affected specs: `rpa-publish-xiaohongshu`（新能力）
-- Affected code: `packages/python-backend/src/multi_publish/publishers/xiaohongshu.py`、`tests/test_new_publishers.py`（或新增 `tests/test_xiaohongshu_dom_hardening.py`）
+- Affected code: `packages/python-backend/src/multi_publish/publishers/xiaohongshu.py`、
+  `packages/python-backend/src/multi_publish/publishers/xiaohongshu_dom.py`（为满足单文件行数
+  门禁从发布器拆出的纯函数轨）、`packages/python-backend/src/multi_publish/publishers/xiaohongshu_selectors.py`
+  （候选链 + 端点/风控常量回填）、`tests/test_new_publishers.py`（或新增 `tests/test_xiaohongshu_dom_hardening.py`）、
+  `packages/python-backend/tests/test_p4_wait_until.py`（轮询拓扑静态守卫）
+- Affected docs: `01-docs/PRD-XHS-DOM-RPA-HARDENING-2026-10-09.md`（取证结论与验收口径逐轮回写）、
+  本 change 的 `tasks.md` / `design.md`
+- 评审工件：`.adversarial/**`（CCG 深评的 proposal/critique/adjudication，逐条
+  prosecution/defense/verdict/rationale 留痕，随批入库以便复核；不含活体取证产物）
+- 本地运行面（**不入库**）：`.agent_context/**` 的取证驱动与 live 证据（含账号信息，只留本地）
 - 不涉及运行时代码新增任何外部签名 / 求签端点；不触碰 api-publish-engine-w3 的 API 链收口（由 mp-w3-closure 会话负责）。

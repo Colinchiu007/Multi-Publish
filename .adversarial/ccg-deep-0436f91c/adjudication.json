@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "0d8bd467a6333e23",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "编辑器就绪上限被从原30s(UPLOAD_FALLBACK_WAIT_TIMEOUT_S)改成NAVIGATE_READY_TIMEOUT_S=10s，tolerance被砍20s；但PRD 4f/i3宣称「上限沿用原时长，只收紧快路径」，编辑器就绪并非快路径，与自述原则矛盾，慢网首屏会在10s即发超时告警。",
+      "highRiskDomains": [],
+      "prosecution": "改造前的编辑器就绪等待（origin/main 的 _await_editor_ready）用的上限就是 UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30s，其 docstring 原文写着「上限沿用原 30s」。本分支把它换成 NAVIGATE_READY_TIMEOUT_S = 10s，容忍度实打实被砍 20s。而 PRD 4f/i3 立的原则是「上限沿用原时长，只收紧快路径、不放宽容忍度」，同一轮的静态守卫 test_p4_wait_until.py:106 注释也照抄了这句原则，紧接着却断言 == 10.0 —— 守卫自身与它声明的准则同段矛盾。可执行的失败场景：慢网/大媒体首屏重渲染超过 10s 时，_await_editor_ready 提前放弃（它只留痕、返回 None，不 fail-closed），流程随即调用 _set_field 填标题；此刻标题控件仍未挂载，_set_field 返回 False ⇒ 整条草稿以 XHS_TITLE_FAILED「填写标题失败（选择器未命中或控件不可写）」中止。真实原因是还没渲染完，报出来的却是选择器不命中或控件不可写 —— 与 4e 刚修过的 SPA 晚挂载同源，只是换了个错误码出口。",
+      "defense": "三点：(1) 10s 是上一轮 CCG i3 的**明确决定**，PRD 4f 逐字写了修法为「上传控件 30s（原容忍度）+ 编辑器就绪 10s」，不是无人认领的手滑。(2) 编辑器就绪本身是软信号：超时不中止、只留痕并继续尝试填写，判 10s 早失败可以让后台发布队列尽快给出结果，而不是在注定失败的草稿里再耗 20s。(3) 两个等待的紧迫性不同：上传控件的 30s 是防「静默跳过媒体」这条硬红线（4e 已钉），编辑器就绪的下游还有 _set_field 自己的重试与错误码，不至于无声失败。",
+      "verdict": "upheld",
+      "rationale": "辩护端 (1) 恰好暴露问题所在：PRD 4f 在同一条原则下把两个上限做成 30/10 的分配，而原则的原文是「上限沿用原时长」，两个等待改造前的上限都是 30s，因此 10s 这一侧本来就是对该原则的违背——文档自述与文档结论互相矛盾，守卫也继承了这份矛盾。辩护端 (2) 的早失败收益是**错觉**：轮询改造已经把快路径拿走了（命中即返回，实测首查即返回，不消耗上限），继续等只在「控件确实不出现」时才付代价；而 (3) 说下游还有兜底，恰恰被生产代码否证 —— _set_field 拿到 None 就直接 False，草稿以 XHS_TITLE_FAILED 中止，没有任何重试。代价因此是不对称的：把上限放回 30s 只慢在确实缺失的那一类（仍是失败，只是晚 20s 报），把上限留在 10s 则会把慢首屏这一类正常可成功的场景判成选择器失效。修复：NAVIGATE_READY_TIMEOUT_S = 30.0，并在常量处写明「两个等待都沿用改造前 30s 容忍度，收益在命中即返回而非砍上限」；两常量仍分开命名（归属由哨兵值用例证明，不靠值相等混用）。回归保护两条：test_editor_ceiling_keeps_the_original_tolerance 钉值，test_p4_wait_until.py 的守卫断言同步改 30.0；破坏-恢复实测——把值改回 10.0 时这两条一起红。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "dom.await_control在wait_until返回True后再次resolve_visible，二次解析与首查间控件若被移除/隐藏会返回None；上传路径把此None当fail-closed报CODE_UPLOAD_FAILED，把「刚可见又消失」的瞬时抖动误判为上传失败。",
+      "highRiskDomains": [],
+      "prosecution": "xiaohongshu_dom.py 的 await_control 先用 wait_until(visible) 轮询到 True，随后**再**执行一次 resolve_visible 取返回值。两次解析之间没有任何原子性保证：SPA 在媒体区重渲染、虚拟列表回收节点、或弹窗进出把控件临时摘掉，都会让第二次解析返回 None。调用方 _await_upload_input 把 None 一律当 fail-closed，报 XHS_UPLOAD_FAILED 且文案是「上传控件在 30s 内未挂载，已停止而非静默跳过媒体」——事实是它挂载过、还被轮询确认过，错误归因把一次毫秒级抖动说成站点结构问题，用户看到的是白等 30s 后草稿中止。",
+      "defense": "(1) 窗口极窄：轮询命中后紧跟着就是第二次解析，中间只有一次 await，实测抖动概率低。(2) 现行为 fail-closed，方向安全——宁可中止也不静默跳过媒体，符合 4e 的硬红线，不会产出无媒体草稿。(3) 改成复用轮询里的 locator 会引入另一类风险：拿到的可能是已脱离文档的旧节点，后续 set_input_files 在失效元素上抛错，错误信息更难读。",
+      "verdict": "upheld",
+      "rationale": "(1) 的「窗口窄」不等于「不存在」，且本轨整条改造的前提就是 SPA 会晚挂载/重渲染——在同一前提下否认抖动，与 4e 立论相矛盾。(2) 也不成立：fail-closed 的方向没错，错的是**归因**，报出来的 code 与文案描述了一个从未发生的状态（控件从未挂载），会把排查带向选择器表而不是时序。(3) 恰好不成立，因为 Playwright 的 locator 是惰性句柄而非 ElementHandle：复用轮询中拿到的 locator 不会 pin 住旧节点，元素真消失了会在执行动作时抛错，而 _await_upload_input 的调用方本来就有 except 分支给出准确文案（媒体上传失败：原始异常）。修复：await_control 在轮询谓词里用 nonlocal 缓存命中的 locator，超时才返回 None，命中直接返回缓存值，去掉第二次解析。回归保护 test_control_vanishing_after_hit_is_not_reported_as_never_mounted：用只让首查可见的 VanishingLocator 造出抖动，断言上传确实发生（page.uploaded == [[a.jpg]]）且结果不含 XHS_UPLOAD_FAILED；破坏-恢复实测——退回二次解析即该条红，同时 i1 的两条也红，恢复即 45 passed。"
+    }
+  ]
+}

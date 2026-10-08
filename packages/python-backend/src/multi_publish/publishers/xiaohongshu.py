@@ -10,7 +10,8 @@
   可在假对象下单测核心分支。
 - 合规红线：运行时不请求任何外部远程求签服务（禁引入外包签名农场域名）。
 
-常量见 xiaohongshu_selectors.py；认证持久化见 xiaohongshu_auth.py。
+常量见 xiaohongshu_selectors.py；认证持久化见 xiaohongshu_auth.py；
+底层控件操作（纯函数）见 xiaohongshu_dom.py。
 实现参照 douyin.py 的「先查 API 响应、再 URL、再 DOM」三级回退确认范式。
 """
 
@@ -22,7 +23,8 @@ import os
 from loguru import logger
 
 from multi_publish.models import PlatformType, PublishPhase, PublishResult
-from multi_publish.publishers.base import BasePublisher, PublisherConfig, ResponseMonitor, wait_until
+from multi_publish.publishers import xiaohongshu_dom as dom
+from multi_publish.publishers.base import BasePublisher, PublisherConfig, ResponseMonitor
 from multi_publish.publishers.xiaohongshu_auth import XiaohongshuAuthMixin
 from multi_publish.publishers.xiaohongshu_selectors import (
     CODE_DRAFT_ENTRY_MISSING,
@@ -37,7 +39,12 @@ from multi_publish.publishers.xiaohongshu_selectors import (
     DRAFT_BOX_ITEM_SELECTOR,
     DRAFT_BOX_URL,
     DRAFT_SAVE_RESPONSE_PATTERNS,
+    NAVIGATE_READY_POLL_INTERVAL_S,
+    NAVIGATE_READY_TIMEOUT_S,
+    RISK_HOST_SCAN_LIMIT,
     RISK_OVERLAY_SELECTOR,
+    RISK_TEXT_HOSTS,
+    RISK_TEXT_PATTERN,
     SELECTOR_FALLBACKS,
     UPLOAD_FALLBACK_POLL_INTERVAL_S,
     UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
@@ -216,10 +223,17 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
 
         await self._report_progress(PublishPhase.UPLOADING, "上传媒体文件...", 30)
         if media_paths:
+            file_input = await self._await_upload_input(page)
+            if file_input is None:
+                return PublishResult(
+                    success=False, platform="xiaohongshu",
+                    error=_coded(
+                        CODE_UPLOAD_FAILED,
+                        f"上传控件在 {UPLOAD_FALLBACK_WAIT_TIMEOUT_S}s 内未挂载，已停止而非静默跳过媒体",
+                    ),
+                )
             try:
-                file_input, _ = await self._resolve_visible(page, "upload_input")
-                if file_input is not None:
-                    await file_input.set_input_files(media_paths)
+                await file_input.set_input_files(media_paths)
             except Exception as e:
                 return PublishResult(
                     success=False, platform="xiaohongshu",
@@ -351,94 +365,66 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
 
     async def _resolve_visible(self, page, key: str):
         """按候选回退链解析首个可见 locator，返回 (locator, selector) 或 (None, None)。"""
-        for sel in self._candidates_for(key):
-            try:
-                loc = page.locator(sel).first
-                if await loc.is_visible():
-                    return loc, sel
-            except Exception:
-                continue
-        return None, None
+        return await dom.resolve_visible(page, self._candidates_for(key))
 
     async def _set_field(self, page, key: str, text: str) -> bool:
         """标题/正文填写：优先原生 fill，contenteditable 回退 evaluate + dispatch 事件。"""
-        loc, _ = await self._resolve_visible(page, key)
-        if loc is None:
-            return False
-        try:
-            await loc.click()
-        except Exception:
-            pass
-        try:
-            await loc.fill(text)
-            return True
-        except Exception:
-            try:
-                await loc.evaluate(
-                    "(el, t) => { el.textContent = t;"
-                    " el.dispatchEvent(new Event('input', { bubbles: true }));"
-                    " el.dispatchEvent(new Event('change', { bubbles: true })); }",
-                    text,
-                )
-                return True
-            except Exception as e:
-                logger.warning(f"[小红书] 字段 {key} 填写失败: {e}")
-                return False
+        return await dom.set_field(page, self._candidates_for(key), text, label=key)
 
     async def _add_tags(self, page, tags: list[str]) -> None:
         """逐个 type + 尽力选下拉首个候选（修覆盖式 fill 只留最后一个）。"""
-        loc, _ = await self._resolve_visible(page, "tag_input")
-        if loc is None:
-            logger.debug("未找到标签输入框，跳过标签")
-            return
-        for tag in tags[:5]:
-            try:
-                await loc.click()
-                await loc.type(tag, delay=50)
-                sugg, _ = await self._resolve_visible(page, "tag_suggestion")
-                if sugg is not None:
-                    await sugg.click()
-                else:
-                    await loc.press("Enter")
-            except Exception as e:
-                logger.debug(f"[小红书] 标签 {tag} 添加失败（不影响草稿保存）: {e}")
+        await dom.add_tags(
+            page,
+            tag_candidates=self._candidates_for("tag_input"),
+            suggestion_candidates=self._candidates_for("tag_suggestion"),
+            tags=tags,
+        )
 
     async def _set_cover(self, page, cover_path: str) -> None:
-        try:
-            btn, _ = await self._resolve_visible(page, "cover_upload")
-            if btn is None:
-                return
-            await btn.click()
-            await asyncio.sleep(2)
-            inp, _ = await self._resolve_visible(page, "cover_input")
-            if inp is not None:
-                await inp.set_input_files(cover_path)
-        except Exception as e:
-            logger.warning(f"封面上传失败（不影响发布）: {e}")
+        await dom.set_cover(
+            page,
+            upload_candidates=self._candidates_for("cover_upload"),
+            input_candidates=self._candidates_for("cover_input"),
+            cover_path=cover_path,
+        )
+
+    async def _await_control(self, page, key: str, *, label: str, timeout_s: float, interval_s: float):
+        """轮询候选链中首个可见控件，返回 locator 或 None；超时留痕但不臆断失败。"""
+        return await dom.await_control(
+            page, self._candidates_for(key), key=key, label=label,
+            timeout_s=timeout_s, interval_s=interval_s,
+        )
+
+    async def _await_upload_input(self, page):
+        """上传控件必须真等：一次性解析在 SPA 晚挂载下返回 None，会静默跳过媒体照存草稿。
+
+        上限沿用原 30s 上传兜底时长（常量名即其来历），只收紧快路径、不放宽容忍度。
+        """
+        return await self._await_control(
+            page, "upload_input", label="上传控件",
+            timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S, interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
+        )
 
     async def _await_editor_ready(self, page) -> None:
-        """上传完成标志未命中时，轮询编辑器就绪（标题框可见），上限沿用原 30s。"""
-        ready = await wait_until(
-            lambda: self._title_visible(page),
-            timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
-            interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
+        await self._await_control(
+            page, "title_input", label="编辑器",
+            timeout_s=NAVIGATE_READY_TIMEOUT_S, interval_s=NAVIGATE_READY_POLL_INTERVAL_S,
         )
-        if not ready:
-            logger.warning(
-                f"编辑器在 {UPLOAD_FALLBACK_WAIT_TIMEOUT_S}s 内未就绪（站点结构变化或上传未完成），继续尝试填写"
-            )
-
-    async def _title_visible(self, page) -> bool:
-        loc, _ = await self._resolve_visible(page, "title_input")
-        return loc is not None
 
     async def _risk_present(self, page) -> bool:
-        if not RISK_OVERLAY_SELECTOR:
-            return False
-        try:
-            return await page.locator(RISK_OVERLAY_SELECTOR).count() > 0
-        except Exception:
-            return False
+        """风控双轨逻辑见 xiaohongshu_dom.risk_present；四个常量必须在此处读取后传参，
+        否则 monkeypatch 本模块同名常量会静默失效（见该模块 docstring）。"""
+        return await dom.risk_present(
+            page,
+            overlay_selector=RISK_OVERLAY_SELECTOR,
+            hosts=RISK_TEXT_HOSTS,
+            pattern=RISK_TEXT_PATTERN,
+            limit=RISK_HOST_SCAN_LIMIT,
+        )
+
+    async def _visible_texts(self, page, sel: str) -> list[str]:
+        """该选择器命中的可见元素文案（上限 RISK_HOST_SCAN_LIMIT，防整页扫描）。"""
+        return await dom.visible_texts(page, sel, limit=RISK_HOST_SCAN_LIMIT)
 
     @staticmethod
     def _is_login_redirect(url: str) -> bool:
