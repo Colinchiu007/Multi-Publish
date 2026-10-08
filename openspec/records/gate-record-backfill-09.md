@@ -2,9 +2,6 @@
 record: gate-record-backfill-09
 task: 批量回填 6 篇「PR 已合并但远程同步仍 PENDING」的新载体执行记录并销账（#2763/#2769/#2784/#2915/#2947/#3089）
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（本记录属 PR #3092；合并后按 git log origin/main --grep='(#3092)$' --format=%H|%cI 取 merge SHA，回填「远程同步」行为 PASS 并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：批量回填 6 篇新载体记录的远程同步欠账（gate-record-backfill-09，2026-10-07）【docs-only】
@@ -51,7 +48,7 @@ main 上曾同时挂着 **6 篇** `sync_status: PENDING` 的新载体记录，�
 | check-pr-exec-record（enforce） | PASS | 本 PR 携带 `openspec/records/gate-record-backfill-09.md`（文件名 == head 分支名） |
 | 品牌残留 / 文档同步 / Gate 2c 现场 | PASS | 均**提交后**复跑：`check-no-brand-residue.js` ⇒ `PASS（扫描 7238 个 tracked 文件，无品牌残留…）`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`；`check-gate-record-debt.js` ⇒ 顶部 `OK` 且现场 `远程同步行 251 / 执行记录 452（## 标题 460）/ 已登记欠账 8 / 记录文件 89`。**记录文件 89 是上一步 88 加本篇** —— 用差值而不是绝对数留证，因为绝对数会随 base 漂（[[project-mulpub-gate-record-debt-blindspot]]） |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道，零运行时文件 |
-| 远程同步 | PENDING | 本条自己的欠账：合并后由下一批回填 PR 改写为 PASS + merge SHA（取证同本表上方三源判据），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 `gate-record-debt-ledger.json` 建键。（这一行是**表格行**而不是 bullet —— `ROW_RE = /^\|\s*远程同步\s*\|/` 只认表格行，#3089 那批就因写成 bullet 被 CI 当场报红） |
+| 远程同步 | PASS | 已合并：squash 落地 `1dd530d1becffca1faf4bf27b6582291405a4f48`（committer 2026-10-07T13:18:34Z）。取证两源一致：`git log origin/main --grep='(#3092)$' --format=%H|%cI` 唯一命中该 SHA 与时间，`gh pr view 3092 --json mergeCommit` 报同一 oid；`git ls-remote --heads origin gate-record-backfill-09` 返回 **0 行**证远端分支已随合并删除。本篇是那批「6 收 1 开」的账，本批把它开的那 1 条收掉。 本 frontmatter 的三个 `sync_*` 登记字段已在本条由 PENDING 转 PASS 的**同一次提交**内整段删除 |
 
 ### 明确排除、不静默修的部分
 

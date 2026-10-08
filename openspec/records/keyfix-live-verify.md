@@ -2,9 +2,6 @@
 record: keyfix-live-verify
 task: 把 #3083 审核回写修复的真机端到端复验取证入库（含修复前后天然对照组），并纠正一条没量过的归因
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（本记录属 PR #3100；合并后按 git log origin/main --grep='(#3100)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除本 frontmatter 的三个 sync_* 字段。PR 号由 `gh pr list --repo Colinchiu007/mulpub --head keyfix-live-verify --json number` 当场回读取得，不是凭印象填的）
 ---
 
 ## 本次执行记录：真机端到端复验审核回写并入库（keyfix-live-verify，2026-10-07）【docs-only】
@@ -29,7 +26,7 @@ sync_backfill_owner: 下一个会话（本记录属 PR #3100；合并后按 git 
 | classify-docs-only | PASS | 提交后 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=true`，files=5 |
 | ⛔ 同一条坑第三次踩（如实登记） | 已纠正 | 本记录初版**又没有** `| 远程同步 |` 表格行 —— 只在「保留门禁」bullet 与 frontmatter 里写了 PENDING，Gate 2c 当场报 `❌ 记录文件整块缺 远程同步 行 1 篇：keyfix-live-verify.md`。这条坑今天已经踩过两次（#3089 那批）并写进记忆，仍然复发，原因不是忘而是**我没有从一篇已合规的记录复制表头，而是从零另写了一份**。口径：新建 `openspec/records/*.md` 时**复制 `openspec/records/_TEMPLATE.md` 或最近一篇 PASS 记录整份改**，不要手搓；`ROW_RE = /^\|\s*远程同步\s*\|/` 只认表格行。 |
 | Gate 2c 现场 | PASS | 修好表格行后复跑 ⇒ 顶部 `OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留`；计数行（绑 base `636fd48c9` + 本 PR 提交后的工作树）：`远程同步行 251 条 / 执行记录 453 篇（全部 ## 标题 461 个）/ 已登记欠账 8 条 / 记录文件 91 篇`。**绝对数会随 base 漂，可复核的判据是差值与期望形状**：本 PR 对这几项**应当只影响一项** —— 「记录文件」因本篇 +1，其余三项（远程同步行 / 执行记录 / 已登记欠账）不变。我没有另跑一次"去掉本篇"的对照去量 90，所以这里写的是**期望形状**而不是实测差值；下一个读到 91→92 以外变化的会话应当先怀疑并发合并进来了，而不是沿用本行。 |
-| 远程同步 | PENDING | 本条自己的欠账（本 PR = #3100）：合并后由后续回填 PR 改写为 PASS + merge SHA（取证三源：`git log origin/main --grep='(#3100)$'` + `gh pr view 3100 --json mergeCommit` 同 SHA + `git ls-remote --heads origin keyfix-live-verify` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 `gate-record-debt-ledger.json` 建键 |
+| 远程同步 | PASS | 已合并：squash 落地 `cc7f0bc8aa89006449a7c47c9f9ecb1e60fc5e64`（committer 2026-10-07T22:33:20+08:00）。取证两源一致：`git log origin/main --grep='(#3100)$' --format=%H|%cI` 唯一命中该 SHA 与时间，`gh pr view 3100 --json mergeCommit` 报同一 oid；`git ls-remote --heads origin keyfix-live-verify` 返回 **0 行**证远端分支已随合并删除。该记录的「远程同步」行原文已把 PR 号写成 #3100（由 `gh pr list --head` 当场回读取入），本批只把状态转 PASS 并补 merge SHA 与分支删除证据。 本 frontmatter 的三个 `sync_*` 登记字段已在本条由 PENDING 转 PASS 的**同一次提交**内整段删除 |
 | QM-1 / QM-2 代码必检 / QM-4 / TDD / QM-6 | N/A | docs-only 通道：零运行时文件；复验本身是"跑真机"而不是"改代码"，不需要双模型评审 |
 
 ## 明确留在场上的边界（不假装已闭合）
