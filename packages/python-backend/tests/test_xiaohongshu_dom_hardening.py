@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from loguru import logger
 
@@ -226,6 +228,25 @@ class TestErrorNormalization:
         # 选择器轨同样要求可见：仅存在于 DOM 的验证容器不算风控
         page.visible.add('[class*="verify"]')
         page.item_texts['[class*="verify"]'] = ["请完成安全验证"]
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is False
+        assert xhs.CODE_RISK_BLOCKED in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_overlay_selector_alone_blocks_without_risk_wording(self, publisher, monkeypatch):
+        """overlay 占位轨必须独立成立，而不是被文本轨顺手兜住。
+
+        与上一条的分工：上一条同时给了「安全验证」文案，文本轨也能判真，所以把
+        overlay 轨整条删掉它照样绿（本轮破坏验证实测到的假绿）。占位轨的本职是
+        Tier2 回填后那些**没有可匹配文案**的风控层（纯图形/拼图验证码），
+        所以这里只放一个可见容器、文案刻意避开词表。
+        """
+        monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR", '[class*="verify"]', raising=False)
+        page = _base_page()
+        page.visible.add('[class*="verify"]')
+        page.item_texts['[class*="verify"]'] = ["请按提示操作"]
+        # 反向自证：这条文案必须匹配不到文本轨，否则本用例并没有单独钉住 overlay 轨
+        assert not re.search(xhs.RISK_TEXT_PATTERN, "请按提示操作", re.I)
         result = await _flow(publisher, page, FakeMonitor(), draft=True)
         assert result.success is False
         assert xhs.CODE_RISK_BLOCKED in (result.error or "")

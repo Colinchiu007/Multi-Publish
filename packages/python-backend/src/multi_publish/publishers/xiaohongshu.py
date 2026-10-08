@@ -10,7 +10,8 @@
   可在假对象下单测核心分支。
 - 合规红线：运行时不请求任何外部远程求签服务（禁引入外包签名农场域名）。
 
-常量见 xiaohongshu_selectors.py；认证持久化见 xiaohongshu_auth.py。
+常量见 xiaohongshu_selectors.py；认证持久化见 xiaohongshu_auth.py；
+底层控件操作（纯函数）见 xiaohongshu_dom.py。
 实现参照 douyin.py 的「先查 API 响应、再 URL、再 DOM」三级回退确认范式。
 """
 
@@ -18,12 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 
 from loguru import logger
 
 from multi_publish.models import PlatformType, PublishPhase, PublishResult
-from multi_publish.publishers.base import BasePublisher, PublisherConfig, ResponseMonitor, wait_until
+from multi_publish.publishers import xiaohongshu_dom as dom
+from multi_publish.publishers.base import BasePublisher, PublisherConfig, ResponseMonitor
 from multi_publish.publishers.xiaohongshu_auth import XiaohongshuAuthMixin
 from multi_publish.publishers.xiaohongshu_selectors import (
     CODE_DRAFT_ENTRY_MISSING,
@@ -364,82 +365,34 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
 
     async def _resolve_visible(self, page, key: str):
         """按候选回退链解析首个可见 locator，返回 (locator, selector) 或 (None, None)。"""
-        for sel in self._candidates_for(key):
-            try:
-                loc = page.locator(sel).first
-                if await loc.is_visible():
-                    return loc, sel
-            except Exception:
-                continue
-        return None, None
+        return await dom.resolve_visible(page, self._candidates_for(key))
 
     async def _set_field(self, page, key: str, text: str) -> bool:
         """标题/正文填写：优先原生 fill，contenteditable 回退 evaluate + dispatch 事件。"""
-        loc, _ = await self._resolve_visible(page, key)
-        if loc is None:
-            return False
-        try:
-            await loc.click()
-        except Exception:
-            pass
-        try:
-            await loc.fill(text)
-            return True
-        except Exception:
-            try:
-                await loc.evaluate(
-                    "(el, t) => { el.textContent = t;"
-                    " el.dispatchEvent(new Event('input', { bubbles: true }));"
-                    " el.dispatchEvent(new Event('change', { bubbles: true })); }",
-                    text,
-                )
-                return True
-            except Exception as e:
-                logger.warning(f"[小红书] 字段 {key} 填写失败: {e}")
-                return False
+        return await dom.set_field(page, self._candidates_for(key), text, label=key)
 
     async def _add_tags(self, page, tags: list[str]) -> None:
         """逐个 type + 尽力选下拉首个候选（修覆盖式 fill 只留最后一个）。"""
-        loc, _ = await self._resolve_visible(page, "tag_input")
-        if loc is None:
-            logger.debug("未找到标签输入框，跳过标签")
-            return
-        for tag in tags[:5]:
-            try:
-                await loc.click()
-                await loc.type(tag, delay=50)
-                sugg, _ = await self._resolve_visible(page, "tag_suggestion")
-                if sugg is not None:
-                    await sugg.click()
-                else:
-                    await loc.press("Enter")
-            except Exception as e:
-                logger.debug(f"[小红书] 标签 {tag} 添加失败（不影响草稿保存）: {e}")
+        await dom.add_tags(
+            page,
+            tag_candidates=self._candidates_for("tag_input"),
+            suggestion_candidates=self._candidates_for("tag_suggestion"),
+            tags=tags,
+        )
 
     async def _set_cover(self, page, cover_path: str) -> None:
-        try:
-            btn, _ = await self._resolve_visible(page, "cover_upload")
-            if btn is None:
-                return
-            await btn.click()
-            await asyncio.sleep(2)
-            inp, _ = await self._resolve_visible(page, "cover_input")
-            if inp is not None:
-                await inp.set_input_files(cover_path)
-        except Exception as e:
-            logger.warning(f"封面上传失败（不影响发布）: {e}")
+        await dom.set_cover(
+            page,
+            upload_candidates=self._candidates_for("cover_upload"),
+            input_candidates=self._candidates_for("cover_input"),
+            cover_path=cover_path,
+        )
 
     async def _await_control(self, page, key: str, *, label: str, timeout_s: float, interval_s: float):
         """轮询候选链中首个可见控件，返回 locator 或 None；超时留痕但不臆断失败。"""
-        async def visible() -> bool:
-            loc, _ = await self._resolve_visible(page, key)
-            return loc is not None
-
-        if not await wait_until(visible, timeout_s=timeout_s, interval_s=interval_s):
-            logger.warning(f"{label}在 {timeout_s}s 内未就绪（站点结构变化或首屏未完成）")
-            return None
-        loc, _ = await self._resolve_visible(page, key)
-        return loc
+        return await dom.await_control(
+            page, self._candidates_for(key), label=label, timeout_s=timeout_s, interval_s=interval_s
+        )
 
     async def _await_upload_input(self, page):
         """上传控件必须真等：一次性解析在 SPA 晚挂载下返回 None，会静默跳过媒体照存草稿。
@@ -458,36 +411,19 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
         )
 
     async def _risk_present(self, page) -> bool:
-        """风控判定双轨：占位选择器（Tier2 待回填）+ 浮层内可见文案（本仓已实战口径）。
-
-        两轨都要求元素**可见**：SPA 常驻的隐藏 modal 模板自带默认风控文案，
-        不可见也当风控就会每次发布误判并中止草稿保存——误判比漏判更有害。
-        """
-        if RISK_OVERLAY_SELECTOR and await self._visible_texts(page, RISK_OVERLAY_SELECTOR):
-            return True
-        for host in RISK_TEXT_HOSTS:
-            for text in await self._visible_texts(page, host):
-                if re.search(RISK_TEXT_PATTERN, text, re.I):
-                    logger.warning(f"[小红书] 可见浮层文案命中风控口径: {text[:60]!r}")
-                    return True
-        return False
+        """风控双轨逻辑见 xiaohongshu_dom.risk_present；四个常量必须在此处读取后传参，
+        否则 monkeypatch 本模块同名常量会静默失效（见该模块 docstring）。"""
+        return await dom.risk_present(
+            page,
+            overlay_selector=RISK_OVERLAY_SELECTOR,
+            hosts=RISK_TEXT_HOSTS,
+            pattern=RISK_TEXT_PATTERN,
+            limit=RISK_HOST_SCAN_LIMIT,
+        )
 
     async def _visible_texts(self, page, sel: str) -> list[str]:
         """该选择器命中的可见元素文案（上限 RISK_HOST_SCAN_LIMIT，防整页扫描）。"""
-        try:
-            loc = page.locator(sel)
-            total = min(await loc.count(), RISK_HOST_SCAN_LIMIT)
-        except Exception:
-            return []
-        out: list[str] = []
-        for i in range(total):
-            item = loc.nth(i)
-            try:
-                if await item.is_visible():
-                    out.append((await item.inner_text()) or "")
-            except Exception:
-                continue
-        return out
+        return await dom.visible_texts(page, sel, limit=RISK_HOST_SCAN_LIMIT)
 
     @staticmethod
     def _is_login_redirect(url: str) -> bool:

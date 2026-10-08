@@ -32,6 +32,13 @@ video = [
 asr = [
     "faster-whisper>=1.0.0",
 ]
+test = [
+    # 发布器回归测试此前只靠 CI 里临时 `pip install`，仓库内无声明：本地环境缺
+    # pytest-asyncio 时 @pytest.mark.asyncio 用例会「0 收集 / 静默跳过」而不是报错，
+    # 门禁看着是绿的其实是空的。声明进 extra 后装 [..,test] 即得同一套依赖。
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
 all = [
     "multi-publish-backend[web,video,asr]",
 ]

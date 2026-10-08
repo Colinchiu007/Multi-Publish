@@ -21,6 +21,14 @@
   - 1.9 的失败清单据此修正：全量重跑 2818 passed / 4 failed，其中 `test_aggregation_video`、`test_pipeline_loader` 在 main 基线 worktree 同样失败，`test_frame_html`、`test_llm_service` 单独运行为绿（同进程串扰），发布轨 0 失败；5 文件 CI 集本地 90 passed；`check-debt-budget.js` 通过（`filesOver500` 99 < 基线 101，`xiaohongshu.py` 507 行）
   - **破坏-恢复验证（5 种破坏各自变红，非只写不验）**：① `_visible_texts` 去掉 `is_visible()` → 隐藏模板用例红；② 词表放回裸「滑块」/「拖动滑块」 → 裁剪文案用例红；③ 每 host 只取首个可见元素 → 第 2 位命中用例红；④ 上传等待 `timeout_s` 改回 `NAVIGATE_READY_*` → 轮询次数用例红（仅看错误文案的旧写法会假绿，故补此道）；⑤ 超时留痕改成不点名等待对象 / 整条删除 → loguru sink 行为用例红
 
+- [x] 1.14 PR #3192 CI 抓出两处"本地验错门禁"，均已修（详见 PRD §4g）：
+  - **① 逐文件行数闸**：1.12/1.13 引的是 `scripts/check-debt-budget.js`（`filesOver500` 总数棘轮，允许回落），据此写"507 行不触闸"；真正阻断的是 `.github/scripts/check-max-lines.js`，**逐文件**判 `NEW_OVER_LIMIT`（不在挂账清单里的新超限文件直接红，与总数无关）——1.12 那句"保持 499 行"的判据从一开始就是错的。按本仓既有范式拆出 `xiaohongshu_dom.py`（纯函数承载 `resolve_visible/await_control/set_field/add_tags/set_cover/visible_texts/risk_present`），发布器 446 行。
+  - **拆法约束（为什么不是第二个 mixin）**：风控选择器/词表/上限与上传等待常量必须由发布器在调用处读取后**传参**。mixin 若在自己模块 import 常量，`monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR"/"UPLOAD_FALLBACK_WAIT_TIMEOUT_S", ...)` 只改到发布器命名空间、被测代码仍读 mixin 那份 ⇒ patch 静默失效，正是本轨反复清理的"能力声称存在但从不触发"。守卫新增结构断言：`xiaohongshu_dom.py` 不得 import `xiaohongshu_selectors`。
+  - **守卫改两头断言**：`wait_until(` 实现现居 DOM 模块，发布器侧改断 `await dom.await_control(` + `await self._await_control(` ≥2；只断文件并集会在任一头被删时假绿。
+  - **② CI 步骤 fail-fast 闸**：`scripts/check-step-failfast.js` 判 1.13-i5 新增步骤为"会吞失败的多命令步骤"——它只看步骤级 `shell:`，读不到 workflow 级 `defaults.run.shell: bash`；且 `pip install pytest-asyncio` 里的字面量命中其测试命令正则被算作第 2 条。修法按仓内惯例：步骤显式 `shell: bash`，依赖声明收进 `pyproject.toml` 新 `[test]` extra（`pytest>=8.0` + `pytest-asyncio>=0.24`），run 块只留一条 pytest。i5 的"显式 pip install"口径据此作废（依赖只活在 workflow 文本里，本地缺它时 async 用例 0 收集＝绿但恒真）。
+  - **破坏-恢复验证（6 种，逐条实跑变红后恢复）**：① DOM 模块自带常量 import → 守卫红；② 删 `wait_until` 轮询 → 守卫红；③ 发布器不再经由 DOM 轮询 → 守卫红；④ 抹掉编辑器等待 label → loguru sink 行为用例红；⑤ overlay 常量写死空占位 / ⑥ overlay 轨整条删除 → **新增**用例 `test_overlay_selector_alone_blocks_without_risk_wording` 红。⑤⑥ 是补出来的：原 risk 用例同时给了「安全验证」文案，文本轨会顺手兜住，删掉整条占位轨照样绿——占位轨（Tier2 回填后承担无文案的纯图形验证码层）此前无独立保护。
+  - 回归：发布轨 5 文件 91 passed（+1 为新用例）；全量 2822 passed / 4 failed，4 项仍是 1.13 已归因的既有/环境失败；`check-max-lines.js` ✅、`check-step-failfast.js` 与其 `.test.js` 6/6 ✅
+
 ## 2. PR-2 · Tier2 活体取证回填（需用户登录小红书）
 
 - [x] 2.1 取证 runbook 脚本（gitignored staging）：headed login 扫码 → 发布页存草稿 → ResponseMonitor dump 草稿保存端点模式 + 成功响应结构（已就绪：`.agent_context/tier2/xhs_tier2_probe.py` + `RUNBOOK.md` + `_smoke.py` 零浏览器自检通过；含 permit≠成功的假阳性守卫；需用户扫码方可执行 2.2）
@@ -29,6 +37,8 @@
 - [ ] 2.3b 回填 selector 链与 RISK_OVERLAY_SELECTOR / DRAFT_BOX_ITEM_SELECTOR（需 2.1/2.2 活体取证）
 - [ ] 2.4 真实草稿箱活体验收（**双路覆盖**）：(a) 探针跑 python 轨存草稿 → 草稿箱出现本次条目；(b) 桌面真实队列发一条图文（`rpa-view-platforms.js` 的 `draftOnly:true` 用户路径）→ 草稿箱出现本次条目。均记录证据（截图/响应）。2026-10-09 调用链取证见 design.md「调用链取证」：`ROUTE_TABLE.xiaohongshu=rpa_vm`，桌面当前不经 python 发布器
 - [ ] 2.5 补 PR、更新 design 取证结论、openspec validate、回写 PRD/techdoc 相关小节
+- [x] 2.6 运行态取证（tab CDP，免扫码）——**取到新的阻断证据**：对正在运行的桌面实例用零依赖 raw CDP（`/json/list` → Node 原生 `WebSocket` → `Runtime.evaluate`）调 `xiaohongshu:probe-draft-chain`（preload 为**位置参数** `(accountId, opts)`，传对象被判"accountId 非法"）。带媒体即回 `XHS_PERMIT_NO_FILE_ID`「permit: 响应缺 file_id」，`chainDetail.dataKeys=[result, uploadTempPermits]`；全仓 grep `uploadTempPermits` 零命中 ⇒ 桌面 API 轨草稿链今天断在第 1 步取 permit，2.4(b) 在修好前不可能通过。不直接改的原因：探针只回白名单**键名**不回值，按键名猜 `uploadTempPermits` 的形状写出的解析器就是下一个"从不触发"的能力。待 2.7 取完整回包结构后按结构 TDD（PRD §4h）
+- [ ] 2.7 本地扩一处完整 permit 回包 dump（gitignored，不入库）→ 取到数组/对象形状与项内字段 → 按实测结构修 `xiaohongshu-draft.js` permit 解析（独立 change + TDD + 自己的 PR）
 
 ## 3. 收口
 

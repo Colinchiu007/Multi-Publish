@@ -237,19 +237,103 @@ llm_service ollama dummy key）单独跑为绿、全量跑为红，属同进程�
 
 **本域门禁实测**：上述 5 文件在本地 90 passed；发布器 + 邻近套件全绿；
 `node scripts/check-debt-budget.js` 通过（`filesOver500` 99 < 基线 101）。
+**这句当时就无效**：它参照的是总数棘轮，而真正逐文件判定的是
+`.github/scripts/check-max-lines.js`（见 4g ①），当时 511 行已越闸，CI 直接红。
 5 种破坏（删可见性 / 词表放回裸「滑块」/ 只读首个元素 / 上传 `timeout_s` 误用 10s 常量 /
 超时留痕改名或删除）各自跑红，恢复后全绿——其中第 ④ 种是补强：只断错误文案里数字的
 旧写法会**假绿**（文案与 `timeout_s` 可以各用各的常量），因此加了轮询次数断言。
+
+## 4g. 合并前 CI 抓出的两处"本地验错门禁"（PR-3，2026-10-09）
+
+PR #3192 的 CI 有两项红，都不是发布逻辑错，而是**我本地参照了错的闸**：
+
+**① `债务熔断检查`：`NEW_OVER_LIMIT: xiaohongshu.py 511 行 >= 500`。**
+- 4e 里我引的是 `scripts/check-debt-budget.js`（`filesOver500` 总数棘轮，基线 101、允许回落），
+  据此写下"xiaohongshu.py 保持 499 行不触闸"。真正阻断的是
+  `.github/scripts/check-max-lines.js`：**逐文件**判定——不在挂账清单里的超限文件直接红，
+  与总数无关。两把闸名字都像"债务熔断"、语义不同，取错一把等于没验。
+  这也是本轨第 N 次撞上同一失效类：**判据看着在，实际不作用**。
+- 处置：按本仓既有范式拆分（先例 `xiaohongshu_auth.py`），新增 `xiaohongshu_dom.py`
+  承载底层控件操作（纯函数），发布器降至 446 行。
+- **拆法约束（不能改成 mixin 的原因）**：风控选择器/词表/扫描上限与上传等待上限必须由
+  发布器在调用处读取后**传参**。若 mixin 在自己模块里 `import` 这些常量，
+  `monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR", ...)` 与 `xhs.UPLOAD_FALLBACK_WAIT_TIMEOUT_S`
+  就只改到发布器的命名空间，被测代码读的仍是 mixin 模块那份——测试照跑、patch 照失效，
+  配上"能力声称存在"的文档就是假绿的完美形态。守卫里加了一条结构断言钉死它：
+  `xiaohongshu_dom.py` 不得出现 `xiaohongshu_selectors` 的 import。
+- 守卫同步改口径：`wait_until(` 的实现现在在 DOM 模块，"实现在哪"与"谁在调用"必须
+  **两头分别断言**；只断 union 会在任一头被删时假绿。
+
+**② `QG Static`：`STEP_NOT_FAIL_FAST gui-test.yml::Verify publisher RPA/DOM regressions`。**
+- `scripts/check-step-failfast.js` 只看步骤级 `shell:` 行，读不到 workflow 级
+  `defaults.run.shell: bash`，于是按最严口径判我不 fail-fast；另外我把
+  `pip install pytest-asyncio` 和 `pytest` 写在同一 run 块里，`pytest-asyncio` 这个字面量
+  正好命中它的"测试命令"正则，被算作第 2 条。
+- 处置不是放宽门禁，而是按仓内惯例（其余 4 个多命令步骤都显式声明）补
+  `shell: bash`，并把依赖声明收进 `pyproject.toml` 的新 `[test]` extra，run 块只留一条
+  pytest。顺带关掉另一个洞：`pytest-asyncio` 此前只活在 workflow 文本里，仓库不声明，
+  本地缺它时 `@pytest.mark.asyncio` 用例是**静默不收集**（0 收集 = 绿），比没有门禁更危险。
+
+**破坏-恢复验证（6 种，全部跑过并恢复）**：
+① DOM 模块自带常量 import → 守卫红；② 删掉 `wait_until` 轮询 → 守卫红；
+③ 发布器不再经由 DOM 轮询 → 守卫红；④ 抹掉编辑器等待 label → 日志留痕行为用例红；
+⑤ overlay 常量写死空占位 → 新增的"overlay 轨独立成立"用例红；⑥ 整条 overlay 轨删除 → 同一用例红。
+其中 ⑤⑥ 是补出来的：破坏验证发现原有 risk 用例同时给了「安全验证」文案，文本轨会顺手兜住，
+把 overlay 轨整条删掉**照样绿**——占位轨（Tier2 回填后要承担纯图形验证码这类无文案的层）
+此前没有任何独立保护。新用例 `test_overlay_selector_alone_blocks_without_risk_wording`
+只放可见容器、文案刻意避开词表，并反向自证该文案匹配不到文本轨。
+
+**回归**：发布轨 5 文件 91 passed（较拆分前 +1 为新增用例）；全量
+`packages/python-backend` 2822 passed / 4 failed，4 项仍是 4e/1.13 已归因的本分支未触碰的
+既有/环境失败（`test_aggregation_video`、`test_frame_html`、`test_llm_service`、
+`test_pipeline_loader`，已在 `origin/main` 基线 worktree 复现）；
+`check-max-lines.js` ✅、`check-step-failfast.js` ✅（含其 `.test.js` 6/6）。
+拆分本身是行为保持改动：90 项既有行为用例在改动后一次未变地全绿，只有静态守卫按新契约重订。
+
+## 4h. 运行态取证（tab CDP，免扫码）：API 草稿链在 permit 步就断（2026-10-09）
+
+按用户口径「后面用 tab 的 CDP 真实运行态验证」，对**正在运行的桌面实例**做了零依赖
+CDP 驱动（`GET /json/list` 取 renderer target → Node 原生 `WebSocket` 连
+`webSocketDebuggerUrl` → `Runtime.evaluate`）。没有新装依赖、没有 `pnpm exec`（它会
+隐式装包、破坏 worktree 依赖），也没有启动第二个应用。
+
+可达性事实：renderer 上挂了 431 个 `electronAPI` 键，含
+`probeXiaohongshuDraftChain` / `draftSave` / `draftList` / 风控挂起一族；小红书账号
+`has_cookies: true`、`status: active`、`last_validated` 为当日（凭证在桌面加密存储里，
+Python 明文轨仍被策略硬阻，见 4d）。注意 preload 是**位置参数**
+`probeXiaohongshuDraftChain(accountId, opts)`，传对象会被判"accountId 非法"。
+
+探针两次调用（均只走草稿链，绝不点公开发布）：
+- 不带媒体 → `XHS_NO_IMAGE`「至少需要 1 张图片：小红书不支持纯文字笔记」。分派正确。
+- 带一张本地临时图 → `XHS_PERMIT_NO_FILE_ID`「permit: 响应缺 file_id」，且
+  `chainDetail` 给出平台真实回包骨架：`topKeys=[success, data, code]`，
+  `dataKeys=[result, uploadTempPermits]`。
+
+**结论（直接影响验收）**：桌面 API 轨的草稿链**今天走不通**，断点在第 1 步取 permit，
+根本走不到存草稿。代码读的是 `info.file_id`
+（`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`），平台回的是
+`uploadTempPermits`；全仓 grep `uploadTempPermits` **零命中**，说明这是刚取到的新契约
+证据，不是既有已知项。2.4 的 (b) 路（桌面真实队列存草稿）在它修好前不可能通过。
+
+**为什么不在本轮直接改**：探针为安全只回传白名单字段（键名，不含值），我据此只知道
+`uploadTempPermits` 这个键存在，不知道它是数组还是对象、项内有无 `file_id`。
+按键名猜形状写出来的解析器，就是本轨一直在清的"能力声称存在、实际从不触发"的第二种
+形态。2.6 的正确顺序：先在本地（gitignored，不入库）扩一处完整回包 dump 取到结构，
+再按结构 TDD 解析器与它自己的 PR。
+
+红线复核：探针未点击任何公开发布入口；回包只落本地；账号与 cookie 名称不入库、不入 PR。
 
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
 |----|------|------|
 | 2.3a 端点模式常量回填 | 已完成（源证据） | — |
+| PR-3 行数门禁拆分 + CI fail-fast 修正 | 已完成（4g） | — |
 | 2.1 活体取证 runbook 脚本 | 已就绪（脚本+自检通过，未执行） | 执行需**用户登录小红书**（headed 浏览器扫码） |
 | 2.2 真实选择器取证 | 待办 | 同上 |
 | 2.3b `RISK_OVERLAY_SELECTOR` / `DRAFT_BOX_ITEM_SELECTOR` 回填 | 待办 | 依赖 2.1/2.2 |
-| 2.4 真实草稿箱活体验收 | 待办 | 依赖上面全部 |
+| 2.4 真实草稿箱活体验收 | 待办 | 依赖上面全部；(b) 桌面 API 轨另被 4h 的 permit 契约断裂阻塞 |
+| 2.6 API 草稿链 permit 契约修正 | 待办（新发现，见 4h） | 需先取到 permit 响应**完整**结构，禁止按键名猜 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |
 
 当前端点属**源证据而非活体证据**：`/web_api/sns/v2/note` 是否确为创作者中心
