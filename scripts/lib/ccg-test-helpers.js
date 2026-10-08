@@ -12,7 +12,8 @@
 // 使用约定：
 //   const { resolveGitBash, toPosixPath } = require("./lib/ccg-test-helpers")
 //   —— 消费方只剩这 4 个：branch-naming-contract / ccg-bash-entry /
-//      deep-review-deps / plan-review-deps（start-mp-task.test.js 的是
+//      deep-review-deps / plan-review-deps，2026-10-08 全仓递归搜索确认无第 5 处
+//      复制；start-mp-task.test.js 的是
 //      **结构锁**——它断言的是入口脚本文本里必须出现探测链，不执行探测，
 //      故不在此列）。
 //
