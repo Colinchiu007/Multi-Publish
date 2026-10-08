@@ -61,8 +61,8 @@
       `.ccg/reviews/2429ce1a3-{logic,maintainability}.json`；逐条处置见 `openspec/records/spec-mirror-wiring-fix.md`。
       **第一次派发整体作废重跑**：opencode 按 `git --git-common-dir` 定项目根 ⇒ 读到的是共享主工作区（main 的旧副本），
       grep 我新增的符号 0 命中；改为全部传绝对路径后才产出真产物
-- [ ] 6.3 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
-- [ ] 6.4 归档本 change；归档产出的主规格 Purpose 由 Gate 12d 看着（不得留 TBD）
+- [x] 6.3 PR #3132 → CI 全绿（19 pass / 0 fail / 0 pending）→ 按 AGENTS.md 判据 squash 合并为 `e32210e6a`；远程同步与销账在同一次提交回填（回填 PR #3134 → `0f1e8633d`）
+- [x] 6.4 归档本 change：`openspec archive spec-mirror-wiring-gate -y` ⇒ `ci-path-gating: update`（+1 Requirement、6 个 Scenario 全落），归档目录 `openspec/changes/archive/2026-10-08-spec-mirror-wiring-gate/`。归档产出的主规格 Purpose 经 Gate 12d 实测：`[spec-purpose] 扫描 151 份主规格，违规 0`（本次未新增规格文件，所以不产生 `TBD - created by archiving change …` 那句占位 —— 那条活体场景仍未被构造，见记录「遗留」）
 
 ## 7. 评审反哺轮（按 13 条发现逐条处置后追加的判据与锁）
 

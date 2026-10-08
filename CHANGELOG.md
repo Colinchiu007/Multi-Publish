@@ -1,3 +1,32 @@
+# [未发布] docs(openspec): 归档 spec-mirror-wiring-gate，把「接线资格」那条契约落进主规格（2026-10-08，spec-mirror-gate-archive）
+
+### 这一步在整条链里的位置
+
+PR #3132（Gate 2b2 + 接线资格登记表，`e32210e6a`）与其回填 PR #3134（`0f1e8633d`）落地后，
+本条 change 的实现与销账都已完成，剩下的只有把 delta 归并进主规格 —— 也就是这次归档。
+
+### 归档产物核对（不是「跑完 CLI 就算」）
+
+`openspec archive spec-mirror-wiring-gate -y` ⇒ `ci-path-gating: update`、`+1 added`。核对三件事：
+主规格 Requirement 4 → **5**，新增那条带 **6 个 Scenario**；`## Purpose` 段没有被写成占位词
+（文件内 `\bTBD\b` 0 命中）；本 change 自己立的 Gate 12d 在真实仓库上是 `扫描 151 份主规格，违规 0`。
+
+**主规格份数仍是 151 —— 这不是巧合，也不算好消息**：本次只更新既有规格、没有新增规格文件，
+所以归档器**没有**写下那句 `TBD - created by archiving change …`。也就是说 Gate 12d 立门禁时针对的那个
+真实场景，到本轮**仍未被活体走过一次**；它要等一次真正新增能力的 change。这条不能粉饰成「场景已验证」，
+已如实写进记录的「遗留」。
+
+### 顺手纠了两条过期勾选
+
+归档目录里的 `tasks.md` 还留着 `- [ ] 6.3` / `- [ ] 6.4`，而 6.3 的两个半动作（合并 + 销账）早已发生。
+按真实状态改成 `[x]` 并附 merge SHA 与归档坐标；改完未勾选项 0 条。手法纪律照旧：按下标改数组行，
+替换串里不含 `$` —— `String.replace` 的 `$'` 会把匹配之后的整段注入进来，本轮在同一条记录文件上刚踩过一次
+（102 行被撑成 174 行），靠精确路径 `git checkout -- <该文件>` 还原后重做。
+
+镜像锁（`quality-rhythm-spec-mirror.test.js`，8 条）本次不触发漂移红：它镜像的真源是
+`openspec/specs/openspec-integration/spec.md`，与 `ci-path-gating` 无交集 —— 这一点是读锁里的 `LIVE_SPEC` 常量核实的，
+不是靠「两个文件名看起来不相关」推断的。
+
 # [未发布] fix(ci-gate): 接线「住在哪个 job」从文档纪律升级为机械登记表（2026-10-08，spec-mirror-wiring-fix）
 
 ### 起因是我自己的一次回归，不是假想风险
