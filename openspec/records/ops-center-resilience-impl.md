@@ -2,6 +2,8 @@
 record: ops-center-resilience-impl
 task: 运营中心远程化韧性落地（三层降级 / 权益宽限期 / 配置生效验证），实现 PR
 date: 2026-10-08
+sync_reason: PR #3126 已开、CI 未完成，此时写 PENDING 是正确状态；合并后在**同一次提交**里改写为 PASS + merge SHA 并删除本登记项（回填与销账必须同一次发生）
+sync_backfill_owner: agent（PR #3126 自动合并后回填）
 ---
 
 ## 本次执行记录：运营中心远程化韧性落地（ops-center-resilience-impl，2026-10-08）
