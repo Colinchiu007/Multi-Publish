@@ -228,8 +228,9 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
       ],
     })
     // 已配置项优先：member-center(sort 0) → keywords(sort 99)；未配置项全部排在其后
+    // （podcast 为 2026-10-09「播客 RSS 频道」新增菜单项，定义序在 more 组末位）
     expect(keysOf(resolved[SIDEBAR_GROUP_MORE]).slice(0, 2)).toEqual(['member-center', 'keywords'])
-    expect(keysOf(resolved[SIDEBAR_GROUP_MORE]).at(-1)).toBe('performance-insights')
+    expect(keysOf(resolved[SIDEBAR_GROUP_MORE]).at(-1)).toBe('podcast')
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toEqual(
       keysOf(SIDEBAR_MENU_DEFINITION.filter((i) => i.group === SIDEBAR_GROUP_PRIMARY)),
     )

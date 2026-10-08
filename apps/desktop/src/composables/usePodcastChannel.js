@@ -1,0 +1,389 @@
+/**
+ * usePodcastChannel — 播客 RSS 频道（小宇宙收录）数据层
+ *
+ * 架构前提：小宇宙没有发布 API，它是 RSS 聚合端。本模块不是"新增发布平台"：
+ * 不登记 platforms.yaml / publish-capabilities / platform-definitions / rpa selectors，
+ * 也不触碰 publishMode。它是一条独立的"频道"实体 —— 频道元信息配置一次，
+ * 逐期追加单集，生成/更新 Podcast RSS，再按分发端目录把 feed 地址提交给各聚合端。
+ *
+ * IPC 合同（与主进程代理共享，键名以合同为准）：
+ *   window.electronAPI.podcast.channelGet()    → { ok, channel }
+ *   window.electronAPI.podcast.channelSave(c)  → { ok, channel }
+ *   window.electronAPI.podcast.episodeList()   → { ok, episodes }
+ *   window.electronAPI.podcast.episodeSave(e)  → { ok, episode }（新增/原地更新，按 id）
+ *   window.electronAPI.podcast.episodeRemove(id) → { ok }
+ *   window.electronAPI.podcast.feedBuild()     → { ok, xml, path, itemCount }
+ *   window.electronAPI.podcast.feedVerify()    → { ok, issues, checks, itemCount }
+ *   window.electronAPI.podcast.endpointList()  → { endpoints }
+ *
+ * 纪律：
+ * - 传给 electronAPI 的对象一律 JSON.parse(JSON.stringify(x)) 脱壳（QM-2 IPC 参数序列化），
+ *   reactive proxy 直接传会抛 "An object could not be cloned"。
+ * - 校验码文案映射只在本文件持有一份（issueText），视图不得再抄第二份。
+ * - 分发端目录：优先消费 IPC endpointList()；主进程不可达时降级到共享引擎的
+ *   ESM 孪生 podcast-endpoints.browser.js 的本地目录（只读展示，不写库）。
+ * - 全程零真实网络请求；feed 可达性自检由主进程注入 headImpl 完成。
+ */
+import { ref, computed } from 'vue'
+import i18n from '@/i18n'
+import { listPodcastEndpoints } from '@multi-publish/shared-utils/src/podcast-endpoints.browser'
+// 共享引擎（CJS，vite commonjs include 已覆盖 packages/shared-utils）：只消费枚举与目录，禁止改写
+import podcastRss from '@multi-publish/shared-utils/src/podcast-rss'
+
+const {
+  ITUNES_CATEGORIES,
+  EXPLICIT_VALUES,
+  EPISODE_TYPE_VALUES,
+  EPISODE_FEED_TYPE_VALUES,
+  formatDuration,
+} = podcastRss
+
+/** IPC 不可用 / 调用抛错的自有错误码（与引擎校验码同层展示，走 podcast.errors.*） */
+export const IPC_UNAVAILABLE = 'PODCAST_IPC_UNAVAILABLE'
+export const IPC_EXCEPTION = 'PODCAST_IPC_EXCEPTION'
+/** 表单载荷无法脱壳为纯 JSON（循环引用等），同样属于渲染侧错误 */
+export const PAYLOAD_NOT_SERIALIZABLE = 'PODCAST_PAYLOAD_NOT_SERIALIZABLE'
+
+/** 顶级分类列表（引擎单一真源派生，视图下拉用） */
+export const CHANNEL_CATEGORIES = Object.freeze(Object.keys(ITUNES_CATEGORIES))
+
+/** 子分类（按顶级派生，引擎单一真源） */
+export function subCategoriesOf (top) {
+  return Object.freeze([...(ITUNES_CATEGORIES[top] || [])])
+}
+
+/** 分级取值 / 单集类型 / feed 类型枚举（引擎单一真源） */
+export const EXPLICIT_OPTIONS = EXPLICIT_VALUES
+export const EPISODE_TYPE_OPTIONS = EPISODE_TYPE_VALUES
+export const CHANNEL_EPISODE_TYPE_OPTIONS = EPISODE_FEED_TYPE_VALUES
+
+/** 把响应式对象脱壳成可序列化的纯 JSON；失败（循环引用等）返回 null 并由调用方报错 */
+export function toPlain (value) {
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return null
+  }
+}
+
+/** 生成单集 id/guid 草稿用短标识 */
+function genId () {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+}
+
+/**
+ * 校验码 → 用户可见文案。未知码走带 code 的兜底文案（禁止把裸码直接甩给用户，
+ * 也不允许静默吞掉——未知码必须可见，否则新增校验码会以"空白提示"的形态逃逸）。
+ */
+export function issueText (issue) {
+  const code = issue && issue.code ? String(issue.code) : ''
+  const { t, te } = i18n.global
+  const key = `podcast.errors.${code}`
+  if (code && te(key)) return t(key)
+  return t('podcast.errors.fallback', { code: code || 'UNKNOWN' })
+}
+
+/**
+ * 表单 ↔ 引擎合同键名的唯一映射点。
+ *
+ * 为什么必须存在：引擎 validateChannel 读的是 `categoryId`（形如 "Arts/Books"，最多两级）
+ * 与 `feedType`，而界面表单按用户阅读习惯持有 `category` + `subCategory` + `feedType`。
+ * 少一次映射的症状是「分类明明选了、保存却报『播客分类不能为空』」——
+ * 用户以为是校验坏了，实际是键名断链（AGENTS.md「适配器入参键必须与调用方契约键一致」同源）。
+ * 反向映射用于编辑回填，缺它会把已存的 categoryId 显示成空下拉。
+ */
+export function channelFormToPayload (form) {
+  const { category, subCategory, ...rest } = form || {}
+  const top = String(category || '').trim()
+  const sub = String(subCategory || '').trim()
+  const payload = { ...rest }
+  if (top) payload.categoryId = sub ? `${top}/${sub}` : top
+  return payload
+}
+
+/** 引擎载荷 → 表单（回填用） */
+export function channelPayloadToForm (payload) {
+  const base = makeChannelDraft()
+  if (!payload || typeof payload !== 'object') return base
+  const [top = '', sub = ''] = String(payload.categoryId || '').split('/').map((s) => s.trim())
+  const { categoryId, ...rest } = payload
+  return { ...base, ...rest, category: top, subCategory: sub }
+}
+
+/** 频道表单草稿（默认值与引擎校验默认口径一致：language=zh-CN、feedType=episodic） */
+function makeChannelDraft () {
+  return {
+    title: '',
+    link: '',
+    description: '',
+    subtitle: '',
+    language: 'zh-CN',
+    author: '',
+    ownerName: '',
+    ownerEmail: '',
+    explicit: 'no',
+    feedType: 'episodic',
+    coverUrl: '',
+    coverSize: '',
+    category: '',
+    subCategory: '',
+    audioSource: 'url',
+  }
+}
+
+/**
+ * @returns 频道状态 / 单集列表 / feed 生成与自检 / 分发端目录 的全部状态与动作
+ */
+export function usePodcastChannel () {
+  const channel = ref(null) // null = 未配置
+  const channelLoaded = ref(false)
+  const savingChannel = ref(false)
+  const channelError = ref('')
+
+  const episodes = ref([])
+  const episodesLoaded = ref(false)
+  const savingEpisode = ref(false)
+  const episodesError = ref('')
+
+  const feedResult = ref(null) // { ok, xml, path, itemCount } | { ok:false, error }
+  const buildingFeed = ref(false)
+
+  const verifyResult = ref(null) // { ok, issues, checks, itemCount } | { ok:false, error }
+  const verifying = ref(false)
+
+  const endpoints = ref([])
+  const endpointsError = ref('')
+
+  const channelIssues = computed(() => {
+    const issues = []
+    if (verifyResult.value && Array.isArray(verifyResult.value.issues)) {
+      for (const it of verifyResult.value.issues) {
+        if (String((it && it.code) || '').startsWith('CHANNEL_')) issues.push(it)
+      }
+    }
+    return issues
+  })
+
+  function podcastApi () {
+    if (typeof window === 'undefined') return null
+    const api = window.electronAPI && window.electronAPI.podcast
+    return api && typeof api === 'object' ? api : null
+  }
+
+  /** 统一 IPC 调用：命名空间缺失 → IPC_UNAVAILABLE；调用抛错 → IPC_EXCEPTION */
+  async function call (method, ...args) {
+    const api = podcastApi()
+    if (!api || typeof api[method] !== 'function') {
+      return { ok: false, code: IPC_UNAVAILABLE }
+    }
+    try {
+      const res = await api[method](...args)
+      if (res == null || typeof res !== 'object') {
+        return { ok: false, code: IPC_EXCEPTION }
+      }
+      return res
+    } catch (err) {
+      return { ok: false, code: IPC_EXCEPTION, message: (err && err.message) || String(err) }
+    }
+  }
+
+  async function loadChannel () {
+    channelError.value = ''
+    const res = await call('channelGet')
+    if (res.ok) {
+      channel.value = res.channel == null ? null : res.channel
+    } else {
+      channelError.value = res.code || IPC_EXCEPTION
+    }
+    channelLoaded.value = true
+    return res
+  }
+
+  async function loadEpisodes () {
+    episodesError.value = ''
+    const res = await call('episodeList')
+    if (res.ok) {
+      episodes.value = Array.isArray(res.episodes) ? res.episodes : []
+    } else {
+      episodesError.value = res.code || IPC_EXCEPTION
+    }
+    episodesLoaded.value = true
+    return res
+  }
+
+  /**
+   * 分发端目录：优先 IPC（主进程与引擎 CJS 同源）；不可达时降级本地 ESM 孪生目录。
+   * 降级只影响指引展示（纯静态数据），不影响任何写操作。
+   */
+  async function loadEndpoints () {
+    endpointsError.value = ''
+    const res = await call('endpointList')
+    if (res && res.endpoints && Array.isArray(res.endpoints) && res.endpoints.length > 0) {
+      endpoints.value = res.endpoints
+      return { ok: true, source: 'ipc' }
+    }
+    try {
+      endpoints.value = listPodcastEndpoints()
+      if (!res.ok) endpointsError.value = res.code || IPC_EXCEPTION
+      return { ok: true, source: 'local' }
+    } catch {
+      endpoints.value = []
+      endpointsError.value = IPC_UNAVAILABLE
+      return { ok: false, code: IPC_UNAVAILABLE }
+    }
+  }
+
+  /** 保存频道配置；载荷先脱壳（QM-2 IPC 序列化纪律） */
+  async function saveChannel (payload) {
+    savingChannel.value = true
+    channelError.value = ''
+    try {
+      const plain = toPlain(payload)
+      if (plain == null) {
+        channelError.value = PAYLOAD_NOT_SERIALIZABLE
+        return { ok: false, code: PAYLOAD_NOT_SERIALIZABLE }
+      }
+      const res = await call('channelSave', channelFormToPayload(plain))
+      if (res.ok && res.channel) channel.value = res.channel
+      else if (!res.ok) channelError.value = res.code || IPC_EXCEPTION
+      return res
+    } finally {
+      savingChannel.value = false
+    }
+  }
+
+  /** 新增/原地更新单集（按 id）；成功后同步本地列表 */
+  async function saveEpisode (payload) {
+    savingEpisode.value = true
+    episodesError.value = ''
+    try {
+      const plain = toPlain(payload)
+      if (plain == null) {
+        episodesError.value = PAYLOAD_NOT_SERIALIZABLE
+        return { ok: false, code: PAYLOAD_NOT_SERIALIZABLE }
+      }
+      const res = await call('episodeSave', plain)
+      if (res.ok && res.episode) {
+        const saved = res.episode
+        const idx = episodes.value.findIndex((e) => e && e.id === saved.id)
+        if (idx >= 0) episodes.value.splice(idx, 1, saved)
+        else episodes.value.push(saved)
+      } else if (!res.ok) {
+        episodesError.value = res.code || IPC_EXCEPTION
+      }
+      return res
+    } finally {
+      savingEpisode.value = false
+    }
+  }
+
+  async function removeEpisode (id) {
+    episodesError.value = ''
+    const res = await call('episodeRemove', String(id == null ? '' : id))
+    if (res.ok) {
+      episodes.value = episodes.value.filter((e) => e && e.id !== id)
+    } else {
+      episodesError.value = res.code || IPC_EXCEPTION
+    }
+    return res
+  }
+
+  /** 生成 feed 文件到 userData（主进程落盘并跑引擎校验） */
+  async function buildFeed () {
+    buildingFeed.value = true
+    feedResult.value = null
+    try {
+      const res = await call('feedBuild')
+      feedResult.value = res && res.ok
+        ? { ok: true, path: res.path || '', itemCount: Number(res.itemCount) || 0 }
+        : { ok: false, code: (res && res.code) || IPC_EXCEPTION, issues: (res && res.issues) || [] }
+      return feedResult.value
+    } finally {
+      buildingFeed.value = false
+    }
+  }
+
+  /** feed 自检（可达性等由主进程注入 headImpl 执行；渲染层零出站） */
+  async function verifyFeed () {
+    verifying.value = true
+    verifyResult.value = null
+    try {
+      const res = await call('feedVerify')
+      verifyResult.value = res && res.ok !== undefined
+        ? {
+            ok: res.ok === true,
+            issues: Array.isArray(res.issues) ? res.issues : [],
+            checks: Array.isArray(res.checks) ? res.checks : [],
+            itemCount: Number(res.itemCount) || 0,
+          }
+        : { ok: false, code: (res && res.code) || IPC_EXCEPTION, issues: [], checks: [], itemCount: 0 }
+      return verifyResult.value
+    } finally {
+      verifying.value = false
+    }
+  }
+
+  /** 单集表单草稿（guid/pubDate 预填，其余留空由用户填写） */
+  function makeEpisodeDraft () {
+    return {
+      id: genId(),
+      title: '',
+      description: '',
+      audioUrl: '',
+      localFilePath: '',
+      durationSec: null,
+      sizeBytes: null,
+      pubDate: new Date().toISOString(),
+      explicit: '',
+      episodeType: 'full',
+      guid: `podcast-${genId()}`,
+    }
+  }
+
+  /** 列表时长展示：引擎 formatDuration 单一口径 */
+  function durationText (sec) {
+    const n = Number(sec)
+    if (!Number.isFinite(n) || n <= 0) return ''
+    return formatDuration(n)
+  }
+
+  /** 校验码文案（视图统一入口） */
+  function errorText (code) {
+    const key = `podcast.errors.${String(code || '')}`
+    const { t, te } = i18n.global
+    return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
+  }
+
+  return {
+    // 状态
+    channel,
+    channelLoaded,
+    savingChannel,
+    channelError,
+    episodes,
+    episodesLoaded,
+    savingEpisode,
+    episodesError,
+    feedResult,
+    buildingFeed,
+    verifyResult,
+    verifying,
+    endpoints,
+    endpointsError,
+    channelIssues,
+    // 动作
+    loadChannel,
+    loadEpisodes,
+    loadEndpoints,
+    saveChannel,
+    saveEpisode,
+    removeEpisode,
+    buildFeed,
+    verifyFeed,
+    makeEpisodeDraft,
+    makeChannelDraft,
+    durationText,
+    errorText,
+    issueText,
+  }
+}

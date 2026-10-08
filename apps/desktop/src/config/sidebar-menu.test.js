@@ -106,6 +106,7 @@ const EXPECTED_DERIVED_MENU = Object.freeze([
   { key: 'knowledge-base', group: 'more', labelI18nKey: 'knowledgeBase.title', to: '/knowledge-base' },
   { key: 'performance-insights', group: 'more', labelI18nKey: 'perfInsights.title', to: '/performance-insights' },
   { key: 'member-center', group: 'more', labelI18nKey: 'memberCenter.menuEntry', to: '/member-center' },
+  { key: 'podcast', group: 'more', labelI18nKey: 'podcast.pageTitle', to: '/podcast' },
 ])
 
 describe('SIDEBAR_MENU_DEFINITION 派生基线（route-registry 派生化，2026-09-17）', () => {

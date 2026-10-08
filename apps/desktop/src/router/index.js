@@ -56,6 +56,7 @@ const routes = [
   { path: '/performance-insights', name: 'PerformanceInsights', component: () => import('@/views/PerformanceInsights.vue') },
   { path: '/rewrite', name: 'Rewrite', component: () => import('@/views/RewriteView.vue') },
   { path: '/hot-topics', name: 'HotTopics', component: () => import('@/views/HotTopics.vue') },
+  { path: '/podcast', name: 'PodcastChannel', component: () => import('@/views/PodcastChannelView.vue') },
 ]
 
 const router = createRouter({
