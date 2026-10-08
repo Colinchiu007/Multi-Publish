@@ -291,19 +291,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-rgj7-g3m4-5g8c",
-      "module": "sharp",
-      "severity": "high",
-      "patched": ">=0.35.4",
-      "targetVersion": "0.35.4",
-      "roots": [
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "sharp 是 packages/shared-utils 的直接生产依赖（^0.35.1，5 处引用：封面裁剪/缩略图），修复版 >=0.35.4 已落在 caret 范围内，刷新 lockfile 即可；因涉及图片输出，升后需单独回归封面裁剪。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-rgw5-rvv9-x895",
       "module": "brace-expansion",
       "severity": "high",
@@ -353,19 +340,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "baseline-browser-mapping 与 browserslist 同族构建期数据包；升级 PR 提到 >=2.11.0。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-wq5f-xc86-pv6w",
-      "module": "sharp",
-      "severity": "high",
-      "patched": ">=0.35.5",
-      "roots": [
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "sharp 在 packages/shared-utils 有直接依赖声明 ^0.35.1，caret 范围 0.35.x 已含修复版 >=0.35.5，刷新 lockfile 即可，无需改 manifest。本条沿用基线中 sharp 的既有处置（GHSA-rgj7-g3m4-5g8c：upgrade-tracked → 0.35.4），仅补丁号由 0.35.4 推进到 0.35.5，处置方式未变。前一条的原始依据：sharp 在 packages/shared-utils 有直接依赖声明 ^0.35.1，caret 范围含修复版 >=0.35.4，刷新 lockfile 即可（涉及图片处理，单独一条依赖记录）。",
-      "targetVersion": "0.35.5"
     },
     {
       "source": "npm",
