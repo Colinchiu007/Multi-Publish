@@ -2,9 +2,6 @@
 record: plan-review-deps
 task: plan-review.sh 后端体检移植 ABS-prepend 体系，消灭被动告警照跑
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 回填 PR 的会话
 ---
 
 ## 本次执行记录：plan-review.sh 后端体检 ABS-prepend 移植（plan-review-deps，2026-10-08）
@@ -90,7 +87,7 @@ command -v opencode >/dev/null 2>&1 || say "⚠ 找不到 opencode —— …"
 
 **评审后复测**：6 pass / 0 fail（新增⑤⑥两条锁）；行尾纯 LF；U+FFFD=0。
 
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#PR号)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin plan-review-deps` 返回 0 行证远端分支已删；回填后同一次提交删除上方 sync_* 三字段（文件源载体登记走 frontmatter，不进 gate-record-debt-ledger.json） |
+| 远程同步 | PASS | PR #3148 squash 合并为 `origin/main` `ad1cd311512ec438fae2a354da7d75fbc8900ad7`（2026-10-08T17:02:48+08:00，squash merge，CI 全绿）；`git ls-remote --heads origin plan-review-deps` 返回 0 行证远端分支已删。回填与销账在同一次提交内完成：删 frontmatter sync_* 三字段。⚠ 文件源载体（openspec/records/）登记走 frontmatter，不进 gate-record-debt-ledger.json（后者键须匹配 .quality-gates.md 的 ## 标题，给文件源登记会被判「陈旧登记」恒红） |
 
 ### 遗留（不假装已闭合）
 
