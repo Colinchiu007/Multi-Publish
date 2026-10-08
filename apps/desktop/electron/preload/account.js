@@ -127,6 +127,9 @@ function createAccountApi(ipcRenderer) {
     storeGetSetting: (key) => ipcRenderer.invoke('store:get-setting', key),
     storeSetSetting: (key, value) => ipcRenderer.invoke('store:set-setting', key, value),
     storeListCallbackLogs: (limit) => ipcRenderer.invoke('store:list-callback-logs', limit),
+
+    // probe 调试通道：主进程内实跑小红书 API 草稿链（draft:true 落草稿箱，不公开发布）
+    probeXiaohongshuDraftChain: (accountId, opts) => ipcRenderer.invoke('xiaohongshu:probe-draft-chain', { accountId, ...(opts || {}) }),
   }
 }
 
