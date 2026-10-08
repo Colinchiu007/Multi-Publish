@@ -31,6 +31,9 @@ const HEADING_RE = /^## /
 const RECORDS_REL = path.join('openspec', 'records')
 const RECORD_FIELD_REASON = 'sync_reason'
 const RECORD_FIELD_OWNER = 'sync_backfill_owner'
+// 第三个登记字段。AGENTS.md 要求回填时删「sync_* 三字段」，但门禁此前只看两个，
+// 于是 11 篇把 `sync_status: PASS` 留在原地还能打印「登记字段无残留」——自述比判据宽。
+const RECORD_FIELD_STATUS = 'sync_status'
 
 // 已收口的写法。只允许这一侧扩张，新增未收口写法必须走 gate-record-debt-ledger.json。
 const CLOSED_RE = /^(PASS|N\/A|✅|已)/
@@ -113,8 +116,10 @@ function readRecord(recordsRoot, fileName) {
   const status = rowLine ? (rowLine.split('|').map(normalize)[2] || '') : null
   const reason = fm[RECORD_FIELD_REASON]
   const owner = fm[RECORD_FIELD_OWNER]
-  const hasAnyRegistration = Object.prototype.hasOwnProperty.call(fm, RECORD_FIELD_REASON)
-    || Object.prototype.hasOwnProperty.call(fm, RECORD_FIELD_OWNER)
+  // 「残留」按三字段判（回填即整段删）；「未收口必须登记」仍只要求 reason+owner，
+  // 把 sync_status 算进那一侧等于让「只写 sync_status」就能冒充已登记。
+  const hasAnyRegistration = [RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS]
+    .some((k) => Object.prototype.hasOwnProperty.call(fm, k))
   return {
     name,
     fileName,
@@ -213,7 +218,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     }
     if (rec.closed) {
       // 回填后必须删掉登记字段：允许两者共存就等于把"记得删登记项"这条人工耦合原样搬进新载体
-      if (rec.hasRegistration) staleRecordFields.push(`${rec.fileName}（已 ${rec.status} 却仍留 ${RECORD_FIELD_REASON}/${RECORD_FIELD_OWNER}）`)
+      if (rec.hasRegistration) staleRecordFields.push(`${rec.fileName}（已 ${rec.status} 却仍留 ${RECORD_FIELD_REASON}/${RECORD_FIELD_OWNER}/${RECORD_FIELD_STATUS}）`)
       continue
     }
     // 未收口：登记随文件走，两个字段都必须非空，否则就是没登记
@@ -293,7 +298,7 @@ function main() {
 module.exports = {
   collect, format, loadLedger, normalize,
   listRecordFiles, readRecord, readFrontmatter,
-  RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER,
+  RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED,
 }
 

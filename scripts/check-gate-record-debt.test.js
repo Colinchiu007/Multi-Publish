@@ -354,6 +354,34 @@ test('已收口却仍留登记字段判为陈旧字段（回填即删字段，�
   assert.match(checker.format(r), /回填后请删除/)
 })
 
+// 缺口来自一次真实清理：AGENTS.md 要求回填时删「sync_* 三字段」，实测 main 上有 11 篇只删了两个、
+// 把 sync_status: PASS 留在原地，而门禁的「登记字段无残留」这句话当时根本不查这个字段。
+test('只留 sync_status 也必须判陈旧字段（门禁自述的三个字段必须真的都查）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'closed-status-only', {
+    row: 'PASS',
+    fm: { sync_status: 'PASS' },
+  })
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.staleRecordFields.length, 1, JSON.stringify(r.staleRecordFields))
+  assert.match(r.staleRecordFields[0], /closed-status-only/)
+  assert.match(r.staleRecordFields[0], /sync_status/, `点名必须含字段名：${r.staleRecordFields[0]}`)
+})
+
+// 反向：未收口的记录三个字段都带着是**正确形态**，不得被"残留"判据误伤 ——
+// 这条与上一条成对，否则"补宽判据"会顺手把合法登记判红（那等于逼会话删掉登记去消红）。
+test('未收口记录带着 sync_status: PENDING 不得判为陈旧字段', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'open-with-status', {
+    row: 'PENDING',
+    fm: { sync_status: 'PENDING', sync_reason: '本 PR 尚未合并', sync_backfill_owner: '下一个会话' },
+  })
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.staleRecordFields.length, 0, JSON.stringify(r.staleRecordFields))
+  // 带齐三个字段的未收口记录是「已登记的活账」：既不该被残留判据打红，也不该再进 open 未登记清单
+  assert.strictEqual(r.open.filter((o) => o.source === 'records').length, 0, JSON.stringify(r.open))
+})
+
 test('记录目录缺席必须抛错，不得当成"零条记录"通过', () => {
   const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
   fs.rmSync(path.join(dir, 'openspec', 'records'), { recursive: true, force: true })
