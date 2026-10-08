@@ -1078,6 +1078,150 @@ jobs:
           }
           Write-Host "[GATE-7] All visual tests passed"
 
+      # Gate 7c：深色模式文字对比度（2026-10-07，Wave 0.4）。
+      #
+      # 存在的理由：Gate 7 全绿**不能**证明深色模式可读。
+      # 2026-10-07 实测 18 视图全部存在低对比文本（阈值 3:1，合计 61 处），
+      # 最差 1.09:1（浅字压浅底），而 Gate 7 与既有 dark-mode-audit.js 当时全绿。
+      # 根因是那套启发式只统计「接近纯白(≥240)的**背景**像素」，而坏掉的是
+      # **文字色** —— 背景仍是深色，整类问题落在检测盲区。
+      #
+      # 判据是「不许超过基线」而非「必须为 0」：存量是已登记的已知债务，
+      # 一次清零会让所有后续 PR 全红；逐波下降才是可执行的判据。
+      # 降基线必须显式跑 `node contrast-audit.js --update-baseline`。
+      #
+      # 复用本 job 已起的 vite（5174，TEST_URL 见上方 env），不额外起服务。
+      - name: "Gate 7c - Dark mode text contrast"
+        shell: pwsh
+        # ⚠ env 必须在本 step 重新声明。Gate 7 那个 env 是 **step 级**的，
+        # 不跨 step 继承（与 $desktopDir 同源问题，只是前者静默、后者直接报错）。
+        # 实测漏掉它时 CI 上 TEST_URL 为空 ⇒ 18 个视图全部 goto 失败，
+        # 而脚本的 fail-closed 只在「全部视图都失败」时才触发——这里恰好该红，
+        # 但此前 4 轮都被 $desktopDir 挡住，看不到这一层。
+        env:
+          TEST_URL: http://127.0.0.1:5174
+          HEADLESS: "true"
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # ⚠ $desktopDir 必须在**本 step 内**重新计算：它是 Gate 7 step 里的局部变量，
+          # step 之间不共享（job 级 env 可以，shell 变量不行）。上一版直接
+          # Push-Location $desktopDir → 变量为 null → step 在第一行 Write-Host 之后
+          # 就抛错退出，node 从未执行 ⇒ 表现为「只有 exit code 1、没有报告没有诊断」。
+          $desktopDir = Join-Path $PWD "apps/desktop"
+          # 目录不存在就直接失败并说清楚，不要让 Push-Location 静默抛错
+          if (-not (Test-Path -LiteralPath $desktopDir)) {
+            Write-Host "[GATE-7c] FATAL: apps/desktop 不存在 (cwd=$((Get-Location).Path))"
+            exit 2
+          }
+          Write-Host "[GATE-7c] desktopDir = $desktopDir"
+          Push-Location $desktopDir
+
+          # ── 自己确保 dev server 可用 ──────────────────────────────────
+          # Gate 7 在自己 step 的 finally 里 taskkill 掉了 vite，所以 Gate 7c 跑到
+          # 此刻时 5174 已经是死的（实测报告：18 个视图全部
+          # ERR_CONNECTION_REFUSED）。「复用 Gate 7 起的服务」这个假设不成立。
+          # 这里不假设：先探活，活着就复用；死了就自己起一份，并在 finally 里收掉。
+          $viteProc = $null
+          $ownsVite = $false
+          try {
+            Write-Host "=== Gate 7c: dark mode contrast audit ==="
+            Write-Host "[diag] cwd       = $((Get-Location).Path)"
+            Write-Host "[diag] TEST_URL  = $env:TEST_URL"
+            Write-Host "[diag] HEADLESS  = $env:HEADLESS"
+            Write-Host "[diag] DEV_FLAG  = $env:VITE_MP_DEV_FLAG_OVERRIDE"
+            Write-Host "[diag] node      = $(node --version)"
+
+            $probe = $env:TEST_URL
+            $alive = $false
+            try {
+              $r = Invoke-WebRequest -Uri $probe -UseBasicParsing -TimeoutSec 5
+              Write-Host "[diag] probe $probe -> HTTP $($r.StatusCode)"
+              $alive = ($r.StatusCode -eq 200)
+            } catch {
+              Write-Host "[diag] probe $probe -> FAIL: $($_.Exception.Message)"
+            }
+
+            if (-not $alive) {
+              Write-Host "[GATE-7c] dev server 不可用，本 step 自起 vite ..."
+              $viteProc = Start-Process -FilePath "pnpm.cmd" `
+                -ArgumentList @("exec", "vite", "--host", "127.0.0.1", "--port", "5174") `
+                -WorkingDirectory $desktopDir -PassThru -NoNewWindow `
+                -RedirectStandardOutput (Join-Path $desktopDir "vite-gate7c.stdout.log") `
+                -RedirectStandardError (Join-Path $desktopDir "vite-gate7c.stderr.log")
+              $ownsVite = $true
+              $ready = $false
+              for ($i = 0; $i -lt 30; $i++) {
+                Start-Sleep -Seconds 2
+                try {
+                  $rr = Invoke-WebRequest -Uri $probe -UseBasicParsing -TimeoutSec 3
+                  if ($rr.StatusCode -eq 200) { $ready = $true; break }
+                } catch {}
+                if ($viteProc.HasExited) {
+                  Write-Host "[GATE-7c] vite 进程已退出 (exit=$($viteProc.ExitCode))"
+                  break
+                }
+              }
+              if (-not $ready) {
+                Write-Host "[GATE-7c] FATAL: 自起 vite 未就绪"
+                Get-Content (Join-Path $desktopDir "vite-gate7c.stderr.log") -Tail 30 -ErrorAction SilentlyContinue
+                Pop-Location
+                exit 2
+              }
+              Write-Host "[GATE-7c] vite 已就绪 (pid=$($viteProc.Id))"
+            } else {
+              Write-Host "[GATE-7c] 复用已在运行的 dev server"
+            }
+
+            try {
+              $pc = node -e "console.log(require.resolve('playwright-core'))"
+              Write-Host "[diag] playwright-core -> $pc"
+            } catch {
+              Write-Host "[diag] playwright-core -> FAIL: $($_.Exception.Message)"
+            }
+
+            $bl = "apps/desktop/tests/visual-testing/reports/contrast-audit-baseline.json"
+            if (Test-Path $bl) {
+              Write-Host "[diag] baseline 存在, sha=$((Get-FileHash $bl -Algorithm SHA256).Hash)"
+              Write-Host "[diag] baseline 内容: $(Get-Content $bl -Raw)"
+            } else {
+              Write-Host "[diag] baseline 缺失: $bl"
+            }
+
+            node tests/visual-testing/scripts/contrast-audit.js 2>&1 | Tee-Object -Variable contrastOut
+            $contrastExit = $LASTEXITCODE
+            Write-Host "[GATE-7c] contrast-audit exit: $contrastExit"
+            if ($contrastExit -ne 0) {
+              Write-Host "[GATE-7c] ---- 脚本输出 ----"
+              $contrastOut | ForEach-Object { Write-Host $_ }
+              $diagFile = Join-Path $desktopDir "tests/visual-testing/contrast-audit-diag.txt"
+              if (Test-Path $diagFile) {
+                Write-Host "[GATE-7c] ---- 启动期诊断 ----"
+                Get-Content $diagFile
+              } else {
+                Write-Host "[GATE-7c] 无诊断文件 —— 脚本连 module 加载都没走到"
+              }
+              $reportPath = Join-Path $desktopDir "tests/visual-testing/contrast-audit-report.json"
+              if (Test-Path $reportPath) {
+                Write-Host "[GATE-7c] ---- 报告前 200 行 ----"
+                Get-Content $reportPath -TotalCount 200
+              } else {
+                Write-Host "[GATE-7c] 未生成报告 —— 脚本在写报告前退出，看上方 [diag] 行"
+              }
+              Pop-Location
+              if ($ownsVite -and $viteProc -and -not $viteProc.HasExited) {
+                taskkill /PID $viteProc.Id /T /F 2>$null | Out-Null
+              }
+              exit $contrastExit
+            }
+            Write-Host "[GATE-7c] contrast audit passed"
+          } finally {
+            # 只收自己起的那份；复用的（Gate 7 起的）不归本 step 管
+            if ($ownsVite -and $viteProc -and -not $viteProc.HasExited) {
+              taskkill /PID $viteProc.Id /T /F 2>$null | Out-Null
+            }
+            Pop-Location
+          }
+
       # Gate 7b：基线新鲜度（PR 侧、partial 形态）+ 两轮有界重试终判（#31）。
       # 存在的理由：#2761 改了发布表单 UI 却没刷新基线，而新鲜度检查当时只接在
       # visual-test.yml（2026-09-17 起不再由 PR 触发）里 ⇒ 它全绿合并、main 连红 11 次。
@@ -1162,10 +1306,13 @@ jobs:
           name: quality-gate-visual-reports
           path: |
             apps/desktop/tests/visual-testing/reports/**
+            apps/desktop/tests/visual-testing/contrast-audit-report.json
+            apps/desktop/tests/visual-testing/contrast-audit-diag.txt
             apps/desktop/tests/visual-testing/screenshots/**
             apps/desktop/tests/visual-testing/screenshots-round1/**
             apps/desktop/vite-visual.*.log
             apps/desktop/vite-gate7b-round2.*.log
+            apps/desktop/vite-gate7c.*.log
           if-no-files-found: ignore
           retention-days: 5
 

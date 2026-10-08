@@ -2,3 +2,7 @@
 mp-pixel-audit.md
 mp-pixel-diff/
 !/__placeholder__.keep
+# Gate 7c 的对比度基线必须入库：CI 上缺基线会直接 exit 2（判据不存在时不得
+# 静默放行）。reports/ 下的 json 默认是运行产物，但这份是门禁判据本身，
+# 与 .github/scripts/*-baseline.json 同一性质，故显式放行。
+!contrast-audit-baseline.json
