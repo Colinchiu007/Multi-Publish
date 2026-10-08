@@ -35,7 +35,8 @@
 - 行为变化：新增「播客 RSS 频道」页面与侧边菜单项；不改动既有 15 平台发布链路，不新增出站请求。
 - 破坏性：无。`PLATFORM_NAMES`/`PLATFORM_PUBLISH_META` 保持 15；`publishMode` 值域不动。
 - 已收敛风险：PRD R3 双实现漂移（草稿移出源码树）。
-- 未闭合项（如实）：QM-4 像素用例**登记已闭合**（双清单 + `.gitignore` 浅色/暗色放行），**首张基线尚未入库**——AGENTS QM-4 第 7 条规定基线只能取自同一次 CI run 的 `quality-gate-visual-reports` artifact，所以本 PR 首次 `QG Visual` 对 `podcast-channel` 必然报 `ERR_VISUAL_BASELINE_MISSING`，须由那次 run 的渲染回填并自证「新基线 vs 同一次 CI 渲染 = 0 px」；侧边菜单新增条目同时会改变所有含侧栏视图的全页像素，若 `QG Visual` 因此变红，正解同样是按同一次 run 的 CI 渲染重建受影响基线（**禁提阈值**、禁本机截图）。
+- 未闭合项（如实）：QM-4 像素用例**登记已闭合**（双清单 + `.gitignore` 浅色/暗色放行），**首张基线尚未入库**——AGENTS QM-4 第 7 条规定基线只能取自同一次 CI run 的 `quality-gate-visual-reports` artifact，所以本 PR 首次 `QG Visual` 对 `podcast-channel` 必然报 `ERR_VISUAL_BASELINE_MISSING`，须由那次 run 的渲染回填并自证「新基线 vs 同一次 CI 渲染 = 0 px」；侧边菜单新增条目同时会改变所有含侧栏视图的全页像素，若 `QG Visual` 因此变红，正解同样是按同一次 run 的 CI 渲染重建受影响基线（**禁提阈值**、禁本机截图）。**该回填已在第三刀完成**（浅色侧）：取自 run `37840950306` 的 `quality-gate-visual-reports` artifact，新增 `podcast-channel.png` + 重建 8 张被侧栏位移的基线，逐张 SHA-256 自证与渲染字节全等，`check-baseline-freshness` 违规数 8 → 0。仍**未闭合**的是暗色基线 `podcast-channel-dark.png`——`test:visual:pixel:dark` 只接在 `visual-test.yml:100`（main push / dispatch），PR 侧不跑，须合并后由那次 main 的 Visual Tests 产物回填。
+- 第三刀另修一处**自查引入的假缺口**（非功能缺陷）：`electron/ipc-handlers/podcast.js` 顶部注释原写有 `ipcMain.handle('podcast:…', …)` 示例，而 `check-ipc-bridge.js` 的 `RE1` 直接扫源码、**不剥离注释**，把注释里的示例当成真实注册过的通道，报「Handler 已注册但 preload.js 未暴露」⇒ `QG Static` Gate 6 变红。修法方向是**改注释措辞**（现已写明该禁止写法及其后果），**没有**放宽门禁或改成间接注册（间接注册会让整条通道从 `ipc-contract.test.js` 的双向对账里消失）。修复后 `node .github/scripts/check-ipc-bridge.js` → 431 handlers / 449 preload / rc=0（修复前 432，那 1 条正是幽灵通道）。
 
 ## Out of Scope
 

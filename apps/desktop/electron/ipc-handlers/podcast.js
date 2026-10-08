@@ -80,10 +80,13 @@ function registerHandlers (ipcMain, deps) {
     return service
   }
 
-  // ⛔ 通道名必须在注册点写成 `ipcMain.handle('podcast:…', …)` 字面量，不得收回本 helper
+  // ⛔ 通道名必须在下方 8 个注册点各自写成字符串字面量，不得收回本 helper
   // 或以循环注册：electron/tests/ipc-contract.test.js 的合同是按**源码字面量**抓取
   // preload 的 invoke 通道与主进程 handler 做双向对账的，间接注册会让整条通道
   // 从对账里消失（表现为「preload 有 8 个通道没有 handler」，而运行时其实一切正常）。
+  // 另注：本文件注释内**禁止**出现 `ipcMain.handle(` 紧跟引号的写法——
+  // .github/scripts/check-ipc-bridge.js 的 RE1 不区分注释与代码，会把注释里的示例
+  // 当成真实注册过的通道，导致「Handler 已注册但 preload.js 未暴露」的假缺口。
   const guarded = (label, fn) => withSenderCheck(async (_event, payload) => {
     try {
       const data = await fn(payload)
