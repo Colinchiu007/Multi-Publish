@@ -2,9 +2,6 @@
 record: spec-mirror-gate-archive
 task: 归档 openspec change spec-mirror-wiring-gate，把「接线资格登记表」那条 Requirement 落进主规格 ci-path-gating
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三字段）
 ---
 
 ## 本次执行记录：归档 spec-mirror-wiring-gate（spec-mirror-gate-archive，2026-10-08）
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 行尾与 diff 对账 | ✅ | 两口径 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **逐文件相同**（本次改动集 6 个文件）：`CHANGELOG.md` 29/0、`openspec/specs/ci-path-gating/spec.md` 53/0、本篇记录 30/0，三个 change 文件被 git 判成 **rename**：`R100`（proposal 与 spec delta 逐字未变，0/0）与 `R091`（tasks.md 2/2 = 只有勾选纠偏那两行原地改写；相似度 91% 而不是 100%，正是那 2 行改写的代价）。**rename + 相似度就是「纯移动、无内容丢失」的现场证据**，比我先前打算写的「185 删 = 185 增」强得多 —— 后者只说明行数相等，说明不了内容逐字未变，而 git 的 `R100` 直接给出「一个字节都没改」。删除数归因因此不需要：diff 里根本没有删除。本行仍是 1 换 1，不会让行数漂移 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行时代码与前端文件 |
 | QM-6 CCG 双模型外部评审 | N/A | 纯归档/规格同步，无判据与代码变更（AGENTS.md：纯文档/流程变更不强制 QM-6） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin spec-mirror-gate-archive` 返回 0 行证远端分支已删；回填后删除 frontmatter 三个 `sync_*` 字段 |
+| 远程同步 | ✅ | PR #3135 已 squash 合并：`git log origin/main --grep='(#3135)$' --format=%H\|%cI` 取得 `f5246a196c8971275df8c70f066a038e6568f4ed\|2026-10-08T14:00:02+08:00`；`git ls-remote --heads origin spec-mirror-gate-archive` 返回 **0 行**（远端分支随合并删除）。 CI 现场 8 pass / 0 fail / 0 pending（11 项 skipping 属 docs-only 通道；CI 侧分类器当次打印 docs-only=true，不是靠 job 全绿反推）；主规格产物复核：Requirement 5 条、新增那条 6 个 Scenario、check-spec-purpose 扫描 151 份违规 0。 |
 
 ### 遗留（不假装已闭合）
 
