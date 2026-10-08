@@ -2,9 +2,6 @@
 record: creator-wiring
 task: 博主采集主进程接线落地——补 14 个 store 方法、单事务终态提交、门面与通道注册，功能第一次真正跑通
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：博主采集主进程接线（creator-wiring，2026-10-08）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | PASS | `creator-store-surface.test.js`（`electron/services/**`）与 `creator-wiring.e2e.test.js` 同目录，均被 `apps/desktop/vitest.config.js` 的 `include` 覆盖，无需额外登记 |
 | QM-1 打包 / QM-4 视觉 | QM-1 PASS / QM-4 PASS | QM-1 见下方「QM-1 打包证据」。QM-4：本轮动过渲染层（页签按钮抽成 `CollectionCreatorTab.vue`），DOM 等价性逐属性核对（role/aria-selected/class/data-testid/徽标 span 全同，事件同落 `switchTab('creator')`）；CI 实证 QG Visual = success（`/collection` 与基线一致） |
 | QM-6 CCG 双模型外部评审 | PASS（带降级声明） | **决策层 4 轮**跨家族（`opencode` × `claude`，产物在 `.adversarial/ccg-plan-wiring-plan/`）：Critical 走势 2 → 1 → 0 → 1，**最低维度分始终 5、未达 8.0 阈值、未形式收敛**。停止自动迭代的原因是结构性的：proposer 后端（opencode）输入上限实测 7,800 字符（边约 8,125–8,145），每轮「修订」步骤都因超限失败，proposer 无法在循环内消化意见；引擎自身处方同样是「压缩方案后再分轮」。`codex` 后端在本机不可用（wrapper 的 Go `exec.LookPath` 解析到相对路径即拒绝执行，已试注入原生 exe 目录 / 剔 PATH 空段 / 换 cwd 三种方式均未奏效）。全部意见已逐条消化，见 `01-docs/PRD-CREATOR-WIRING-2026-10-07.md` |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3124 已 squash 合并，merge SHA `11d3def0bbc6c5e11f27a8d25124160a36ea1103`（2026-10-08T19:28:47+08:00）；`git ls-remote --heads origin creator-wiring` 返回 0 行证远端分支已删；上方三个 sync_* 字段已随本回填删除 |
 
 ### QM-1 打包证据（2026-10-08 实测）
 
