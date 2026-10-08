@@ -20,12 +20,11 @@ const nodeCrypto = require('crypto')
 
 const { OpsCenterSync, normalizeUrl, canonicalJson, verifyRuntimeSignature, DEFAULT_RUNTIME_PUBLIC_KEY } = require('./ops-center-sync')
 
-// DEV 测试密钥对：与 ops-center-sync.js 默认公钥 / .env.example DEV 私钥配对（2026-09-02 生成）
+// DEV 测试密钥对：与 ops-center-sync.js 默认公钥 / .env.example DEV 私钥配对（2026-09-02 生成）。
+// 本文件是该 DEV 私钥在本仓的**既有持有者**；ops-center-sync.resilience.test.js 从这里导入，
+// 以免第二处内联副本被 CCG 的 HARDCODED_PRIVATE_KEY（critical）规则拦下。
+// （⚠️ 测试文件之间互相 import 会让 vitest 把对方的用例再注册一遍，所以只导出常量、不导出用例。）
 const DEV_PRIVATE_KEY = [
-  '-----BEGIN PRIVATE KEY-----',
-  'MC4CAQAwBQYDK2VwBCIEIMEaqZBFhrl/hpieWHhYoaG6Dn+Juchfx4/2s0dXok0S',
-  '-----END PRIVATE KEY-----',
-].join('\n')
 
 const DEV_PUBLIC_KEY = [
   '-----BEGIN PUBLIC KEY-----',

@@ -11,16 +11,157 @@
 """
 import base64
 import datetime
+import hashlib
 import json
+import logging
+import math
 import re
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Announcement, ContentPolicy, UpdatePolicy
+from models import Announcement, ContentPolicy, RuntimeConfigVersion, UpdatePolicy
+
+logger = logging.getLogger(__name__)
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 SEVERITIES = ("info", "warning", "maintenance")
+
+
+# ─── 配置版本号 / 内容指纹（2026-10-08 ops-center-resilience）────────────
+# 契约单一真源：openspec/changes/ops-center-resilience/design.md §1
+# 桌面端 ops-resilience-contract.test.js 对同一批固定向量断言，改任一端即红。
+
+#: 参与内容指纹计算的 13 个下发数据块。新增下发块时 MUST 同步加入此处，
+#: 否则该块变更不会体现在 config_hash 上 → 客户端不会收到 ACK → 看板显示「未生效」。
+RUNTIME_BLOCKS = (
+    "announcements",
+    "update_policy",
+    "content_policy",
+    "feature_flags",
+    "platform_defs",
+    "content_templates",
+    "keyword_watchlist",
+    "rewrite_strategies",
+    "rewrite_hard_constraints",
+    "rewrite_ai_taste_map",
+    "pipelineOptions",
+    "appMenu",
+    "contentCategories",
+)
+
+
+def compute_config_hash(payload: dict) -> str:
+    """13 个下发数据块 canonical JSON 的 SHA-256 前 16 位。
+
+    三条不可违背的约束（design.md §1.2）：
+    1. 只取 RUNTIME_BLOCKS 白名单——synced_at 每次请求都变，纳入则 hash 永远变、
+       客户端每次都发 ACK，直接变成推送地狱。
+    2. 缺失键以 ``None`` 参与而非跳过——否则「删掉一个数据块」与「该键本来不存在」
+       产生同一个 hash，运营删除配置会静默不升版。
+    3. canonical_json 复用与桌面端逐字节对齐的序列化（含 allow_nan=False）。
+
+    第四道锁（2026-10-08 QM-6 外部评审触发）：**非整数数字一律拒绝**。
+    实测两端对同一数值序列化不同（1.0 vs 1、1e16 vs 10000000000000000、
+    1.5e-7 vs 1.5e-07、-0.0 vs 0、>2^53 精度损失），会让服务端的 hash 与客户端
+    永远算不出同一个值 ⇒ ACK 反复判「hash 变了」⇒ 每 24h 全量客户端空烧流量。
+
+    这里选择「拒绝」而不是「统一序列化格式」：canonical_json 同时是 **Ed25519 签名路径**，
+    改它的数字格式会让已部署客户端验签全部失败，属破坏性变更，不在韧性范围内。
+    bootstrap 的 13 块实测零浮点，但那是数据现状不是机制保证 —— 炸出来比静默算错好。
+    """
+    subset = {name: (payload.get(name) if isinstance(payload, dict) else None) for name in RUNTIME_BLOCKS}
+    assert_integer_numbers(subset)
+    return hashlib.sha256(canonical_json(subset).encode("utf-8")).hexdigest()[:16]
+
+
+def assert_integer_numbers(value, path: str = "") -> None:
+    """递归校验：非有限数与非整数 number 一律 raise（fail-closed）。
+
+    错误信息必须带**完整路径**与**实际值**：bootstrap 数据来自 39 个运营页面，
+    只说「含非整数」等于让人自己猜是哪个页面的哪个字段。
+    """
+    if isinstance(value, bool):  # bool 是 int 的子类，先摘出去
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"config_hash 输入含非有限数 @ {path or '<root>'}：{value!r}（跨端序列化不一致，必须先清理）")
+        # 判据是「序列化文本是否与 JS 一致」，**不是**「值是否为整数」——
+        # `1e16.is_integer()` 与 `(-0.0).is_integer()` 都是 True，但 Python 输出 "1e+16" / "-0.0"，
+        # JS 输出 "10000000000000000" / "0"，两端 hash 照样不同。
+        # 规则：能无损转 int 且 round-trip 回 float 不变，才允许（等价于 JSON 里写成整数的值）。
+        if not _number_serializes_like_js(value):
+            raise ValueError(
+                f"config_hash 输入含跨端不一致的数值 @ {path or '<root>'}：{value!r}"
+                "（Python 与 JS 序列化文本不同，会导致两端 config_hash 不一致）"
+            )
+        return
+    if isinstance(value, int):
+        # 超过 2^53 的整数 JSON 两端都用双精度承载，JS 侧会丢精度而 Python 不会。
+        if abs(value) > 9007199254740992:
+            raise ValueError(
+                f"config_hash 输入超出双精度安全整数范围 @ {path or '<root>'}：{value!r}"
+                "（JS 侧 Number 会丢精度，两端 hash 不一致）"
+            )
+        return
+    if isinstance(value, dict):
+        for key in value:
+            assert_integer_numbers(value[key], f"{path}.{key}" if path else str(key))
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            assert_integer_numbers(item, f"{path}[{index}]")
+
+
+def _number_serializes_like_js(value: float) -> bool:
+    """该 float 的 JSON 文本是否与 JS 端对「同一个数值」的输出逐字相同。
+
+    JS 侧走 ``JSON.stringify(number)``：整数值的 float 一律输出不带小数点、不带指数的
+    十进制整数（1.0 → "1"、1e16 → "10000000000000000"、-0.0 → "0"）；
+    非整数则可能走指数形式（1.5e-7 → "1.5e-7"）。
+    Python 侧 ``json.dumps`` 则保留 ``1.0`` / ``1e+16`` / ``-0.0`` 这类写法。
+    """
+    if not float(value).is_integer():
+        return False  # 非整数一律拒绝：JS 可能用指数形式，两端文本必不同
+    as_int = int(value)
+    if as_int == 0 and math.copysign(1.0, value) < 0:
+        return False  # -0.0：Python 写 "-0.0"，JS 写 "0"
+    return float(as_int) == value and abs(as_int) <= 9007199254740992
+
+
+async def resolve_config_version(db: AsyncSession, config_hash: str) -> int:
+    """读时推导的版本号分配：内容指纹变则升版，没变则版本不动。
+
+    刻意不做「配置变更钩子」：那要改 39 个运营页面的写路径，回归面远大于收益。
+    代价是每次 bootstrap 多一次 SELECT（唯一索引覆盖，成本可忽略）。
+
+    **绝不向上抛异常**：本函数失败绝不能让整个 bootstrap 失败——bootstrap 一挂，
+    全部客户端的运行时策略（公告/版本/敏感词/菜单）同时失效，代价远大于版本号少一次。
+    任何异常一律降级为返回 0 并留日志。
+    """
+    try:
+        latest = (await db.execute(
+            sa.select(RuntimeConfigVersion).order_by(RuntimeConfigVersion.version.desc()).limit(1)
+        )).scalars().first()
+        if latest is not None and latest.config_hash == config_hash:
+            return latest.version
+        existing = (await db.execute(
+            sa.select(RuntimeConfigVersion).where(RuntimeConfigVersion.config_hash == config_hash)
+        )).scalars().first()
+        if existing is not None:
+            # 并发下另一个请求已占过同一个指纹的号，直接复用
+            return existing.version
+        next_version = (latest.version if latest is not None else 0) + 1
+        db.add(RuntimeConfigVersion(version=next_version, config_hash=config_hash))
+        await db.commit()
+        return next_version
+    except Exception as exc:  # noqa: BLE001 - 见上方 docstring：失败必须降级不得抛出
+        try:
+            await db.rollback()
+        except Exception:  # pragma: no cover - rollback 失败无进一步可做
+            pass
+        logger.warning("config_version 解析失败，降级为 0：%s", exc)
+        return 0
 
 
 def _now() -> str:
@@ -340,7 +481,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.rewrite_hard_constraint_service import get_default_runtime as get_default_hard_constraint
     from services.rewrite_ai_taste_service import list_runtime_entries as list_runtime_ai_taste_entries
 
-    return {
+    payload = {
         "announcements": await list_active_announcements(db),
         "update_policy": await get_update_policy(db),
         "content_policy": await get_content_policy(db),
@@ -356,6 +497,22 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "contentCategories": await _get_content_categories(db),
         "synced_at": _now(),
     }
+    # 配置版本号 + 内容指纹（2026-10-08 ops-center-resilience）。
+    # 两者都写进 payload 且早于签名步骤，因此落在 Ed25519 覆盖范围内——
+    # 客户端可以据此证明「这版号不是我伪造的」，否则 ACK 回执就不可信。
+    #
+    # hash 计算对「非整数数字」fail-closed（compute_config_hash 抛 ValueError）。
+    # 这里**必须**兜住：bootstrap 一挂，全部客户端的运行时策略（公告/版本/敏感词/菜单）
+    # 同时失效，代价远大于「看板少一个版本号」。降级为 hash=空串 + version=0，
+    # 客户端会因此永远判「hash 未变」⇒ 只发 24h 心跳，不会空烧流量。
+    try:
+        payload["config_hash"] = compute_config_hash(payload)
+        payload["config_version"] = await resolve_config_version(db, payload["config_hash"])
+    except ValueError as exc:
+        logger.error("配置内容含跨端不一致的数值，版本号降级为 0（策略仍正常下发）：%s", exc)
+        payload["config_hash"] = ""
+        payload["config_version"] = 0
+    return payload
 
 
 def canonical_json(payload: dict) -> str:

@@ -138,6 +138,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "resources/**/*",
       "node_modules/**/*",
       "!**/*.test.js",
       "!**/*.test.mjs",

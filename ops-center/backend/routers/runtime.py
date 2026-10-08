@@ -5,13 +5,13 @@
 """
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db
 from middleware.auth import get_current_user, require_admin
-from services import runtime_service
+from services import resilience_service, runtime_service
 
 router = APIRouter(tags=["runtime"])
 
@@ -133,3 +133,33 @@ async def get_runtime_bootstrap(
     if signing_key is None:
         raise HTTPException(404, "运行时签名未启用（未配置 OPS_RUNTIME_SIGNING_PRIVATE_KEY）")
     return await runtime_service.get_runtime_bootstrap_signed(db, signing_key)
+
+
+# ─── 生效回执 / 生效聚合（2026-10-08 ops-center-resilience）────────────
+# 这两个端点回答运营负责人的核心问题：「我改完设置，到底有多少客户端真的生效了」。
+# 契约见 openspec/changes/ops-center-resilience/design.md §2。
+
+
+@router.post("/api/v1/runtime/ack")
+async def post_runtime_ack(
+    request: Request,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """客户端上报生效回执（鉴权与 bootstrap 同款）。"""
+    await _require_catalog_key(request)
+    try:
+        return await resilience_service.record_client_ack(db, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/api/v1/runtime/rollout")
+async def get_runtime_rollout(
+    version: int | None = Query(None, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
+    """配置生效看板数据（仅管理员；目录同步 Key 不得读取——这是内部运营数据）。"""
+    return await resilience_service.rollout_summary(db, version=version, limit=limit)

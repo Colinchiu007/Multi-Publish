@@ -1,0 +1,84 @@
+{
+  "_meta": {
+    "config_version": 0,
+    "config_hash": "1e8032303f210820",
+    "exported_at": "2026-10-07T15:38:21.467Z",
+    "source": "bootstrap:placeholder (发版前须用 --url 从生产运营中心重新导出)"
+  },
+  "announcements": [],
+  "update_policy": {
+    "channel": "stable",
+    "auto_check": true,
+    "force_update": false
+  },
+  "content_policy": {
+    "name": "默认内容安全策略",
+    "enabled": true,
+    "replacement": "***",
+    "updated_at": ""
+  },
+  "feature_flags": {},
+  "platform_defs": [],
+  "content_templates": [],
+  "keyword_watchlist": [],
+  "rewrite_strategies": [],
+  "rewrite_hard_constraints": null,
+  "rewrite_ai_taste_map": [],
+  "pipelineOptions": {},
+  "appMenu": null,
+  "contentCategories": {
+    "items": [
+      {
+        "category_key": "general",
+        "name": "综合",
+        "sort_order": 0
+      },
+      {
+        "category_key": "society",
+        "name": "社会",
+        "sort_order": 1
+      },
+      {
+        "category_key": "finance",
+        "name": "财经",
+        "sort_order": 2
+      },
+      {
+        "category_key": "tech",
+        "name": "科技",
+        "sort_order": 3
+      },
+      {
+        "category_key": "entertainment",
+        "name": "娱乐",
+        "sort_order": 4
+      },
+      {
+        "category_key": "sports",
+        "name": "体育",
+        "sort_order": 5
+      },
+      {
+        "category_key": "emotion",
+        "name": "情感",
+        "sort_order": 6
+      },
+      {
+        "category_key": "education",
+        "name": "教育",
+        "sort_order": 7
+      },
+      {
+        "category_key": "health",
+        "name": "健康",
+        "sort_order": 8
+      },
+      {
+        "category_key": "international",
+        "name": "国际",
+        "sort_order": 9
+      }
+    ],
+    "count": 10
+  }
+}
