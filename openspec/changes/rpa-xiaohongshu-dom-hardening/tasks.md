@@ -37,8 +37,8 @@
 - [ ] 2.3b 回填 selector 链与 RISK_OVERLAY_SELECTOR / DRAFT_BOX_ITEM_SELECTOR（需 2.1/2.2 活体取证）
 - [ ] 2.4 真实草稿箱活体验收（**双路覆盖**）：(a) 探针跑 python 轨存草稿 → 草稿箱出现本次条目；(b) 桌面真实队列发一条图文（`rpa-view-platforms.js` 的 `draftOnly:true` 用户路径）→ 草稿箱出现本次条目。均记录证据（截图/响应）。2026-10-09 调用链取证见 design.md「调用链取证」：`ROUTE_TABLE.xiaohongshu=rpa_vm`，桌面当前不经 python 发布器
 - [ ] 2.5 补 PR、更新 design 取证结论、openspec validate、回写 PRD/techdoc 相关小节
-- [x] 2.6 运行态取证（tab CDP，免扫码）——**取到新的阻断证据**：对正在运行的桌面实例用零依赖 raw CDP（`/json/list` → Node 原生 `WebSocket` → `Runtime.evaluate`）调 `xiaohongshu:probe-draft-chain`（preload 为**位置参数** `(accountId, opts)`，传对象被判"accountId 非法"）。带媒体即回 `XHS_PERMIT_NO_FILE_ID`「permit: 响应缺 file_id」，`chainDetail.dataKeys=[result, uploadTempPermits]`；全仓 grep `uploadTempPermits` 零命中 ⇒ 桌面 API 轨草稿链今天断在第 1 步取 permit，2.4(b) 在修好前不可能通过。不直接改的原因：探针只回白名单**键名**不回值，按键名猜 `uploadTempPermits` 的形状写出的解析器就是下一个"从不触发"的能力。待 2.7 取完整回包结构后按结构 TDD（PRD §4h）
-- [ ] 2.7 本地扩一处完整 permit 回包 dump（gitignored，不入库）→ 取到数组/对象形状与项内字段 → 按实测结构修 `xiaohongshu-draft.js` permit 解析（独立 change + TDD + 自己的 PR）
+- [x] 2.6 运行态取证（tab CDP，免扫码）——**取到 API 轨契约断裂证据**：对正在运行的桌面实例用零依赖 raw CDP（`/json/list` → Node 原生 `WebSocket` → `Runtime.evaluate`）调 `xiaohongshu:probe-draft-chain`（preload 为**位置参数** `(accountId, opts)`，传对象被判"accountId 非法"）。带媒体即回 `XHS_PERMIT_NO_FILE_ID`「permit: 响应缺 file_id」，`chainDetail.dataKeys=[result, uploadTempPermits]`；全仓 grep `uploadTempPermits` 零命中 ⇒ **API 轨**草稿链断在第 1 步取 permit。影响面核对后收窄：`publisher-router.js` 的 `ROUTE_TABLE.xiaohongshu={mode:'rpa_vm'}`，桌面队列走 WebContents DOM 轨、不经 api-publish-engine，故**不阻塞 2.4(b)**（我一度写成"2.4 被阻塞"，据代码撤回——PRD §4h 留了这条误判与纠证）。不直接修的原因：探针只回白名单**键名**不回值，按键名猜 `uploadTempPermits` 的形状写出的解析器就是下一个"从不触发"的能力（PRD §4h）
+- [ ] 2.7 API 轨 permit 契约修正（**范围外，需用户确认是否纳入**）：先在本地（gitignored，不入库）扩一处完整 permit 回包 dump 取到数组/对象形状与项内字段 → 按实测结构修 `xiaohongshu-draft.js` permit 解析（独立 change + TDD + 自己的 PR）
 
 ## 3. 收口
 

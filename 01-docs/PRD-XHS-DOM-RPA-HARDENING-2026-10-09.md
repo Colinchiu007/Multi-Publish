@@ -309,17 +309,27 @@ Python 明文轨仍被策略硬阻，见 4d）。注意 preload 是**位置参�
   `chainDetail` 给出平台真实回包骨架：`topKeys=[success, data, code]`，
   `dataKeys=[result, uploadTempPermits]`。
 
-**结论（直接影响验收）**：桌面 API 轨的草稿链**今天走不通**，断点在第 1 步取 permit，
+**结论（直接影响验收）**：小红书 **API 轨**的草稿链**今天走不通**，断点在第 1 步取 permit，
 根本走不到存草稿。代码读的是 `info.file_id`
 （`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`），平台回的是
 `uploadTempPermits`；全仓 grep `uploadTempPermits` **零命中**，说明这是刚取到的新契约
-证据，不是既有已知项。2.4 的 (b) 路（桌面真实队列存草稿）在它修好前不可能通过。
+证据，不是既有已知项。
 
-**为什么不在本轮直接改**：探针为安全只回传白名单字段（键名，不含值），我据此只知道
+**这条断裂不影响 2.4 的验收路径（差点写错）**：我一度把它写成"桌面队列存草稿被阻塞"，
+据代码核对后撤回——`apps/desktop/electron/services/publisher-router.js` 的
+`ROUTE_TABLE.xiaohongshu = {mode:'rpa_vm'}`，桌面发布队列走 `RpaViewManager`
+（WebContents `executeJavaScript` DOM 轨，上传/点草稿都在页面里做），
+**不经过** `api-publish-engine` 的草稿链；后者今天只被诊断探针 IPC
+（`ipc-handlers/xiaohongshu-draft-probe.js`）和引擎适配器注册表
+（`src/adapters/xiaohongshu.js` ← `src/index.js`）触达。所以 permit 断裂的实际影响面是
+"将来把路由切成 API 轨"这一选项，而不是本 change 的验收路径。把它当成验收阻塞，
+就会得出"必须先把草稿箱验收改成修 permit"这个错误结论。
+
+**为什么不在本轮直接修**：探针为安全只回传白名单字段（键名，不含值），我据此只知道
 `uploadTempPermits` 这个键存在，不知道它是数组还是对象、项内有无 `file_id`。
 按键名猜形状写出来的解析器，就是本轨一直在清的"能力声称存在、实际从不触发"的第二种
-形态。2.6 的正确顺序：先在本地（gitignored，不入库）扩一处完整回包 dump 取到结构，
-再按结构 TDD 解析器与它自己的 PR。
+形态。2.7 的正确顺序：先在本地（gitignored，不入库）扩一处完整回包 dump 取到结构，
+再按结构 TDD 解析器与它自己的 PR——且该修复属 API 轨范围，需用户确认是否纳入。
 
 红线复核：探针未点击任何公开发布入口；回包只落本地；账号与 cookie 名称不入库、不入 PR。
 
@@ -332,8 +342,9 @@ Python 明文轨仍被策略硬阻，见 4d）。注意 preload 是**位置参�
 | 2.1 活体取证 runbook 脚本 | 已就绪（脚本+自检通过，未执行） | 执行需**用户登录小红书**（headed 浏览器扫码） |
 | 2.2 真实选择器取证 | 待办 | 同上 |
 | 2.3b `RISK_OVERLAY_SELECTOR` / `DRAFT_BOX_ITEM_SELECTOR` 回填 | 待办 | 依赖 2.1/2.2 |
-| 2.4 真实草稿箱活体验收 | 待办 | 依赖上面全部；(b) 桌面 API 轨另被 4h 的 permit 契约断裂阻塞 |
-| 2.6 API 草稿链 permit 契约修正 | 待办（新发现，见 4h） | 需先取到 permit 响应**完整**结构，禁止按键名猜 |
+| 2.4 真实草稿箱活体验收 | 待办 | 依赖 2.1/2.2/2.3b（(b) 路走 `rpa_vm`，与 4h 的 API permit 断裂无关） |
+| 2.6 运行态取证（tab CDP，免扫码） | 已完成 | 取到 API 轨 permit 契约断裂证据（4h） |
+| 2.7 API 轨 permit 契约修正 | 待办（范围外，待用户确认） | 需先取 permit 完整回包结构，禁止按键名猜 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |
 
 当前端点属**源证据而非活体证据**：`/web_api/sns/v2/note` 是否确为创作者中心
