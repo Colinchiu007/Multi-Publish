@@ -281,8 +281,43 @@ EOF
       _RB_CODE=ABS
       _RB_MSG="已把绝对目录 $_rb_prepended 补到 PATH 最前；裸名解析到 $_rb_real"
     else
-      _RB_CODE=PATH
-      _RB_MSG="裸名解析到 $_rb_real（候选目录里没找到可 prepend 的，已按原样使用）"
+      # PATH 分支不得直接计为可用（QM-6 评审 i1 的源头同病，plan-review.sh
+      # 已在 #3148 修掉同款；见 openspec/records/plan-review-deps.md）：
+      # 裸名命中但候选目录未命中，说明后端来自「来历不明」的 PATH 条目——
+      # 恰是本脚本要防的坏环境（无盘符条目按 cwd 解析 / Go wrapper ErrDot）。
+      # 此时「command -v 成功」推不出「wrapper 能起」，静默计入可用 =
+      # wrapper 起不来仍当双后端用，无告警无修法。
+      #
+      # 修法（含 QM-6 二轮 i1/i3/i5 的三处收紧）：
+      #   i1  命中项必须是**绝对路径**才可信——相对 PATH 条目（无盘符坏环境
+      #       的典型形态）下 command -v 返回相对路径，${var%/*} 得到相对目录，
+      #       prepend 后解析不变、ErrDot 依旧，却会伪装成 ABS；
+      #   i5  command -v 对函数/别名/内建返回无斜杠裸名（实测 `command -v cd`
+      #       → `cd`），${var%/*} 无分割——同样按 MISS 并在文案里说明；
+      #   i3  **不再把来历不明的目录全局 prepend 进 PATH**——那会重排后续
+      #       所有裸命令（git/node 等）的解析顺序，同目录同名 stub 可遮蔽
+      #       真实工具。改为只把绝对路径**报出来**供主流程核对，不动 PATH。
+      # 判定：绝对路径命中 = ABS（可信）；其余一律 MISS（fail-closed）。
+      case "$_rb_real" in
+        */*)
+          case "$_rb_real" in
+            /*)
+              _RB_CODE=ABS
+              _RB_MSG="裸名命中来自非候选目录的绝对路径 $_rb_real（未改 PATH，仅上报核对）"
+              ;;
+            *)
+              _RB_CODE=MISS
+              _RB_MSG="裸名解析到相对路径 $_rb_real（来自无盘符/相对 PATH 条目，ErrDot 域）——按缺失处理"
+              return 1
+              ;;
+          esac
+          ;;
+        *)
+          _RB_CODE=MISS
+          _RB_MSG="command -v 命中的是无路径裸名（函数/别名/内建），不是可执行文件——按缺失处理"
+          return 1
+          ;;
+      esac
     fi
     return 0
   fi
@@ -325,7 +360,9 @@ report_backends() {
     resolve_backend "$_rb_b" || true
     say "  · $_rb_b  [$_RB_CODE] $_RB_MSG（$_rb_why）"
     case "$_RB_CODE" in
-      PATH|ABS) _rb_n=$((_rb_n + 1)) ;;
+      # PATH 档已废除（⑩）：裸名来自非候选目录时要么升级 ABS 要么 MISS，
+      # 不再有「已按原样使用」的中间态。
+      ABS) _rb_n=$((_rb_n + 1)) ;;
       MISS)
         _rb_rc=2
         say "      ↳ 修法：装一个（npm i -g $_rb_pkg），"
