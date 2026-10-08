@@ -1,4 +1,15 @@
-# [未发布] docs(creator): B 站审核回写修复的真机端到端复验入库（带一个天然对照组）（2026-10-07，keyfix-live-verify）
+# [未发布] fix(定时发布): 收口真机 E2E 遗留三项（直连 7050 真因 / 排期假成功 / 到点发布验证）
+
+- **事项1 真因不是排期跨度**：上一轮推测「30 天超出头条上限」，本轮用 **+12 分钟** 窗口重测 ⇒ 同样 `code=7050`，与跨度无关，故**未**收窄 `maxHorizonDays`。新增诊断日志落盘平台原始报文后看到真因：直连从零拼的 body **缺 `pgc_id` / `title_id`**，而能成功的「重放页面自动保存 body」正带着这些标识（还有 `tt-anti-token`）—— 平台认它们；preFill 装的 XHR hook 早已把它抓到（`window.__lastSaveBody`），直连路径却从来没用过。修法：**以页面捕获的自动保存 body 为基底，只覆盖 `timer_status`/`timer_time`/`save`**，其余原样保留；捕获不到才降级并标注 `bodySource`。
+- **事项1 生效的真机证据**：22:56:37 提交 → 排期 23:08 → 平台返回 `code=0 提交成功 pgcId=7691591965627941417`；23:08 前后应用**无任何动作** —— 排期只在创建时提交一次，之后由平台服务器到点发布，**内容未提前发出**。
+- **事项2 排期结果假成功**：平台拒收（7050）时结果面板仍渲染「✓ 发布成功」，因为本地排期记录建好即置 `success=true`，而平台受理发生在**之后**的队列异步提交里。改为按 `scheduled` 渲染第三态「⏰ 排期已创建」（分支排在 success 之前），并给出「查看发布记录」出口；排期结果不再挂「重试发布」（还没发布，谈不上重试）。
+- **事项3 到点发布验证**已随事项1 复验完成。取消语义维持既有设计（平台无撤销接口，`cancel` 对 `executed` 返回 false 属正确行为，PR #3077 已把文案改为如实告知去哪撤销）。
+- **诊断增强**：`publishWithSign` 早已返回 `raw` 却从未落日志，导致每次排查只能靠猜；新增 `[toutiao-direct] rejected` 行记录 `code`/`timerTime`/`bodySource`/`bodyKeys`/原始报文（不含正文与 cookie）。
+- 回归锁新增 5 条（`usePublishFlow` 排期 result 带 `scheduled`；新建 `PublishScheduleResult.test.js` 四条：第三态存在 / `scheduled` 分支在 `success` 之前 / 不挂重试而是去发布记录 / zh-en 词条成对）。验证：rpa-engine 255/255、shared-utils 742/742、desktop 2626/2626、7 项门禁 + eslint 全 rc=0。
+
+---
+
+# [未发布] docs(creator): B 站草稿无标题兜底修法与根因（先人工确认再改代码，2026-10-07，keyfix-live-verify）
 
 ### 为什么还要专门跑一次
 
