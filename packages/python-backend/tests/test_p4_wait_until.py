@@ -84,8 +84,19 @@ def test_xiaohongshu_publisher_no_longer_blind_sleeps():
     src = io.open(os.path.join(PUBLISHERS_DIR, "xiaohongshu.py"), encoding="utf-8").read()
     assert "await asyncio.sleep(30)" not in src, "上传兜底仍是无条件 sleep(30)"
     assert "await asyncio.sleep(3)" not in src, "导航后仍是无条件 sleep(3)"
-    assert src.count("wait_until(") >= 2
-    # 上限沿用原时长，只收紧快路径，不放宽容忍度
-    assert "UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0" in src
-    # 超时必须有原因留痕
-    assert "改为轮询编辑器就绪" in src and "编辑器在" in src
+    # 两处控件必须各自真等：上传控件 + 编辑器（标题框）。少一处就会退化成静默跳过媒体。
+    # 断言调用图而非 `wait_until(` 出现次数：两处轮询共用一个 _await_control 是改进，
+    # 按次数断言会把这种收敛误判成回退。
+    assert "wait_until(" in src, "小红书发布器回退为脆弱等待"
+    assert src.count("await self._await_control(") >= 2, "上传控件与编辑器就绪各自须有一处轮询调用"
+    for helper in ("_await_upload_input", "_await_editor_ready", "_await_control"):
+        assert f"async def {helper}(" in src, f"就绪轮询 {helper} 被删除"
+    # 上限沿用原时长，只收紧快路径，不放宽容忍度。
+    # 断言生效值而非常量子串：常量定义已由 xiaohongshu.py 移到 xiaohongshu_selectors.py，
+    # 依赖文件内字面量会让守卫在纯重构后假红（值对、位置变）。
+    from multi_publish.publishers import xiaohongshu as xhs
+
+    assert xhs.UPLOAD_FALLBACK_WAIT_TIMEOUT_S == 30.0
+    assert xhs.NAVIGATE_READY_TIMEOUT_S == 10.0
+    # 超时必须有原因留痕：等待对象（label）与"未就绪"必须出现在源码里
+    assert 'label="编辑器"' in src and 'label="上传控件"' in src and "未就绪" in src

@@ -73,6 +73,22 @@ DRAFT_BOX_ITEM_SELECTOR = '[class*="draft"] [class*="title"]'
 # 风控/验证弹层选择器（Tier2 取证回填），命中即判 risk_blocked 并停止。
 RISK_OVERLAY_SELECTOR = ""
 
+# 风控文本轨（与上面的占位选择器并行）：占位为空时 `if not RISK_OVERLAY_SELECTOR`
+# 会让 risk 归一恒假——即 PR-1 声称交付的 risk_blocked 实际从不触发。本轨用"浮层容器
+# + 浮层内文案"双条件判定，文案口径取自本仓桌面轨已实战使用的风控词表
+# （apps/desktop/electron/services/publish-risk.js 的 RISK_RE），属源证据非活体取证。
+# 只在浮层/弹窗/验证容器内匹配，避免页面常驻文案（如侧栏「草稿箱」「验证封面」）误判。
+RISK_TEXT_HOSTS: list[str] = [
+    '[class*="modal"]',
+    '[class*="dialog"]',
+    '[class*="overlay"]',
+    '[class*="verify"]',
+    '[class*="captcha"]',
+]
+RISK_TEXT_PATTERN = (
+    r"安全验证|请完成验证|拖动滑块|滑块|验证码|操作频繁|账号存在风险|风控|risk control"
+)
+
 CREATOR_URL = "https://creator.xiaohongshu.com/"
 
 # 机器可读错误码前缀，便于上层 outcomeOfResult 归一（risk/login 绝不降级换号）。

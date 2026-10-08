@@ -28,6 +28,9 @@ class FakeLocator:
         return self
 
     async def is_visible(self):
+        if self._sel in self._page.visible_after:
+            self._page.queries[self._sel] = self._page.queries.get(self._sel, 0) + 1
+            return self._page.queries[self._sel] > self._page.visible_after[self._sel]
         return self._sel in self._page.visible
 
     async def count(self):
@@ -66,6 +69,9 @@ class FakeLocator:
 class FakePage:
     def __init__(self):
         self.visible: set[str] = set()
+        # 延迟挂载：selector -> 需要前 N 次可见性查询返回 False（模拟 SPA 控件晚到）
+        self.visible_after: dict[str, int] = {}
+        self.queries: dict[str, int] = {}
         self.counts: dict[str, int] = {}
         self.not_fillable: set[str] = set()
         self.item_texts: dict[str, list[str]] = {}
@@ -315,3 +321,91 @@ class TestTier2EndpointArming:
         result = await _flow(publisher, page, monitor, draft=True)
         assert result.success is False
         assert xhs.CODE_UNCONFIRMED in (result.error or "")
+
+
+class TestRiskTextTrack:
+    """风控文本轨：占位选择器为空时，risk 归一不得静默失效（与端点空占位同一类缺陷）。"""
+
+    @pytest.mark.asyncio
+    async def test_modal_with_risk_wording_maps_risk_blocked(self, publisher):
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["请完成安全验证，拖动滑块完成下方拼图"]
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is False
+        assert xhs.CODE_RISK_BLOCKED in (result.error or "")
+        assert PUBLISH_SEL not in page.clicked  # 风控下不得继续动作
+
+    @pytest.mark.asyncio
+    async def test_risk_wording_without_overlay_host_is_not_risk(self, publisher):
+        # 无常驻浮层时，标题/正文里出现「验证」二字不得误判风控
+        page = _base_page()
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert xhs.CODE_RISK_BLOCKED not in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_benign_modal_text_is_not_risk(self, publisher):
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["笔记标题", "草稿箱", "封面"]
+        assert await publisher._risk_present(page) is False
+
+    def test_text_track_constants_arming(self):
+        # 默认值必须非空：否则本轨与 2.3a 的空占位同样恒假
+        assert xhs.RISK_TEXT_HOSTS
+        assert xhs.RISK_TEXT_PATTERN
+
+
+class TestUploadReadinessPoll:
+    """PR-1 回归保护：上传控件晚挂载时绝不静默跳过媒体。
+
+    静态守卫 test_p4_wait_until 要求 xiaohongshu.py 里保留两处条件等待
+    （上传控件 + 编辑器），PR-1 把上传控件那一处换成了一次性 `_resolve_visible`，
+    守卫变红——而它是对的：SPA 下首屏没挂载就解析 ⇒ file_input 为 None ⇒
+    `if file_input is not None` 静默不传图，随后照样填标题存草稿，
+    产出的是"无媒体草稿"。用户验收口径是草稿箱里内容完整，这属于缺陷交付。
+    """
+
+    @pytest.mark.asyncio
+    async def test_late_mount_upload_input_is_awaited_then_used(self, publisher, monkeypatch):
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 2.0, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+        sel = publisher._candidates_for("upload_input")[0]
+        page = _base_page()
+        page.visible_after[sel] = 2  # 前两次查询不可见，第三次起可见
+        page.visible.add(DRAFT_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        assert page.uploaded == [["a.jpg"]], f"延迟挂载的上传控件未被等待，媒体被静默跳过: {result.error}"
+
+    @pytest.mark.asyncio
+    async def test_media_requested_but_upload_input_never_appears_fails_closed(
+        self, publisher, monkeypatch
+    ):
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        assert result.success is False
+        assert xhs.CODE_UPLOAD_FAILED in (result.error or "")
+        assert page.uploaded == []
+        # 红线：传不上图就不该继续把空媒体草稿存进草稿箱
+        assert DRAFT_SEL not in page.clicked
+
+    @pytest.mark.asyncio
+    async def test_text_only_draft_skips_upload_wait(self, publisher, monkeypatch):
+        # 无媒体时不该为上传控件白等（纯图文/正文草稿仍是合法路径）
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 30.0, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=[])
+        assert page.uploaded == []
+        assert xhs.CODE_UPLOAD_FAILED not in (result.error or "")
+
+    def test_upload_poll_constant_is_imported_in_publisher(self):
+        # 静默失效守卫：等待时长常量必须真的被发布器引用，而不是只存在于选择器表里
+        assert hasattr(xhs, "NAVIGATE_READY_TIMEOUT_S")
+        assert hasattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S")

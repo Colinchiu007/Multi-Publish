@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 
 from loguru import logger
 
@@ -37,7 +38,11 @@ from multi_publish.publishers.xiaohongshu_selectors import (
     DRAFT_BOX_ITEM_SELECTOR,
     DRAFT_BOX_URL,
     DRAFT_SAVE_RESPONSE_PATTERNS,
+    NAVIGATE_READY_POLL_INTERVAL_S,
+    NAVIGATE_READY_TIMEOUT_S,
     RISK_OVERLAY_SELECTOR,
+    RISK_TEXT_HOSTS,
+    RISK_TEXT_PATTERN,
     SELECTOR_FALLBACKS,
     UPLOAD_FALLBACK_POLL_INTERVAL_S,
     UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
@@ -216,10 +221,17 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
 
         await self._report_progress(PublishPhase.UPLOADING, "上传媒体文件...", 30)
         if media_paths:
+            file_input = await self._await_upload_input(page)
+            if file_input is None:
+                return PublishResult(
+                    success=False, platform="xiaohongshu",
+                    error=_coded(
+                        CODE_UPLOAD_FAILED,
+                        f"上传控件在 {NAVIGATE_READY_TIMEOUT_S}s 内未挂载，已停止而非静默跳过媒体",
+                    ),
+                )
             try:
-                file_input, _ = await self._resolve_visible(page, "upload_input")
-                if file_input is not None:
-                    await file_input.set_input_files(media_paths)
+                await file_input.set_input_files(media_paths)
             except Exception as e:
                 return PublishResult(
                     success=False, platform="xiaohongshu",
@@ -416,29 +428,55 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
         except Exception as e:
             logger.warning(f"封面上传失败（不影响发布）: {e}")
 
-    async def _await_editor_ready(self, page) -> None:
-        """上传完成标志未命中时，轮询编辑器就绪（标题框可见），上限沿用原 30s。"""
-        ready = await wait_until(
-            lambda: self._title_visible(page),
-            timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
-            interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
-        )
-        if not ready:
-            logger.warning(
-                f"编辑器在 {UPLOAD_FALLBACK_WAIT_TIMEOUT_S}s 内未就绪（站点结构变化或上传未完成），继续尝试填写"
-            )
+    async def _await_control(self, page, key: str, *, label: str, timeout_s: float, interval_s: float):
+        """轮询候选链中首个可见控件，返回 locator 或 None；超时留痕但不臆断失败。"""
+        async def visible() -> bool:
+            loc, _ = await self._resolve_visible(page, key)
+            return loc is not None
 
-    async def _title_visible(self, page) -> bool:
-        loc, _ = await self._resolve_visible(page, "title_input")
-        return loc is not None
+        if not await wait_until(visible, timeout_s=timeout_s, interval_s=interval_s):
+            logger.warning(f"{label}在 {timeout_s}s 内未就绪（站点结构变化或首屏未完成）")
+            return None
+        loc, _ = await self._resolve_visible(page, key)
+        return loc
+
+    async def _await_upload_input(self, page):
+        """上传控件必须真等：一次性解析在 SPA 晚挂载下返回 None，会静默跳过媒体照存草稿。"""
+        return await self._await_control(
+            page, "upload_input", label="上传控件",
+            timeout_s=NAVIGATE_READY_TIMEOUT_S, interval_s=NAVIGATE_READY_POLL_INTERVAL_S,
+        )
+
+    async def _await_editor_ready(self, page) -> None:
+        await self._await_control(
+            page, "title_input", label="编辑器",
+            timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S, interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
+        )
 
     async def _risk_present(self, page) -> bool:
-        if not RISK_OVERLAY_SELECTOR:
-            return False
-        try:
-            return await page.locator(RISK_OVERLAY_SELECTOR).count() > 0
-        except Exception:
-            return False
+        """风控判定双轨：占位选择器（Tier2 待回填）+ 浮层内文案（本仓已实战口径）。
+
+        占位选择器为空时文本轨仍生效——否则 PR-1 声称的 risk_blocked 归一恒不触发。
+        双条件是刻意的：只有浮层/弹窗/验证容器内的风控文案才算，避免页面常驻文案误判。
+        """
+        if RISK_OVERLAY_SELECTOR:
+            try:
+                if await page.locator(RISK_OVERLAY_SELECTOR).count() > 0:
+                    return True
+            except Exception:
+                pass
+        for host in RISK_TEXT_HOSTS:
+            try:
+                loc = page.locator(host)
+                if not await loc.count():
+                    continue
+                text = await loc.first.inner_text() or ""
+            except Exception:
+                continue
+            if re.search(RISK_TEXT_PATTERN, text, re.I):
+                logger.warning(f"[小红书] 浮层文案命中风控口径: {text[:60]!r}")  # noqa: E501
+                return True
+        return False
 
     @staticmethod
     def _is_login_redirect(url: str) -> bool:

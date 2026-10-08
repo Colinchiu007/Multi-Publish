@@ -87,6 +87,91 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
    切到 `backend`（或 `api-then-dom`）让桌面吃到本次加固。切换前提是 2.4 活体证据到手，
    否则等于把已验证的桌面路径换成未验证路径。
 
+## 4c. 风控归一武装（文本轨，2026-10-09 追加）
+
+同一类静默失效的第二处：`RISK_OVERLAY_SELECTOR` 为空占位时
+`_risk_present()` 直接 `return False` ⇒ PR-1 能力表里"风控归一 `XHS_RISK_BLOCKED`、
+且不降级换号"这条**实际从不触发**。
+
+- 修法：`_risk_present` 改为双轨——占位选择器（仍待 2.2 活体回填）**或**
+  "浮层容器 + 容器内风控文案"。文案口径取自本仓桌面轨已实战使用的风控词表
+  （`publish-risk.js` 的 `RISK_RE`），属源证据非活体取证。
+- **双条件是刻意的**：只在 `modal/dialog/overlay/verify/captcha` 容器内匹配，
+  避免页面常驻文案（侧栏「草稿箱」「验证封面」之类）误判成风控而阻断正常发布。
+  误判风控比漏判更有害——它会直接中止用户的草稿保存。
+- 默认常量非空由测试钉死（`test_text_track_constants_arming`），与 2.3a 的
+  "默认模式非空"断言同一思路：把静默失效变成红。
+- 新增 4 项用例：风控文案 → `XHS_RISK_BLOCKED` 且不点发布；无常驻浮层不判风控；
+  浮层内良性文案不判风控；常量默认值非空。
+
+## 4d. Python 轨认证已被策略硬阻（2026-10-09 用户实跑暴露）
+
+用户按 §6 运行探针，崩溃于 `legacy_auth_policy.require_legacy_plaintext_auth()`：
+`RuntimeError: 旧 Python 明文认证持久化已停用，请使用桌面端加密账号存储`。
+
+调用链是 `XiaoHongShuPublisher._ensure_browser()` →
+`xiaohongshu_auth._restore_auth_data()`（第 1 行）→ 策略守卫。该守卫除非同时满足
+两个 `MULTI_PUBLISH_*` 迁移环境变量 **且** 非生产环境，否则无条件抛错；
+`_save_auth_data()` 与 `_restore_cookies_legacy()` 同样受此门。
+
+结论与影响口径：
+
+- **这不是探针 bug，是仓库既定策略**（Python 明文认证持久化已停用，登录态归桌面加密
+  账号存储）。我们不应为了跑取证而放宽这两个环境变量——那等于在验收脚本里绕过一条
+  安全红线。
+- 因此 §4b 的判断要再加一层：Python 轨不仅**无生产调用方**（桌面发布被 `ROUTE_TABLE`
+  派到 `rpa_vm`），在正常构建下也**无法恢复登录态**。它的 DOM 链只能通过"探针自持
+  persistent profile + headed 扫码"这种方式被验证。
+- 修法：新增 `open_probe_browser()`，直接 `launch_persistent_context` 到账号 profile
+  目录，绕开 `_ensure_browser` 的认证恢复；结束后也不调 `_save_auth_data`
+  （登录态由 profile 目录自身留存）。gitignored，不入库。
+- 验收含义：**2.4 活体验收的正面证据必须来自桌面轨**（`rpa-view-platforms.js`
+  的 `draftOnly:true` 路径 → 草稿箱可见）。Python 轨的活体取证只用于回填选择器/端点，
+  不代表用户实际使用的链路。
+
+## 4e. PR-1 引入的回归：上传控件轮询被删 ⇒ 无媒体草稿（Bug 反哺，2026-10-09）
+
+发现方式不是功能测试，而是**静态守卫变红**：`test_p4_wait_until.py` 断言
+`xiaohongshu.py` 里 `wait_until(` 出现 ≥ 2 次，PR-1 合并后只剩 1 次。
+
+**① 根因**：PR-1 把"导航后轮询上传控件可见"（`upload_input_ready = await wait_until(...)`）
+替换成一次性 `_resolve_visible(page, "upload_input")`。`_resolve_visible` 不等待，
+SPA 首屏未挂载时返回 `(None, None)`，而调用处是
+`if file_input is not None: await set_input_files(...)` —— 条件不满足就**什么都不做且不报错**。
+
+**② 逃逸链**：这条静默跳过逃过了所有测试。PR-1 的单测用 `_base_page()`（控件恒可见）
+且 `media_paths=[]`，从未构造"延迟挂载"场景；后面的 `_await_editor_ready` 轮询会让页面
+最终看起来"就绪"，于是流程继续填标题、点存草稿 —— 产出**没有媒体的草稿**。
+用户的验收口径是草稿箱里内容完整，这属于缺陷交付而非失败交付，因此连错误码都不会出现。
+
+**③ 系统性漏洞**（两条，都已处理）：
+- `packages/python-backend` 的 pytest **不在任何 CI workflow 里**（`gui-test.yml` 只跑
+  `test_video_provider_imports.py`），所以守卫变红不阻断 PR —— tasks 1.9 的
+  "全量回归通过"是在本地未复跑该文件的前提下勾掉的。
+- 守卫自身用**源码字面量**断言（`"UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0" in src`、
+  `"改为轮询编辑器就绪" in src`）。PR-1 把常量定义移到 `xiaohongshu_selectors.py`、
+  日志措辞也改了，于是同一个守卫又出现两处**假红**，掩盖了它抓到的真红。
+
+**④ 修复 + 回归保护**：`_await_upload_input()` 恢复条件轮询（沿用
+`NAVIGATE_READY_TIMEOUT_S`/`NAVIGATE_READY_POLL_INTERVAL_S`），且把"有媒体但控件始终不挂载"
+从静默跳过改为 `CODE_UPLOAD_FAILED` **fail-closed**（不完整的草稿不进草稿箱）；纯文本草稿
+路径不等待、不受影响。上传控件与编辑器两处轮询收敛到共用 `_await_control()`（也顺带把
+`xiaohongshu.py` 压回 499 行，不触债务熔断的 ≥500 行文件数基线）。
+新增 4 项用例：延迟挂载必须等到并真正上传、始终不挂载必须 fail-closed 且不点存草稿、
+无媒体不白等、等待常量必须真的被发布器引用。
+守卫本身也被修：`wait_until(` 出现次数改成**调用图断言**（`_await_control` 存在且被
+`await` ≥ 2 次 + 两个 label 存在），因为把两处重复轮询收敛成一个共享 helper 是改进，
+按次数断言会把它误判成回退；`UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0` 的字面量子串改为
+断言**生效常量值**（常量已被 PR-1 移到 selectors 模块）。
+破坏-恢复验证（两种破坏都跑过）：
+① 删掉轮询只留一次性解析 → 行为用例 `test_late_mount_...` 变红；
+② 回退成"两处各自 wait_until"的旧形状 → 守卫变红。恢复后发布轨 51 项全绿。
+
+**⑤ 防止再发**：把"一次性解析 = 静默跳过"记为本轨的反模式；`_resolve_visible` 的返回值
+在**必须发生**的动作（上传媒体、点存草稿）上不允许 `if ... is not None` 直接吞掉，
+必须显式给出失败码。本条同时说明：验收前必须在本地实跑
+`cd packages/python-backend && pytest`，不能依赖 CI 兜底。
+
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
