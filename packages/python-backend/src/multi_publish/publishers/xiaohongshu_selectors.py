@@ -85,9 +85,15 @@ RISK_TEXT_HOSTS: list[str] = [
     '[class*="verify"]',
     '[class*="captcha"]',
 ]
+# 词表只收"风控语境的强指认短语"，不收裸「滑块」「验证」这类单词：封面裁剪、图片旋转
+# 等良性可见弹窗同样含「拖动滑块调整比例」，裸词会误判风控并中止用户的草稿保存（误判
+# 比漏判更有害）。真实滑块验证必然同时出现「安全验证/验证码」，不会因收紧词表而漏判。
 RISK_TEXT_PATTERN = (
-    r"安全验证|请完成验证|拖动滑块|滑块|验证码|操作频繁|账号存在风险|风控|risk control"
+    r"安全验证|请完成验证|验证码|操作频繁|账号存在风险|风控|risk control"
 )
+# 单个宿主容器内最多扫描的可见元素数，防止 `[class*="modal"]` 命中整页模板时逐元素
+# inner_text 拖垮发布链路。真实风控层是页面上最靠前的可见容器之一。
+RISK_HOST_SCAN_LIMIT = 8
 
 CREATOR_URL = "https://creator.xiaohongshu.com/"
 

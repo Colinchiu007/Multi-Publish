@@ -40,6 +40,7 @@ from multi_publish.publishers.xiaohongshu_selectors import (
     DRAFT_SAVE_RESPONSE_PATTERNS,
     NAVIGATE_READY_POLL_INTERVAL_S,
     NAVIGATE_READY_TIMEOUT_S,
+    RISK_HOST_SCAN_LIMIT,
     RISK_OVERLAY_SELECTOR,
     RISK_TEXT_HOSTS,
     RISK_TEXT_PATTERN,
@@ -227,7 +228,7 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
                     success=False, platform="xiaohongshu",
                     error=_coded(
                         CODE_UPLOAD_FAILED,
-                        f"上传控件在 {NAVIGATE_READY_TIMEOUT_S}s 内未挂载，已停止而非静默跳过媒体",
+                        f"上传控件在 {UPLOAD_FALLBACK_WAIT_TIMEOUT_S}s 内未挂载，已停止而非静默跳过媒体",
                     ),
                 )
             try:
@@ -441,42 +442,52 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
         return loc
 
     async def _await_upload_input(self, page):
-        """上传控件必须真等：一次性解析在 SPA 晚挂载下返回 None，会静默跳过媒体照存草稿。"""
+        """上传控件必须真等：一次性解析在 SPA 晚挂载下返回 None，会静默跳过媒体照存草稿。
+
+        上限沿用原 30s 上传兜底时长（常量名即其来历），只收紧快路径、不放宽容忍度。
+        """
         return await self._await_control(
             page, "upload_input", label="上传控件",
-            timeout_s=NAVIGATE_READY_TIMEOUT_S, interval_s=NAVIGATE_READY_POLL_INTERVAL_S,
+            timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S, interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
         )
 
     async def _await_editor_ready(self, page) -> None:
         await self._await_control(
             page, "title_input", label="编辑器",
-            timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S, interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
+            timeout_s=NAVIGATE_READY_TIMEOUT_S, interval_s=NAVIGATE_READY_POLL_INTERVAL_S,
         )
 
     async def _risk_present(self, page) -> bool:
-        """风控判定双轨：占位选择器（Tier2 待回填）+ 浮层内文案（本仓已实战口径）。
+        """风控判定双轨：占位选择器（Tier2 待回填）+ 浮层内可见文案（本仓已实战口径）。
 
-        占位选择器为空时文本轨仍生效——否则 PR-1 声称的 risk_blocked 归一恒不触发。
-        双条件是刻意的：只有浮层/弹窗/验证容器内的风控文案才算，避免页面常驻文案误判。
+        两轨都要求元素**可见**：SPA 常驻的隐藏 modal 模板自带默认风控文案，
+        不可见也当风控就会每次发布误判并中止草稿保存——误判比漏判更有害。
         """
-        if RISK_OVERLAY_SELECTOR:
-            try:
-                if await page.locator(RISK_OVERLAY_SELECTOR).count() > 0:
-                    return True
-            except Exception:
-                pass
+        if RISK_OVERLAY_SELECTOR and await self._visible_texts(page, RISK_OVERLAY_SELECTOR):
+            return True
         for host in RISK_TEXT_HOSTS:
+            for text in await self._visible_texts(page, host):
+                if re.search(RISK_TEXT_PATTERN, text, re.I):
+                    logger.warning(f"[小红书] 可见浮层文案命中风控口径: {text[:60]!r}")
+                    return True
+        return False
+
+    async def _visible_texts(self, page, sel: str) -> list[str]:
+        """该选择器命中的可见元素文案（上限 RISK_HOST_SCAN_LIMIT，防整页扫描）。"""
+        try:
+            loc = page.locator(sel)
+            total = min(await loc.count(), RISK_HOST_SCAN_LIMIT)
+        except Exception:
+            return []
+        out: list[str] = []
+        for i in range(total):
+            item = loc.nth(i)
             try:
-                loc = page.locator(host)
-                if not await loc.count():
-                    continue
-                text = await loc.first.inner_text() or ""
+                if await item.is_visible():
+                    out.append((await item.inner_text()) or "")
             except Exception:
                 continue
-            if re.search(RISK_TEXT_PATTERN, text, re.I):
-                logger.warning(f"[小红书] 浮层文案命中风控口径: {text[:60]!r}")  # noqa: E501
-                return True
-        return False
+        return out
 
     @staticmethod
     def _is_login_redirect(url: str) -> bool:

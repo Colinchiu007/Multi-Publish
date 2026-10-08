@@ -104,6 +104,32 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
 - 新增 4 项用例：风控文案 → `XHS_RISK_BLOCKED` 且不点发布；无常驻浮层不判风控；
   浮层内良性文案不判风控；常量默认值非空。
 
+## 4c-b. 文本轨的可见性前提（CCG 双审 i1/i2，2026-10-09 修正）
+
+上面 4c 的初版实现有一个 Critical 缺陷，被 CCG 深评抓出（`.adversarial/ccg-deep-320e8f2b/`）：
+它只查 `count() > 0` 然后读 `.first.inner_text()`，**从不查可见性**。
+
+- 失败场景（不是理论风险）：创作者中心是 SPA，未打开的 modal/verify 容器以
+  `v-show` 形式常驻 DOM，默认文案正是「请完成验证」。按初版实现，用户**每次**
+  草稿保存都会在流程入口被判 `XHS_RISK_BLOCKED` 而中止——本功能的验收口径是
+  "内容进真实草稿箱"，误判等于整个功能不可用。
+- 修正后的三条硬规则：
+  1. **必须可见**：`_visible_texts()` 只收 `is_visible()` 为真的元素文案；
+     选择器轨（占位 `RISK_OVERLAY_SELECTOR`）同样走可见性，不再是 `count()>0`。
+  2. **必须逐个扫描，且有上限**：`[class*="modal"]` 真实会命中多个节点，
+     风控层不在 DOM 首位时读 `.first` 必漏判（i2）；改为按序扫描可见元素，
+     上限 `RISK_HOST_SCAN_LIMIT = 8`，防止整页模板把 `inner_text` 成本放大到拖垮发布链。
+  3. **词表只收强指认短语**：删掉裸「滑块」与「拖动滑块」——封面裁剪弹窗的
+     「拖动滑块调整比例」是控件说明，不是风控；真实滑块验证必然同容器共现
+     「安全验证/验证码」，收紧不损失召回。
+     注：这是对源证据（`publish-risk.js` 的 `RISK_RE`）的**有意收窄**，理由与
+     双面用例已写进 `xiaohongshu_selectors.py` 注释，不是无意识漂移。
+- 用例（先红后绿）：隐藏模板不判风控 `test_hidden_risk_template_is_not_risk`；
+  第 2 位可见容器仍被抓到 `test_risk_wording_in_second_visible_host_is_caught`；
+  裁剪文案不判风控 + 真验证判风控；扫描截断到上限
+  `test_visible_hosts_beyond_scan_limit_are_not_read`。
+- 判定记录：i1、i2 均 `upheld`（含 prosecution/defense/rationale 三列，可复核）。
+
 ## 4d. Python 轨认证已被策略硬阻（2026-10-09 用户实跑暴露）
 
 用户按 §6 运行探针，崩溃于 `legacy_auth_policy.require_legacy_plaintext_auth()`：
@@ -171,6 +197,49 @@ SPA 首屏未挂载时返回 `(None, None)`，而调用处是
 在**必须发生**的动作（上传媒体、点存草稿）上不允许 `if ... is not None` 直接吞掉，
 必须显式给出失败码。本条同时说明：验收前必须在本地实跑
 `cd packages/python-backend && pytest`，不能依赖 CI 兜底。
+
+## 4f. CCG 双审其余三项（i3/i4/i5，2026-10-09）
+
+i1/i2 见 §4c-b。另外三条同样全部 `upheld`，且各自有可验证的落点：
+
+**i3（等待上限被顺手收紧）—— 成立，已修。**
+改造前是 `sleep(30)` 后解析一次，等效容忍度 30s；PR-1 把上传控件那一处换成轮询时
+用了 `NAVIGATE_READY_TIMEOUT_S = 10s`，等于**同时**改了"怎么等"和"最多等多久"。
+更糟的是常量被错配：`UPLOAD_FALLBACK_WAIT_TIMEOUT_S`（名字就是"上传兜底"）当时被
+喂给了编辑器就绪，而上传路径拿到 10s。这与 4e 自己声明的准则"上限沿用原时长，
+只收紧快路径"直接矛盾。
+修法：两个等待的常量对调回来——上传控件 30s（原容忍度）+ 编辑器就绪 10s，
+`fail-closed` 与"命中即返回"的快路径收益全部保留。
+验证：`test_upload_ceiling_keeps_the_original_tolerance` 钉住 30s；
+`test_upload_path_uses_the_upload_fallback_ceiling` 给两个常量传不同哨兵值
+（0.05 / 9.99），看失败留痕里出现哪个，从而证明**映射**归属，而不是抠 `timeout_s=` 源码字面量。
+
+**i4（守卫的格式化耦合）—— 半成立，按两半分别裁。**
+`'label="编辑器"' in src`、`"未就绪" in src` 这类断言确实是同一失效类：日志措辞从
+"未就绪"改成"尚未就绪"就假红，而产品行为毫无变化。4e 已承认本 PR 因字面量假红过两次，
+却仍留着第三处。已从 `test_p4_wait_until` 移除，改由行为用例承担
+（`test_editor_ready_timeout_leaves_a_reason_in_logs` 挂 loguru sink 断言警告里点名等待对象；
+本仓日志是 loguru，`caplog` 抓不到，这一点也写进了测试注释）。
+`==30.0`/`==10.0` 的值棘轮则**不成立**：断的是生效值而非源码位置，搬文件不会假红，
+删掉反而失去"上限被悄悄改掉"的防线——保留，并由上面的哨兵值用例补上"映射"这一维。
+
+**i5（§4e③ 声明的系统洞未修）—— 成立，已修。**
+`.github/workflows/gui-test.yml` 此前只跑 `test_video_provider_imports.py` 一个文件，
+"python-backend 回归不参与合并阻断"正是 PR-1 漏检的根因；4e 把它写成"待办"却没动 workflow。
+现在新增 `Verify publisher RPA/DOM regressions` 步骤，显式纳入 5 个发布器测试文件
+（xiaohongshu DOM 加固 / p4 等待守卫 / new_publishers / douyin publisher / douyin rpa_fields）。
+同时补装 `pytest-asyncio`：本地依赖树里有、workflow 里从未声明，
+不装则 CI 会**静默跳过全部 async 用例**——那会比没有门禁更危险（绿色但恒真）。
+全量套件暂不纳入：本环境有 2 项既有失败（ASR 下载、story2video manifest），已在
+`origin/main` 基线 worktree 复现，与本轨无关；另有 2 项（frame_html 模板路径、
+llm_service ollama dummy key）单独跑为绿、全量跑为红，属同进程用例串扰。
+把它们混进本域门禁只会让流水线长期红、降低门禁可信度，故留待各自域处理。
+
+**本域门禁实测**：上述 5 文件在本地 90 passed；发布器 + 邻近套件全绿；
+`node scripts/check-debt-budget.js` 通过（`filesOver500` 99 < 基线 101）。
+5 种破坏（删可见性 / 词表放回裸「滑块」/ 只读首个元素 / 上传 `timeout_s` 误用 10s 常量 /
+超时留痕改名或删除）各自跑红，恢复后全绿——其中第 ④ 种是补强：只断错误文案里数字的
+旧写法会**假绿**（文案与 `timeout_s` 可以各用各的常量），因此加了轮询次数断言。
 
 ## 5. 剩余工作（必须完成才算验收）
 
