@@ -32,6 +32,8 @@ vi.mock('@/api/electron-bridge', () => ({
   invoke: vi.fn(async () => ({ code: 0 })),
   invokePageManager: vi.fn(),
   getApi: () => ({ pageManager: { navigateActiveHomeShell: navShellMock } }),
+  // M-9 收敛后 ops-center-sync 的 onOpsCenterRuntimeUpdated 走 bridge.on()
+  on: vi.fn(() => () => {}),
 }))
 
 vi.mock('@/stores/tab', () => ({

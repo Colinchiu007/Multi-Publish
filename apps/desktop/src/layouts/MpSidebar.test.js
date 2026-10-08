@@ -12,6 +12,8 @@ vi.mock('@/api/electron-bridge', () => ({
   invoke: invokeMock,
   invokePageManager: vi.fn(),
   getApi: () => null,
+  // M-9 收敛后 ops-center-sync 的 onOpsCenterRuntimeUpdated 走 bridge.on()
+  on: vi.fn(() => () => {}),
 }))
 
 vi.mock('vue-router', () => ({
