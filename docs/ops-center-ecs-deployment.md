@@ -1,10 +1,10 @@
 # 运营中心（Ops Center）部署到 ECS 注意事项
 
-> 适用范围：把运营中心后端（FastAPI）+ 前端（Vue3/Vite）部署到阿里云 ECS，并让桌面端（Multi-Publish）能从运营中心**运行时同步**下发配置（模型目录、公告、版本、敏感词、featureFlags、pipelineOptions、appMenu 应用菜单）。
+> 适用范围：把运营中心后端（FastAPI）+ 前端（Vue3/Vite）部署到阿里云 ECS，并让桌面端（Multi-Publish）能从运营中心**运行时同步**下发配置（模型目录、公告、版本、敏感词、featureFlags、pipelineOptions、appMenu 应用菜单），以及断连降级 / 配置生效回执 / 断连遥测（PR #3126，见 §10）。
 >
 > 本文与 `codex/ops-sync-bearer-fix`（零配置 Bearer 同步修复）配对：该修复解决"桌面端同步永不发起"的前端代码缺陷；本文覆盖 ECS 侧的**配置与部署前提**，二者缺一，菜单/策略都到不了桌面端。
 >
-> 相关既有文档：`01-docs/PRD-sync-zero-config.md`（方案C 双模鉴权设计）、`01-docs/FEATURE-APP-MENU-2026-09-15.md`（应用菜单）、`ops-center/backend/.env.example`（变量真源）。
+> 相关既有文档：`01-docs/PRD-sync-zero-config.md`（方案C 双模鉴权设计）、`01-docs/FEATURE-APP-MENU-2026-09-15.md`（应用菜单）、`ops-center/backend/.env.example`（变量真源）、`01-docs/ARCH-OPS-CENTER-RESILIENCE-2026-10-06.md`（韧性架构，§0.1 有实施状态对照）。
 
 ---
 
@@ -123,9 +123,11 @@ curl -s http://127.0.0.1:8010/health
 ## 7. 部署后验证清单
 
 1. `curl -s http://127.0.0.1:8010/health` 返回健康。
-2. `curl` `/api/v1/runtime/bootstrap`（带合法 Bearer 或 `X-Catalog-Key`）**返回 200 且带 `signature`**（非 404 = 私钥已配、鉴权通过）。
+2. `curl` `/api/v1/runtime/bootstrap`（带合法 Bearer 或 `X-Catalog-Key`）**返回 200 且带 `signature` 与 `config_version`/`config_hash`**（非 404 = 私钥已配、鉴权通过；有版本号 = 生效回执链路就绪）。
 3. 桌面端触发同步（`opsCenterSyncNow`）后，`appMenu` 等策略落地生效（可经 CDP 读 `window.electronAPI` 验证）。
 4. 打包版桌面端已填自定义公钥且验签通过（日志无 `NO_PRODUCTION_TRUST_ANCHOR`、无 "runtime sync skipped"）。
+5. **⚠️ 在 ECS 服务器上 curl 公网域名验证**（不要在开发机上验证——开发机 DNS 被代理 Fake-IP 网段 198.18.x 接管，永远测不出公网真实状态）：`curl -sS https://<生产域名>/health`。
+6. 韧性链路验证（PR #3126）见 §10.4。
 
 ---
 
@@ -140,12 +142,84 @@ curl -s http://127.0.0.1:8010/health
 | Bearer 401 | Logto 未配或 JWT 无效/缺 `publish:read` scope | 配 `OPS_LOGTO_*`；确认用户已登录且 scope 齐 |
 | 菜单改了但桌面端没变 | 只存了 appMenu 数据、未同步下发；或桌面端旧码 | 确认同步链路（§4）通；桌面端更新到修复版 |
 | 登录成功但刷新回登录页 | 前后端不同源 / Cookie Secure 未设 | 同源部署 + `OPS_SESSION_COOKIE_SECURE=1` + `X-Forwarded-Proto` |
+| 断网时菜单/公告/模型目录仍可用（**这不是故障**） | PR #3126 三层降级在生效（L1 内存 → L2 本地快照 → L3 打包种子） | 正常；确认桌面端日志有 `runtime-hydrated-from-seed {"tier":"L3"}` 即为兜底生效 |
+| 付费用户断网期间仍能用付费功能（**这不是漏洞**） | 权益宽限期在生效（本地快照未过期 + 72h 宽限内，`source: 'grace'`） | 无需处理；宽限期只禁写不禁读，超 72h 自动降级 free |
+| `POST /api/v1/runtime/ack` 401 | 客户端鉴权通道未通（与 bootstrap 同一鉴权：Bearer 或 X-Catalog-Key） | 同 bootstrap 鉴权排查；ACK 与 bootstrap 走同一 Key/JWT |
 
 ---
 
 ## 9. 变更历史
 
 - 2026-09-23：初版，随 `codex/ops-sync-bearer-fix`（零配置 Bearer 同步修复）配对产出。
+- 2026-10-08：新增 §10 韧性链路（外部探针 / 生效回执 / 断连遥测），随 PR #3126；补验证清单 §7.5-§7.6 与排障表三条。
+---
+
+## 10. 韧性链路运维（PR #3126：断连降级 / 生效回执 / 断连遥测）
+
+> 架构背景见 `01-docs/ARCH-OPS-CENTER-RESILIENCE-2026-10-06.md`；实施物对照见该文 §0.1。
+> 本章只写**部署与运维要动手的部分**。
+
+### 10.1 外部探针（部署时必须配，最优先）
+
+**原理**：客户端断连告警走 `/api/v1/telemetry/degradation` 上报——运营中心**自己挂掉时这条通道也死了**，靠客户端自救无法告诉任何人。因此「运营中心不可用」的告警必须由**独立于运营中心的第三方**发出。
+
+**配置清单（阿里云云监控，推荐）**：
+
+| 探测项 | 配置 | 告警阈值建议 |
+|---|---|---|
+| 站点可用性 | HTTP 探测 `https://<生产域名>/health`，探测点选「阿里云机房」 | 连续 3 次 ≥1 失败 → 短信/电话 |
+| 证书有效期 | SSL 证书到期监测 | 剩余 < 14 天告警 |
+| 接口级探测 | HTTP 探测 `https://<生产域名>/api/v1/system/health`（无需鉴权） | 连续 3 次非 200 → 告警 |
+
+**替代方案**：UptimeRobot（免费 50 个探针），或自建（任一**不在同一台 ECS 上**的机器 crontab `curl`，失败经钉钉/企微 Webhook 通知）。**禁止**用运营中心服务器上的 cron 探测它自己。
+
+**验证**：故意 `systemctl stop ops-center` 1 分钟，确认手机收到告警，再 `start` 恢复。
+
+### 10.2 生效回执（ACK）与断连遥测——服务端无需新增配置
+
+PR #3126 的四个新端点**复用既有鉴权与环境变量，不需要新增 `OPS_` 配置**：
+
+| 端点 | 方法 | 鉴权 | 用途 |
+|---|---|---|---|
+| `/api/v1/runtime/ack` | POST | Bearer JWT **或** `X-Catalog-Key`（与 bootstrap 同） | 客户端上报「第 N 版配置已应用」+ 分块结果 |
+| `/api/v1/telemetry/degradation` | POST | 同上 | 客户端上报断连降级事件（恢复后补报，断连期间不上报） |
+| `/api/v1/runtime/rollout` | GET | **`require_admin`**（管理员会话） | 生效汇总：总客户端 / 已确认 / 仍在旧版 / 降级中 |
+| `/api/v1/telemetry/degradation/summary` | GET | **`require_admin`** | 断连影响面统计（默认近 30 天） |
+
+版本指纹自动生成：bootstrap 响应带 `config_version`（单调递增，内容不变则不递增）与 `config_hash`（下发块 canonical JSON 的 SHA-256 前 16 位，实现见 `ops-center/backend/services/config_fingerprint.py`）。**升级部署后第一次 bootstrap 若缺这两个字段，说明 ECS 上跑的还是旧码**（参考 §2 的 monorepo ↔ 独立仓同步警告）。
+
+**运营负责人日常用法**（改完配置想知道生效没有；生效看板前端页尚未实现，先用管理员会话 curl）：
+
+```bash
+# 1. 看某版配置的生效比例（acked=已确认 / stale=仍在旧版 / degraded=断连中）
+curl -b <admin-cookie> "https://<域名>/api/v1/runtime/rollout?version=42"
+
+# 2. 看近 7 天断连影响面
+curl -b <admin-cookie> "https://<域名>/api/v1/telemetry/degradation/summary?days=7"
+```
+
+判读：24h 内活跃客户端确认率 ≥95% 即视为全量生效；`stale` 偏高说明大量客户端版本过旧没拉到新配置；`degraded` 偏高说明有批量断连，先看 §10.1 探针与服务端日志。
+
+### 10.3 服务端异常率熔断（可选，P1）
+
+外部探针只解决「服务死了」；还有一类是「服务活着但客户端大面积连不上」（nginx 误配 / 证书链不全 / 防火墙）。人工判断口径：
+
+| 信号 | 判法 |
+|---|---|
+| bootstrap QPS 骤降 | nginx access log / 阿里云 SLS：QPS 环比跌 >80% 且持续 5 分钟 |
+| ACK 心跳缺失率突增 | `rollout` 的 `stale` 计数异常上涨 |
+| 降级事件上报量突增 | `degradation/summary` 单日条数 > 历史均值 3 倍 |
+
+接入钉钉/企微 Webhook 自动化未实现前，以上述人工查询为准。
+
+### 10.4 韧性链路部署后验证（并入 §7 清单执行）
+
+1. bootstrap 响应含 `config_version` 与 `config_hash`（见 §10.2）。
+2. 桌面端成功同步一次后，`GET /api/v1/runtime/rollout`（管理员）出现该客户端的 ACK 记录。
+3. 桌面端断网 → 恢复 → `degradation/summary` 计数 +1（补报机制生效）。
+4. 打包版断网启动：菜单/公告/模型目录仍可用（L2 快照或 L3 种子兜底，日志 `runtime-hydrated-from-seed {"tier":"L3"}`）；付费用户 72h 宽限内权益不丢（`source: 'grace'`）。
+5. 故意 `systemctl stop ops-center` 1 分钟：外部探针告警触发（§10.1 验证项）。
+
 ---
 
 ## 附录：为什么菜单不像既有运营中心功能那样"推数据即生效"（通道差异与新内容类型铺设成本）
