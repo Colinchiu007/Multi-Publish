@@ -64,6 +64,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/rollout',
+    name: 'Rollout',
+    component: () => import('../views/RolloutView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/publish-dashboard',
     name: 'PublishDashboard',
     component: () => import('../views/PublishDashboard.vue'),
@@ -272,6 +278,9 @@ router.beforeEach(async (to, from, next) => {
     next()
   }
 })
+
+// 具名导出路由数组（4 行后追加），供测试断言「/rollout 接线」；默认导出 router 实例不变
+export { routes }
 
 export default router
 
