@@ -293,4 +293,10 @@
   --color-danger: #f87171;
   --color-success: #4ade80;
   --color-warning: #fbbf24;
+
+  /* 品牌主色暗色覆盖（P4C 2026-10-09）：--color-primary 原先只在亮色区定义，
+   * 暗色下回退亮色 #5048E5 —— 在暗色画布 #1a1a1e 上 2.81:1，命中 9 个视图的
+   * .page-title（cohere-page-header 的 color: var(--primary)）。
+   * 提亮到 #8b85ff（同色相）：暗底上 6.2:1。 */
+  --color-primary: #8b85ff;
 }

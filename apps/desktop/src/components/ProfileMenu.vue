@@ -421,6 +421,7 @@ function handleUpgrade() {
   color: #27618a;
 }
 
+
 /* 面板向上展开，且与 banner 等宽（不溢出侧边栏）；展开时淡入 + 轻微上浮 */
 .profile-menu-panel {
   position: absolute;
@@ -611,5 +612,31 @@ function handleUpgrade() {
   .mp-profile-copy {
     display: none;
   }
+}
+</style>
+
+<style>
+/* 深色模式覆盖（P4C 2026-10-09，全局块）：徽章底色/文字硬编码亮色，
+ * 暗色侧栏 #1a1a1e 上 free 变体 2.35:1 不可读（contrast-audit 9 视图命中）。
+ * 必须放非 scoped：data-theme 在 <html> 上，scoped 属性选择器实测不生效
+ * （首轮写在 scoped 块内残留 1.94:1）。类名带组件前缀避免全局污染。 */
+[data-theme='dark'] .profile-license-badge {
+  background: rgba(139, 133, 255, .18);
+  color: #b6b2ff;
+}
+[data-theme='dark'] .profile-license-pro {
+  background: rgba(251, 191, 36, .16);
+  color: #fcd34d;
+}
+[data-theme='dark'] .profile-license-trial {
+  background: rgba(56, 189, 248, .16);
+  color: #7dd3fc;
+}
+[data-theme='dark'] .mp-profile {
+  background: rgba(35, 35, 41, .72);
+  border-color: #3d3d46;
+}
+[data-theme='dark'] .mp-profile:hover {
+  background: rgba(44, 44, 52, .9);
 }
 </style>
