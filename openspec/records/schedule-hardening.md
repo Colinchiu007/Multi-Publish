@@ -2,9 +2,6 @@
 record: schedule-hardening
 task: 真机 E2E 遗留三项收口 —— 直连 body 缺平台标识致 7050、排期结果假成功、到点发布验证
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: PR 尚未合并，无法取证 merge SHA
-sync_backfill_owner: 本任务作者（合并后的回填 PR）
 ---
 
 # 执行记录：定时发布遗留三项收口（schedule-hardening，2026-10-08）
@@ -21,7 +18,7 @@ sync_backfill_owner: 本任务作者（合并后的回填 PR）
 | 回归保护 | PASS | `usePublishFlow.test.js` 新增 1 条（排期路径 result 必须带 `scheduled`）；新增 `src/views/PublishScheduleResult.test.js` 4 条：①排期结果渲染独立第三态标签与说明 ②`scheduled` 分支排在 `success` 分支**之前**（否则立即发布会被误判）③排期结果不挂「重试发布」而是去发布记录 ④zh/en 词条成对存在（防露出 key）。**未**加「立即发布不带 scheduled」一条：单独跑通过、全量跑受前序用例状态污染而不稳定，且与视图侧同一条锁保护同一件事，理由写进代码注释 |
 | 目标测试 | PASS | `packages/rpa-engine` **255/255**；`packages/shared-utils` **742/742**（39 文件）；`apps/desktop`（composables + features/publish + views）**2626/2626**（115 文件） |
 | 结构性门禁 | PASS | `check-max-lines` / `check-renderer-cjs-boundary` / `check-no-brand-residue` / `check-gate-record-debt` / `check-locale-sync --keys` / `--cjk` / `--pair-base origin/main` 全 rc=0；`eslint`（5 个改动文件）rc=0 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，并删掉本文件 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | PASS | PR #3123 已 squash 合并入 main：merge SHA `2475fa74c270710445ac9cb8961e24c5f86c853c`（`git log origin/main --grep='(#3123)$'` 取证，提交时间 2026-10-08T11:59:28+08:00）。远端分支 `fix-schedule-hardening` 已删除（`git ls-remote --heads origin fix-schedule-hardening` 返回 0 行） |
 
 ### 环境说明（如实记录）
 
