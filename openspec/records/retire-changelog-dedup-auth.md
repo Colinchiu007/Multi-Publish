@@ -2,7 +2,6 @@
 record: retire-changelog-dedup-auth
 task: 退役已消费的 CHANGELOG 去重授权——解除后续 PR 的坐标系死锁
 date: 2026-10-08
-sync_status: PASS
 ---
 
 ## 本次执行记录：CHANGELOG 去重授权退役（retire-changelog-dedup-auth，2026-10-08）

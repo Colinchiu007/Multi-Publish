@@ -2,7 +2,6 @@
 record: fix-xhs-api-chain-contract
 task: 修复小红书 API 发布链 permit 请求形态（GET + query + referer + uploadAddr）+ 修复 tests/ 目录从未被执行的接线漏洞
 date: 2026-10-07
-sync_status: PASS
 ---
 
 ## 本次执行记录：小红书 API 链 permit 契约修复（fix-xhs-api-chain-contract，2026-10-07）

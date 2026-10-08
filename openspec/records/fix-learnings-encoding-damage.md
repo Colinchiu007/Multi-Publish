@@ -2,7 +2,6 @@
 record: fix-learnings-encoding-damage
 task: 修复 01-docs/learnings.md 的7212 处编码损坏并重建 2026-07-11 复盘内容
 date: 2026-10-07
-sync_status: PASS
 ---
 
 ## 本次执行记录：learnings 编码损坏治理（fix-learnings-encoding-damage，2026-10-07）
