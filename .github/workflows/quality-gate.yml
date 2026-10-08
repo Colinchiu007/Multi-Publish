@@ -1048,6 +1048,14 @@ jobs:
       # 复用本 job 已起的 vite（5174，TEST_URL 见上方 env），不额外起服务。
       - name: "Gate 7c - Dark mode text contrast"
         shell: pwsh
+        # ⚠ env 必须在本 step 重新声明。Gate 7 那个 env 是 **step 级**的，
+        # 不跨 step 继承（与 $desktopDir 同源问题，只是前者静默、后者直接报错）。
+        # 实测漏掉它时 CI 上 TEST_URL 为空 ⇒ 18 个视图全部 goto 失败，
+        # 而脚本的 fail-closed 只在「全部视图都失败」时才触发——这里恰好该红，
+        # 但此前 4 轮都被 $desktopDir 挡住，看不到这一层。
+        env:
+          TEST_URL: http://127.0.0.1:5174
+          HEADLESS: "true"
         run: |
           $ErrorActionPreference = 'Continue'
           # ⚠ $desktopDir 必须在**本 step 内**重新计算：它是 Gate 7 step 里的局部变量，

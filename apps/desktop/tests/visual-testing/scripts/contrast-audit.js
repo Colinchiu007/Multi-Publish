@@ -35,6 +35,14 @@ diag('node', process.version)
 diag('TEST_URL', process.env.TEST_URL || '(unset)')
 diag('HEADLESS', process.env.HEADLESS || '(unset)')
 
+// TEST_URL 缺失时不静默套默认值：CI 上漏声明 env 会让默认值指向本机 5188，
+// 18 个视图全部 ERR_CONNECTION_REFUSED，最后只能报一个笼统的 fail-closed。
+// 这里提前 2 退出，并说清「变量没设」而不是「页面打不开」。
+if (!process.env.TEST_URL) {
+  diag('abort', 'TEST_URL is not set — declare it in this step env (see quality-gate.yml Gate 7c)')
+  process.exit(2)
+}
+
 let chromium
 try {
   ({ chromium } = require('playwright-core'))
