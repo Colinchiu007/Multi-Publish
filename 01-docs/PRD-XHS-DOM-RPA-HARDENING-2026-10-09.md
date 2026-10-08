@@ -62,6 +62,31 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
 现有 `_resp_success`（判 `code==0`）与 `_extract_url`（读嵌套 `data` 的
 `draft_id/note_id/id/url`）本就与真实响应形状匹配，故本次只补数据、不改逻辑。
 
+## 4b. 调用链现状（2026-10-09 取证，直接影响验收方式）
+
+本次加固的是 **python Playwright 发布器**，但它在今天的桌面端不可达：
+
+- `server.py:736` 把 `draft` 透传给 `publisher_mgr`，桌面端唯一调用 `/api/publish` 的地方是
+  `publisher-router.js:683` 的 `BackendPublisher`；而 `publisher-router.js:44` 的
+  `ROUTE_TABLE.xiaohongshu = { mode: 'rpa_vm' }` ⇒ **桌面发布队列走 Electron WebContents RPA，不经过 python 发布器**。
+- 用户实际触达的草稿能力在 `rpa-view-platforms.js:_publish_xiaohongshu`（L1309）：图文模式自
+  2026-09-29 起**硬编码 `draftOnly: true`**（L1328，用户当时指定"只落草稿箱不点发布"），
+  视频模式保持原发布链路。该分支 2026-10-07 已加两道守卫：标题/正文写入失败 ⇒
+  `PUBLISH_DRAFT_CONTENT_NOT_FILLED` 拒绝报成功；草稿落库判据从含裸「草稿」的正则
+  （常驻文案恒真、等于没有判据）收紧为「已保存/保存成功/编辑于+时间量词」。
+- 两条路径的**确认强度不同**：桌面路径是 DOM 文案正则；python 路径经本次 #3183 才具备
+  XHR 端点主确认（`/web_api/sns/v2/note` + `code==0`）+ 草稿箱回查兜底。
+
+结论与口径修正：
+
+1. "存进小红书真实草稿箱"这条验收目标，**在桌面路径上已存在并有防假成功守卫**；
+   本次 change 交付的是同一目标在 python RPA 轨上的等价能力与更强的确认通道。
+2. 因此 2.4 活体验收要**双路覆盖**：(a) 用探针验 python 轨（本 change 的加固对象）；
+   (b) 用桌面真实队列发一条图文，确认草稿箱出现本次条目（用户实际路径）。
+3. 遗留决策（**不在本 change 范围，需用户拍板**）：是否把 `ROUTE_TABLE.xiaohongshu`
+   切到 `backend`（或 `api-then-dom`）让桌面吃到本次加固。切换前提是 2.4 活体证据到手，
+   否则等于把已验证的桌面路径换成未验证路径。
+
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |

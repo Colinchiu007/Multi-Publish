@@ -17,7 +17,7 @@
 - [ ] 2.2 抓真实草稿保存按钮/确认弹层/成功 toast/草稿箱列表条目稳定选择器（多候选），落 evidence 文档
 - [x] 2.3a 回填端点模式常量 DRAFT_SAVE_RESPONSE_PATTERNS=["/web_api/sns/v2/note"]（证据源：本仓 api-publish-engine/src/publish/platforms/xiaohongshu-draft.js 三步草稿链终步 + 其测试断言真实端点；XHR 主确认通道由此武装，仍属源证据非活体，需 2.4 活体复核）
 - [ ] 2.3b 回填 selector 链与 RISK_OVERLAY_SELECTOR / DRAFT_BOX_ITEM_SELECTOR（需 2.1/2.2 活体取证）
-- [ ] 2.4 真实草稿箱活体验收：存草稿 → 确认草稿箱出现本次条目 → 记录证据（截图/响应）
+- [ ] 2.4 真实草稿箱活体验收（**双路覆盖**）：(a) 探针跑 python 轨存草稿 → 草稿箱出现本次条目；(b) 桌面真实队列发一条图文（`rpa-view-platforms.js` 的 `draftOnly:true` 用户路径）→ 草稿箱出现本次条目。均记录证据（截图/响应）。2026-10-09 调用链取证见 design.md「调用链取证」：`ROUTE_TABLE.xiaohongshu=rpa_vm`，桌面当前不经 python 发布器
 - [ ] 2.5 补 PR、更新 design 取证结论、openspec validate、回写 PRD/techdoc 相关小节
 
 ## 3. 收口

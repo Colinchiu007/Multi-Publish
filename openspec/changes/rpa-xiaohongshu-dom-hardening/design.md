@@ -72,3 +72,13 @@
 - 假阳性红线：上传 `permit` 与 `ros-upload` 亦返回 `code==0`，纳入确认模式会导致草稿未提交即判成功。确认模式**只含笔记提交终步**，并由回归测试固化。
 
 - 仍属源证据非活体证据：该端点是否为创作者中心存草稿实际 XHR，需 2.4 活体复核；2.3b 选择器待 2.1/2.2 取证。
+
+## 调用链取证（2026-10-09，影响验收口径）
+
+- `publisher-router.js:44` `ROUTE_TABLE.xiaohongshu = {mode:'rpa_vm'}` ⇒ 桌面发布队列走 Electron WebContents RPA，
+  **不经过本 change 加固的 python 发布器**；`/api/publish`（`publisher-router.js:683` `BackendPublisher`）目前不为小红书启用。
+- 用户实际触达的草稿能力在 `rpa-view-platforms.js:1328`：图文模式硬编码 `draftOnly:true`（2026-09-29 用户指定），
+  且 2026-10-07 已有内容 fail-closed（`PUBLISH_DRAFT_CONTENT_NOT_FILLED`）与收紧后的落库判据正则。
+- 差异：桌面路径确认=DOM 文案正则；python 路径确认=XHR 端点（本次武装）+ 草稿箱回查。
+- 决定：2.4 活体验收**双路覆盖**（探针验 python 轨 + 桌面真实图文验用户路径）。
+  是否把 `ROUTE_TABLE.xiaohongshu` 切 `backend` 属范围外决策，须待活体证据后由用户拍板。
