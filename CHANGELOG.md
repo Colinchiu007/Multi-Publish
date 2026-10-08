@@ -221,9 +221,23 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 - `podcast-endpoints.test.js` 已承担分发端 id 不进登录 URL/平台名/发布能力/会话标记表的结构锁；`platform-definitions.test.js` 的 15 平台数不变是第二道。
 - 双实现收敛（PRD R3）：`packages/api-publish-engine/src/podcast/feed-schema.js` 早期草稿移出源码树（唯一真源 = `shared-utils/podcast-rss.js`，仓库内零引用；草稿留档 `%TEMP%` 可恢复，本机缺 `mavis-trash` 故 `safe-delete.js` 按设计拒绝删除，改走可逆移出）。
 
+## 修复（QM-6 双模型外部评审回项，逐条带变异反证）
+
+- **Critical｜enclosure 优先级反向**：`buildItem` 取音频地址用 `resolvedAudioUrl || audioUrl`，与同文件的 `resolveEnclosure` 口径相反，等于允许未过结构检查的 http 地址进 feed。统一为 `audioUrl || resolvedAudioUrl`，判重键 `(guid || audioUrl || resolvedAudioUrl).trim()` 同屏保持同一优先级（两处各做一次变异，各红 2 条）。
+- **W①｜自检徽标的 `ok` 取错层**：渲染层把 IPC 信封的 `ok`（只要 handler 正常返回就为真）当成"feed 合格"，用户会看到不合格 feed 挂着绿色通过徽标。改为引擎语义 `issues.length === 0`，信封只提供"这一趟调用通了"。
+- **W②｜空 `guid` 两侧口径不一致**：验证侧把空白串视为缺省（不报错），构建侧原样产出 `<guid> </guid>`，订阅端会拿到一个空标识的条目。构建侧改为同口径 `trim` 后回落 `audioUrl`。
+- **W③｜`ownerEmail` 公开性未提示**：该字段会写入 `itunes:email` 随 feed 公开。补固定提示行 `podcast-owner-email-privacy-hint`，文案唯一实现进 locales 且 zh/en 成对。
+- **W④｜保存失败只有通用码 toast**（"未知问题(-2)"，违反 F1 验收）：改为区块下方逐条 issues 清单（频道 `podcast-channel-save-issues`、单集 `podcast-episode-save-issues`），每条给 `issueText` 文案 + `<code>field</code>` 定位字段，保存成功即清空。
+- **渲染层 CJS 越界**（QG Static 首跑红因）：渲染层直接 `require` CJS 引擎。新建窄面 ESM 孪生 `packages/shared-utils/src/podcast-rss.browser.js`（只导出渲染层真实消费的 5 个符号，parity 锁断言其导出集合恰好等于该窄面）+ `vite.config.js` alias 登记 + 消费点改裸 specifier import。
+- **新增路由缺视觉用例**（全量回归红因）：`electron/tests/visual-view-runner.test.js` 从路由表抽全部 `path:` 并要求每条被 `viewTests` 覆盖，报「路由 /podcast 缺少单视图门禁」。修法见下一条。
+
+## 新增（视觉门禁登记）
+
+- `podcast-channel` 用例**同时**登记进两份清单（`views/all-views.visual.test.js` 的 `viewTests` 与 `scripts/run-pixel-tests.js` 的 `pixelTests`，`QG Visual` 只执行后者，只登记前者会得到一条必然的绿），`route=/podcast`、`waitFor=.podcast-channel-page [data-testid="podcast-page-title"]` 两份逐字一致（由 `tests/visual-ci.test.js` 双清单漂移锁守）；`base-screenshots/.gitignore` 放行 `!podcast-channel.png` 与 `!podcast-channel-dark.png`（根 `*.png` 会静默吞掉基线，`git add` 不报错也不收）。等待条件指向页面主标题本身，页面渲染不出来即本条失败，而不是"截一张空白页当基线"。
+
 ## 未包含（如实）
 
-`headImpl` 的主进程 `net` 版 HEAD provider 未接（缺省不注入即跳过网络检查，生产默认零真实出站，日志标 `head=off`），外链巡检属 F9；P1 直传已有规则层 `podcast-hosting-upload.js`（34 例锁）但除自身测试外无消费者，上传与 `resolvedAudioUrl` 回填属 P1 刀；新视图的像素用例登记与首张 CI 基线必须在同一次发生，本刀未登记（AGENTS QM-4 第 7 条：基线只能取 CI artifact）；P2 代托管未启动。
+`headImpl` 的主进程 `net` 版 HEAD provider 未接（缺省不注入即跳过网络检查，生产默认零真实出站，日志标 `head=off`），外链巡检属 F9；P1 直传已有规则层 `podcast-hosting-upload.js`（34 例锁）但除自身测试外无消费者，上传与 `resolvedAudioUrl` 回填属 P1 刀；像素用例登记已闭合，**首张基线尚未入库**——AGENTS QM-4 第 7 条规定基线只能取自同一次 CI run 的 `quality-gate-visual-reports` artifact，因此本 PR 首次 `QG Visual` 对该条必然报 `ERR_VISUAL_BASELINE_MISSING`，须由那次 run 的渲染回填并自证 0 px，禁止用本机截图、禁止提阈值消化；P2 代托管未启动。
 
 # [未发布] feat(podcast): 播客 RSS 频道发布（自动覆盖小宇宙收录）——RSS 协议通道立项：引擎+目录+全套文档（2026-10-09，podcast-rss-channel）
 

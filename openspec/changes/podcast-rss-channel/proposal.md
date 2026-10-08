@@ -31,11 +31,11 @@
 
 ## Impact
 
-- 受影响面（本 PR 实际清单，供评审对齐范围）：`packages/shared-utils/src/podcast-rss.js`、`podcast-endpoints.{json,js,browser.js}` 及其 `__tests__`；`apps/desktop/electron/services/podcast-channel-service.js`、`podcast-hosting-upload.js`（P1 规则层，未接线）、`ipc-handlers/podcast.js`+`index.js`、`preload/podcast.js`+`index.js`+两个 bundle；`apps/desktop/src/views/PodcastChannelView.vue`、`composables/usePodcastChannel.js`+`useTabDocumentTitle.js`、`config/route-registry.js`+两个 sidebar 测试、`router/index.js`、`locales/zh.js`+`en.js`；`packages/api-publish-engine/test/publish-mode-config.test.js`；`.github/scripts/max-lines-baseline.json`（locales 基线随新增键上调，**接受漂移并在此披露**）；文档与门禁记录（`01-docs/PRD.md` 索引、`i18n-glossary.md`、CHANGELOG、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）。
+- 受影响面（本 PR 实际清单，供评审对齐范围）：`packages/shared-utils/src/podcast-rss.js`、`podcast-rss.browser.js`（渲染层窄面 ESM 孪生，为过 `check-renderer-cjs-boundary` 而设，只导出渲染层真实消费的 5 个符号）、`podcast-endpoints.{json,js,browser.js}` 及其 `__tests__`；`apps/desktop/electron/services/podcast-channel-service.js`、`podcast-hosting-upload.js`（P1 规则层，未接线）、`ipc-handlers/podcast.js`+`index.js`、`preload/podcast.js`+`index.js`+两个 bundle；`apps/desktop/src/views/PodcastChannelView.vue`、`composables/usePodcastChannel.js`+`useTabDocumentTitle.js`、`config/route-registry.js`+两个 sidebar 测试、`router/index.js`、`locales/zh.js`+`en.js`、`apps/desktop/vite.config.js`（alias 登记）；**视觉门禁登记面**（修复刀补）：`tests/visual-testing/views/all-views.visual.test.js`、`tests/visual-testing/scripts/run-pixel-tests.js`、`tests/visual-testing/base-screenshots/.gitignore`；`packages/api-publish-engine/test/publish-mode-config.test.js`；`.github/scripts/max-lines-baseline.json`（locales 基线随新增键上调，**接受漂移并在此披露**）；文档与门禁记录（`01-docs/PRD.md` 索引、`i18n-glossary.md`、CHANGELOG、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`、`openspec/records/podcast-rss-channel.md`）。
 - 行为变化：新增「播客 RSS 频道」页面与侧边菜单项；不改动既有 15 平台发布链路，不新增出站请求。
 - 破坏性：无。`PLATFORM_NAMES`/`PLATFORM_PUBLISH_META` 保持 15；`publishMode` 值域不动。
 - 已收敛风险：PRD R3 双实现漂移（草稿移出源码树）。
-- 未闭合项（如实）：QM-4 新视图像素登记与首张 CI 基线必须同次发生，本 PR 未登记；侧边菜单新增条目可能改变含侧栏视图的全页像素，若 `QG Visual` 变红需按同一次 run 的 CI 渲染重建基线（禁提阈值）。
+- 未闭合项（如实）：QM-4 像素用例**登记已闭合**（双清单 + `.gitignore` 浅色/暗色放行），**首张基线尚未入库**——AGENTS QM-4 第 7 条规定基线只能取自同一次 CI run 的 `quality-gate-visual-reports` artifact，所以本 PR 首次 `QG Visual` 对 `podcast-channel` 必然报 `ERR_VISUAL_BASELINE_MISSING`，须由那次 run 的渲染回填并自证「新基线 vs 同一次 CI 渲染 = 0 px」；侧边菜单新增条目同时会改变所有含侧栏视图的全页像素，若 `QG Visual` 因此变红，正解同样是按同一次 run 的 CI 渲染重建受影响基线（**禁提阈值**、禁本机截图）。
 
 ## Out of Scope
 
