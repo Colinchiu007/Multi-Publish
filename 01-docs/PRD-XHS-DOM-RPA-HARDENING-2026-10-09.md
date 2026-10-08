@@ -210,6 +210,10 @@ i1/i2 见 §4c-b。另外三条同样全部 `upheld`，且各自有可验证的�
 只收紧快路径"直接矛盾。
 修法：两个等待的常量对调回来——上传控件 30s（原容忍度）+ 编辑器就绪 10s，
 `fail-closed` 与"命中即返回"的快路径收益全部保留。
+> **⚠ 本条结论已被 §4k 部分推翻（同日第二轮深评 i1）**：对调只纠正了上传那一侧，
+> 编辑器就绪留在 10s 同样违背「上限沿用原时长」（改造前它也是 30s），且它的超时并不软
+> ——下游 `_set_field` 会直接把慢首屏报成 `XHS_TITLE_FAILED`。现行口径：**两个等待都是 30s**，
+> 常量仍分开命名。保留本节原文是为了留下"修复自身被重审"的取证轨迹，不要照抄这段结论。
 验证：`test_upload_ceiling_keeps_the_original_tolerance` 钉住 30s；
 `test_upload_path_uses_the_upload_fallback_ceiling` 给两个常量传不同哨兵值
 （0.05 / 9.99），看失败留痕里出现哪个，从而证明**映射**归属，而不是抠 `timeout_s=` 源码字面量。
@@ -399,6 +403,60 @@ Warning 进入对抗裁决，裁决全文见 `.adversarial/ccg-deep-1476985b/adj
 `check-debt-budget.js`（filesOver500 98 ≤ 基线 101）、`check-step-failfast.js`（6 个多测试
 步骤全 fail-fast）、`check-no-brand-residue.js`（PASS）。
 
+## 4k. CCG 深评第二轮（`0436f91c8` 批次）：上一轮的修复自身被推翻两项（2026-10-09）
+
+深评基线是 `origin/main`（1134 行，即整条分支的累计改动），所以这一轮挑出的是
+**上一轮修复引入或遗留的问题**，不是本轮新写的代码。两条 Warning 全部 `upheld`，
+裁决全文见 `.adversarial/ccg-deep-0436f91c/adjudication.json`。
+
+**i3 的修复过度纠正：编辑器就绪的上限被留在 10s（i1）**
+
+- 事实核对：改造前 `origin/main` 的 `_await_editor_ready` 用的就是
+  `UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30s`，它自己的 docstring 写着「上限沿用原 30s」。
+  本分支改为 `NAVIGATE_READY_TIMEOUT_S = 10s`，等于在同一条「上限沿用原时长，
+  只收紧快路径」的准则下，把两个等待做成 30/10 的分配——§4f 逐字写的修法就是这个，
+  而 `test_p4_wait_until.py:106` 的注释抄了原则、下一行断言的却是 `== 10.0`，
+  守卫自身与它声明的原则同段矛盾。
+- 真实失效路径（关键：编辑器就绪**不是**软失败）：`_await_editor_ready` 超时只留痕、
+  返回 None 不中止，流程紧接着 `_set_field(page, "title_input", …)`；标题控件此时
+  仍未挂载 ⇒ `_set_field` 返回 False ⇒ 草稿以 `XHS_TITLE_FAILED`「填写标题失败
+  （选择器未命中或控件不可写）」中止。也就是说早失败并没有换来早成功，只是把
+  慢首屏换成了一个**指错方向**的错误码（与 4e 的 SPA 晚挂载同源，换了出口）。
+- 收益核对：`wait_until`（`base.py:220`）是**先查再睡**，命中即返回——轮询改造已经
+  拿走了快路径的收益，砍上限只在「控件确实不出现」时才多付 20s，而那一类本来就是失败。
+  代价不对称 ⇒ 恢复 30s。
+- 落地：`xiaohongshu_selectors.py` 的 `NAVIGATE_READY_TIMEOUT_S = 30.0`，常量处写明
+  「两个等待都沿用改造前 30s 容忍度；收益在命中即返回而非砍上限」。两个常量**仍分开命名**
+  （不合并成一个），因为「哪个常量喂给哪个等待」是由哨兵值用例证明的归属关系，
+  合并就等于放弃这条可验证性。同步把静态守卫的断言改成 30.0。
+
+**轮询命中后的二次解析把抖动报成从未挂载（i2）**
+
+- 事实核对：`await_control` 在 `wait_until` 返回 True 之后**再** `resolve_visible` 一次取返回值；
+  两次解析之间无原子性。SPA 重渲染/节点回收把控件摘掉时第二次拿到 None，
+  `_await_upload_input` 一律 fail-closed 报 `XHS_UPLOAD_FAILED`，文案是
+  「上传控件在 30s 内未挂载」——而事实是它挂载过且被轮询确认过，归因错误。
+- 为什么复用 locator 安全：Playwright 的 locator 是惰性句柄而不是 `ElementHandle`，
+  复用不会 pin 住脱离文档的旧节点；元素真消失了会在 `set_input_files` 上抛原始异常，
+  而调用方本来就有 except 分支给出准确文案（媒体上传失败 + 原始异常）。
+- 落地：轮询谓词内用 `nonlocal` 缓存命中的 locator，超时才返回 None，命中直接返回缓存值，
+  去掉第二次解析。
+
+**验证与自证**：新增 `test_editor_ceiling_keeps_the_original_tolerance`（钉 30s）与
+`test_control_vanishing_after_hit_is_not_reported_as_never_mounted`（用「只让首查可见」的
+`VanishingLocator` 造抖动，断言上传确实发生且结果不含 `XHS_UPLOAD_FAILED`）。
+破坏-恢复实测：把上限改回 10s 且退回二次解析 ⇒ 恰好三条红
+（两条新用例 + `test_xiaohongshu_publisher_no_longer_blind_sleeps`），恢复 ⇒
+`test_xiaohongshu_dom_hardening.py` + `test_p4_wait_until.py` 45 passed。
+`ruff check` 四个改动文件 All checks passed。
+
+**方法论留痕**：深评的变更基线是 `origin/main` 而非上一个提交，因此**每轮都会重审
+整条分支**，上一轮的修复结论也在重审范围内。这暴露出本仓此前的一次性写法风险：
+当一条修复的结论被写进文档（§4f「编辑器就绪 10s」）而没有同时写下它所依据的准则
+（「上限沿用原时长」适用于**每一个**被改造的等待），下一轮就会在文档内部产生自相矛盾，
+而这矛盾直到跨模型评审才被抓住。后续所有「把固定等待换成轮询」的改动，落笔时必须逐条
+回答：改造前上限是多少？快路径收益是否已经由轮询本身提供？
+
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
@@ -411,6 +469,7 @@ Warning 进入对抗裁决，裁决全文见 `.adversarial/ccg-deep-1476985b/adj
 | 2.4 真实草稿箱活体验收 | 待办 | 依赖 2.1/2.2/2.3b（(b) 路走 `rpa_vm`，与 4h 的 API permit 断裂无关；无需重新扫码） |
 | 2.6 运行态取证（tab CDP，免扫码） | 已完成 | 取到 API 轨 permit 契约断裂证据（4h） |
 | CCG 深评（`1476985bd`）四项裁决 + i3/i4 落地 | 已完成（4j） | 深评第 1 轮即达 stall 出口，改走 self-play 裁决（`confidenceWeight 0.6`），无高危域项 |
+| CCG 深评第二轮（`0436f91c8`）两项裁决 + 落地 | 已完成（4k） | 上一轮修复自身被重审推翻：编辑器就绪上限恢复 30s、去掉命中后的二次解析 |
 | 2.7 API 轨 permit 契约修正 | 待办（范围外，待用户确认） | 需先取 permit 完整回包结构，禁止按键名猜 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |
 

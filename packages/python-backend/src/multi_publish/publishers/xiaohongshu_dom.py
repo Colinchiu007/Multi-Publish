@@ -103,16 +103,26 @@ async def await_control(page, candidates: list[str], *, key: str, label: str,
     返回 None 只表示"没等到"，是否中止由调用方决定（媒体上传必须中止，编辑器就绪可降级）。
     留痕同时带 `key`（机器可读的控件名，改名/换文案不会变）和 `label`（给用户看的措辞）：
     回归测试钉 `key` 而不是 `label`，否则措辞一改就假红。
+
+    轮询命中后**直接返回轮询中拿到的那个 locator**，不再二次解析：命中与二次解析之间
+    控件被移除或隐藏会返回 None，上传路径于是把"刚可见又消失"的瞬时抖动当成
+    "控件从未挂载"报 CODE_UPLOAD_FAILED，属于错误归因。locator 本身是惰性的，
+    元素真消失了会在执行动作时抛错，由调用方的 except 给出准确文案。
     """
+    hit = None
+
     async def visible() -> bool:
+        nonlocal hit
         loc, _ = await resolve_visible(page, candidates)
-        return loc is not None
+        if loc is None:
+            return False
+        hit = loc
+        return True
 
     if not await wait_until(visible, timeout_s=timeout_s, interval_s=interval_s):
         logger.warning(f"[{key}] {label}在 {timeout_s}s 内未就绪（站点结构变化或首屏未完成）")
         return None
-    loc, _ = await resolve_visible(page, candidates)
-    return loc
+    return hit
 
 
 async def set_field(page, candidates: list[str], text: str, *, label: str) -> bool:

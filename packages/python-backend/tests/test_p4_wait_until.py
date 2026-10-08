@@ -104,7 +104,7 @@ def test_xiaohongshu_publisher_no_longer_blind_sleeps():
     from multi_publish.publishers import xiaohongshu as xhs
 
     assert xhs.UPLOAD_FALLBACK_WAIT_TIMEOUT_S == 30.0
-    assert xhs.NAVIGATE_READY_TIMEOUT_S == 10.0
+    assert xhs.NAVIGATE_READY_TIMEOUT_S == 30.0
     # 「超时须留原因」「哪个常量喂给哪个等待」属行为性质，交由
     # tests/test_xiaohongshu_dom_hardening.py 的行为用例断言（caplog / 错误文案哨兵值）。
     # 本守卫不再抠 label 与日志措辞的字面量——改引号或换个说法就假红，正是 PR-1

@@ -106,7 +106,11 @@ CODE_TITLE_FAILED = "XHS_TITLE_FAILED"
 CODE_UNCONFIRMED = "XHS_UNCONFIRMED"
 
 # 脆弱等待改造：固定 sleep 换成条件轮询 + 具名上限。
-NAVIGATE_READY_TIMEOUT_S = 10.0
+# 上限口径（CCG 二轮 i1）：**两个等待都沿用改造前的 30s 容忍度**。上一轮把常量对调
+# 修好了上传那一处，却让编辑器就绪停在 10s——那是同一条准则的违背：轮询的收益是
+# "命中即返回"（快路径），砍上限只会把慢首屏推向下游的 XHS_TITLE_FAILED 误诊。
+# 两个常量仍分开命名：喂给哪个等待由行为用例用哨兵值证明，而不是靠值相等来混用。
+NAVIGATE_READY_TIMEOUT_S = 30.0
 NAVIGATE_READY_POLL_INTERVAL_S = 0.5
 UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0
 UPLOAD_FALLBACK_POLL_INTERVAL_S = 0.5

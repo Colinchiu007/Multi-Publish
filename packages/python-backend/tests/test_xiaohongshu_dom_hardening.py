@@ -501,6 +501,44 @@ class TestUploadReadinessPoll:
         """
         assert xhs.UPLOAD_FALLBACK_WAIT_TIMEOUT_S == 30.0
 
+    def test_editor_ceiling_keeps_the_original_tolerance(self):
+        """CCG 二轮 i1：上一条准则同样管编辑器就绪，上一轮却把它留在了 10s。
+
+        改造前 `_await_editor_ready` 用的就是 30s 上限；轮询改造的收益在"命中即返回"，
+        砍上限买不到任何东西，只会让慢首屏更早掉进下游的 XHS_TITLE_FAILED 误诊
+        （标题其实只是还没挂载）。两个常量仍分开命名：归属由哨兵值用例证明。
+        """
+        assert xhs.NAVIGATE_READY_TIMEOUT_S == 30.0
+
+    @pytest.mark.asyncio
+    async def test_control_vanishing_after_hit_is_not_reported_as_never_mounted(self, publisher, monkeypatch):
+        """CCG 二轮 i2：轮询命中后控件被摘掉，不得当成"从未挂载"。
+
+        旧实现在 wait_until 返回 True 之后又 `resolve_visible` 一次，抖动窗口里第二次
+        解析拿到 None ⇒ 报 CODE_UPLOAD_FAILED「上传控件在 30s 内未挂载」，把一次瞬时
+        重渲染说成站点结构问题。改为复用轮询中拿到的 locator 后，locator 是惰性的：
+        元素真不在会在 set_input_files 上抛错，由调用方给出准确文案。
+        """
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.01, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.01, raising=False)
+
+        class VanishingLocator(FakeLocator):
+            async def is_visible(self):
+                calls = self._page.visibility_calls
+                calls[self._sel] = calls.get(self._sel, 0) + 1
+                return calls[self._sel] == 1 and self._sel in self._page.visible
+
+        page = _base_page()
+        sel = publisher._candidates_for("upload_input")[0]
+        page.visible.add(sel)
+        page.visible.add(DRAFT_SEL)
+        page.locator = lambda s: VanishingLocator(page, s)  # 首查可见，之后一律不可见
+
+        result = await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+        assert page.uploaded == [["a.jpg"]], f"命中后二次解析把控件抖动吞掉了: {result.error}"
+        assert xhs.CODE_UPLOAD_FAILED not in (result.error or "")
+
     @pytest.mark.asyncio
     async def test_upload_path_uses_the_upload_fallback_ceiling(self, publisher, monkeypatch):
         """CCG i3 的可验证面：失败留痕里的上限就是上传路径实际生效的那个常量。
