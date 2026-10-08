@@ -40,6 +40,45 @@ date: 2026-10-02
 | 回归复跑（QM-6 处置后） | PASS | shared-utils 全量 `536 passed / 10 skipped`（29 文件，含新增那条 accountId 行为锁）；desktop 受影响面 `417 passed`（19 文件：`src/stores/**` + `src/components/PublishProgress*.vue` 及其用例 + `phase4-events` + `publish-progress-events` + `publish-stage-map` + `container.setup` + `phase3-services`）——即 AGENTS.md 对「发布进度事件双边界与富化契约」点名的五套必跑测试全部覆盖；eslint 对 10 个改动文件零输出 rc=0。**desktop 全量复跑** `13081 passed / 3 skipped (709 文件)` + **2 failed**，两条红与首轮逐条同名同签名（`feedback.test.js` Windows symlink EPERM、`story2video-manual-assets.test.js` finalize_assets），二者均已按「未改动 main 基线对照」定责为既有缺陷，本 PR 未触其路径 ⇒ 不认领。像素门禁未跑：本机未起 dev server 且基线只能取 CI 产物，本轮视觉结论由 DOM 锁承担（见 QM-4 行） |
 | 远程同步 | PASS | 已合并：merge SHA `32f242ae5dbdd3ed6eab542c4c568739dd03d9a5`（2026-10-04T12:52:55Z，squash 进 main，PR #2773），main 上可回读实现（`publish-frequency-policy.js` 存在、`container.setup.js` 含 `publishIntervalGuard: c.get`、`zh.js`/`TaskRow` 含归因文案）。远端分支已删（2026-10-07 复核 `git ls-remote --heads origin publish-frequency-control` = 0 行）。三个 head 的结论按 check-runs 逐个复核而非只看 PR 桶：`9ed783e9` 21 条全 completed（20 success + 1 skipped）、`11505431` 21 条全 completed（20 success + 1 skipped）、`c32709dd` 22 条全 completed（21 success + 1 skipped），**零失败**。取证命令 `git log origin/main --grep='(#2773)$' --format=%H\|%cI`。本行的回填与文件头三个 `sync_*` 字段的删除发生在**同一次提交**内 |
 
+### 间隔标定实测（2026-10-08，数据源＝本机真实发布历史）
+
+**数据源与口径**（先说清测的是哪一份真源，避免下一个会话去查一张没有写者的表）：
+
+- 真源是 `shared-user-data/publish-history.jsonl`（100 条，跨度 9.1 天）。`publish_history` 表实测 **0 行**且
+  **无生产写入方**（`apps/desktop/src/views/Home.vue:336` 已注明"store:add-publish-record 零调用"），
+  所以按该表标定只会得到空集——这条不对称本身就是本次调查的发现之一。
+- 只取**真实提交**终态 `success|failed|timeout` 共 **87 条**；13 条 `skipped` 属预检跳过、不构成对平台的提交，计入会把间隔压短。
+- 该库只有 **1 个 `owner_subject`**，且 `backend-data/accounts.json` 实测**每平台恰好 1 个账号** ⇒ 逐平台间隔 == 逐账号间隔，
+  下表比例是**精确值而不是上界**（多账号交错会把 P10 拉低，本库不存在这个混淆）。
+- 记录里**没有 accountId 列**（见下方遗留项），故本次只能按平台聚合；单账号事实是"恰好成立"的前提，不是通用前提。
+
+| 平台 | 提交数 | 间隔样本 | P10 | 中位数 | 被账号档拦下的比例 | 被平台档拦下的比例 | 现值(账号/平台, 分钟) |
+|---|---|---|---|---|---|---|---|
+| kuaishou | 29 | 28 | 1.8 min | 45.6 min | 43% | 21% | 30 / 3 |
+| douyin | 15 | 14 | 0.9 min | 3.5 min | **71%** | 50% | 30 / 3 |
+| xiaohongshu | 13 | 12 | 0.9 min | 2.0 min | **67%** | 58% | 30 / 3 |
+| zhihu | 10 | 9 | 1.0 min | 20.1 min | 67% | 44% | 60 / 5 |
+| toutiao | 14 | 13 | 7.6 min | 21.2 min | 62% | 0% | 60 / 5 |
+| wechat_mp | 4 | 3 | 4.9 min | 20.1 min | 100%（n=4，不足定分布） | 33% | 60 / 5 |
+| bilibili | 2 | 1 | 321.7 min | 321.7 min | 0%（n=2） | 0% | 30 / 3 |
+
+**读法**：这 7 个平台的历史节奏是在**没有门禁的条件下**跑出来的，所以"被拦下的比例"衡量的是**新策略会在多大程度上改变既有习惯**，
+不是"平台会风控"的证据。三个短视频/图文社区（douyin 71%、xiaohongshu 67%、kuaishou 43%）确实是门禁会咬到的地方：
+现值下同一账号 10 条批次需要 5 小时（30 min 档）排队，长文类（zhihu/toutiao/wechat_mp）需要 10 小时（60 min 档）。
+
+**决定：保持现值，不改策略表。** 理由三条，都不是"懒得改"：① 样本没有一条来自门禁之后，用它反推平台阈值是循环论证；
+② wechat_mp/bilibili 的 n≤4，分位数在 n<10 上是噪声；③ 保守默认是本功能的产品既定取向（"宁慢不险"，用户 D3 明确选了"保守默认可覆盖"），
+要松也应松在有平台侧证据之后。**改数值只能改 `publish-frequency-policy.js` 一处**，禁止在调用点抄第二份，也不得回退成"成功才记账"。
+
+**重测触发条件（写死，免得下次凭感觉）**：任一平台累计真实提交 ≥ 100 条，或运营明确反馈排队延迟过重
+（现场特征是 `blocked` 相位频繁出现且 `remainingMs` 贴近整档），或平台侧出现明确的频率规则。三者任一成立即重跑本节口径。
+
+**同轮附带验收：真实落盘的冷却在进程重启后仍生效**（此前只有单测证据，库里没有行）。
+`publish_timeline` 现有 2 行（10-07 那次真实 B 站发布留下的），列是 TEXT 亲和 ⇒ 读回值形如 `"1791381214186.0"`（字符串，带 `.0`），
+守卫靠算术强转容忍（`store-owner-isolation.test.js:364` 早就把读回钉成字符串 `'100'`）。用**真实字节 + 真实守卫实现**跑出的结果：
+T+5 min ⇒ `allowed=false remaining=25.00min bucket=account`；T+29.9 min ⇒ `remaining=0.10min`；T+31 min ⇒ `allowed=true`；
+未登记平台在 T+31 min ⇒ 仍 `allowed=false remaining=29.00min`（回落 60 min 最严档，没有回落成 0）。
+
 ### 遗留（不假装已闭合）
 
 - **QM-6 是用替代 harness 跑的**（`opencode` 两套不同底模），不是配置真源指定的 `codex` + `claude`：
@@ -50,4 +89,5 @@ date: 2026-10-02
 - **未做设备/IP 级全局串行**（用户 D2 未选）：同机多平台并发的出口速率仍不受约束；如后续需要，应另立 change 而非在此补维度。
 - **乐观记账的代价已接受但未观测**：失败/超时后同账号需等满窗口才能重发。若运营反馈过重，正解是按平台校准策略表数值，**不得**在调用点各抄一份或回退到"成功才记账"。
 - `publish_history` 表**无账号列** ⇒ 无法按账号审计历史发布节奏（本次调查 CDP 观察无法用应用自身数据佐证的原因之一）。属数据模型缺口，另立 change。
-- 间隔数值未经真实运营校准，当前是工程保守估计（PRD §4 与代码注释均已标注）。
+- 间隔数值**已于 2026-10-08 用真实运营数据标定过一轮**（见上节「间隔标定实测」）：结论是**保持现值**，
+  并把"何时该重测"的触发条件写死在那里。此前那句"未经校准"是诚实的待定项，现在它变成有数据的 conscious decision。
