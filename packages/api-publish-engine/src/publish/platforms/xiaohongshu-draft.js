@@ -123,8 +123,16 @@ class XiaohongshuDraftChain {
       headers,
     })
     assertBusinessOk(res && res.data, 'permit')
-    const info = (res.data && res.data.data) || {}
-    if (!info.file_id) {
+    // 响应形状（真机 2026-10-09 实证）：{ code, success, data: { result: [...], uploadTempPermits: [...] } }
+    // file 相关字段在数组元素里，且可能叫 fileIds/file_id 两种历史形态；兼容两种取法。
+    const data2 = (res.data && res.data.data) || {}
+    const permitArr = Array.isArray(data2.uploadTempPermits) && data2.uploadTempPermits.length
+      ? data2.uploadTempPermits
+      : (Array.isArray(data2.result) && data2.result.length ? data2.result : null)
+    const info = (permitArr && permitArr[0]) || data2 || {}
+    const rawFileId = info.file_id || info.fileId || info.fileID
+    const rawFileIds = info.file_ids || info.fileIds || (rawFileId ? [rawFileId] : [])
+    if (!rawFileId && (!Array.isArray(rawFileIds) || rawFileIds.length === 0)) {
       // 业务层通过但缺 file_id：把响应的顶层键与 data 键名带给探针（只带键名/业务码，不带值），
       // 用于区分「会话态不足」「响应形状变了」「需要签名」三类根因。
       throw new XiaohongshuDraftError(
@@ -132,13 +140,13 @@ class XiaohongshuDraftChain {
         'XHS_PERMIT_NO_FILE_ID',
         {
           topKeys: Object.keys(res.data || {}).slice(0, 20),
-          dataKeys: info && typeof info === 'object' ? Object.keys(info).slice(0, 30) : null,
+          dataKeys: info && typeof info === 'object' ? Object.keys(data2).slice(0, 30) : null,
           successFlag: (res.data && res.data.success) !== undefined ? res.data.success : undefined,
         },
       )
     }
     // uploadAddr 由平台下发（参考实现用它拼上传 URL），不硬编码 ros-upload 域
-    return { fileId: info.file_id, fileIds: info.file_ids || [info.file_id], token: info.token || '', cosKey: info.cos_key || '', uploadAddr: info.upload_addr || info.uploadAddr || '' }
+    return { fileId: rawFileId, fileIds: rawFileIds, token: info.token || '', cosKey: info.cos_key || '', uploadAddr: info.upload_addr || info.uploadAddr || '' }
   }
 
   /** Step 2：PUT 上传图片二进制 */
