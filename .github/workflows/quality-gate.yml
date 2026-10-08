@@ -219,6 +219,7 @@ jobs:
           CL_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           node --test scripts/check-changelog-growth.test.js
+          node --test scripts/check-changelog-growth-retire.test.js
           BASE_REF="${CL_BASE:-HEAD^}"
           MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
           echo "[changelog-growth] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
