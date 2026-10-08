@@ -302,6 +302,11 @@ jobs:
           # **静默降级成单后端**（评审照跑、结论照出，只少一路跨家族交叉验证），
           # 旧实现只有一句被动 ⚠ 告警。判据与假 HOME 复现方式见该测试头注释。
           node --test scripts/deep-review-deps.test.js
+          # plan-review.sh 的后端体检反模式锁：决策层入口曾长期是「command -v 失败
+          # 就 say 一句 ⚠ 然后照跑」的被动告警形态，后端不在 PATH 时引擎静默降级成
+          # 单后端（决策层恰是质量节拍第一道闸，降级 = 「先对抗再动手」名存实亡）。
+          # deep-review.sh 已修同一问题，本锁保证两个入口**同步受锁**，防单侧回归。
+          node --test scripts/plan-review-deps.test.js
           # CCG 评审入口的「跑在哪个 shell」锁：本机**裸 bash 解析到 WSL shim**
           # （C:\windows\system32\bash.exe），此时 $HOME 是 WSL 的 /home/<user>，
           # 脚本会抛出「找不到 codeagent-wrapper」并建议「设置 CCG_ARL_DIR」——

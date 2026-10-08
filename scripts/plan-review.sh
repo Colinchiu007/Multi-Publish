@@ -142,14 +142,151 @@ if [ "$MODE" = "SKIP" ] && [ "$FORCE" -eq 0 ]; then
 fi
 
 # ---------- 4. 依赖体检 ----------
+# 体检体系与 deep-review.sh 同源（ABS-prepend），为什么不只靠 command -v
+# 的完整论证见该文件「后端解析」段。要点复述：
+#   · 本机进程 PATH 的 C: 盘条目被剥掉盘符，按 cwd 盘符解析，没有任何一条
+#     能同时对两个盘符有效 ⇒ command -v 命中不可靠；
+#   · wrapper 是 Go 原生进程，exec.LookPath 对无盘符条目拿相对路径后
+#     ErrDot 拒绝执行，而 bash 的 command -v 照样成功 ⇒「裸名能解析」
+#     推不出「wrapper 能起」。唯一可靠修法是把绝对目录顶到 PATH 最前并导出。
+# 决策层（plan）比验证层更不能容忍静默降级：它是质量节拍的第一道闸，
+# 在这里少一路跨家族，等于「先对抗再动手」的承诺名存实亡。
 WRAPPER="${CODEAGENT_WRAPPER:-$HOME/.claude/bin/codeagent-wrapper.exe}"
 { [ -x "$WRAPPER" ] || [ -f "$WRAPPER" ]; } || {
   say "✗ 找不到 codeagent-wrapper: $WRAPPER"
   say "  生成：npx ccg-workflow"
   exit 2
 }
-command -v claude   >/dev/null 2>&1 || say "⚠ 找不到 claude —— 评审后端不可用，跨家族会降级为单后端"
-command -v opencode >/dev/null 2>&1 || say "⚠ 找不到 opencode —— 出方案后端不可用，跨家族会降级"
+
+# Windows 风格路径 → POSIX 风格（npm prefix -g 在 Windows 返回反斜杠路径）。
+posix_dir() {
+  _pd="$1"
+  [ -n "$_pd" ] || return 1
+  if command -v cygpath >/dev/null 2>&1; then
+    _po="$(cygpath -u "$_pd" 2>/dev/null)" || _po=""
+    [ -n "$_po" ] && { printf '%s' "$_po"; return 0; }
+  fi
+  case "$_pd" in
+    [A-Za-z]:*)
+      _pv="$(printf '%s' "$_pd" | cut -c1 | tr 'A-Z' 'a-z')"
+      printf '%s' "$_pd" | sed -e 's|\\|/|g' -e "s|^${_pv}:|/${_pv}|"
+      ;;
+    *) printf '%s' "$_pd" ;;
+  esac
+}
+
+# 候选目录清单：与 PATH 无关的三条 + npm prefix + CCG_BACKEND_BIN_DIRS（分号分隔）。
+# ⚠ 每个变量都必须写 ${VAR:-}：本函数在 set -u 下运行，
+#   `[ -n "$APPDATA" ]` 在未设时会直接中止整个函数、候选列表静默截短
+#   （deep-review.sh 的「含空格候选目录」回归测试当场抓过这个坑）。
+candidate_dirs() {
+  _cd_emit() { _cd_q="$(posix_dir "$1" 2>/dev/null)" || _cd_q=""; [ -n "$_cd_q" ] && printf '%s\n' "$_cd_q"; return 0; }
+  [ -n "${HOME:-}" ] && { _cd_emit "$HOME/.local/bin"; _cd_emit "$HOME/bin"; }
+  [ -n "${APPDATA:-}" ] && _cd_emit "$APPDATA/npm"
+  if command -v npm >/dev/null 2>&1; then
+    _pp="$(npm prefix -g 2>/dev/null)" || _pp=""
+    [ -n "$_pp" ] && _cd_emit "$_pp"
+  fi
+  if [ -n "${CCG_BACKEND_BIN_DIRS:-}" ]; then
+    _cd_raw_list="$(printf '%s\n' "$CCG_BACKEND_BIN_DIRS" | tr ';' '\n')"
+    while IFS= read -r _cd_raw || [ -n "$_cd_raw" ]; do
+      [ -n "$_cd_raw" ] && _cd_emit "$_cd_raw"
+    done <<EOF
+$_cd_raw_list
+EOF
+  fi
+  return 0
+}
+
+# `command -v` 报出的路径可能省略 .exe（Git Bash 自动补但不在回报里写回）；
+# 且 MSYS 文件测试对扩展名不敏感，必须先查无歧义扩展名再回落裸名。
+_resolve_hit() {
+  for _rh_c in "$1.exe" "$1.com" "$1.cmd" "$1.bat"; do
+    if [ -f "$_rh_c" ]; then
+      printf '%s' "$_rh_c"
+      return 0
+    fi
+  done
+  printf '%s' "$1"
+}
+
+# 探一个后端：命中候选目录即把该目录 prepend 到 PATH 最前并**导出**。
+# ⚠ 结果写全局 _RB_CODE/_RB_MSG，绝不走 $(...) 收集——命令替换开子 shell，
+#   PATH 修复一退出就丢（deep-review.sh 实测踩过的假绿灯）。
+resolve_backend() {
+  _rb_tool="$1"
+  _rb_list="$(candidate_dirs)"
+  while IFS= read -r _rb_d || [ -n "$_rb_d" ]; do
+    [ -n "$_rb_d" ] || continue
+    [ -d "$_rb_d" ] || continue
+    for _rb_f in "$_rb_d/$_rb_tool.exe" "$_rb_d/$_rb_tool.com" \
+                  "$_rb_d/$_rb_tool" \
+                  "$_rb_d/$_rb_tool.cmd" "$_rb_d/$_rb_tool.bat"; do
+      [ -f "$_rb_f" ] || continue
+      PATH="$_rb_d:$PATH"
+      export PATH
+      _rb_prepended="$_rb_d"
+      break 2
+    done
+  done <<EOF
+$_rb_list
+EOF
+  if _rb_hit="$(command -v "$_rb_tool" 2>/dev/null)"; then
+    _rb_real="$(_resolve_hit "$_rb_hit")"
+    if [ -n "${_rb_prepended:-}" ]; then
+      _RB_CODE=ABS
+      _RB_MSG="已把绝对目录 $_rb_prepended 补到 PATH 最前；裸名解析到 $_rb_real"
+    else
+      _RB_CODE=PATH
+      _RB_MSG="裸名解析到 $_rb_real（候选目录里没找到可 prepend 的，已按原样使用）"
+    fi
+    return 0
+  fi
+  _RB_CODE=MISS
+  _RB_MSG="找不到（PATH 与候选目录均未命中）"
+  return 1
+}
+
+# 逐后端体检并打印。退出码三档：0 双后端齐备 / 2 有缺失（含 0 个）。
+# 必须按**计数**分档（0/1 标志会让「2/2 可用」与「1/2 可用」长得一样）。
+report_backends() {
+  _rb_rc=0
+  _rb_n=0
+  for _rb_b in claude opencode; do
+    case "$_rb_b" in
+      claude)   _rb_why="评审后端（主力）"; _rb_pkg='@anthropic-ai/claude-code' ;;
+      opencode) _rb_why="出方案后端 / 跨家族校验"; _rb_pkg='opencode-ai' ;;
+    esac
+    resolve_backend "$_rb_b" || true
+    say "  · $_rb_b  [$_RB_CODE] $_RB_MSG（$_rb_why）"
+    case "$_RB_CODE" in
+      PATH|ABS) _rb_n=$((_rb_n + 1)) ;;
+      MISS)
+        _rb_rc=2
+        say "      ↳ 修法：装一个（npm i -g $_rb_pkg），"
+        say "        或把它所在目录写进系统 PATH 后重开终端；"
+        say "        也可用 CCG_BACKEND_BIN_DIRS 显式指一个目录" ;;
+    esac
+  done
+  case "$_rb_n" in
+    0)
+      say ""
+      say "  ✗ 没有任何评审后端可用 —— 对抗评审根本起不来。" ;;
+    1)
+      say ""
+      say "  ⚠ 只剩单后端可用 —— 评审能跑，但跨家族交叉验证会缺失。" ;;
+  esac
+  _RB_OK=$([ "$_rb_n" -ge 1 ] && echo 1 || echo 0)
+  _RB_RC="$_rb_rc"
+  return "$_rb_rc"
+}
+
+report_backends || true
+say ""
+if [ "$_RB_OK" -eq 0 ]; then
+  say "✗ 没有可用评审后端，对抗评审起不来。修法见上方逐条。"
+  exit 2
+fi
 say ""
 say "开始跨家族对抗评审（出方案 → 挑刺 → 逐条回应 → 收敛，15 分钟以上）…"
 say ""
