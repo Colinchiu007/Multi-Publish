@@ -44,11 +44,28 @@ const VITEST_FILES = new Set([
   'youtube.test.js',
 ])
 
-function discoverTestFiles(testDirectory = path.resolve(__dirname, '..', 'test')) {
-  return fs.readdirSync(testDirectory)
-    .filter((file) => file.endsWith('.test.js'))
-    .sort()
-    .map((file) => path.join(testDirectory, file))
+// 2026-10-07：同时扫 test/ 与 tests/。此前只扫单数 test/，
+// 导致 tests/ 下的文件（小红书三项）从未被执行，却因列在 VITEST_FILES 里
+// 被 check-unwired-tests 判为「已接线」而放行 —— 典型的假绿。
+// 保留 testDirectory 显式传参的向后兼容：显式传入时只扫该目录。
+function discoverTestFiles(testDirectory) {
+  const base = path.resolve(__dirname, '..')
+  const dirs = testDirectory
+    ? [testDirectory]
+    : [path.join(base, 'test'), path.join(base, 'tests')]
+
+  const seen = new Set()
+  const files = []
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue
+    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.test.js')).sort()) {
+      const full = path.join(dir, file)
+      if (seen.has(full)) continue
+      seen.add(full)
+      files.push(full)
+    }
+  }
+  return files.sort()
 }
 
 function classifyTestFiles(files) {

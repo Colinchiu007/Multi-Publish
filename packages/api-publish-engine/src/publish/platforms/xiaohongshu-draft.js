@@ -24,6 +24,14 @@ const CREATOR_ORIGIN = 'https://creator.xiaohongshu.com'
 const EDITH_ORIGIN = 'https://edith.xiaohongshu.com'
 const ROS_UPLOAD_ORIGIN = 'https://ros-upload.xiaohongshu.com'
 const PERMIT_PATH = '/api/media/v1/upload/web/permit'
+// 参考实现：permit 的四个业务参数全在 query 上，路径裸调会 404（2026-10-07 真机实证）
+const PERMIT_QUERY = {
+  biz_name: 'spectrum',
+  file_count: '1',
+  version: '1',
+  source: 'web',
+}
+const PUBLISH_REFERER = 'https://creator.xiaohongshu.com/publish/publish'
 const NOTE_PATH = '/web_api/sns/v2/note'
 
 class XiaohongshuDraftError extends Error {
@@ -87,24 +95,30 @@ class XiaohongshuDraftChain {
 
   /** Step 1：申请上传许可 */
   async requestUploadPermit (opts) {
-    const { cookie, authorization, fileName, fileSize, mimeType } = opts
-    const headers = this._baseHeaders(cookie, authorization)
+    const { cookie, authorization, fileName, fileSize, mimeType, scene } = opts
+    const headers = {
+      ...this._baseHeaders(cookie, authorization),
+      referer: PUBLISH_REFERER,
+    }
+    // scene：参考实现有star / feeva / 模板三种取值，默认 video，图片传 image。
+    // 缺 scene 是 404 的高嫌疑项之一，故显式带上。
+    const query = new URLSearchParams({
+      ...PERMIT_QUERY,
+      scene: scene || 'image',
+    })
+    // GET + query（不是 POST + body）—— 与参考实现逐字一致
     const res = await this.http.request({
-      method: 'POST',
-      url: `${CREATOR_ORIGIN}${PERMIT_PATH}`,
+      method: 'GET',
+      url: `${CREATOR_ORIGIN}${PERMIT_PATH}?${query.toString()}`,
       headers,
-      data: {
-        file_name: fileName,
-        file_size: fileSize,
-        media_type: mimeType || 'image/png',
-      },
     })
     assertBusinessOk(res && res.data, 'permit')
     const info = (res.data && res.data.data) || {}
     if (!info.file_id) {
       throw new XiaohongshuDraftError('permit: 响应缺 file_id', 'XHS_PERMIT_NO_FILE_ID')
     }
-    return { fileId: info.file_id, token: info.token || '', cosKey: info.cos_key || '' }
+    // uploadAddr 由平台下发（参考实现用它拼上传 URL），不硬编码 ros-upload 域
+    return { fileId: info.file_id, fileIds: info.file_ids || [info.file_id], token: info.token || '', cosKey: info.cos_key || '', uploadAddr: info.upload_addr || info.uploadAddr || '' }
   }
 
   /** Step 2：PUT 上传图片二进制 */
@@ -114,10 +128,13 @@ class XiaohongshuDraftChain {
       ...this._baseHeaders(cookie, authorization),
       'Content-Type': mimeType || 'image/png',
       'X-Cos-Security-Token': permit.token || '',
+      referer: 'https://creator.xiaohongshu.com/',
+      Origin: CREATOR_ORIGIN,
     }
     const res = await this.http.request({
       method: 'PUT',
-      url: `${ROS_UPLOAD_ORIGIN}/${permit.fileId}`,
+      // 上传 URL 用平台下发的 uploadAddr；拿不到才回落硬编码域（与参考实现同款降级）
+      url: permit.uploadAddr ? `https://${permit.uploadAddr}/${(permit.fileIds && permit.fileIds[0]) || permit.fileId}` : `${ROS_UPLOAD_ORIGIN}/${permit.fileId}`,
       headers,
       data: buffer,
     })
@@ -142,6 +159,8 @@ class XiaohongshuDraftChain {
     const headers = {
       ...this._baseHeaders(cookie, authorization),
       'Content-Type': 'application/json;charset=UTF-8',
+      referer: 'https://creator.xiaohongshu.com/',
+      Origin: CREATOR_ORIGIN,
       ...signHeaders,
     }
     const res = await this.http.request({
@@ -227,6 +246,7 @@ class XiaohongshuDraftChain {
 
 module.exports = {
   XiaohongshuDraftChain,
+  PERMIT_QUERY,
   XiaohongshuDraftError,
   readCookieValue,
   CREATOR_ORIGIN,

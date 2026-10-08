@@ -2,8 +2,11 @@
 /**
  * 小红书发布链契约测试 —— 图片上传 + 草稿箱存入
  *
- * 端点（2026-10-06 公开资料实证，与参考实现一致）：
- *   1. POST creator.xiaohongshu.com/api/media/v1/upload/web/permit  → { file_id, token }
+ * 端点（2026-10-07 对照参考实现产物逐字核对 + 真机 404 实证后修正）：
+ *   1. GET  creator.xiaohongshu.com/api/media/v1/upload/web/permit
+ *        ?biz_name=spectrum&scene=image&file_count=1&version=1&source=web
+ *        Referer: https://creator.xiaohongshu.com/publish/publish        → { file_id, file_ids, token, upload_addr }
+ *        （四个业务参数全在 query 上；用 POST + body 调同一路径会404 —— 2026-10-07 真机实证）
  *   2. PUT  ros-upload.xiaohongshu.com/{file_id}                    → 上传图片二进制
  *   3. POST edith.xiaohongshu.com/web_api/sns/v2/note              → 提交（draft=true 存草稿箱）
  *
@@ -65,9 +68,18 @@ describe('xiaohongshu draft chain', () => {
       readFile: async () => Buffer.from('fake-image-bytes'),
     })
 
-    expect(calls.map(c => c.method)).toEqual(['POST', 'PUT', 'POST'])
-    expect(calls[0].url).toMatch(/\/api\/media\/v1\/upload\/web\/permit$/)
-    expect(calls[1].url).toMatch(/^https:\/\/ros-upload\.xiaohongshu\.com\//)
+    expect(calls.map(c => c.method)).toEqual(['GET', 'PUT', 'POST'])
+    // permit 路径 + query 形态（query 参数是 404 的直接嫌疑项，必须钉住）
+    expect(calls[0].url).toMatch(/\/api\/media\/v1\/upload\/web\/permit\?/)
+    expect(calls[0].url).toContain('biz_name=spectrum')
+    expect(calls[0].url).toContain('scene=image')
+    expect(calls[0].url).toContain('file_count=1')
+    expect(calls[0].url).toContain('version=1')
+    expect(calls[0].url).toContain('source=web')
+    expect(calls[0].headers.referer).toBe('https://creator.xiaohongshu.com/publish/publish')
+    // 上传 URL 用平台下发的 uploadAddr + fileIds[0]（拿不到才回落硬编码域）
+    expect(calls[1].url).toMatch(/^https:\/\/(ros-upload\.xiaohongshu\.com|[^/]+\.xiaohongshu\.com)\//)
+    expect(calls[1].headers['X-Cos-Security-Token']).toBe('TK1') // 与 fixture 的 token 对齐
     expect(calls[2].url).toBe('https://edith.xiaohongshu.com/web_api/sns/v2/note')
     expect(out.success).toBe(true)
     expect(out.draft).toBe(true)
