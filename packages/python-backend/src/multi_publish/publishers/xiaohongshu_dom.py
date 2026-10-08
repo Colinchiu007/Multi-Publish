@@ -95,6 +95,20 @@ async def visible_count(page, sel: str, *, limit: int, probe_cap: int) -> int:
     return n
 
 
+async def draft_box_count(page, sel: str, *, probe_cap: int) -> int | None:
+    """读「草稿箱(N)」计数节点——图文草稿唯一的可见正证据（活体取证 2026-10-08）。
+
+    读不到节点、或节点文本不含计数，一律返回 None：草稿箱基线未知时调用方不得凭"看着
+    像 0"报成功。逐元素判可见同 visible_texts，避开 SPA 常驻隐藏模板。
+    """
+    texts = await visible_texts(page, sel, limit=1, probe_cap=probe_cap)
+    for text in texts:
+        m = re.search(r"草稿箱\((\d+)\)", text or "")
+        if m:
+            return int(m.group(1))
+    return None
+
+
 async def risk_present(
     page, *, overlay_selector: str, hosts: list[str], pattern: str, limit: int, probe_cap: int
 ) -> bool:
