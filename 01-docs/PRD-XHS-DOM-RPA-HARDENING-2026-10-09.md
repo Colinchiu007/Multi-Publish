@@ -333,16 +333,41 @@ Python 明文轨仍被策略硬阻，见 4d）。注意 preload 是**位置参�
 
 红线复核：探针未点击任何公开发布入口；回包只落本地；账号与 cookie 名称不入库、不入 PR。
 
+## 4i. 第二轮运行态取证（桌面实例 + tab CDP）：登录态实测有效，取证被实例生命周期挡住（2026-10-09 深夜）
+
+**正面证据（免扫码，来自真实实例日志）**：小红书账号凭据可用且被判活三次一致——
+`checkLocalCredentials: OK encrypted … cookies=20 lsKeys=12` →
+`checkLoginStatus … → persistLoginState 固化登录态 status=active … code=CHECK_LOGIN_SUCCESS`
+（18:57 / 19:01 / 19:09 三轮）。⇒ **2.4 不需要用户重新扫码**；此前把"等用户登录"当硬阻塞
+已经过期，真正的前置条件只剩一条：**桌面实例要能稳定运行几分钟**。
+
+**阻塞（可复现，非偶发）**：连续 5 次启动（18:56:47 / 19:00:38 / 19:08:53 / 19:12:32 /
+19:18:58），实例存活 7s～3.5min 不等，日志一律在 `accounts:batch-check-login` 之后**截断且
+无崩溃栈**；CDP 端口间歇 `ECONNREFUSED`（即使端口显示 LISTENING）。取证驱动因此连
+`listAccounts()` 都没跑到，证据文件里只留下 `fatal: connect ECONNREFUSED`
+（`.agent_context/tier2/live/verify-*.json`，本地不入库）。
+这不是本 change 引入的问题，但它决定了 2.2/2.4 只能**在用户在场、应用稳定时**执行。
+
+**已就绪的取证驱动**（本地 `.agent_context/tier2/tier2_live_verify.js`，零依赖 raw CDP）：
+走真实发布队列 `publish:batch` + 图文模式（引擎内 `draftOnly=true`，该分支**早于**发布按钮
+点击即 `return`，已逐行核对 ⇒ 绝不公开发布），随后轮询 `queue:status/history`，并在任务
+进行中抓取创作者中心 tab 的选择器证据：存草稿钮候选、发布钮候选、toast/成功态、
+风控层、草稿箱入口、标题/正文/文件输入控件计数。下次一条命令即可同时产出 2.2 与 2.4。
+
+**顺带取证（与本轨同源的漂移问题）**：登录态选择器 `[class*="avatar"],[class*="userInfo"],`
+`.user-avatar` 在该页超时未命中，靠 dashboard-host 兜底才判活——和 2.3b 要回填的选择器是
+同一类"候选已过期"缺陷，活体取证时应一并采集。
+
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
 |----|------|------|
 | 2.3a 端点模式常量回填 | 已完成（源证据） | — |
 | PR-3 行数门禁拆分 + CI fail-fast 修正 | 已完成（4g） | — |
-| 2.1 活体取证 runbook 脚本 | 已就绪（脚本+自检通过，未执行） | 执行需**用户登录小红书**（headed 浏览器扫码） |
-| 2.2 真实选择器取证 | 待办 | 同上 |
+| 2.1 活体取证 runbook 脚本 | 已就绪（脚本+自检通过，未执行） | 执行需**真实登录态 + 稳定运行窗口**；4i 已实测账号态有效（免扫码），剩下的只是实例生命周期 |
+| 2.2 真实选择器取证 | 待办 | 同上（`tier2_live_verify.js` 已内建采集，一条命令即出） |
 | 2.3b `RISK_OVERLAY_SELECTOR` / `DRAFT_BOX_ITEM_SELECTOR` 回填 | 待办 | 依赖 2.1/2.2 |
-| 2.4 真实草稿箱活体验收 | 待办 | 依赖 2.1/2.2/2.3b（(b) 路走 `rpa_vm`，与 4h 的 API permit 断裂无关） |
+| 2.4 真实草稿箱活体验收 | 待办 | 依赖 2.1/2.2/2.3b（(b) 路走 `rpa_vm`，与 4h 的 API permit 断裂无关；无需重新扫码） |
 | 2.6 运行态取证（tab CDP，免扫码） | 已完成 | 取到 API 轨 permit 契约断裂证据（4h） |
 | 2.7 API 轨 permit 契约修正 | 待办（范围外，待用户确认） | 需先取 permit 完整回包结构，禁止按键名猜 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |

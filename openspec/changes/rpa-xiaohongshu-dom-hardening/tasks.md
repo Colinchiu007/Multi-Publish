@@ -31,7 +31,7 @@
 
 ## 2. PR-2 · Tier2 活体取证回填（需用户登录小红书）
 
-- [x] 2.1 取证 runbook 脚本（gitignored staging）：headed login 扫码 → 发布页存草稿 → ResponseMonitor dump 草稿保存端点模式 + 成功响应结构（已就绪：`.agent_context/tier2/xhs_tier2_probe.py` + `RUNBOOK.md` + `_smoke.py` 零浏览器自检通过；含 permit≠成功的假阳性守卫；需用户扫码方可执行 2.2）
+- [x] 2.1 取证 runbook 脚本（gitignored staging）：headed login 扫码 → 发布页存草稿 → ResponseMonitor dump 草稿保存端点模式 + 成功响应结构（已就绪：`.agent_context/tier2/xhs_tier2_probe.py` + `RUNBOOK.md` + `_smoke.py` 零浏览器自检通过；含 permit≠成功的假阳性守卫；2026-10-09 深夜 2.8 实测账号态已有效（免扫码），执行门槛降为"实例能稳定运行几分钟"）
 - [ ] 2.2 抓真实草稿保存按钮/确认弹层/成功 toast/草稿箱列表条目稳定选择器（多候选），落 evidence 文档
 - [x] 2.3a 回填端点模式常量 DRAFT_SAVE_RESPONSE_PATTERNS=["/web_api/sns/v2/note"]（证据源：本仓 api-publish-engine/src/publish/platforms/xiaohongshu-draft.js 三步草稿链终步 + 其测试断言真实端点；XHR 主确认通道由此武装，仍属源证据非活体，需 2.4 活体复核）
 - [ ] 2.3b 回填 selector 链与 RISK_OVERLAY_SELECTOR / DRAFT_BOX_ITEM_SELECTOR（需 2.1/2.2 活体取证）
@@ -39,6 +39,11 @@
 - [ ] 2.5 补 PR、更新 design 取证结论、openspec validate、回写 PRD/techdoc 相关小节
 - [x] 2.6 运行态取证（tab CDP，免扫码）——**取到 API 轨契约断裂证据**：对正在运行的桌面实例用零依赖 raw CDP（`/json/list` → Node 原生 `WebSocket` → `Runtime.evaluate`）调 `xiaohongshu:probe-draft-chain`（preload 为**位置参数** `(accountId, opts)`，传对象被判"accountId 非法"）。带媒体即回 `XHS_PERMIT_NO_FILE_ID`「permit: 响应缺 file_id」，`chainDetail.dataKeys=[result, uploadTempPermits]`；全仓 grep `uploadTempPermits` 零命中 ⇒ **API 轨**草稿链断在第 1 步取 permit。影响面核对后收窄：`publisher-router.js` 的 `ROUTE_TABLE.xiaohongshu={mode:'rpa_vm'}`，桌面队列走 WebContents DOM 轨、不经 api-publish-engine，故**不阻塞 2.4(b)**（我一度写成"2.4 被阻塞"，据代码撤回——PRD §4h 留了这条误判与纠证）。不直接修的原因：探针只回白名单**键名**不回值，按键名猜 `uploadTempPermits` 的形状写出的解析器就是下一个"从不触发"的能力（PRD §4h）
 - [ ] 2.7 API 轨 permit 契约修正（**范围外，需用户确认是否纳入**）：先在本地（gitignored，不入库）扩一处完整 permit 回包 dump 取到数组/对象形状与项内字段 → 按实测结构修 `xiaohongshu-draft.js` permit 解析（独立 change + TDD + 自己的 PR）
+- [x] 2.8 第二轮运行态取证（桌面实例 + tab CDP，走**真实草稿路径**）——取证驱动已就绪，**活体结论未取到**，原因不是登录态而是实例生命周期（PRD §4i）：
+  - 正面证据（免扫码）：真实实例日志三轮一致 `checkLocalCredentials: OK encrypted cookies=20 lsKeys=12` → `persistLoginState 固化登录态 status=active code=CHECK_LOGIN_SUCCESS` ⇒ **2.4 无需用户重新扫码**，本 change 的前置条件由"等登录"改为"等一个稳定的运行窗口"
+  - 阻塞实测：5 次启动（18:56:47 / 19:00:38 / 19:08:53 / 19:12:32 / 19:18:58）实例存活 7s～3.5min，日志一律在 `accounts:batch-check-login` 之后截断且**无崩溃栈**；CDP 间歇 `ECONNREFUSED`（端口看似 LISTENING 亦拒连）。驱动连 `listAccounts()` 都未取到，本地证据仅 `fatal: connect ECONNREFUSED`
+  - 已就绪的采集面（`.agent_context/tier2/tier2_live_verify.js`，gitignored）：`publish:batch` 图文模式（引擎内 `draftOnly=true`；逐行核对该分支**早于**发布按钮点击即 return ⇒ 结构上不可能公开发布）+ `queue:status/history` 轮询 + 任务期间抓创作者中心 tab 的存草稿钮/发布钮/toast/保存态/风控层/草稿箱入口/输入控件计数 ⇒ 用户在场时一条命令同时产出 2.2 与 2.4
+  - 顺带漂移证据：登录态选择器 `[class*="avatar"],[class*="userInfo"],.user-avatar` 在该页超时未命中，靠 dashboard-host 兜底判活——与 2.3b 属同一类"候选过期"缺陷，活体取证时一并采集
 
 ## 3. 收口
 
