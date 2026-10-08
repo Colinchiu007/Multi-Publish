@@ -52,6 +52,21 @@ const type = computed(() => isTrial.value ? "trial" : "free")
   background: #f3f0ff;
   border: 1px solid #c4b5fd;
 }
+
+/* 深色模式覆盖（P4 2026-10-08）：.trial-banner.free 的 #f3f0ff 硬编码浅紫底
+ * 暗色下不变，与 var(--text-primary)（暗色 #e8e8ed 浅字）组合成 1.09:1
+ * 「浅字压浅底」（实测见研究方案 §3.3/§8）。暗色改用品牌紫半透明底 +
+ * 暗色文字，与 tokens.css --color-primary-light 暗色变体同口径。 */
+[data-theme='dark'] .trial-banner.free {
+  background: rgba(123, 116, 255, .18);
+  border-color: #7b74ff;
+}
+[data-theme='dark'] .banner-text {
+  color: var(--color-text-primary);
+}
+[data-theme='dark'] .banner-icon {
+  color: var(--color-text-primary);
+}
 .banner-content {
   display: flex;
   align-items: center;

@@ -36,6 +36,22 @@
   --color-success: #34d399;
   --color-warning: #fbbf24;
 
+  /* ---- 无前缀别名桥接层（P4 深色可读性修复，2026-10-08）----
+   * 业务代码里流传 --text-primary / --bg / --card-bg 等无前缀别名（29+15+4+4+7+3
+   * 个文件引用），历史上从未定义 → 暗色下回退到继承值，产生「深字压深底」
+   * (1.13:1) 与「浅字压浅底」(1.09:1) 两种不可读形态（实测见
+   * 01-docs/UX-前端交互与用户体检研究方案-2026-10-07.md §3.3/§8）。
+   * 这里映射到既有 --color-* 语义槽；暗色覆盖见下方 [data-theme="dark"] 同名块。
+   * 契约测试：src/styles/tokens.aliases.test.js（存在性/真覆盖/指向正确/对比度）。
+   * 引用侧收编（把 62 个文件的 var(--text-primary) 改成 var(--color-text-primary)）
+   * 属 Wave 5 token 收编批次，不在本批次内。 */
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --bg: var(--color-bg-canvas);
+  --bg-secondary: var(--color-bg-inset);
+  --card-bg: var(--color-bg-card);
+  --cohere-green: var(--color-success);
+
   /* ---- 字号阶梯（7 档）---- */
   --font-size-xs: 12px;
   --font-size-sm: 13px;
@@ -253,4 +269,25 @@
   /* 品牌淡底暗色变体：浅色是浅蓝底 #eff6fb，暗色改为品牌紫半透明叠加
    * （与 --color-sidebar-active-bg 同口径），否则暗色下仍是浅色底、观感突兀 */
   --color-primary-light: rgba(123, 116, 255, .18);
+
+  /* ---- 无前缀别名桥接层（暗色覆盖，P4 2026-10-08）----
+   * CSS 变量按作用域覆盖：同名别名在此重声明即暗色生效。
+   * 语义槽的暗色值已在上方定义（--color-text-primary 等），
+   * 此处保持纯转发形状，与亮色区同一契约（tokens.aliases.test.js）。 */
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --bg: var(--color-bg-canvas);
+  --bg-secondary: var(--color-bg-inset);
+  --card-bg: var(--color-bg-card);
+  --cohere-green: var(--color-success);
+
+  /* 语义色暗色覆盖（P4 补齐）：--color-success 此前只在亮色区定义，
+   * 暗色下回退到亮色值 #34d399 —— 在暗色卡片底 #232329 上对比度不足，
+   * 且「主题切换后语义色不变」与 --color-text-* 的暗色处理不一致。
+   * 取值与 success 同色相（emerald 系）提亮到暗底可读：
+   * #34d399 在 #232329 上 6.4:1 已达标，保留同值是合法选择，
+   * 但必须**显式重声明**让契约测试可断言（防再次「只定义一次」静默回退）。 */
+  --color-danger: #f87171;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
 }
