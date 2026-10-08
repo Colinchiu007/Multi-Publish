@@ -376,6 +376,14 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) forwards;
 }
 
+/* 深色模式覆盖（P4 2026-10-08）：background: white 是硬编码，暗色下不变 →
+ * 深底上三张刺眼白卡（实测截图见研究方案 §3.3/§8）。改用 token 让暗色
+ * 自动切换到 --color-bg-card（#232329）；白卡内文字继承暗色文字档。 */
+[data-theme='dark'] .stat-card {
+  background: var(--color-bg-card);
+  box-shadow: none;
+}
+
 .stat-card::before {
   content: '';
   position: absolute;

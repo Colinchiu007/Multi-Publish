@@ -503,6 +503,12 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+/* 深色模式覆盖（P4 2026-10-08）：#25252b 硬编码深灰在暗色 #1a1a1e 底上
+ * 1.14:1 不可读（实测见研究方案 §3.3/§8）。改走 token，暗色自动切换。 */
+[data-theme='dark'] .mp-home-section-title {
+  color: var(--color-text-primary);
+}
+
 .mp-home-shortcuts {
   margin-bottom: 32px;
 }
