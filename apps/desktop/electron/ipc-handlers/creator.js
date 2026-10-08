@@ -110,6 +110,21 @@ function registerHandlers (ipcMain, deps) {
     return { code: 0, items, totalPending: items.reduce((s, x) => s + x.pendingCount, 0) }
   })))
 
+  // ── 待采集总数（页签角标的读通道）───────────────────────────
+  // 为什么单独开一个通道而不复用 creator:list：角标要在**父组件**渲染
+  // （Collection.vue 的 tab 按钮上），而列表数据在 CreatorMonitor 子组件里。
+  // 让父组件拉整份列表等于切页重复拉一次全量数据。
+  // 口径与 creator:list 的 totalPending 保持同源（各博主 pending 之和）。
+  ipcMain.handle('creator:pending-total', withSenderCheck(wrap(async () => {
+    const creators = await creatorStore.listCreators()
+    let total = 0
+    for (const c of creators) {
+      if (c.enabled === 0 || c.status === 'paused_by_user') continue
+      total += creatorStore.countPending(c.id)
+    }
+    return { code: 0, total }
+  })))
+
   // ── 关注博主 ────────────────────────────────────────────────
   ipcMain.handle('creator:follow', withSenderCheck(wrap(async (payload) => {
     const input = requireString(payload, 'input')
@@ -192,11 +207,11 @@ function registerHandlers (ipcMain, deps) {
     // 超限在此抛错，此时尚未发起任何采集请求 —— 零副作用
     const plan = planCollect({ pending, count, effectiveLimit })
 
-    const r = await creatorMonitor.collectBatch({
-      creatorId: follow.creator_id,
-      discoveries: plan.selected,
-      effectiveLimit,
-    })
+    // 必须传**数组**：`creator-runtime.js` 的 collectBatch 形参是 discoveries 列表，
+    // 内部 `Array.isArray(discoveries) ? discoveries : []` 兜底。
+    // 传对象会被兜底成空列表 —— 症状是「一条都没采、failed 也是 0」，
+    // 不报错、不告警，看起来像「没东西可采」。
+    const r = await creatorMonitor.collectBatch(plan.selected)
     return {
       code: 0,
       collected: r.collected,
@@ -217,7 +232,15 @@ function registerHandlers (ipcMain, deps) {
 
   ipcMain.handle('creator:skip-one', withSenderCheck(wrap(async (payload) => {
     const discoveryId = requireString(payload, 'discoveryId', { max: 64 })
-    await creatorStore.skipDiscovery(discoveryId)
+    // 必须看 store 的判定结果：跳过一条**已终态**（collected/skipped）的条目时，
+    // 什么都不改。原实现丢掉返回值恒回 {code:0}，UI 会显示「已跳过」
+    // 而库里状态没变——用户点了没反应却以为成功了。
+    const r = creatorStore.skipDiscovery(discoveryId)
+    if (r && r.ok === false) {
+      const e = new Error('该作品已处理，无法跳过')
+      e.code = r.reason === 'not_found' ? 'creator:discovery_not_found' : 'creator:invalid_state'
+      throw e
+    }
     return { code: 0 }
   })))
 

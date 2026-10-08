@@ -103,3 +103,7 @@ function newItemId () {
 export function itemTags (item) {
   return Array.isArray(item && item.tags) ? item.tags : []
 }
+
+// 博主监控页签按钮的 re-export：让 Collection.vue 一行 import 拿到目录内两个成员，
+// 省下的那 1 行是它的 targets 零容差（2920/2920）唯一的腾挪空间。
+export { default as CollectionCreatorTab } from './CollectionCreatorTab.vue'

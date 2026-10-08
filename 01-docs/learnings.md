@@ -16700,3 +16700,77 @@ YouTube Data API 的 `quotaExceeded` / `rateLimitExceeded` 返回 **403（4xx）
 - **不要抬基线绕过**：碰到 NEW_OVER_LIMIT / LEDGER_GREW 就 --update 台账，等于自己把「存量挂账不许继续膨胀」这道闸门关掉。正确做法是按既有 mixin / composable 范式拆文件（本轮拆出 ops-resilience-protocol.js 与 config_fingerprint.py，行为不变、两端测试零修改即通过）。
 - **刻意造坏字符的夹具会被编码门禁拦下**：种子门禁要验证「文件含 U+FFFD 就失败」，夹具里写真的 U+FFFD 替换字符 ⇒ CI Gate 12b 扫本次变更文件里的裸 U+FFFD ⇒ 这条判据让它自己永远红。正解**不是豁免、也不是删判据**（两者都是关门禁的不同写法），而是换表达：String.fromCharCode(0xfffd)，源码层面 ASCII、运行时展开成真替换字符，判据强度不变。
 - **变异没注入 ≠ 测试没锁住**：PowerShell [IO.File]::WriteAllLines / WriteAllText 写回可能静默不落盘。做反向变异看到「全绿」时，先回读确认变异真的进了文件 —— 否则「变异没生效」与「测试没锁住」在输出上完全一样。本轮就踩过一次：第一次变异脚本返回成功、测试全绿，实际文件没变。
+
+## 「执行记录欠账」的两源键形态：给记录文件加 ledger 条目只有两种结局（2026-10-08）
+
+PR #3053 回填时踩过一次「登记被判陈旧」，这次接线又踩到它的反面，
+两条一起才是完整口径 —— 写进 `01-docs/learnings.md` 供后续会话直接取用。
+
+`scripts/check-gate-record-debt.js` 有**两套不同源**的判据：
+
+| 源 | 键形态 | 欠账登记位置 |
+|---|---|---|
+| `.quality-gates.md` | **## 标题**原文 | `scripts/gate-record-debt-ledger.json` |
+| `openspec/records/*.md` | **文件名**（去 `.md`） | 记录 frontmatter 的 `sync_*` 三字段 |
+
+关键约束（`check-gate-record-debt.js:191` 与 `:198`）：
+
+- `stale = ledger 键里不在 seen 集合中的` —— 记录文件源的 seen 收的是**文件名**，
+  所以拿 `## 标题` 当键登记**每次都判陈旧**；
+- 但有一条「两源键形态重叠」硬检查：ledger 键与记录文件名全等即**抛错**。
+
+⇒ 给 `openspec/records/*.md` 加 ledger 条目是**死路**：写成标题键判陈旧，
+写成文件名键触发重叠抛错。正确做法是**不加**，未收口原因由 frontmatter 的
+`sync_status` / `sync_reason` / `sync_backfill_owner` 自带承载
+（`staleRecordFields` 检查就是为这组字段准备的）。
+
+反过来，`.quality-gates.md` 里的记录**必须**登记 ledger —— 它的键是 `##` 标题，
+且门禁要求「新增未收口行必须带原因进 ledger」。这条不对称很容易记反。
+
+## 挂账基线漂移审计（2026-10-08，接线 PR #3124 期间实测）
+
+PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 行 / 容差 200`），
+归因时顺手把 origin/main 的全部挂账文件跑了一遍。结论：**这是系统性问题，不是孤例。**
+
+实测口径：`.github/scripts/max-lines-baseline.json` 的登记值 vs `git show origin/main:<file>` 的实际行数。
+
+| 指标 | 值 |
+|---|---|
+| 挂账文件总数 | 98 |
+| 被上游推高（d > 0） | **40** |
+| 已越过 200 容差 | **0**（main 此刻仍绿，但余量很薄） |
+
+漂移最大的前几名：
+
+| +d | 登记 | 实际 | 文件 |
+|---|---|---|---|
+| **+199** | 2721 | 2920 | `apps/desktop/src/views/Collection.vue` |
+| +181 | 1356 | 1537 | `packages/api-publish-engine/src/publish-api-server.js` |
+| +175 | 605 | 780 | `apps/desktop/src/views/FilmEngineeringView.vue` |
+| +159 | 1205 | 1364 | `apps/desktop/src/views/PublishHistory.vue` |
+| +150 | 629 | 779 | `apps/desktop/electron/services/publisher-router.js` |
+| +145 | 553 | 698 | `apps/desktop/electron/services/auth-view-manager.js` |
+| +140 | 3866 | 4006 | `apps/desktop/electron/services/story2video-stages.js` |
+| +135 | 505 | 640 | `apps/desktop/electron/services/batch-manager.js` |
+| +103 | 534 | 637 | `apps/desktop/src/composables/usePublishFlow.js` |
+| +100 | 570 | 670 | `apps/desktop/electron/services/ops-center-sync.js` |
+
+### 这意味着什么
+
+1. **不是「谁碰了谁倒霉」。** `Collection.vue` 那 199 行是多个 PR 累加的，
+   任何 PR 只要再往里加 2 行就会撞同一道门禁 —— 与它做了什么无关。
+2. **`--update` 不是解法。** 门禁注释里已写明：把当前行数洗成新基线等于「承认接受漂移」，
+   而且会把**所有人**的未登记增长一并合法化，此后 `NEW_OVER_LIMIT` 形同虚设。
+3. **正解是按 06 号技术债的批量拆分流程逐个还款**，还完一个用 `--prune <path>` 立碑，
+   碑会取消该路径的挂账豁免（重新超限时按新增债务阻断）。
+4. 拆分时注意：**纯搬运场景**（只挪代码、不改逻辑）才允许基线更新类操作；
+   一旦顺手重写，基线与现实就对不上了。
+
+### 本轮的实际处置（可作范式）
+
+`Collection.vue` 的应对不是 `--update`，而是把页签抽成
+`features/collection/CollectionCreatorTab.vue` + `composables/useCreatorPendingTotal.js`，
+本 PR 对该文件的净增量压到 **-1 行**，CI「债务熔断检查」随即 pass。
+
+**注意这治的是症状**：只要没人还那 199 行，下一个 PR 照样会被拦。
+本条登记留作后续批量还款的输入，不是「已修复」。

@@ -557,3 +557,12 @@ export function generateAiCover(payload) {
 export function listPlatformCollections(platform, accountId) {
   return window.electronAPI.listPlatformCollections({ platform, accountId })
 }
+
+// ── 博主监控（PRD-CREATOR-WIRING-2026-10-07）────────────────────
+// 为什么单独列而不是复用上面的批量导出：本特性要过 Gate 10 的
+// 「渲染层 IPC 单轨」——渲染进程不得直接触碰 `window.electronAPI`，
+// 必须经 `src/api` 桥接层，否则同一能力会出现两条调用路径，
+// 改一处漏一处。这也是 `check-frontend-consistency.js` 守的基线。
+export function creatorPendingTotal() {
+  return window.electronAPI.creatorPendingTotal()
+}

@@ -30,6 +30,7 @@ function createCreatorApi (ipcRenderer) {
     creatorCollectOne: (payload) => ipcRenderer.invoke('creator:collect-one', payload),
     creatorSkipOne: (payload) => ipcRenderer.invoke('creator:skip-one', payload),
     creatorSendToWriter: (payload) => ipcRenderer.invoke('creator:send-to-writer', payload),
+    creatorPendingTotal: () => ipcRenderer.invoke('creator:pending-total'),
   }
 }
 

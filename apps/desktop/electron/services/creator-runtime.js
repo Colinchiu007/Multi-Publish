@@ -119,13 +119,22 @@ function createCreatorRuntime (deps = {}) {
       return { collected: false, reason: cls.reason, tier: cls.tier }
     }
 
-    const ok = await store.markCollected(discoveryId, token, body)
-    if (!ok) {
-      // token 已变 → 被新持有者接管，旧结果不得落库
+    // 终态提交是**唯一**的 outbox 写入口（PRD §3.1）。
+    // 此前是 markCollected + enqueueOutbox 两次独立 exec，崩溃即产生
+    // 「已 collected 但未入队」的漂移；且 ack 丢失重发会写第二条 outbox，
+    // 下游重复发布。finalizeCollected 把置终态、配额复核、资产落库、
+    // outbox 去重收进同一事务。
+    const fin = await store.finalizeCollected(discoveryId, token, body)
+    if (fin.outcome === 'superseded') {
+      // 代次已被他人推进 → 旧结果不得落库；且**不重试**（新持有者已在处理）
       return { collected: false, superseded: true, reason: 'claim_superseded' }
     }
-    // 最终化任务与业务写入同事务入队；失败可重试，不丢产物
-    await store.enqueueOutbox(discoveryId, 'finalize_collected')
+    if (fin.outcome === 'claim_lost') {
+      return { collected: false, reason: 'claim_lost' }
+    }
+    if (fin.outcome === 'quota_exceeded') {
+      return { collected: false, reason: 'quota_would_exceed' }
+    }
     return { collected: true, contentQuality: body && body.contentQuality }
   }
 

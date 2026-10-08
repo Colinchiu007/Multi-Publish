@@ -44,6 +44,11 @@ function registerAllHandlers(ipcMain, deps) {
   // 影视工程（film-engineering）流水线
   require('./film-engineering')(ipcMain, deps)
   require('./aggregation')(ipcMain, deps)
+  // 博主监控与采集（PRD-CREATOR-WIRING-2026-10-07）。
+  // 必须注册：缺了它，渲染端点「博主监控」会拿到 Electron 原生的
+  // "No handler registered"，对用户毫无意义。handler 内部在依赖缺失时
+  // 仍注册通道并返回可消费的降级结果（PRD-CREATOR-MONITOR-COLLECT §handler 3）。
+  require('./creator').registerHandlers(ipcMain, deps)
   // 热门选题聚合（多渠道热搜）
   require('./hot-topics')(ipcMain, deps)
   // 知乎收藏夹批量采集/改写（官方 API + 频率控制）

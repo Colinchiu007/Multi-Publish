@@ -1103,7 +1103,8 @@ var require_creator = __commonJS({
         creatorCollect: (payload) => ipcRenderer3.invoke("creator:collect", payload),
         creatorCollectOne: (payload) => ipcRenderer3.invoke("creator:collect-one", payload),
         creatorSkipOne: (payload) => ipcRenderer3.invoke("creator:skip-one", payload),
-        creatorSendToWriter: (payload) => ipcRenderer3.invoke("creator:send-to-writer", payload)
+        creatorSendToWriter: (payload) => ipcRenderer3.invoke("creator:send-to-writer", payload),
+        creatorPendingTotal: () => ipcRenderer3.invoke("creator:pending-total")
       };
     }
     module2.exports = { createCreatorApi };

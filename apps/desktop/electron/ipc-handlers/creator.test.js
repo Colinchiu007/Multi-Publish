@@ -55,7 +55,14 @@ function stubDeps (over = {}) {
     creatorMonitor: {
       assertQuotaFits: () => {},
       probeCreator: async (id) => { calls.probe.push(id); return { found: 2, inserted: 2 } },
-      collectBatch: async (a) => { calls.collectBatch.push(a); return { collected: a.discoveries.length, failed: 0 } },
+      // 契约（2026-10-07 修正）：handler 传的是**数组**，不是 {discoveries} 对象。
+      // 原先两边对不上：runtime 形参是 discoveries 列表，内部
+      // `Array.isArray(discoveries) ? discoveries : []` 兜底，收到对象会变空列表，
+      // 症状是「一条都没采且 failed 也是 0」——不报错、不告警，最难查的一类。
+      collectBatch: async (list) => {
+        calls.collectBatch.push(list)
+        return { collected: (list || []).length, failed: 0 }
+      },
       collectOne: async () => ({ collected: 1 }),
       ...over.creatorMonitor,
     },
@@ -147,7 +154,7 @@ describe('creator IPC · 批量采集（零副作用是硬要求）', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, deps)
     const r = await ipc._get('creator:collect')({}, { followId: 'f1' })
-    expect(deps.calls.collectBatch[0].discoveries).toHaveLength(5)
+    expect(deps.calls.collectBatch[0]).toHaveLength(5)
     expect(r.collected).toBe(5)
   })
 
@@ -177,7 +184,7 @@ describe('creator IPC · 批量采集（零副作用是硬要求）', () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, deps)
     await ipc._get('creator:collect')({}, { followId: 'f1', count: 2 })
-    expect(deps.calls.collectBatch[0].discoveries.map(d => d.id)).toEqual(['d0', 'd1'])
+    expect(deps.calls.collectBatch[0].map(d => d.id)).toEqual(['d0', 'd1'])
   })
 
   it('个人上限低于全局时以个人为准', async () => {

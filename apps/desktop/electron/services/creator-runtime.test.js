@@ -21,7 +21,15 @@ function makeStore (seed = {}) {
     getFollow: async (id) => (id === 'f1' ? { id: 'f1', creator_id: 'c1', platform: 'youtube', external_id: 'UC_a', enabled: 1, status: 'active', check_interval_min: 60 } : null),
     countPending: () => 0,
     claimDiscovery: (id, by, lease) => { calls.push(['claim', id, by]); return seed.claimResult !== undefined ? seed.claimResult : true },
-    markCollected: (id, tok) => { calls.push(['collected', id, tok]); return seed.collectedResult !== undefined ? seed.collectedResult : true },
+    // 契约变更（2026-10-07）：终态提交唯一入口是 finalizeCollected，
+    // 内部同事务完成「置终态 + 配额复核 + 资产落库 + outbox 去重」。
+    // 旧的 markCollected + enqueueOutbox 两次独立 exec 会产生
+    // 「已 collected 但未入队」的漂移，且重发会写第二条 outbox。
+    finalizeCollected: (id, tok, body) => {
+      calls.push(['finalize', id, tok])
+      if (seed.finalizeResult) return seed.finalizeResult
+      return { outcome: 'collected', insertedAsset: true }
+    },
     markFailed: (id, tok, msg) => { calls.push(['failed', id, tok, msg]); return true },
     renewLease: () => true,
     upsertDiscoveries: (items) => { calls.push(['upsert', items.length]); return seed.inserted !== undefined ? seed.inserted : items.length },
@@ -38,7 +46,6 @@ function makeStore (seed = {}) {
     },
     recordFailure: async (followId, tier) => { calls.push(['failure', followId, tier]); return true },
     recordSuccess: async (followId) => { calls.push(['success', followId]); return true },
-    enqueueOutbox: (refId, kind) => { calls.push(['outbox', refId, kind]); return true },
   }
 }
 
@@ -152,16 +159,34 @@ describe('creator-runtime · 单条采集的并发安全', () => {
     const store = makeStore({ claimToken: 7 })
     const rt = createCreatorRuntime({ store, collector: makeCollector([]), now: () => NOW })
     await rt.collectOne('d1')
-    const c = store.calls.find(x => x[0] === 'collected')
+    const c = store.calls.find(x => x[0] === 'finalize')
     expect(c[2]).toBe(7)
   })
 
-  it('token 已被接管（changes=0）时 MUST NOT 写入采集库', async () => {
-    const store = makeStore({ collectedResult: false })
+  it('token 已被接管时 MUST NOT 写入采集库', async () => {
+    const store = makeStore({ finalizeResult: { outcome: 'superseded' } })
     const rt = createCreatorRuntime({ store, collector: makeCollector([]), now: () => NOW })
     const r = await rt.collectOne('d1')
     expect(r.collected).toBe(false)
     expect(r.superseded).toBe(true)
+  })
+
+  it('代次莫名丢失时与「被接管」区分开（否则用户点重采永远 busy）', async () => {
+    const store = makeStore({ finalizeResult: { outcome: 'claim_lost' } })
+    const rt = createCreatorRuntime({ store, collector: makeCollector([]), now: () => NOW })
+    const r = await rt.collectOne('d1')
+    expect(r.collected).toBe(false)
+    // 关键：不得冒充 superseded——两者后续动作不同（一个不重试，一个要重试）
+    expect(r.superseded).toBeUndefined()
+    expect(r.reason).toBe('claim_lost')
+  })
+
+  it('事务内复核超池时返回 quota_would_exceed，且不报成功', async () => {
+    const store = makeStore({ finalizeResult: { outcome: 'quota_exceeded', quota: { limit: 10 } } })
+    const rt = createCreatorRuntime({ store, collector: makeCollector([]), now: () => NOW })
+    const r = await rt.collectOne('d1')
+    expect(r.collected).toBe(false)
+    expect(r.reason).toBe('quota_would_exceed')
   })
 
   it('采集失败时释放 claim 并写 failed（否则永久卡在 collecting）', async () => {
@@ -173,11 +198,14 @@ describe('creator-runtime · 单条采集的并发安全', () => {
     expect(store.calls.some(c => c[0] === 'failed')).toBe(true)
   })
 
-  it('最终化任务与业务写入同事务（outbox 在同一次提交里入队）', async () => {
+  it('最终化与业务写入同事务（outbox 由 finalizeCollected 内部入队）', async () => {
     const store = makeStore()
     const rt = createCreatorRuntime({ store, collector: makeCollector([]), now: () => NOW })
     await rt.collectOne('d1')
-    expect(store.calls.some(c => c[0] === 'outbox')).toBe(true)
+    // 回归锁：不得再有独立的 outbox 写路径。两次独立 exec 会在崩溃时
+    // 产生「已 collected 但未入队」的漂移，且重发写第二条 outbox。
+    expect(store.calls.some(c => c[0] === 'outbox')).toBe(false)
+    expect(store.calls.filter(c => c[0] === 'finalize')).toHaveLength(1)
   })
 })
 

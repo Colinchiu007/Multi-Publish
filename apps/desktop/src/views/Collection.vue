@@ -5,7 +5,7 @@
         <div class="collection-tabs" role="tablist">
           <button role="tab" :aria-selected="activeTab === 'collect'" class="collection-tab-btn" :class="{ active: activeTab === 'collect' }" @click="switchTab('collect')">{{ $t('collection.tabCollect') }}</button>
           <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" data-testid="collection-tab-library" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
-          <button role="tab" :aria-selected="activeTab === 'creator'" class="collection-tab-btn" :class="{ active: activeTab === 'creator' }" data-testid="collection-tab-creator" @click="switchTab('creator')">{{ $t('collection.creatorTab') }}<span v-if="creatorPendingTotal > 0" class="collection-tab-badge" data-testid="collection-tab-creator-badge">{{ creatorPendingTotal }}</span></button>
+          <CollectionCreatorTab :active="activeTab === 'creator'" @select="switchTab('creator')" />
         </div>
         <div class="page-subtitle">从各平台采集内容，或快速创建草稿</div>
       </div>
@@ -686,7 +686,7 @@ import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
 import { setRewriteHandoff } from '@/utils/rewrite-handoff'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
-import { normalizeCollectedItem, normalizeItemTags, itemTags } from '@/features/collection/collected-item'
+import { normalizeCollectedItem, normalizeItemTags, itemTags, CollectionCreatorTab } from '@/features/collection/collected-item'
 import { mapFavBatchResultsToItems, countOriginalFallback } from '@/features/collection/collection-batch'
 import CreatorMonitor from '@/features/collection/CreatorMonitor.vue'
 import { usePlatformStore } from '@/stores/platforms'
