@@ -78,8 +78,8 @@ export async function invokeWithTimeout(method, timeoutMs, fallback, ...args) {
     timer = setTimeout(() => {
       if (import.meta.env?.DEV || process.env.NODE_ENV === "development") {
         console.warn(
-          `[electron-bridge] IPC 超时 ${timeoutMs}ms: ${method} — ` +
-          "主进程未返回，调用方 loading 不会自动复位，请检查该 handler 是否卡死"
+          `[electron-bridge] IPC timeout ${timeoutMs}ms: ${method} — ` +
+          "main process did not settle; caller loading state will not auto-reset. Check whether the handler is stuck."
         );
       }
       resolve(fallback);
@@ -111,7 +111,7 @@ export async function invokeWithFallback(method, fallback, ...args) {
     // unhandled rejection。其余错误照原样抛出 —— 静默兜底会把真实故障藏起来。
     if (isPermissionError(e)) {
       if (import.meta.env?.DEV || process.env.NODE_ENV === "development") {
-        console.warn(`[electron-bridge] 权限不足，走 fallback:`, method);
+        console.warn(`[electron-bridge] permission error, falling back:`, method);
       }
       return fallback;
     }
