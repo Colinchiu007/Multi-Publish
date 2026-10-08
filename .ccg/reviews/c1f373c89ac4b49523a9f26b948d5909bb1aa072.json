@@ -1,0 +1,39 @@
+{
+  "sha": "c1f373c89ac4b49523a9f26b948d5909bb1aa072",
+  "layer": "plan",
+  "mode": "dual",
+  "reason": "变更 95 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 95,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1
+  },
+  "plannedFiles": [
+    ".github/workflows/quality-gate.yml",
+    "scripts/quality-rhythm-spec-mirror.test.js",
+    "openspec/records/spec-mirror-wiring-fix.md",
+    "CHANGELOG.md",
+    "openspec/specs/openspec-integration/spec.md",
+    ".quality-rhythm/integrations/openspec/spec-contract.md",
+    "quality-gate.yml",
+    "needs.changes.outputs.docs",
+    "openspec/specs/.../spec.md",
+    "check-unwired-tests.js",
+    "scripts/check-unwired-tests.js",
+    "AGENTS.md",
+    "scripts/check-step-failfast.js",
+    ".test.js",
+    "scripts/classify-docs-only.js"
+  ],
+  "decidedAt": "2026-10-08T03:13:57.196Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
