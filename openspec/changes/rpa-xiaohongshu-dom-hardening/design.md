@@ -62,3 +62,13 @@
 ## 分期
 - **PR-1（现在可做，不需登录）**：A 可测试性 seam + B 草稿 fail-closed + D 选择器/富文本/标签 + E 错误归一 + C 确认骨架（占位常量）+ 全部单测。
 - **PR-2（需登录取证）**：F 取证回填 Tier2 真实端点模式与选择器 + 活体草稿箱验收。
+
+## Tier2 取证结论（2.3a，2026-10-09）
+
+- PR-1 合并后确认模式仍为空占位，`if DRAFT_SAVE_RESPONSE_PATTERNS:` 守卫恒假 ⇒ XHR 主确认通道从未注册，只剩占位选择器回查兜底。
+
+- 端点证据取自本仓 `api-publish-engine/src/publish/platforms/xiaohongshu-draft.js` 三步草稿链终步 `POST edith.xiaohongshu.com/web_api/sns/v2/note`，成功体 `{code:0,data:{note_id,draft_id}}`；既有 `_resp_success`/`_extract_url` 已匹配该形状，故只补数据不改逻辑。
+
+- 假阳性红线：上传 `permit` 与 `ros-upload` 亦返回 `code==0`，纳入确认模式会导致草稿未提交即判成功。确认模式**只含笔记提交终步**，并由回归测试固化。
+
+- 仍属源证据非活体证据：该端点是否为创作者中心存草稿实际 XHR，需 2.4 活体复核；2.3b 选择器待 2.1/2.2 取证。
