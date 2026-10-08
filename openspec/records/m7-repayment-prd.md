@@ -2,9 +2,6 @@
 record: m7-repayment-prd
 task: 超大文件门禁补「点名还账」与「测试文件纳管」，并修正 PRD 三处与现状脱节的记载
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 ---
 
 ## 本次执行记录：超大文件门禁点名还账 + 测试文件纳管（M-7，m7-repayment-prd，2026-10-07）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 | 接线棘轮 | PASS | 未新增测试文件（追加进既有 `check-max-lines.test.js`，已由 workflow 点名） |
 | QM-1 打包 / QM-4 视觉 | N/A | 纯门禁脚本与文档，无 `apps/desktop/electron/`、`packages/rpa-engine/` 运行面改动 |
 | QM-6 CCG 双家族外部评审 | **已执行（1/2 家族出结论）** | 见下节 |
-| 远程同步 | PENDING | 合并后回填 merge SHA 与时间，`git ls-remote` 证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | merge SHA 2f0bf1dc（PR #3081，2026-10-08T09:01:23Z）；git ls-remote 证远端分支 m7-repayment-prd 已删（0 行输出） |
 
 ## QM-6：外部双家族评审（opencode/deepseek 已出结论；claude/anthropic 未产出）
 
