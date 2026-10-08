@@ -16817,3 +16817,9 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
 
 **注意这治的是症状**：只要没人还那 199 行，下一个 PR 照样会被拦。
 本条登记留作后续批量还款的输入，不是「已修复」。
+
+## 批量回填会漏：销账后必须跑「无残留」全文扫描（fix-xhs-api-chain-contract 漏项复盘，2026-10-09）
+
+- **回填 PR 的销账范围靠人肉列举必然漏（pitfall）**：#3164 批量回填 #3076/#3091/#3151 时，只回填了「当时记得的」记录；`openspec/records/fix-xhs-api-chain-contract.md` 等 **5 份**已合并 PR 的记录仍挂着 `sync_*` 三字段 + 正文 `PENDING`。之后 #3179 才补齐。**机械判据**：开回填 PR 前必须跑 `Select-String -Path openspec\records\*.md -Pattern '^sync_status:'`（或等价 grep），结果非空就是还有漏项，零命中才允许提交。人肉「想一遍还有谁没销账」不可靠，5/5 全漏就是实证。
+- **前置真源先取 `origin/main` 再数 PENDING（pattern）**：销账动作要同时改 `.quality-gates.md`、`openspec/records/*.md`、`gate-record-debt-ledger.json` 三处；批量回填前先 `git fetch` 并以 `origin/main` 的记录文件为清单源，本地滞后的工作区会给出假的「无漏项」结论。
+- **worktree 里重跑 `git rebase origin/main` 对已合并分支必然冲突（pitfall）**：PR squash 合并后，原分支的提交在 origin/main 上已有「同内容不同 SHA」的对应物，rebase 会把每个提交都判成冲突（AA）。分支已合并的 worktree 同步，正确做法是丢弃本地分支、从 origin/main 重建（`git branch -m <old> <old>-merged` 留档 → `git checkout -b <new> origin/main`），不要 rebase。
