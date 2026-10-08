@@ -11,6 +11,7 @@ const fs = require("node:fs")
 const path = require("node:path")
 const { test } = require("node:test")
 const { spawnSync } = require("node:child_process")
+const { resolveGitBash, toPosixPath } = require("./lib/ccg-test-helpers")
 
 const ROOT = path.join(__dirname, "..")
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8")
@@ -18,28 +19,6 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8")
 // 本机跑夹具需要 Git for Windows Bash（裸 bash 可能解析到 WSL，且本机 PATH 无 bash）。
 // 与 start-mp-task.ps1 同一探测链：MP_GIT_BASH 覆盖 → git 派生 → 硬编码候选。
 // CI（ubuntu）上系统 bash 在 PATH，直接可用。
-function resolveGitBash() {
-  if (process.env.MP_GIT_BASH) return process.env.MP_GIT_BASH
-  const candidates = []
-  try {
-    const { execFileSync } = require("node:child_process")
-    const git = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()
-    if (git) candidates.push(path.join(git, "..", "..", "usr", "bin", "bash.exe"))
-  } catch {}
-  candidates.push(
-    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-    "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
-    "D:\\Program Files\\Git\\usr\\bin\\bash.exe",
-  )
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      // 身份校验：Git for Windows 的 bash 同根必须有 usr\bin\dirname.exe（WSL shim 无此布局）
-      const gitRoot = c.replace(/[\\/]usr[\\/]bin[\\/]bash\.exe$|[\\/]bin[\\/]bash\.exe$/, "")
-      if (gitRoot && fs.existsSync(path.join(gitRoot, "usr", "bin", "dirname.exe"))) return c
-    }
-  }
-  return "bash" // CI/类 Unix：系统 bash
-}
 
 // 只针对「命令式命名」的两种写法；AGENTS.md 里记述事故的 `git worktree add -b codex/...`
 // 属于历史根因叙述，不是口径，不得被本锁误伤。

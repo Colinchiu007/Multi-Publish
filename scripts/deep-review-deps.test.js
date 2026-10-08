@@ -27,6 +27,7 @@ const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
 const { spawnSync } = require("node:child_process")
+const { resolveGitBash, toPosixPath } = require("./lib/ccg-test-helpers")
 
 const ROOT = path.join(__dirname, "..")
 const SCRIPT = path.join(ROOT, "scripts", "deep-review.sh")
@@ -34,27 +35,6 @@ const SCRIPT = path.join(ROOT, "scripts", "deep-review.sh")
 // 本机跑脚本需要 Git for Windows Bash（裸 bash 可能解析到 WSL，且本机 PATH 无 bash）。
 // 与 start-mp-task.ps1 / branch-naming-contract.test.js 同一探测链：
 // MP_GIT_BASH 覆盖 → git 派生 → 硬编码候选。CI（ubuntu）上系统 bash 在 PATH。
-function resolveGitBash() {
-  if (process.env.MP_GIT_BASH) return process.env.MP_GIT_BASH
-  const candidates = []
-  try {
-    const { execFileSync } = require("node:child_process")
-    const git = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()
-    if (git) candidates.push(path.join(git, "..", "..", "usr", "bin", "bash.exe"))
-  } catch {}
-  candidates.push(
-    "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-    "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
-    "D:\\Program Files\\Git\\usr\\bin\\bash.exe",
-  )
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      const gitRoot = c.replace(/[\\/]usr[\\/]bin[\\/]bash\.exe$|[\\/]bin[\\/]bash\.exe$/, "")
-      if (gitRoot && fs.existsSync(path.join(gitRoot, "usr", "bin", "dirname.exe"))) return c
-    }
-  }
-  return "bash"
-}
 
 // 故意「贫瘠」的 PATH：只留 POSIX 基础工具目录，**不含任何后端安装目录**。
 // 这正是本机 cwd 在 D: 时的真实形态（.local\bin 那条被剥了盘符，落在 D: 上不存在）。
@@ -379,8 +359,3 @@ test("PATH 分支：相对 PATH 条目命中必须 MISS（相对路径 prepend �
 
 // process.execPath 是 Windows 形态；Git Bash 需要 /c/... 形态。
 // CI（ubuntu）上 execPath 本身就是 POSIX 形态，原样拼即可。
-function toPosixPath(p) {
-  const q = p.replace(/\\/g, "/")
-  const m = q.match(/^([A-Za-z]):(.*)$/)
-  return m ? `/${m[1].toLowerCase()}${m[2]}` : q
-}
