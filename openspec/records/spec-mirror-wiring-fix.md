@@ -83,6 +83,16 @@ date: 2026-10-08
 | W16 | 销账条件退化为 `"无"` | 真实仓库：登记必须带非空洞销账条件 | PASS fail=1 |
 | W17 | 镜像锁的解析器停止记 job 级 `if` | 差分锁：两份实现逐 job 同结论 | PASS fail=1 |
 
+### 上一轮修复的活体证明（以及我先前引错的那条证据）
+
+先前本记录引的是 #3132 自己的 `QG Changes` step [9] success —— 那**证明不了**本轮修的缺口：
+#3132 是混合 PR（`docs-only=false`），`static-gates` 在这类 PR 上本来就会跑，所以锁在那一侧也拿得到执行。
+真正与 #3114 事故形态同构的是归档 PR #3135：它只动 `openspec/**` 与 `CHANGELOG.md`（全在 `CI_IGNORED_PATHS` 内），
+`QG Static` 被整片跳过 —— 而那一次 run 37734741926（PR #3135，改动集 6 个文件全在 `CI_IGNORED_PATHS` 内）：`QG Changes` 步骤 [3] 是 docs-only 分类器、当次打印 `docs-only=true`；步骤 [9] `Gate 2b2 - Spec mirror contract (changes job)` = `completed/success`；同一 run 的 `QG Static` = `completed/skipped`。
+
+于是这条链终于闭合：以前「主规格漂移 + 纯文档 PR」= 锁不跑 → 漂移合入 main → main push 才红；
+现在同一形态下锁在 PR 面就被跑过一次，且红会在 PR 上红。
+
 ### 遗留（不假装已闭合）
 
 - 登记表当前 1 条登记项来自**逐条人工核对**，不是完备全域清点：命中白名单输入却仍只住在可跳过 job 的其它锁，

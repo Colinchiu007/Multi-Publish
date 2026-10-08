@@ -10,6 +10,7 @@ date: 2026-10-08
 |------|------|-----------|
 | 变更类型与隔离 | ✅ | 纯 docs/规格变更（只动 `openspec/**` 与 CHANGELOG）；就地编辑后经 PR 落地，不进 docs-only 之外的执行面；分支 `spec-mirror-gate-archive`，base `0f1e8633d` |
 | 归档动作本身 | ✅ | `openspec archive spec-mirror-wiring-gate -y` ⇒ rc=0，输出 `ci-path-gating: update`、`+1 added`、`Change ... archived as '2026-10-08-spec-mirror-wiring-gate'`；变更集：3 个 change 文件删除（移走）+ 1 个主规格修改 + 归档目录新增 |
+| 同类 PR 的活体证明（本轮修复的验收现场） | ✅ | 本 PR 就是 docs-only 通道（`files=6`，全在 `CI_IGNORED_PATHS` 内）。run 37734741926（PR #3135，改动集 6 个文件全在 `CI_IGNORED_PATHS` 内）：`QG Changes` 步骤 [3] 是 docs-only 分类器、当次打印 `docs-only=true`；步骤 [9] `Gate 2b2 - Spec mirror contract (changes job)` = `completed/success`；同一 run 的 `QG Static` = `completed/skipped`。 这正是 #3114 当年漏掉的那一类 PR：漂移锁**在 PR 面上跑到了**，而不是等 main 的 push。 |
 | 主规格产物核对 | ✅ | `openspec/specs/ci-path-gating/spec.md`：Requirement 4 → **5**，新增那条带 **6 个 Scenario**（逐条打印核对：可跳过 job 必红 / 点名只认 run 正文且同名不冒领 / 按缩进不按位置 / 解析退化不读成无需核对 / 清单只能缩小且带销账条件 / changes job 只能依赖 node 内置模块）；`## Purpose` 段**未被写成占位词**（文件内 `\bTBD\b` = 0 命中） |
 | Gate 12d（本 change 自己立的那条） | ✅ | `node scripts/check-spec-purpose.js` ⇒ `扫描 151 份主规格，违规 0`。注意主规格份数仍是 151：本次只**更新**既有规格、没有新增规格文件 ⇒ 没有产生 `TBD - created by archiving change …` 那句占位。那句占位的活体场景仍未构造（需要一次真正新增能力的 change），如实登记在下面「遗留」 |
 | 受影响的两条锁 | ✅ | `node --test scripts/quality-rhythm-spec-mirror.test.js` ⇒ 8/8（它镜像的真源是 `openspec-integration/spec.md`，与本次 `ci-path-gating` 无交集 ⇒ 不触发漂移红，已核对锁内 `LIVE_SPEC` 常量）；`node --test scripts/check-unwired-tests.test.js` ⇒ 30/30（含「登记表只能缩小」那条真实仓库棘轮，本次没动登记表） |
