@@ -9,9 +9,9 @@
  *            没有取证的格子一律标 null 并在 CAPABILITY_MATRIX 注明原因，
  *            **不要为了填满矩阵去编端点**）：
  *
- *   平台              userInfo  publishPermission  poi        草稿箱
+ *   平台              userInfo  publishPermission  poi        草稿箱     音乐库
  *   douyin              ✅          ✅                ✅          —
- *   tencent_video       ✅          ✅（登录态口径）   —           —
+ *   tencent_video       ✅          ✅（登录态口径）   —           —          ✅
  *   bilibili            ✅          ✅（专栏权限）     —           —
  *   kuaishou            ✅          ✅（登录态口径）   —           —
  *   xiaohongshu         ✅          —（未取证）       —           —
@@ -55,6 +55,9 @@ const CAPABILITY_MATRIX = Object.freeze({
     publishPermission: 'POST /cgi-bin/mmfinderassistant-bin/auth/auth_data (登录态口径)',
     poiRecommend: null,
     drafts: null,
+    // 音乐库：2026-10-07 接进来（此前 shipinhao-music.js 已实现但无调用方，
+    // 属「做完功能没接线」）。端点与三种模式的 type 值取自对标产品 bundle。
+    musicLibrary: 'POST /cgi-bin/mmfinderassistant-bin/post/get_bgm_list',
   }),
   bilibili: Object.freeze({
     userInfo: 'GET /x/web-interface/nav + /x/member/web/account',

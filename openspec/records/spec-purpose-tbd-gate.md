@@ -2,9 +2,6 @@
 record: spec-purpose-tbd-gate
 task: 主规格 Purpose 去 TBD 的检测机制（Gate 12d）——判据 + 接线 + 反证 + 位置结构锁
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填把本行改成 PASS 并整段删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的收尾轮）
 ---
 
 ## 本次执行记录：Gate 12d 主规格 Purpose 检测机制（spec-purpose-tbd-gate，2026-10-07）
@@ -77,12 +74,69 @@ M1=9 / M2=6 / M5=2 / M7=2，终态数字以「反证（终态 15 格，驱动 v3
 | 判据在真实仓库 | PASS | `node scripts/check-spec-purpose.js` → `扫描 151 份主规格，违规 0` + `OK` |
 | 测试接线 | PASS | 新测试与判据同 step 点名在 `changes` job 的 Gate 12d；`check-unwired-tests.js` 检查域 65→**66** 且报「全部已接线」 |
 | CI 结构 | PASS | 四条结构锁（提取器自证 / changes job 内 / classify 之后 / 不得同时进 static-gates）；`check-step-failfast.js` 6 个多测试步骤仍全 fail-fast |
+| CI 流水线（真跑证据） | PASS | attempt 1：run `37639606609` / job `112854988214` `QG Changes` completed/success，step [8] Gate 12d completed/success；日志正文 `# tests 23 / # pass 23 / # fail 0` + `[spec-purpose] 扫描 151 份主规格…违规 0`（逐字见下节）。attempt 1 整体是 failure —— 唯一红格 `QG Desktop Shards (1/2)` 与本 PR 无关（定性见后），`gh run rerun --failed` 后 attempt 2 为 `19 pass / 0 fail / 1 skipping`，auto-merge 随即落地 |
 | OpenSpec | PASS | `openspec validate spec-purpose-tbd-gate --strict` → `Change 'spec-purpose-tbd-gate' is valid` |
 | 行尾对账 | PASS | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同口径（详见提交）|
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`；改动是 CI 门禁 + 文档 |
 | QM-4 视觉 | N/A | 未触任何 `.vue` / 样式 / 布局 |
 | QM-6 双模型评审 | PASS | 见下节「QM-6 发现处置」：23 条，逐条修 / 否证，两条反例已落文档 |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后取证回填：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`、`git ls-remote --heads origin spec-purpose-tbd-gate` 返回 0 行；改 PASS 的同一次提交内删除本段三个 `sync_*` 字段 |
+| 远程同步 | PASS | PR #3099 已 squash 合并，merge SHA `28f9d5143a3c90f07b3046121860394904bf2c9c`（committer 时间 `2026-10-07T15:51:56Z`），取证：`git log origin/main --grep='(#3099)$' --format=%H\|%cI`；`git ls-remote origin refs/heads/spec-purpose-tbd-gate` 返回 **0 行**（远端分支已随合并删除）。main 上的落地按行级包含复核（squash 后分支 head 不是 main 的祖先，`--is-ancestor` 判据在这里必然为假）：`git grep -c "Gate 12d" origin/main -- .github/workflows/quality-gate.yml` = 2、`git cat-file -e origin/main:scripts/check-spec-purpose.js` 存在、`git grep -c "check-spec-purpose" origin/main -- .gitignore` = 1、`git grep -a -c "created by archiving change" origin/main -- openspec/specs` **无输出**（0 份） |
+
+### CI 上这条门禁真的跑过了（逐字日志，非"作业名对上了"）
+
+判据接到 CI 不等于它在跑 —— 本仓吃过「登记为反证已实测变红、实际从未执行」的亏。故按
+**step 自己的 conclusion + 该 step 的日志正文**两级取证（run `37639606609` / job `112854988214`
+`QG Changes` = `completed/success`，head `ec260b8d6`）：
+
+```
+step [8] "Gate 12d - Spec Purpose presence (changes job)" -> completed/success
+（步骤清单里它前后的 Gate 12c / Gate 2c3 同样 completed/success，编号 7/8/9 连续）
+
+1001 ##[group]Run node --test scripts/check-spec-purpose.test.js
+1002 node --test scripts/check-spec-purpose.test.js
+1003 node scripts/check-spec-purpose.js
+1004 shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+1146 # tests 23
+1148 # pass 23
+1149 # fail 0
+1153 # duration_ms 285.939388
+1154 [spec-purpose] 扫描 151 份主规格（openspec/specs/**/spec.md），违规 0
+1155 OK: 所有主规格的 Purpose 均已填写（无 TBD / 无空段 / 无缺段）
+```
+
+三条各自的用处：`1001` 证明**两条命令都在同一个 step 正文里被执行**（不是只跑了测试）；
+`1146/1148/1149` 证明 23 条锁在 runner 上真跑且全绿；`1154/1155` 是判据自己打的现场数字 ——
+"CI 上扫到 151 份、违规 0"，与本机一致，说明 Linux 侧（`path.sep='/'`、无 CRLF 工作副本）行为相同。
+日志取法：`gh api --allow-escape-sequences repos/<o>/<r>/actions/jobs/<id>/logs`（1,590 行 / 123 KB），
+剥 ANSI 后按 `##[group]` 定位 —— 本 job 的 step **没有** `##[group]…Gate 12d` 这种带名字的分组标记，
+只有 `##[group]Run <脚本首行>`，所以按 step 名 grep 日志会得到 0 命中；那不能读成"没跑"
+（`sp-job-log.js` 就因此打印了 `start=-1`，靠行号 1001 的正文认出来）。
+
+### attempt 1 那一格红的定性（环境型，不是本 PR 引入）
+
+`gh pr checks` 在 R31 报 `fail=1`，同时 `QG Desktop Shards (2/2)` 还在跑 —— 按既有口径这不构成结论
+（见「终止条件必须是 fail>0 **且** pending==0」），所以先定性再决定动作：
+
+1. **是真失败还是 cancelled**：REST `commits/<sha>/check-runs` 里
+   `QG Desktop Shards (1/2) status=completed conclusion=failure`（不是 cancelled），
+   job `112855223860` 的失败步是 step [7] `Desktop tests shard 1/2`，唯一红用例
+   `electron/tests/test_scheduler_parity.test.js > scheduler 模拟器与真实 governor 对拍`。
+2. **是不是我改出来的**：本 PR 的 10 个文件全是 `scripts/`、`.github/workflows/quality-gate.yml`、
+   `.gitignore`、`CHANGELOG.md` 与 `openspec/`，**不碰** `apps/desktop/`、scheduler 与 python 任一侧；
+   同一 job 在同一天的 main 上（run `37629794933` / head `f5b18dab7`，13:36Z）是 success。
+3. **失败形状指向环境**：`scripts/compare-scheduler-models.js:253` 抛
+   `Error: python simulator failed:` —— **冒号后是空的**。该处写的是 `(res.stderr || res.stdout)`，
+   两者皆空且 `status !== 0` 只可能是 `spawnSync('python', …)` 的 `status=null` 两型之一
+   （PATH 上取不到 `python`，或 30s timeout 被 SIGTERM），而不是模拟器算出错。
+   ⚠️ 顺带记一条**别人的**可诊断性缺口（不在本 PR 范围，不改）：该 throw 把 `res.error` 与 `res.signal`
+   全丢了，所以"环境缺 python"和"超时"在日志里长得一模一样；`search/issues` 现无 open 单提到它（两项 TOTAL=0）。
+4. **动作**：确认 run 已 `completed` 才 `gh run rerun --failed`（在跑时它根本不会执行），
+   并**只以回读为准**：`status=in_progress attempt=2` ⇒ 重跑真的发生了。
+   attempt 2 结果 `19 pass / 0 fail / 1 skipping` ⇒ 第 3 步的环境型判断成立，auto-merge 落地。
+
+⇒ 口径复用：**红格先分「真失败 / cancelled / 环境型 / 本 PR 引入」四档**，判别式分别是
+`conclusion`、同 job 在 main 上的近期结论、错误文案里"有没有拿到任何子进程输出"、以及本 PR diff 的文件集
+是否覆盖被测面。只看 `gh pr checks` 的 `fail` 计数会同时踩 cancelled 与 pending 两个坑。
 
 ### QM-6 发现处置（23 条：后端 11 含 2 CRITICAL，工程 12 含 3 MAJOR）
 
@@ -160,5 +214,9 @@ M1=9 / M2=6 / M5=2 / M7=2，终态数字以「反证（终态 15 格，驱动 v3
   但那属上游 openspec CLI 行为，本仓不 fork 它；当前顺序（先归档、CI 立刻红）已能把账留在台面上。
 - 归档本 change 后，它会给自己新增的主规格写 TBD —— 这正是本门禁的活体测试场景，
   归档时必须确认产出的 `openspec/specs/openspec-integration/spec.md` Purpose 已填（tasks 5.4 已记）。
+- **`tasks.md` 的 5.3/5.4 复选框留待归档 PR**：回填 PR 若同时改 `openspec/changes/**/tasks.md`
+  就不再是「纯回填」（`check-pr-exec-record.js` 的定义要求变更集**全部**是载体文件），会被判
+  「未携带执行记录」而红。本记录即该次交付的现场（合并事实、CI 逐字取证、红格定性），
+  勾选状态与事实之间的差异到此为止：读到 `tasks.md` 未勾 5.3 时，以本节为准。
 - 流程面的一条方法论遗留（本轮最贵的一课）：**给脚本加参数化行为时，反证必须有一条从进程入口打进去**。
   `process.exit(main())` 丢 argv 那个缺陷，前 7 格反证全部失明 —— 它们只调导出函数，从不经过 CLI。

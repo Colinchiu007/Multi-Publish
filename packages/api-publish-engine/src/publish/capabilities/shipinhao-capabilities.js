@@ -17,6 +17,7 @@
  * fail-closed：缺 cookie 抛错且零请求。
  */
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
+const { ShipinhaoMusicChain } = require('../platforms/shipinhao-music')
 const { errorCode } = require('../../error-codes')
 
 const API_BASE = 'https://channels.weixin.qq.com'
@@ -130,6 +131,54 @@ class ShipinhaoCapabilities {
         return { allowed: false, risk_blocked: false, platform: 'shipinhao', reason: err.message, login_expired: true }
       }
       throw err
+    }
+  }
+
+  /**
+   * 音乐库查询（2026-10-07 接入）。
+   *
+   * 委托 publish/platforms/shipinhao-music.js —— 端点、_rid 生成规则、三种模式的
+   * type 值、公共 body 字段全部取自对标产品 bundle（见该文件头取证注释）。
+   * 本层只做「HTTP 面字段 → listBgm 入参」的翻译与分页游标回传，**不复制协议逻辑**。
+   *
+   * @param {{mode?:string, query?:string, search?:string, page?:number,
+   *          currentPage?:number, pageSize?:number, lastBuffer?:string}} [params]
+   */
+  async musicLibrary (params = {}) {
+    params = params || {}
+    // HTTP 面用 page（与 drafts/poi 一致），listBgm 用 currentPage；search 是 query 的别名
+    const page = params.currentPage != null ? params.currentPage
+      : (params.page != null ? params.page : undefined)
+    const query = params.query != null ? params.query : params.search
+    const r = await new ShipinhaoMusicChain({
+      cookie: this.cookie,
+      userAgent: this.userAgent,
+      finderId: this.finderId,
+      // ⚠️ 键名必须是 api：ShipinhaoMusicChain 的构造器读 opts.api，不是 opts.client。
+      // 上一版这里写 client，静默不匹配 ⇒ 音乐库自建默认 client，能力层的连接配置
+      // （含代理/超时）对它**完全不生效**，且外部注入面也失效（测试打不进假服务器）。
+      // ⚠️ 键名必须是 api —— ShipinhaoMusicChain 的构造器只读 opts.api，不认 opts.client。
+      // 上一版写的是 client: this.client，静默不匹配：音乐库于是自建默认 client，
+      // 能力层的连接配置（含代理/超时）对它完全不生效，外部注入面也随之失效
+      // （测试打不进假服务器，请求直接走真实域名）。**只传 api，不要为了「保险」
+      // 再补一个 client** —— 同名不同义的键并排出现，正是这次要根治的温床。
+      api: this.client,
+    }).listBgm({
+      mode: params.mode,
+      query: query,
+      currentPage: page,
+      pageSize: params.pageSize,
+      lastBuffer: params.lastBuffer,
+    })
+    return {
+      mode: r.mode,
+      items: r.items,
+      total: r.total,
+      page: r.page,
+      pageSize: r.pageSize,
+      hasMore: r.hasMore,
+      lastBuffer: r.lastBuffer,
+      raw: { totalCount: r.total },
     }
   }
 }
