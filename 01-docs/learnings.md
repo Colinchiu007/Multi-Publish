@@ -10,6 +10,28 @@
 - 脚本必须**先判断再替换**：`if(!t.includes(旧串)){console.log('NOT FOUND');process.exit(1)}`，并准备 LF 版本做二次尝试。
 - 同类：**工具返回「成功」不等于内容落盘**。2026-10-07 用编辑工具改文件，工具报成功但磁盘内容完全没变，随后跑测试「全绿」——测的是改动前的代码。改完立刻用只读探针回读（`t.includes('目标串')`），不信成功提示。
 
+## 「工具说改好了」不等于「文件真改了」——落盘自证不可信，必须用只读探针回读（2026-10-07）
+
+- **工具返回成功 ≠ 磁盘内容已变（pitfall）**。2026-10-07 用编辑工具改两个文件，工具两次都返回成功，随后跑测试也全绿；子代理核验时发现**磁盘上根本没有那个改动** —— 测的是改动前的代码。若当时采信「已修复」，就会把一个未验证的成果当成交付。
+- **正确做法：改完立刻用只读探针回读**，不信任何「成功」提示。最省事的是 node 一行：
+  ```
+  const t=fs.readFileSync(p,'utf8'); console.log(t.includes('目标串'))
+  ```
+  或 `[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8)` 后 `.Contains(...)`。**中文文件必须显式传 UTF8**，否则按默认编码读出乱码，`IndexOf`/`Contains` 全落空，会误判成「目标行不存在」（今天踩过两次）。
+- **跨文件/跨 worktree 的改动，务必用「能报错的脚本」落盘**：脚本里先 `if (!t.includes(旧串)) { console.error('TARGET NOT FOUND'); process.exit(1) }` 再替换，盲替换会把「没找到」静默变成「什么都没改」。
+- **派子代理跑验证时，务必在任务书里写明「每步都要先确认落盘再继续」** —— 子代理会照做并回报探针输出；我第一次派发时没写，它直接跑了测试并如实报告「跑的是改动前的代码，全绿无效」，这个反馈本身非常有价值。
+
+## `mergeStateStatus=CLEAN` 不等于「已合并」——合并前必须看 `state`（2026-10-07）
+
+- **误读实例**：把 PR #3038 的 `mergeStateStatus=CLEAN` + 21 项 check 全 SUCCESS 当成「已合并」，据此汇报「今天合并了 9 个 PR」，实际该PR 是 **OPEN**。核验发现三项改动全部只在分支上，`origin/main` 一条都没有。
+- **正确判据**：`gh pr view <n> --json state,mergedAt,mergeCommit` —— 只有 `state=MERGED` 且 `mergedAt` 非 null 才是已合并。`CLEAN` 的含义是「可合并且 CI 全绿」。
+- **判「改动是否真在远端」的最可靠命令**（比读工作区文件强，因为它直接问 origin）：
+  ```
+  git grep -c "特征标记" origin/main -- <文件路径>
+  ```
+  rc=1 / 0 命中 = 远端没有；>0 = 远端有。比 `git show origin/main:<path>` 后再匹配更简洁，也不受控制台编码干扰。
+- **配套**：`git log origin/main --grep='(#NNNN)$' --format='%H|%cI'` 才是 merge SHA 与时间的取证命令；若为空就是没合并。
+
 ## 改了 preload 源码就必须重新生成入库的 bundle 产物——`build-preload.test.js` 会直接比对两者（xhs-draft-publish，2026-10-07）
 
 - **`electron/preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 是入库的构建产物**（`git ls-files` 可查到）。`electron/tests/build-preload.test.js:56` 会把**仓库里已提交的** `OUTPUT_FILE` 与源码 `preload/index.js` 暴露的 API 路径做 `toEqual` 深比对。加一个 preload 方法而没跑 `pnpm run build:preload`，该用例报「提交态 bundle 与源码暴露完全相同的 API 路径」失败，并逐条 diff 缺失的键名。
@@ -22,6 +44,8 @@
 - **「变异反证」的价值全在它会不会红**。新增一条「若实现回退到 browser 链则失败」的反证用例后，只跑一遍全绿就提交，等于没锁 —— 因为你不知道这条用例是不是恒绿（比如断言写成了 `not.toContain` 恰好与实现同向）。
 - **实跑口径**：把被锁的实现行临时改成错误形态 → 跑该文件 → 必须**恰好目标用例转红**（其余仍绿）→ 还原 → 确认实现文件 `git diff` 为空。本次 `signer-assembly.js:276` 把 `signXiaohongshuLocal(payload)` 改成 `assembly.sign(...)`，19 例中仅新增的那 1 例红，还原后 19/19 全绿。
 - **配套的编辑器坑**：`[System.IO.File]::ReadAllText()` 不指定编码时按 UTF-8 读，含中文的 JS 文件会被读成乱码，导致 `IndexOf`/`Contains` 全部落空 → 误判「目标行不存在」。必须 `[System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)`；写回用 `New-Object System.Text.UTF8Encoding($false)` 避免加 BOM。
+- **变异的粒度要对**：2026-10-07 收窄视频号判据时，注入「把宽版正则改回去」⇒ 6 例中**恰好 1 例**红（新增的收窄回归锁），其余仍绿。这比「整段判据关掉 ⇒ 3 例红」更能证明新用例精确锁住了它要锁的那一条 —— 粒度太粗会出现「红了很多但不知道是哪个不变量在起作用」。
+- **反向提醒**：首轮 7/7 全红、但**全部是在抵达被测逻辑前就 TypeError**（漏桩 `_dismissPostNavDialogs`，生产在 draftOnly 分支之前调它）—— 这种全红提供**零证据**，不能据此判断修复对否。判据是看报错落点：**断言行之前崩 = 没测到东西**。
 
 ## 闸门断言要锁「意图」而不是「当前实现形态」——形态变化不等于红线失守（xhs-draft-publish，2026-10-07）
 
@@ -16280,6 +16304,10 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 - **队列历史在应用重启后清零（pitfall）**：`getQueueHistory()` 不落盘，重启即空。判断「任务是否还在跑」要查 `getQueueStatus().running`，不能因为 history 空就认为没跑，否则会错过 live 页面取证窗口。
 - **`PythonBackend 每 5s 重启` 是噪音日志（pitfall）**：`rpa_engine` 日志文件 0 字节不代表 RPA 没执行（RPA 在 Electron 主进程，日志落在 `D:/tmp/Multi-Publish-debug-profile/logs`，前缀 `RpaView`）；排查平台发布先看 `RpaView` 行。
 - **严格发布证据优先于「点了按钮没报错」（pattern）**：`STRICT_PUBLISH_ID_PLATFORMS`（baijiahao/kuaishou）要求结果带从网络响应提取的作品 ID；`responses=0` 是「点中文案没点中按钮」的高置信信号，应优先于「超时」去查选择器。
+- **成功判据是分层的，排查「假成功/假失败」先确认平台落在哪一层（2026-10-07 补充）**：`rpa-view-platforms.js` 的判据分三层 —— ①**严格层** `STRICT_PUBLISH_ID_PLATFORMS`（`baijiahao`/`kuaishou`/`toutiao`）只认「发布产物查询」拿到的 postId，不看任何文案，最可靠；②**文案层**（其余平台）走 `_publish_generic` 末尾的 DOM 正则 `(发布成功|投稿成功|…|已发布)/`，`failure` 优先短路；③**URL 层** `success_mode='url'`，靠跳转判成功。**假成功几乎都出在第 ② 层** —— 2026-10-07 一天内视频号、抖音、小红书三个平台的假成功全部落在这一层。
+- **文案层加词必须带快照证据，且不能加「剥离前缀的裸词」（pitfall）**：视频号真实文案是「发布并登记完成」，我顺手加的裸词 `登记完成` 没有证据价值（真实快照里该词始终与「发布/提交」同现），孤立出现时会匹配未发布页面上的偶然文案 ⇒ 放大假成功面。判据收紧后由假成功变假失败（30s 超时），属可接受的取舍，但**只覆盖一个样本点**，需多样本验证。
+- **`draftOnly` 这类「等待页面信号」的成功判定，正则里不能含页面常驻文案**：小红书侧边栏「草稿箱」入口让裸「草稿」二字恒真，`saved=true` 从不代表落库。收紧为 `/编辑于\s*\S{1,12}|已保存|保存成功|自动保存/`（要求带时间量词）。**通用原则：判据里的每个词都必须问「这个词在未发布页面上也会出现吗」**。
+- **「什么都没写进去」必须先于「有没有落库」判定（pattern）**：小红书真机实测标题/正文/标签三项选择器全部 not found（全 WARN），但 `draftOnly` 分支末尾无条件 `return {success:true}`。正确顺序是先问「内容真的写进去了吗」（用 `fillReport` 这类字段级回执），再谈落库 —— 否则落库判定再准也只是在给空页面发成功证书。
 - **生成串里嵌正则必须双转义（pitfall）**：`buildResolveElementCode` 这类「拼接出在渲染进程执行的 JS」的代码里，字符串字面量 `'\.'` 会退化成 `'.'`，正则 `/\./` 变成 `/./`（任意字符），使 class 解析错乱、候选池被清成 `scoped.length===0` 再回退全池——表现是「tag 约束神秘失效」。生成码内的正则一律写 `\\.`，且**不要在生成的 IIFE 里放中文注释**（注入路径编码风险 + 日志难比对）。
 - **热应用 live 应用前先 merge origin/main（process）**：修复分支若未合入最新 main，按 `base..HEAD` 取「净改动」会把 main 的演进也算进来，覆盖运行中 worktree 会回退他人代码。可靠顺序是：分支 merge main → 取 `origin/main..HEAD` 的差集文件 → 备份后覆盖 → 重启（`mp-applive-launcher.ps1` 不做 git 同步，正好适合热应用）。
 
