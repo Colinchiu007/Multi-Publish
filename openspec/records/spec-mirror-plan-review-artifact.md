@@ -2,9 +2,6 @@
 record: spec-mirror-plan-review-artifact
 task: 把接线缺口那轮工作的决策层双模型评审原始产物提交进仓库（它此前只活在待删的 worktree 里）
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三字段）
 ---
 
 ## 本次执行记录：决策层评审原件入库（spec-mirror-plan-review-artifact，2026-10-08）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 接线棘轮 | ✅ | 无新增测试文件；`node scripts/check-unwired-tests.js` ⇒ `检查域内测试文件 67 个 / OK` |
 | 记录债 | ✅ | `node scripts/check-gate-record-debt.js` ⇒ OK：本篇自带「远程同步」行（PENDING），**不往 `scripts/gate-record-debt-ledger.json` 加键**（新载体的登记在记录 frontmatter，加键会当场报「陈旧登记」红）；合并后另开回填 PR 改 ✅ 并删 `sync_*` |
 | QM-1 打包 / QM-4 视觉 / QM-6 | N/A | 纯证据入库，无代码、无规格变更；QM-6 的原件本身就是本次要保存的对象 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin spec-mirror-plan-review-artifact` 返回 0 行证远端分支已删；回填后删除 frontmatter 三个 `sync_*` 字段 |
+| 远程同步 | ✅ | PR #3138 已 squash 合并：`git log origin/main --grep='(#3138)$' --format=%H\|%cI` 取得 `e9e2954dce51baa39386db27536912dc0bf89d5e\|2026-10-08T14:22:28+08:00`；`git ls-remote --heads origin spec-mirror-plan-review-artifact` 返回 **0 行**（远端分支随合并删除）。 CI 侧同款机器检查也覆盖了本篇：run 的 step [3]（Detect docs-only changes）里同时跑 check-gate-record-debt = success，所以「新记录的远程同步行是否可解析」不是只靠我本地跑过。 |
 
 ### 遗留（不假装已闭合）
 
