@@ -315,20 +315,22 @@ test("不得回潮成被动告警：后端体检必须在补 PATH 之后再判�
   assert.match(src, /export PATH/, "恢复后的 PATH 必须导出，否则子进程（wrapper）看不到")
 })
 
-// ⑩（PR #3148 QM-6 评审 i1 的源头同病，见 openspec/records/plan-review-deps.md）：
+// ⑩（PR #3148 QM-6 评审 i1 的源头同病，见 openspec/records/plan-review-deps.md；
+//    二轮 QM-6 i1/i2/i5 进一步收紧）：
 // 裸名经「来历不明」的 PATH 条目命中、候选目录不含它时，不得计为可用。
 //
 // 旧 PATH 分支：`_RB_CODE=PATH` + 「已按原样使用」直接计入 _rb_n——
 // 但该后端正来自本脚本文档盖章的坏环境（无盘符条目按 cwd 解析 /
-// Go wrapper ErrDot），「command -v 成功」推不出「wrapper 能起」，
-// 静默计入可用 = wrapper 起不来仍当双后端用，无告警无修法。
-// 修法（与 plan-review.sh #3148 同款）：反推命中项所在目录并 prepend
-// （升级 ABS）；推不出按 MISS。
-test("PATH 分支：裸名来自非候选目录时必须反推目录 prepend（不得静默计可用）", () => {
+// Go wrapper ErrDot），「command -v 成功」推不出「wrapper 能起」。
+// 修法分三档（fail-closed）：
+//   绝对路径命中  → ABS（可信，但不改 PATH，只上报）
+//   相对路径命中  → MISS（相对条目 prepend 后 ErrDot 依旧，二轮 i1）
+//   无路径裸名    → MISS（函数/别名/内建，二轮 i5）
+test("PATH 分支：绝对路径命中必须报 ABS，相对/无路径命中必须 MISS（fail-closed）", () => {
   const home = makeFakeHome({})
   const stray = path.join(home, "stray-bin")
   for (const tool of ["claude", "opencode"]) writeStub(stray, tool)
-  // stray-bin 显式放进 PATH；HOME 候选链与 CCG_BACKEND_BIN_DIRS 都不含它
+  // 绝对路径形态放进 PATH；HOME 候选链与 CCG_BACKEND_BIN_DIRS 都不含它
   const { rc, out } = runCheckDeps(home, {
     PATH: `${BARE_PATH}:${toPosixPath(stray)}`,
   })
@@ -339,10 +341,40 @@ test("PATH 分支：裸名来自非候选目录时必须反推目录 prepend（�
   )
   assert.match(
     out,
-    /已把其所在目录 .* 补到 PATH 最前|找不到/,
-    "非候选目录的裸名命中必须升级为 ABS 或按 MISS",
+    /来自非候选目录的绝对路径/,
+    "绝对路径命中必须报 ABS 并注明未改 PATH",
   )
-  assert.equal(rc, 0, "反推 prepend 成功后两个后端都应可用")
+  assert.equal(rc, 0, "绝对路径命中时两个后端都应可用")
+})
+
+test("PATH 分支：相对 PATH 条目命中必须 MISS（相对路径 prepend 后 ErrDot 依旧）", () => {
+  // ⚠ 行为级复现受阻（实测记录）：脚本 shebang 是 #!/bin/sh，MSYS 会把 bash
+  //   直接执行 re-exec 成 sh.exe，此过程中**相对 PATH 条目被环境转换剥离**——
+  //   实测同一 spawn 环境下 bash 内 command -v 能命中相对条目（返回
+  //   `relDir/tool`），而脚本内同一命令报「均未命中」（dbg：HOME 亦被转换成
+  //   POSIX 形态）。即：相对条目命中这个场景**在脚本真实运行形态下根本
+  //   到不了 resolve_backend**，行为锁会测到一个不可达分支。
+  // ⇒ 退化为结构锁：钉住代码里必须存在 fail-closed 的三分支判定，
+  //   防止将来有人把 PATH 分支改回「无条件计可用」。
+  const src = fs.readFileSync(SCRIPT, "utf8")
+  const block = (src.match(/case "\$_rb_real" in[\s\S]*?esac/) || [""])[0]
+  assert.ok(block, "应能定位 resolve_backend 的 PATH 分支判定块（嵌套 case）")
+  assert.match(block, /\*\)\s*\n\s*_RB_CODE=MISS/, "必须有无斜杠命中（函数/别名/内建）→ MISS 分支")
+  assert.match(
+    block,
+    /\*\)\s*\n\s*_RB_CODE=MISS[\s\S]*?ErrDot/,
+    "必须有相对路径命中 → MISS + 点名 ErrDot 的分支",
+  )
+  assert.match(
+    block,
+    /\/\*\)\s*\n\s*_RB_CODE=ABS/,
+    "必须只有绝对路径命中才判 ABS",
+  )
+  assert.doesNotMatch(
+    block,
+    /已按原样使用/,
+    "旧 PATH 分支文案「已按原样使用」不得再现",
+  )
 })
 
 // process.execPath 是 Windows 形态；Git Bash 需要 /c/... 形态。

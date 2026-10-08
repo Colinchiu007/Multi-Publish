@@ -287,19 +287,37 @@ EOF
       # 恰是本脚本要防的坏环境（无盘符条目按 cwd 解析 / Go wrapper ErrDot）。
       # 此时「command -v 成功」推不出「wrapper 能起」，静默计入可用 =
       # wrapper 起不来仍当双后端用，无告警无修法。
-      # 修法：从命中项反推绝对目录并 prepend（升级成 ABS）；推不出就按 MISS。
-      # ${_rb_real%/*} 参数展开取目录，不经 dirname——本脚本连 ROOT 都不用它。
-      _rb_dir="${_rb_real%/*}"
-      if [ -n "$_rb_dir" ] && [ "$_rb_dir" != "$_rb_real" ] && [ -d "$_rb_dir" ]; then
-        PATH="$_rb_dir:$PATH"
-        export PATH
-        _RB_CODE=ABS
-        _RB_MSG="裸名命中来自非候选目录，已把其所在目录 $_rb_dir 补到 PATH 最前（裸名 → $_rb_real）"
-      else
-        _RB_CODE=MISS
-        _RB_MSG="裸名解析到 $_rb_real，但无法定位其目录以修复 PATH——按缺失处理"
-        return 1
-      fi
+      #
+      # 修法（含 QM-6 二轮 i1/i3/i5 的三处收紧）：
+      #   i1  命中项必须是**绝对路径**才可信——相对 PATH 条目（无盘符坏环境
+      #       的典型形态）下 command -v 返回相对路径，${var%/*} 得到相对目录，
+      #       prepend 后解析不变、ErrDot 依旧，却会伪装成 ABS；
+      #   i5  command -v 对函数/别名/内建返回无斜杠裸名（实测 `command -v cd`
+      #       → `cd`），${var%/*} 无分割——同样按 MISS 并在文案里说明；
+      #   i3  **不再把来历不明的目录全局 prepend 进 PATH**——那会重排后续
+      #       所有裸命令（git/node 等）的解析顺序，同目录同名 stub 可遮蔽
+      #       真实工具。改为只把绝对路径**报出来**供主流程核对，不动 PATH。
+      # 判定：绝对路径命中 = ABS（可信）；其余一律 MISS（fail-closed）。
+      case "$_rb_real" in
+        */*)
+          case "$_rb_real" in
+            /*)
+              _RB_CODE=ABS
+              _RB_MSG="裸名命中来自非候选目录的绝对路径 $_rb_real（未改 PATH，仅上报核对）"
+              ;;
+            *)
+              _RB_CODE=MISS
+              _RB_MSG="裸名解析到相对路径 $_rb_real（来自无盘符/相对 PATH 条目，ErrDot 域）——按缺失处理"
+              return 1
+              ;;
+          esac
+          ;;
+        *)
+          _RB_CODE=MISS
+          _RB_MSG="command -v 命中的是无路径裸名（函数/别名/内建），不是可执行文件——按缺失处理"
+          return 1
+          ;;
+      esac
     fi
     return 0
   fi
