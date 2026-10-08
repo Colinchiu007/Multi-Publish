@@ -24,9 +24,21 @@ sync_backfill_owner: 下一个会话
 
 ### 测试规模
 
-`creator*.test.js` + `CreatorMonitor.test.js` 共 **231 项全绿**（13 个文件）：
+`creator*.test.js` + `CreatorMonitor.test.js` + `Collection.test.js` 共 **234 项全绿**（14 个文件）：
 其中 `creator-wiring.e2e.test.js` 7 项穿真实 IPC 边界，
-`creator-store-surface.test.js` 3 项为方法面完整性锁。
+`creator-store-surface.test.js` 3 项为方法面完整性锁，
+`Collection.test.js` 3 项为页签角标锁。
+
+### 一并补上的「静默失效」：待采集角标（CCG 评审 i6）
+
+`Collection.vue` 的博主监控页签模板引用 `creatorPendingTotal`，而它**从未被定义** ——
+`undefined > 0` 为 false，不抛错、不告警，角标永远不显示。
+本轮补齐：读通道 `creator:pending-total`（不进 list，因角标渲染在父组件，
+复用 list 等于切页重复拉全量）→ preload 暴露 → `ref(0)` + 挂载时拉一次 →
+3 条回归锁断言的是**徽标真的出现**，不是变量存在。
+
+仍未实现：`creator:probe` 单独探测通道。现有 `creator:check-now` 已提供手动探测入口，
+集成用例改走该通道；单独通道留到探测调度落地那轮。
 
 ### 端到端抓到、既有测试全绿时漏掉的两个真缺陷
 
