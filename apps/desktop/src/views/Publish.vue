@@ -800,11 +800,9 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 // 定时发布 hint 前置展示校验限制（2026-10-06）：限制值与 validateScheduleEntries
-// 共用同一常量源，避免文案与实际校验漂移。
-// 2026-10-08 起按**所选平台**显示有效上限：头条排期上限经平台 bundle 取证为 7 天，
-// 若 hint 仍显示全局 30 天，用户按 30 天排期会在提交时被拒（文案与校验漂移）。
-// 具体实现见 fieldSurface.hintTextFor（在下方 fieldSurface 定义处接线，
-// computed 变量 `scheduleHintText` 亦声明在那里 —— 依赖顺序：fieldSurface 须先建）。
+// 共用同一常量源，避免文案与实际校验漂移。2026-10-08 起按**所选平台**显示有效上限
+// （头条经平台 bundle 取证为 7 天；若 hint 仍显全局 30 天，用户按 30 天排期会被提交
+// 校验拒绝）。实现见 fieldSurface.hintTextFor（下方 fieldSurface 定义处接线）。
 const { notifySuccess, notifyWarning, notifyInfo } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
