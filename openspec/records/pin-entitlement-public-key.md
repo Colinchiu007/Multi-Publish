@@ -137,3 +137,61 @@ SELF-REVIEW，结论记入 `.quality-gates.md`。
 
 | 远程同步 | PENDING |
 |---|
+
+---
+
+## 第二轮 CI 失败与修复（2026-10-08）
+
+**第一轮的判断错了。** 当时我定位到「分支没 rebase、跑的是旧代码混合态」，
+rebase 后从 4 红降到 1 红——**我以为问题解决了，其实那 1 条一直存在，只是被其他失败盖住了。**
+
+### 失败详情
+
+```
+FAIL electron/services/identity/identity-runtime-config.test.js
+  > 发行公钥不可被替换（2026-10-07 加固） > 非 packaged（开发态）⇒ 允许自定义公钥
+AssertionError: expected '-----BEGIN PUBLIC KEY-----\nMIIBIjANB…' to be '-----BEGIN PUBLIC KEY-----\nMIIBIjANB…'
+  at identity-runtime-config.test.js:265
+Tests  1 failed | 14428 passed | 3 skipped (14432)
+```
+
+### 根因：我的测试写错了，实现是对的
+
+`forged` 长度 451，`realKey` 450 —— **差一个尾换行**。
+解析侧 `requiredString` 会 `trim()`，返回值必然比 `forged` 少一个尾换行，
+所以 `expect(env.ENTITLEMENT_PUBLIC_KEY).toBe(forged)` **恒不成立**。
+
+改为按规范化后比较：`toBe(forged.trim())`。
+
+### 顺带发现：两条测试是恒真的
+
+`packaged + 配置换成攻击者自签公钥` 那条只传了 `entitlementPublicKey: forged`，
+但 `keyId` 仍用 fixture 默认的 `realKeyId` 之外的路径时，被拒原因可能是
+**「keyId 未内置」而非「公钥与内置不一致」**——**换成任何被拒的公钥都会绿**。
+
+已改为显式传 `entitlementKeyId: realKeyId`，让断言锁定**正确的原因**；
+并加一条前置断言 `expect(forged).not.toBe(realKey)` 防测试自欺。
+
+dev 态那条也补了**反断言** `not.toBe(realKey.trim())`——
+否则「被静默换回真实公钥」这种失效也发现不了。
+
+### 变异验证（新测试必须有牙齿）
+
+| 变异 | 结果 |
+|---|---|
+| 取消 dev 态豁免 | ❌ 2 条红 |
+| **伪造公钥被静默换回真实公钥**（模拟"不生效但放行"） | ❌ 1 条红 |
+| 还原 | ✅ 5/5 |
+
+第二条变异正是旧测试的盲区所在。
+
+### 排查方法上的教训
+
+1. **本轮 `check-runs` / `actions` / `check-suites` REST 端点整体 404**（连 main HEAD 也查不到），
+   但 `commits/<sha>`、`rate_limit`、`pulls/<n>` 正常 ⇒ **端点问题，不是权限也不是 commit 问题**。
+   **改用 GraphQL `statusCheckRollup` 拿到 CI 状态。** 遇到端点 404 时先做对照实验
+   （查一个确定存在的 commit），再决定是否换路径。
+2. **CI 日志归档有窗口期**：job 失败后一段时间内 `GET /actions/jobs/<id>/logs` 能拉到
+   完整日志（8.7MB），过期后只剩 **162 字节占位**。**要拉必须第一时间拉。**
+3. **Windows runner 的 vitest 日志是纯文本不是 zip**，`zipfile.ZipFile` 会抛异常——
+   先 `file` 一下再决定怎么解。

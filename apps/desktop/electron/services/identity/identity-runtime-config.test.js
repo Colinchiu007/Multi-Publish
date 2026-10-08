@@ -233,9 +233,12 @@ describe('发行公钥不可被替换（2026-10-07 加固）', () => {
   }
 
   it('packaged + 配置换成攻击者自签公钥 ⇒ 抛错（格式合法也不放行）', () => {
+    // 必须带**内置的** keyId：否则抛的是「keyId 未内置」，这条断言就锁错了原因，
+    // 换成任何被拒的公钥都会绿 = 恒真锁。
+    expect(forged).not.toBe(realKey)
     expect(() => load({
       isPackaged: true,
-      configOverrides: { entitlementPublicKey: forged },
+      configOverrides: { entitlementKeyId: realKeyId, entitlementPublicKey: forged },
     })).toThrow(/与内置发行公钥不一致/)
   })
 
@@ -262,7 +265,11 @@ describe('发行公钥不可被替换（2026-10-07 加固）', () => {
 
   it('非 packaged（开发态）⇒ 允许自定义公钥，否则本地测试密钥无法使用', () => {
     const env = load({ isPackaged: false, configOverrides: { entitlementPublicKey: forged } })
-    expect(env.ENTITLEMENT_PUBLIC_KEY).toBe(forged)
+    // 注意：解析侧 requiredString 会 trim()，返回值与 forged 差一个尾换行，
+    // 因此按规范化后比较（此处正是 normalizePem 的语义）。
+    expect(env.ENTITLEMENT_PUBLIC_KEY).toBe(forged.trim())
+    // 反断言：开发态拿到的必须是**那把伪造公钥**，而不是被静默换回真实公钥
+    expect(env.ENTITLEMENT_PUBLIC_KEY).not.toBe(realKey.trim())
   })
 
   // 2026-10-07 SELF-REVIEW 发现：原判定 `isPackaged !== true` 会被 1 / 'true'
