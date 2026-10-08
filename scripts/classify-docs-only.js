@@ -41,6 +41,11 @@ const CI_IGNORED_PATHS = [
   '.claude/**',
   '.hermes/**',
   '.agents/**',
+  // 质量节拍 vendored 制品树（165 个文件：98 个 .md + 上游技能脚本副本）。
+  // 进名单的前提锁已成立：唯一消费其内容的门禁（契约镜像漂移锁）住在不被 docs-only
+  // 短路的 changes job（Gate 2b2），本仓 CI 不执行该树里的任何脚本
+  // （check-unwired-tests.js 的 VENDORED_MIRROR 已把它排除在测试扫描域外）。
+  '.quality-rhythm/**',
   'openspec/**',
   // 对抗评审产物（adversarial-review-loop）：proposal / critique / rebuttal / summary，
   // 实测构成是纯 .md + .json（62 个文件、零可执行代码），与 .ccg/** 同性质。
