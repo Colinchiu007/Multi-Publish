@@ -673,6 +673,7 @@ import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 // M-3：批量轮询的失败兜底守卫（连续失败计数 + 总时长上限 + 统一收口）
 import { useBatchPollGuard } from '@/composables/useBatchPollGuard'
+import { useAsrInstall } from '@/composables/useAsrInstall'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
@@ -716,13 +717,24 @@ const collectError = ref(null)
 const videoCollectStage = ref('')  // 视频采集分阶段提示: probe/downloading/extracting/transcribing
 
 // ASR 依赖安装引导弹窗（-6 语音转写引擎不可用时触发，2026-09-19）
-const asrInstallVisible = ref(false)
-const asrInstallStage = ref('')  // checking/installing/switching/model-checking/model-downloading/done/failed
-const asrInstallDetail = ref('')
-const asrInstallPercent = ref(0)
-const asrInstallError = ref('')
-let asrInstallUnsubscribe = null
-let asrInstallPendingUrl = ''  // 安装成功后自动重试的采集 URL
+// M-16：进度事件订阅与 1200ms 自动重试计时器**由 composable 持有**并在自身
+// onUnmounted 里清理。此前两者分别住在组件与裸 setTimeout 里，清理逻辑存在却
+// 不在同一处 —— 新增计时器时极易「只加业务不加工」/「只加清理不加工」，本次
+// 缺陷正是如此。状态也一并委托，组件侧不再持有这两类副作用的句柄。
+const asrInstall = useAsrInstall({
+  getApi,
+  resolveNotifyText,
+  formatUserError,
+  notifySuccess,
+  onRetry: (url) => { linkUrl.value = url; void collectUrl() },
+})
+const asrInstallVisible = asrInstall.visible // checking/installing/switching/model-checking/model-downloading/done/failed
+const asrInstallStage = asrInstall.stage
+const asrInstallDetail = asrInstall.detail
+const asrInstallPercent = asrInstall.percent
+const asrInstallError = asrInstall.error
+const asrInstallPendingUrl = asrInstall.pendingUrl // 安装成功后自动重试的采集 URL（M-16 重构后由 composable 持有）
+const startAsrInstall = asrInstall.start
 const rewriteError = ref(null)
 const collectedItems = ref([])  // 累计采集列表
 const addedToViral = ref(false)  // 当前采集结果是否已加入爆款库
@@ -1361,8 +1373,11 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopBatchPolling()
+  // M-16：视频采集的阶段推进是一串 setTimeout，之前只在两处 finally 里停。
+  // 用户在采集途中离开页面时，那些计时器继续对**已卸载的组件**写
+  // videoCollectStage —— 轻则无意义地跑完，重则踩到已销毁的响应式链。
+  stopVideoStageProgression()
   if (categoriesUnsubscribe) { categoriesUnsubscribe(); categoriesUnsubscribe = null }
-  if (asrInstallUnsubscribe) { asrInstallUnsubscribe(); asrInstallUnsubscribe = null }
   if (zhihuFavProgressUnsubscribe) { zhihuFavProgressUnsubscribe(); zhihuFavProgressUnsubscribe = null }
 })
 
@@ -1414,56 +1429,10 @@ function extractUrlFromShareText (text) {
 // ===== ASR 依赖安装引导（2026-09-19）=====
 // -6（语音转写引擎不可用）→ 弹窗说明 + 一键自动安装（pip 多镜像 + 模型下载，进度实时展示）
 function openAsrInstallDialog (pendingUrl) {
-  asrInstallPendingUrl = pendingUrl || ''
-  asrInstallStage.value = ''
-  asrInstallDetail.value = ''
-  asrInstallPercent.value = 0
-  asrInstallError.value = ''
-  asrInstallVisible.value = true
+  asrInstall.prepare(pendingUrl)
 }
 function closeAsrInstallDialog () {
-  asrInstallVisible.value = false
-  asrInstallPendingUrl = ''
-}
-async function startAsrInstall () {
-  const api = getApi()
-  if (!api || typeof api.aggregationAsrInstall !== 'function') {
-    asrInstallStage.value = 'failed'
-    asrInstallError.value = resolveNotifyText('collection.collectUnavailable').text
-    return
-  }
-  asrInstallStage.value = 'checking'
-  asrInstallDetail.value = resolveNotifyText('collection.asrInstallChecking').text
-  // 订阅进度事件（安装/下载阶段实时推送）
-  if (asrInstallUnsubscribe) asrInstallUnsubscribe()
-  if (typeof api.onAsrInstallProgress === 'function') {
-    asrInstallUnsubscribe = api.onAsrInstallProgress((p) => {
-      if (!p || !p.stage) return
-      asrInstallStage.value = p.stage
-      if (p.detail) asrInstallDetail.value = p.detail
-      if (typeof p.percent === 'number') asrInstallPercent.value = p.percent
-    })
-  }
-  try {
-    const res = await api.aggregationAsrInstall()
-    if (res && res.code === 0) {
-      asrInstallStage.value = 'done'
-      asrInstallDetail.value = resolveNotifyText('collection.asrInstallDone').text
-      notifySuccess('collection.collectSuccess')
-      // 安装成功 → 关闭弹窗，自动重试原采集请求
-      const retryUrl = asrInstallPendingUrl
-      setTimeout(() => {
-        closeAsrInstallDialog()
-        if (retryUrl) { linkUrl.value = retryUrl; void collectUrl() }
-      }, 1200)
-    } else {
-      asrInstallStage.value = 'failed'
-      asrInstallError.value = (res && res.message) || resolveNotifyText('collection.asrInstallFailed').text
-    }
-  } catch (e) {
-    asrInstallStage.value = 'failed'
-    asrInstallError.value = formatUserError(e, { fallback: resolveNotifyText('collection.asrInstallFailed').text }).message
-  }
+  asrInstall.close()
 }
 
 async function loadDrafts () {

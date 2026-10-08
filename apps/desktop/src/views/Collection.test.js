@@ -1741,3 +1741,67 @@ describe("CollectionView 文案库合并标签", () => {
     expect(JSON.parse(entry[1])[0]).toMatchObject({ fromKey: "collect:c1", content: "改写结果正文" });
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// M-16：卸载清理。Collection.vue 的 onUnmounted 此前漏了两处异步副作用：
+//   ① 视频采集的阶段推进是一串 setTimeout（videoStageTimers），只在两处 finally
+//      里停，用户在采集途中离开页面时它们继续对**已卸载组件**写 videoCollectStage；
+//   ② ASR 安装成功后的 1200ms 自动重试计时器，从未被追踪过。
+//
+// 用「真实挂载 + 真实卸载 + 假定时器」验证：只看源码断言没用 —— 缺陷正是
+// 「源码里有清理逻辑、只是漏了某几个」。
+// ────────────────────────────────────────────────────────────────────────────
+describe("M-16 CollectionView 卸载清理", () => {
+  let timers;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+    timers = [];
+    vi.spyOn(globalThis, "setTimeout").mockImplementation((fn, ms, ...rest) => {
+      const handle = { fn, ms, cleared: false };
+      timers.push(handle);
+      return handle;
+    });
+    vi.spyOn(globalThis, "clearTimeout").mockImplementation((h) => {
+      if (h && typeof h === "object") h.cleared = true;
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("卸载时必须停掉视频采集的阶段推进计时器", () => {
+    const w = mountCollection();
+    w.vm.startVideoStageProgression?.();
+    expect(timers.length, "应排出阶段推进计时器").toBeGreaterThan(0);
+
+    w.unmount();
+
+    const pending = timers.filter((t) => !t.cleared);
+    expect(pending.length, "卸载后仍有未取消的计时器，会对已卸载组件继续写状态").toBe(0);
+  });
+
+  it("ASR 安装后的自动重试计时器必须随卸载取消", async () => {
+    const w = mountCollection();
+    window.electronAPI.aggregationAsrInstall = vi.fn(async () => ({ code: 0 }));
+    if (typeof w.vm.startAsrInstall === "function") {
+      await w.vm.startAsrInstall();
+      await Promise.resolve();
+    }
+    const retry = timers.find((t) => t.ms === 1200);
+    expect(retry, "应排出一个 1200ms 的自动重试计时器").toBeTruthy();
+
+    w.unmount();
+    expect(retry.cleared, "卸载后仍会跑 → closeAsrInstallDialog + collectUrl 打到已卸载组件").toBe(true);
+  });
+
+  it("反向锁：清理不得把功能关掉（卸载后再调 stopVideoStageProgression 不抛）", () => {
+    const w = mountCollection();
+    expect(w.vm).toBeTruthy();
+    w.unmount();
+    expect(() => w.vm.stopVideoStageProgression?.()).not.toThrow();
+  });
+});

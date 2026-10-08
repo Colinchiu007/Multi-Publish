@@ -36,13 +36,87 @@ export async function invoke(method, ...args) {
 }
 
 /**
+ * preload 抛出的「许可证/登录态不足」错误的 name。
+ *
+ * 为什么需要单独识别：access-control.js 的 `createPermissionError()` 对
+ * `authenticated` 级方法**同步 throw**，而本文件的 `invoke` 是 `async function`
+ * ——同步 throw 在 async 函数里变成 **rejected promise**，于是
+ * `invokeWithFallback` 的 `await` 直接抛出，**fallback 分支永不执行**。
+ * 而「未登录/许可证未激活」恰恰是生产环境最高频的失败模式：preload 对
+ * PUBLIC_METHODS 之外的所有方法都要求 authenticated 级。
+ */
+const PERMISSION_ERROR_NAME = "LicensePermissionError";
+
+function isPermissionError(e) {
+  return !!e && e.name === PERMISSION_ERROR_NAME;
+}
+
+/**
+ * 带超时的 IPC 调用（M-13）。
+ *
+ * 为什么要有：`invoke` 本身没有任何超时包装。任一主进程 handler 卡死
+ * （Python bridge 挂起 / CDP 卡住 / SQLite 锁），前端 Promise 永久 pending ——
+ * 调用点 loading 永不复位、按钮永久禁用，**用户零错误提示**。
+ *
+ * 为什么是**新增函数而不是改 invoke 的默认行为**：`pipelineStart`、
+ * `aggregationCollect`、`story2videoTranscribe` 这类长任务合法耗时可达数分钟，
+ * 给它们套一个统一默认值会把「长任务」变成「必超时」。宁可让调用方显式选，
+ * 也不要用一个拍脑袋的默认值制造一批新故障。
+ *
+ * @param {string} method electronAPI 上的方法名
+ * @param {number} timeoutMs 超时毫秒；<= 0 表示不设超时（长任务用）
+ * @param {any} fallback 超时后的返回值
+ * @param {...any} args 参数
+ * @returns {Promise<any>} 超时返回 fallback；正常返回调用结果
+ */
+export async function invokeWithTimeout(method, timeoutMs, fallback, ...args) {
+  const pending = invoke(method, ...args);
+  if (!(timeoutMs > 0)) return pending;
+
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      if (import.meta.env?.DEV || process.env.NODE_ENV === "development") {
+        console.warn(
+          `[electron-bridge] IPC timeout ${timeoutMs}ms: ${method} — ` +
+          "main process did not settle; caller loading state will not auto-reset. Check whether the handler is stuck."
+        );
+      }
+      resolve(fallback);
+    }, timeoutMs);
+  });
+
+  try {
+    // pending 若先 reject，race 会把拒绝原样抛出（不吞错）；
+    // 超时那一路永远 resolve(fallback)，故 catch 里必须再判一次是否真的是它。
+    return await Promise.race([pending, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * 调用 IPC 方法，自动使用 fallback 兜底
  * @param {string} method 方法名
- * @param {any} fallback 无 API 时的默认值
+ * @param {any} fallback 无 API / 无权限 / 超时时的默认值
  * @param {...any} args 额外参数
  */
 export async function invokeWithFallback(method, fallback, ...args) {
-  const result = await invoke(method, ...args);
+  let result;
+  try {
+    result = await invoke(method, ...args);
+  } catch (e) {
+    // M-14：权限不足必须落进 fallback 语义，否则「未登录/许可证未激活」这个
+    // 最高频的失败模式拿不到兜底值，调用方若只判 res.code === 0 就会得到
+    // unhandled rejection。其余错误照原样抛出 —— 静默兜底会把真实故障藏起来。
+    if (isPermissionError(e)) {
+      if (import.meta.env?.DEV || process.env.NODE_ENV === "development") {
+        console.warn(`[electron-bridge] permission error, falling back:`, method);
+      }
+      return fallback;
+    }
+    throw e;
+  }
   if (result === undefined) {
     // 开发模式下 warn，让 IPC 失败可见（之前静默降级导致 preload 问题难以排查）
     if (process.env.NODE_ENV === 'development' || location?.hostname === 'localhost') {
@@ -102,4 +176,4 @@ export function invokeNamespace(ns, method, ...args) {
   return scoped[method](...args.map(toPlainIpcValue));
 }
 
-export { getApi };
+export { getApi, isPermissionError, PERMISSION_ERROR_NAME };
