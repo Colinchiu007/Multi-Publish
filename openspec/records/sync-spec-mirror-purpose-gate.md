@@ -2,9 +2,6 @@
 record: sync-spec-mirror-purpose-gate
 task: 修 main 上一条由 #3114 遗留的 vendored 契约镜像漂移（真源加了第 12 条 Requirement，镜像没跟），它正卡住全部 open PR
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（PR 号 **3116** 已由 `gh pr list --repo Colinchiu007/mulpub --head sync-spec-mirror-purpose-gate --json number,state,headRefOid` 回读取入（state=OPEN，headRefOid=`82fdc8d063cb46561d3b418f166b014bbdf9133f`），非凭印象；合并后按 git log origin/main --grep='(#3116)$' --format=%H|%cI 取 merge SHA，回填并整段删除本 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：同步 vendored 契约镜像（sync-spec-mirror-purpose-gate，2026-10-08）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（PR 号 **3116** 已由 `gh pr list --repo
 | 行尾与编码 | PASS | 动手前实测：真源 `openspec/specs/openspec-integration/spec.md` = crlf 209 / lf-only 0；镜像 = crlf **0** / lf 140。两份 eol 档**本来就不同**，因此按「镜像保持自己原有的 LF」写回（提取时统一 `\n`，写出 LF），**没有**做任何"统一行尾"操作；修后镜像 crlf=0 / lf=208。`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径对账见「本地门禁汇总」行 |
 | 为什么**不**加 CHANGELOG | 已决定 | 本 PR 只同步一份 vendored 副本，零运行行为、零用户可见变化；而 CHANGELOG 是 13 个 open PR 的置顶冲突源，加一条无信息量的条目等于给别的会话制造冲突。docs-only 模板里 CHANGELOG 收口是「如适用」，本条判为不适用 |
 | 本地门禁汇总 | PASS（提交 `e05b1ab49` 后实跑） | `classify-docs-only --base=origin/main --head=HEAD` ⇒ `docs-only=false / files=2`；`check-no-brand-residue.js` ⇒ `PASS（扫描 7252 个 tracked 文件，无品牌残留…）`；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `OK: 本 PR 携带执行记录或带原因的豁免`（`变更文件 2 个（A=1 M=1 D=0）｜新增记录 1 篇`）；`check-gate-record-debt.js` ⇒ 顶部 `OK`，计数 `远程同步行 251 / 执行记录 453 / 已登记欠账 8 / 记录文件 96 篇`（本篇计入 96，未新增未登记欠账、未建 ledger 键）；`.github/scripts/check-max-lines.js` ⇒ `超限文件=98 挂账=98 墓碑=1 ✅ 无新增超大文件`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`；锁本体 `node --test scripts/quality-rhythm-spec-mirror.test.js` ⇒ **5 pass / 0 fail**。行尾两口径 numstat **逐文件完全相同**（`68/0` + `32/0`，纯新增零删除）⇒ 无幽灵行 |
-| 远程同步 | PENDING | 本条自己的欠账：PR 号 **3116**（回读来源见 frontmatter，同一次 `gh pr list --json number,state,headRefOid`）；合并后由回填 PR 改写为 PASS + merge SHA（取证：`git log origin/main --grep='(#3116)$' --format=%H\|%cI` + `git ls-remote --heads origin sync-spec-mirror-purpose-gate` 为 0 行），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 `gate-record-debt-ledger.json` 建键 |
+| 远程同步 | PASS | 已合并：squash 落地 `7c62f3e3d107c5c3d0e63841f8dd3cf4d5e4f7a1`（committer 2026-10-08T10:49:04+08:00）。取证两源一致：`git log origin/main --grep='(#3116)$' --format=%H|%cI` 唯一命中该 SHA 与时间，且 `gh pr view 3116 --json mergeCommit` 报同一 oid；`git ls-remote --heads origin sync-spec-mirror-purpose-gate` 返回 **0 行**证远端分支已随合并删除。合并即解掉 main 上的 `QG Static` 红（vendored 契约镜像漂移），当场把全部 open PR 从"合不进去"状态放出。本 PR 自己的 head `fee0b3cfc` CI 为 19 pass / 0 fail / 1 skipping（`release`），且镜像锁 `quality-rhythm-spec-mirror.test.js` 在其 run 内为 5 pass / 0 fail。 上方 frontmatter 的三个 `sync_*` 登记字段已在本条由 PENDING 转 PASS 的**同一次提交**内整段删除 |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A（判定过程如实登记） | `classify-docs-only=false` ⇒ 本 PR 不享受短路，CI 侧重型 job 会真跑（成本属该判定的后果，如实接受）。但按各门禁**自己的触发条件**逐条判：QM-1 未改 `apps/desktop/electron/**` 或 `packages/rpa-engine/**`；QM-2 零代码行；QM-4 零 UI 文件；TDD 零逻辑分支；QM-6 的 M+/中高风险运行时逻辑条件不成立（本 PR 是 68 行文本，且其正确性由一把逐行全等的锁直接判） |
 
 ## 明确留在场上的边界（不假装已闭合）
