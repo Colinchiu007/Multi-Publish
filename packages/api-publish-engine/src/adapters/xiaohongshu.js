@@ -5,7 +5,7 @@
  * 与旧版的三处关键差异（旧的 adapters/xiaohongshu.js 是从未跑通的占位）：
  *  1. 端点：旧的打 `/api/publish`（平台不存在该端点）；真实提交通道见
  *     platforms/xiaohongshu-draft.js（permit → ros-upload → web_api/sns/v2/note）。
- *  2. 签名结构：旧的 `params = { sign: {X-s, X-t} }` 塞进 query，会被序列化��
+ *  2. 签名结构：旧的 `params = { sign: {X-s, X-t} }` 塞进 query，会被序列化成 `sign=[object Object]`
  *     `sign=[object Object]`；现改为独立 header（x-s / x-t / x-s-common / traceid）。
  *  3. 草稿语义：默认 draft=true（落创作者中心草稿箱，不公开发布）。
  *
