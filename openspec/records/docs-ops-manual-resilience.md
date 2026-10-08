@@ -2,8 +2,6 @@
 record: docs-ops-manual-resilience
 task: 部署手册（docs/ops-center-ecs-deployment.md）新增 §10 韧性链路运维——外部探针 / 生效回执 / 断连遥测
 date: 2026-10-08
-sync_reason: PR 已开、CI 进行中，远程同步行写 PENDING；合并后在同一次提交内改写为 PASS + merge SHA 并删除本 frontmatter 的 sync_reason / sync_backfill_owner 字段
-sync_backfill_owner: agent（本 PR 自动合并后回填）
 ---
 
 ## 本次执行记录：部署手册补韧性运维章节（docs-ops-manual-resilience，2026-10-08）【docs-only】
@@ -15,7 +13,7 @@ sync_backfill_owner: agent（本 PR 自动合并后回填）
 | 门禁脚本 | PASS | `classify-docs-only.js` → docs-only=true files=1；`check-no-brand-residue.js` rc=0（随 pre-commit 全仓扫描）；编码自检无 U+FFFD（244 行） |
 | QM-1/QM-4 | N/A | 纯文档 |
 | QM-6 双模型评审 | N/A | docs-only 豁免；手册内容全部为已合入代码（PR #3126）的可观测事实 + 通用云监控配置建议，无新设计决策 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(<PR>)$' --format=%H\|%cI` 回填 PASS 并删 sync_* 字段，同一次提交 |
+| 远程同步 | PASS | PR #3149 已 squash 合并。merge SHA `e4f948597f5282f4662b2d38cb27e7d769ee28b0`，合并时间 `2026-10-08T16:44:15+08:00`（取证：`git log origin/main --grep='(#3149)$' --format=%H\|%cI`）。`git ls-remote --heads origin docs-ops-manual-resilience` 返回 0 行，证远端分支已删 |
 
 ### 内容来源（全部可溯源）
 
