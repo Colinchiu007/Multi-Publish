@@ -152,7 +152,17 @@
 
       <div class="panel-toolbar">
         <span class="record-count">{{ t('historyPage.recordsCount', { count: filteredRecords.length }) }}</span>
-        <span v-if="hasActiveFilters" class="filter-result">{{ t('historyPage.filteredFrom', { count: records.length }) }}</span>
+        <!-- M-11：触顶时文案必须如实。原句是"已从 N 条中筛选"，暗示扫完全表；
+         实际只扫了已加载的部分，故改用"已在已加载 N 条中筛选"，避免用户以为
+         没搜到就是没有。 -->
+        <span v-if="hasActiveFilters" class="filter-result">{{
+          filterScanTruncated
+            ? t('historyPage.filteredFromLoaded', { count: records.length })
+            : t('historyPage.filteredFrom', { count: records.length })
+        }}</span>
+        <span v-if="hasActiveFilters && filterScanTruncated" class="filter-truncated" role="status">{{
+          t('historyPage.filterScanTruncatedHint')
+        }}</span>
         <span v-if="actionMessage" class="action-message" role="status">{{ actionMessage }}</span>
       </div>
 
@@ -423,6 +433,7 @@ import { listTrackedContent, addManualSnapshot } from '@/api/knowledge-library'
 import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
+import { useDebouncedWatchSources } from '@/composables/useDebouncedRef'
 import { usePlatformStore } from '@/stores/platforms'
 import { usePublishHistoryContentLink, CARD_INTERACTIVE_SELECTOR } from '@/composables/usePublishHistoryContentLink'
 import { useIdentity } from '@/composables/useIdentity'
@@ -673,26 +684,48 @@ function loadMoreRecords () {
   return loadRecords({ append: true })
 }
 
+// M-11：筛选时的自动翻页页数上限。
+// 原实现是 `while (hasActiveFilters && hasMoreRecords)` 的**无上限**串行分页循环
+// （每页 50 条）。历史表积累到几千条后，用户在搜索框里敲几个字符就会引发上百次
+// 串行 IPC 往返，而界面只显示一句"正在检索全部发布记录"。
+//
+// 取 20 页（= 1000 条）的依据：
+//   - 覆盖量：按每页 50 条计，1000 条已包含绝大多数真实使用下的命中范围；
+//   - 往返次数：把最坏情况从「不限」压到 20 次串行 IPC；
+//   - 不给用户一个静默的错误结果：触顶后把 `filterScanTruncated` 置真，界面改用
+//     「已在已加载 N 条中筛选」而不是「已从 N 条中筛选」，如实说明没有扫完全表。
+const FILTER_SCAN_MAX_PAGES = 20
 async function loadRemainingRecordsForFilters () {
   if (!hasActiveFilters.value || !hasMoreRecords.value || pendingFilterLoad) return pendingFilterLoad
 
   pendingFilterLoad = (async () => {
-    while (hasActiveFilters.value && hasMoreRecords.value) {
+    for (let page = 0; page < FILTER_SCAN_MAX_PAGES; page++) {
+      if (!hasActiveFilters.value || !hasMoreRecords.value) break
       const loaded = await loadRecords({ append: true })
       if (!loaded) break
     }
+    // 循环退出后仍有更多记录 ⇒ 本次筛选没有覆盖全表，如实告知而不是假装扫完
+    filterScanTruncated.value = hasActiveFilters.value && hasMoreRecords.value
   })().finally(() => {
     pendingFilterLoad = null
   })
   return pendingFilterLoad
 }
 
-watch(
+// M-11：7 个筛选源原先直接 watch，任何一个变化都立刻触发一次「把整张表翻完」的
+// 串行加载 —— 用户每敲一个字符就是一轮上百次的 IPC 往返。
+// 这里改为监听**防抖后的快照**：连续修改多个条件也只触发一次加载。
+// 输入框本身仍绑定原始的 searchQuery（回显不能延迟，否则打字会顿），只有昂贵的
+// 加载动作走防抖值。
+const { snapshot: debouncedFilters } = useDebouncedWatchSources(
   [searchQuery, publisherFilter, contentTypeFilter, statusFilter, publishModeFilter, platformFilter, dateFilter],
-  () => {
-    if (hasActiveFilters.value) void loadRemainingRecordsForFilters()
-  },
 )
+const filterScanTruncated = ref(false)
+
+watch(debouncedFilters, () => {
+  filterScanTruncated.value = false
+  if (hasActiveFilters.value) void loadRemainingRecordsForFilters()
+})
 
 async function loadDrafts () {
   draftLoading.value = true

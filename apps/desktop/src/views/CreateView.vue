@@ -1773,6 +1773,23 @@ export default {
     },
     canGoBack() { return this.viewHistoryIndex > 0; },
     canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
+
+    // M-12：S2V 选项的**浅层快照**，供 watch 比较用。
+    //
+    // 原先 watch 块里是 `s2vConfig` / `s2vOutputConfig` 两条 deep watch。`s2vConfig` 内有
+    // 多层嵌套（如 subtitleStyle），用户拖滑块或逐字输入时，每次变更都要对两个对象做完整
+    // 深度遍历，再触发这个 5600 行组件的依赖链重算 —— 而这里只关心"值变了没变"。
+    //
+    // 序列化开销 O(对象大小)，deep watch 开销 O(遍历 + 依赖收集 + 重算) 且每次嵌套写入
+    // 都会发生。用 JSON.stringify 而非逐字段叶子 getter 是因为字段集会随配置档扩展，
+    // 逐字段列举会漏（漏掉的字段此后永久失去响应），序列化天然覆盖全字段。
+    // 前提：S2V 配置是纯数据（选项值 / 样式值），可 JSON 序列化。
+    s2vOptionsSnapshot() {
+      return JSON.stringify({
+        config: this.s2vConfig ?? null,
+        output: this.s2vOutputConfig ?? null,
+      })
+    },
   },
   watch: {
     // 「返回」跳 /create?view=history 与直接输入地址时同步历史记录视图（2026-08-16 术语统一）
@@ -1784,8 +1801,17 @@ export default {
       }
     },
     // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
-    s2vConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) { this.s2vActiveConfigProfile = ''; this.scheduleS2VLastOptionsSave() } } },
-    s2vOutputConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) { this.s2vActiveConfigProfile = ''; this.scheduleS2VLastOptionsSave() } } },
+    //
+    // M-12：原先这里是 `s2vConfig` / `s2vOutputConfig` 两条 **deep** watch。
+    // 改为监听 `s2vOptionsSnapshot`（定义在 computed 块）—— 一个可比较的浅层快照。
+    // 注意 handler 的签名：快照是一个值，只要它变了就说明"值变了"；
+    // deep watch 的开销是 O(深度遍历 + 依赖收集 + 重算)，且每次嵌套属性写入都会发生，
+    // 而此处只关心值是否变化，并不关心结构增删。
+    s2vOptionsSnapshot() {
+      if (this.s2vConfigProfileApplying) return
+      this.s2vActiveConfigProfile = ''
+      this.scheduleS2VLastOptionsSave()
+    },
     // 分镜素材自选等待态（2026-08-13）：首次激活自动滚动到面板并短时高亮；关闭后重置，下次激活再引导
     sceneAssetSelectionActive(active) {
       if (!active) {

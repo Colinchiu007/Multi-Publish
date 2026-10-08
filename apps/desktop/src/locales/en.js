@@ -1873,6 +1873,10 @@ export default {
     cancelSelection: 'Cancel selection',
     recordsCount: (ctx) => ctx.named('count') + ' records',
     filteredFrom: (ctx) => 'Filtered from ' + ctx.named('count') + ' tasks',
+    // M-11: wording when the filter scan did not reach the end of the table.
+    // "loaded" rather than "all" so a miss isn't misread as "does not exist".
+    filteredFromLoaded: (ctx) => 'Filtered from ' + ctx.named('count') + ' loaded tasks',
+    filterScanTruncatedHint: 'Match range is large; stopped paging further. Please narrow the filters.',
     loadingRecords: 'Loading publish records...',
     recordsLoadFailed: 'Failed to load publish records',
     loginRequiredTitle: 'Sign in to view publish records',

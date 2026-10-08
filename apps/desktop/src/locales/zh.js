@@ -1888,6 +1888,10 @@ export default {
     cancelSelection: '取消选择',
     recordsCount: (ctx) => '共 ' + ctx.named('count') + ' 条记录',
     filteredFrom: (ctx) => '已从 ' + ctx.named('count') + ' 条任务中筛选',
+    // M-11：筛选扫描未覆盖全表时的口径。与 filteredFrom 的区别是"已加载"而非"全部"，
+    // 避免用户把"没扫到"误读成"不存在"。
+    filteredFromLoaded: (ctx) => '已在已加载的 ' + ctx.named('count') + ' 条任务中筛选',
+    filterScanTruncatedHint: '匹配范围较大，已停止继续翻页；请补充更具体的筛选条件。',
     loadingRecords: '正在加载发布记录...',
     recordsLoadFailed: '发布记录加载失败',
     loginRequiredTitle: '登录后查看发布记录',
