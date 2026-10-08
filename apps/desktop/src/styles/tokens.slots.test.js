@@ -128,9 +128,13 @@ describe('批次 2：暗色槽补齐与可读性', () => {
     expect(dark['--color-primary-light']).not.toBe(light['--color-primary-light'])
   })
 
-  it('--color-primary 保持不覆盖（desktop-ui-consistency 既有合同）', () => {
+  it('--color-primary 暗色覆盖（P4C 2026-10-08 修订 desktop-ui-consistency 旧合同）', () => {
+    // 旧合同「保持不覆盖」作废：恒定亮色主色 #5048E5 在暗色画布 #1a1a1e 上
+    // 2.81:1 不可读，contrast-audit 实测 9 个视图的 .page-title
+    // （cohere-page-header 的 color: var(--primary)）全部命中。
+    // 修订：暗色提亮 #8b85ff（同色相），亮色 #5048E5 不变（品牌识别不动）。
     expect(light['--color-primary']).toBe('#5048E5')
-    expect(dark['--color-primary']).toBeUndefined()
+    expect(dark['--color-primary']).toBe('#8b85ff')
   })
 })
 
