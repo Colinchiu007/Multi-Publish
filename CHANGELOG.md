@@ -1,3 +1,53 @@
+# [未发布] fix(ci-gate): 接线「住在哪个 job」从文档纪律升级为机械登记表（2026-10-08，spec-mirror-wiring-fix）
+
+### 起因是我自己的一次回归，不是假想风险
+
+归档 PR #3114 改动 `openspec/specs/openspec-integration/spec.md`（在 docs-only 白名单内），它让 vendored 契约镜像锁
+`scripts/quality-rhythm-spec-mirror.test.js` 变红 —— 而 PR 侧现场是 `QG Changes=pass` / `QG Static=skipping`：
+那条锁**整片住在被 `docs-only != 'true'` 门控的 job 里**，对这类 PR 一次都没跑。于是红合法地合进 main，
+由 main push 才暴露（run 37716816985，step `Gate 2b`，`not ok 2 - 镜像不得自行发明或漏掉 Requirement`），
+并当场卡住当时所有 open PR 的 `QG Static`。
+
+本仓早就写着「进白名单的路径，其校验必须先接线到不被短路的 job」这条前提锁（#2718 起），但**没有任何东西在核对它**：
+既有 `check-unwired-tests.js` 只对整份 workflow 的可执行正文做子串匹配，"接在会被跳过的 job"与"接在不会跳过的 job"
+在它眼里完全等价。
+
+### 改了什么
+
+- `quality-gate.yml` 新增 **Gate 2b2**（`changes` job），把那条镜像锁搬到不被 docs-only 短路的执行面上；
+  它自己的文件里加两条自锁：**必须被点名在无 job 级 `if:` 的 job**、**依赖面只能是 node 内置模块**（该 job 不装依赖）。
+- `check-unwired-tests.js` 新增登记表 `MUST_LIVE_IN_UNGATED_JOB`（path → 原因 + 销账条件，只能缩小）、
+  `listJobBlocks()`（按 job 解析 `if:` 归属）与 `collectUngatedCheck()`
+  （`TEST_ONLY_IN_SKIPPABLE_JOB` / `UNGATED_WIRING_ACK_STALE` 两类红）。测试 12 → **20 条**，镜像锁 5 → **7 条**。
+
+### 一条反证把我从"冗余守卫"推向"真洞"
+
+首版 `listJobBlocks` 用「`if:` 必须出现在 `steps:` 之前」判 job 级门控。反证 W3（去掉该守卫）实跑 **NOT_RED** ——
+不是锁没抱住，而是**变异没有实现所称的危害**：step 级 `if:` 写在 6/8 空格缩进，`^    if:` 根本命中不到它，
+那条守卫对它的排除本来就是冗余的。顺着"这条变异到底改变了哪个可观测行为"往下查，发现真洞在**反方向**：
+YAML 映射键序自由，`if:` 写在 `steps:` 之后同样是 job 级门控，按位置判会把它读成"不被跳过" ⇒ **假绿**。
+正解是删掉位置守卫、只按缩进层级判（step 级靠缩进天然排除），并补两条锁分别钉住两个方向
+（4.3 防假红、4.4 防假绿），W3/W9 两条变异各红对应那条。
+
+### 刻意不做的，以及为什么不做
+
+没有采纳"从测试源码提取路径字面量、与白名单求交 ⇒ 自动判红"的启发式。实测精度：同一轮清点按字面量得 6 条可疑，
+逐条核到「该测试是否真的用 `fs` 读到了仓库内那个文件」只剩 1 条为真，其余 5 条全是夹具里编出来的假路径。
+一次引入 5 个假阳的门禁，结局是逼人把登记表清空 —— 与没有门禁等效且更糟。口径固定为：**登记由人做，登记的正确性由判据锁**。
+
+### 取证
+
+9 条变异反证（W1–W9）逐条实跑，全部 `PASS` 且收尾 `restored_byte_identical=true`；
+真实仓库现场：`检查域内测试文件 67 个 / OK`、解析到 26 个 job（14 被 job 级 `if:` 门控 / 12 不被门控）、
+`node --test scripts/check-unwired-tests.test.js` 20 条全绿、`scripts/quality-rhythm-spec-mirror.test.js` 7 条全绿。
+规约见 `openspec/changes/spec-mirror-wiring-gate/`，执行记录见 `openspec/records/spec-mirror-wiring-fix.md`。
+
+### 遗留（不假装已闭合）
+
+登记表当前只有 1 条登记项，它是**逐条人工核对**的结果而不是全域清点的完备集：命中白名单输入 yet 只住在可跳过 job 的
+其它锁若从未被登记，本判据不会主动发现（这正是拒绝启发式的代价，用 `AGENTS.md` 的新增纪律补）。
+`.quality-rhythm/**` 不在 `CI_IGNORED_PATHS` 内，属另一会话已登记的欠账，本轮未动。
+
 # [未发布] fix(visual): 重建被漏掉一档的暗色像素基线 collection-dark.png，并登记「PR 侧看不见暗档」这个结构性盲区（2026-10-08，visual-baseline-collection-dark）
 
 ### 起因：main 上一条只有 0.011% 的红

@@ -316,3 +316,225 @@ test("遍历不完整必须抛错，不能静默判定全绿", () => {
     cleanup(root)
   }
 })
+
+// —— 接线资格登记表（MUST_LIVE_IN_UNGATED_JOB）——
+// 动因：一条锁「被 workflow 点名」和「在纯文档 PR 上真的会跑」是两件事。
+// 归档 PR #3114 的镜像漂移就是被这个区别放过去的（PR 侧 QG Changes=pass / QG Static=skipping，
+// 漂移靠 main push 才红）。所以本判据的输入必须是 job 级结构，而不是整份 workflow 的 includes。
+
+function jobsFixture(tests, jobsYaml) {
+  return makeFixture({
+    tests,
+    workflowBody: `on:\n  push:\n    branches: [main]\njobs:\n${jobsYaml}`,
+  })
+}
+
+test("登记表里的锁只住在被 job 级 if 门控的 job ⇒ 必须变红", () => {
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node scripts/other.js",
+      "  static-gates:",
+      "    if: needs.changes.outputs.docs-only != 'true'",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/mirror.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, { "scripts/mirror.test.js": "已接 static-gates" }, {}, {
+      "scripts/mirror.test.js": "输入命中 docs-only 白名单",
+    })
+    assert.deepEqual(
+      r.ungatedViolations,
+      [{
+        code: "TEST_ONLY_IN_SKIPPABLE_JOB",
+        file: "scripts/mirror.test.js",
+        where: "gate.yml::static-gates(gated)",
+        reason: "输入命中 docs-only 白名单",
+      }],
+      "接在会被 docs-only 整片跳过的 job 里，等于对纯文档 PR 没有门禁",
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("同一条锁接进无 job 级 if 的 job ⇒ 判合规（上一条的正控）", () => {
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/mirror.test.js",
+      "  static-gates:",
+      "    if: needs.changes.outputs.docs-only != 'true'",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/mirror.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, {}, {}, { "scripts/mirror.test.js": "输入命中 docs-only 白名单" })
+    assert.deepEqual(r.ungatedViolations, [], "只要有一个不被跳过的 job 点名即合规")
+    assert.deepEqual(r.violations, [])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("step 级 if 不得被当成 job 级门控", () => {
+  // 8 空格缩进的 if: 只门控那一个 step。把它误读成"整片 job 被门控"会让合规接线变假红，
+  // 而假红的结局是逼人把登记表清空 —— 那是把锁拆掉换安静。
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - name: gated step",
+      "        if: github.event_name == 'pull_request'",
+      "        run: node --test scripts/mirror.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const jobs = checker.listJobBlocks(root)
+    assert.deepEqual(jobs.map((j) => ({ name: j.name, gated: j.gated })), [{ name: "changes", gated: false }],
+      "step 级 if 出现在 steps: 之后，不得标记 job 为 gated")
+    const r = checker.collectCheck(root, {}, {}, { "scripts/mirror.test.js": "输入命中 docs-only 白名单" })
+    assert.deepEqual(r.ungatedViolations, [])
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("job 级 if 写在 steps: 之后同样是整片门控（按缩进判，不按位置判）", () => {
+  // YAML 映射的键序是自由的。若按「if: 必须出现在 steps: 之前」来判，这种写法会被读成
+  // "不被跳过的 job" ⇒ 假绿；而假绿正是本判据要消灭的形态（#3114 就是被它放过去的）。
+  // 这条测试由反证 W3 逼出来：那一版实现确实有这个洞。
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/mirror.test.js",
+      "    if: needs.other.outputs.docs-only != 'true'",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const jobs = checker.listJobBlocks(root)
+    assert.deepEqual(jobs.map((j) => ({ name: j.name, gated: j.gated })), [{ name: "changes", gated: true }],
+      "写在 steps: 之后的 job 级 if 必须仍然标记该 job 为被门控")
+    const r = checker.collectCheck(root, { "scripts/mirror.test.js": "已点名" }, {}, {
+      "scripts/mirror.test.js": "输入命中 docs-only 白名单",
+    })
+    assert.equal(r.ungatedViolations[0].code, "TEST_ONLY_IN_SKIPPABLE_JOB",
+      "这种 job 里点名不得被当成合法接线")
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("注释里点名不构成接线资格", () => {
+  const { root } = jobsFixture(
+    ["scripts/mirror.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      # - run: node --test scripts/mirror.test.js",
+      "      - run: echo none",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, { "scripts/mirror.test.js": "历史欠账" }, {}, {
+      "scripts/mirror.test.js": "输入命中 docs-only 白名单",
+    })
+    assert.deepEqual(r.ungatedViolations, [{
+      code: "TEST_ONLY_IN_SKIPPABLE_JOB",
+      file: "scripts/mirror.test.js",
+      where: "未被任何 job 点名",
+      reason: "输入命中 docs-only 白名单",
+    }], "注释里的点名不是执行，本判据不得被它糊过去")
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("登记的锁文件消失 ⇒ 判过时，不许留死登记也不许靠删文件逃避", () => {
+  const { root } = jobsFixture(
+    ["scripts/other.test.js"],
+    [
+      "  changes:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: node --test scripts/other.test.js",
+      "",
+    ].join("\n"),
+  )
+  try {
+    const r = checker.collectCheck(root, {}, {}, { "scripts/mirror.test.js": "已经不存在的锁" })
+    assert.deepEqual(
+      r.staleUngated.map((v) => v.file),
+      ["scripts/mirror.test.js"],
+      "登记项指向不存在的文件必须变红（清单只能缩小）",
+    )
+    assert.deepEqual(r.ungatedViolations, [], "文件不在域内时不再重复报接线资格")
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("job 解析退化必须抛错，不得读成「没有需要核对的接线」", () => {
+  const { root } = makeFixture({ tests: ["scripts/a.test.js"], workflowBody: "run: node --test scripts/a.test.js\n" })
+  try {
+    assert.throws(
+      () => checker.listJobBlocks(root),
+      /一个 job 都没解析出来/,
+      "workflow 没有 jobs: 结构时，「谁会被跳过」无从谈起 —— 必须出声而不是判合规",
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("真实仓库：接线资格清单只能缩小，且登记的锁确实住在不被跳过的 job", () => {
+  const root = path.join(__dirname, "..")
+  const jobs = checker.listJobBlocks(root)
+  // 规模下界（2026-10-08 实测：解析到 26 个 job，其中 14 个被 job 级 if 门控、12 个不被门控）。
+  // 下界而不是精确值：新增 job 是常态；但一旦解析退化（少一大半），本断言当场红。
+  assert.ok(jobs.length >= 20, `真实仓库解析到的 job 数异常：${jobs.length} —— 解析退化会让本判据假绿`)
+  assert.ok(
+    jobs.filter((j) => !j.gated).length >= 8,
+    `不被跳过的 job 只剩 ${jobs.filter((j) => !j.gated).length} 个：若接线面整体被门控，这条门禁就失去意义`,
+  )
+  assert.deepEqual(
+    Object.keys(checker.MUST_LIVE_IN_UNGATED_JOB).sort(),
+    ["scripts/quality-rhythm-spec-mirror.test.js"],
+    "接线资格登记表只能缩小；新增登记须在同 PR 把点名补进不被跳过的 job",
+  )
+  for (const [file, reason] of Object.entries(checker.MUST_LIVE_IN_UNGATED_JOB)) {
+    assert.ok(String(reason).trim().length > 10, `登记 ${file} 缺少可用原因`)
+    assert.ok(String(reason).includes("销账"), `登记 ${file} 必须写明销账条件，否则清单只会增不会减`)
+  }
+  const r = checker.collectCheck(root, checker.KNOWN_UNWIRED, checker.KNOWN_NESTED_WORKFLOWS, checker.MUST_LIVE_IN_UNGATED_JOB)
+  assert.deepEqual(r.ungatedViolations.map((v) => v.file), [], "登记的锁必须真的住在不被 docs-only 短路的 job 里")
+  assert.deepEqual(r.staleUngated.map((v) => v.file), [], "存在过时的接线资格登记，请删除")
+  // 现场证据：点名它的那一行确实落在 changes job 的可执行正文里（不是靠"某处出现了文件名"）
+  const carriers = jobs.filter((j) => j.code.includes("scripts/quality-rhythm-spec-mirror.test.js"))
+  assert.ok(carriers.length >= 1, `没解析到点名该锁的 job：${JSON.stringify(jobs.map((j) => j.name))}`)
+  assert.ok(
+    carriers.some((j) => !j.gated && j.name === "changes"),
+    `该锁的承载 job 应为不被门控的 changes，实际：${JSON.stringify(carriers.map((j) => [j.workflow, j.name, j.gated]))}`,
+  )
+})

@@ -48,6 +48,26 @@ const PRUNE_DIRS = [".git", "node_modules", "dist", "dist-electron", "coverage",
 // 清单空了不等于机制可以拆：它一拆，"新写一条测试不接线"就又回到无人发现的状态。
 const KNOWN_UNWIRED = {}
 
+// 接线**资格**登记：path -> 为什么它必须住在"没有被整体跳过"的 job 里。只能缩小，新增必须带理由。
+//
+// 为什么需要这一档：上面那条判据只问"测试文件在不在 workflow 可执行正文里"，它答不了
+// "点名所在的 job 会不会被整片跳过"。当一条锁的输入落在 docs-only 白名单（CI_IGNORED_PATHS）内时，
+// 接在有 `if: needs.changes.outputs.docs-only != 'true'` 的 job 里 = **在这类 PR 上一次都不跑**，
+// 于是漂移可以合法全绿合入。实测（2026-10-08）：vendored 契约镜像锁只住在 static-gates，
+// 归档 PR #3114 在 PR 侧 `QG Changes=pass` / `QG Static=skipping` 下合并，main 的 push 才红
+// （run 37716816985，step `Gate 2b`，`not ok 2 - 镜像不得自行发明或漏掉 Requirement`），
+// 一次性卡住当时所有 open PR 的 QG Static。
+//
+// 口径刻意保持**精确**：不做"从测试源码里正则提取路径字面量再和白名单求交"的启发式判据。
+// 实测理由（同一轮做的两遍清点）：第一遍按字面量匹配得 6 条"可疑"，逐条核到"是否真的用 fs 读到了
+// 仓库内那个文件"后只剩 1 条 —— 其余 5 条全是夹具里编出来的假路径。启发式硬红会一次引入 5 个假阳，
+// 那种门禁的结局是逼人绕过，与没有门禁更糟。所以：新增白名单输入的锁时，**登记由人做、正确性由本判据锁**。
+const MUST_LIVE_IN_UNGATED_JOB = {
+  "scripts/quality-rhythm-spec-mirror.test.js":
+    "输入含 openspec/specs/openspec-integration/spec.md 与 .quality-rhythm/ 镜像（前者在 docs-only 白名单内）。" +
+    "销账条件：该锁的输入不再命中 CI_IGNORED_PATHS，或它本身被删（那会触发本清单的 stale 红）",
+}
+
 // 嵌套 workflow 承认清单：path -> 为什么允许它存在但永不执行。只能缩小，新增即红。
 // 这类文件的危害不是"没跑测试"，而是**看起来像门禁**：正文里写着 node --test，读的人以为
 // 有东西在守；实际 GitHub 只调度仓库顶层的 .github/workflows/，嵌套那份永远不会被排队执行。
@@ -138,7 +158,70 @@ function readWorkflowText(root) {
 }
 
 // 同名 basename 会让「按文件名点名」串到另一个文件上，那种情况要求 workflow 写全相对路径。
-function collectCheck(root, exemptions = KNOWN_UNWIRED, nestedAcks = KNOWN_NESTED_WORKFLOWS) {
+/**
+ * 列出每个 workflow 里每个 job 的：是否被 job 级 `if:` 整片门控 + 它的可执行正文（已剥注释）。
+ * 判"接线住在哪"必须靠这个，而不是靠整份文件做 includes —— 后者会把"接在会被跳过的 job"读成已接线。
+ */
+function listJobBlocks(root) {
+  const dir = path.join(root, ".github", "workflows")
+  if (!fs.existsSync(dir)) throw new Error(`未找到 workflows 目录：${dir}（解析退化会让本判据假绿）`)
+  const names = fs.readdirSync(dir).filter(f => /\.(yml|yaml)$/.test(f)).sort()
+  if (names.length === 0) throw new Error(`${dir} 下没有 workflow 文件，拒绝以空集合判定接线资格`)
+  const jobs = []
+  for (const name of names) {
+    const lines = fs.readFileSync(path.join(dir, name), "utf8").replace(/\r\n/g, "\n").split("\n")
+    let inJobs = false
+    let cur = null
+    for (const line of lines) {
+      if (/^jobs:\s*$/.test(line)) { inJobs = true; cur = null; continue }
+      if (!inJobs) continue
+      if (/^\S/.test(line)) { inJobs = false; cur = null; continue }
+      const key = line.match(/^  ([A-Za-z0-9_-]+):\s*$/)
+      if (key) {
+        cur = { workflow: name, name: key[1], gated: false, code: "" }
+        jobs.push(cur)
+        continue
+      }
+      if (!cur) continue
+      // 判"整个 job 被门控"只看**缩进层级**：job 的直接子键恰为 4 空格，step 级 if 写作
+      // `- if:`（6 空格 + 短横）或 `        if:`（8 空格），都不可能被 ^    if: 命中。
+      // 这里刻意**不**要求"出现在 steps: 之前"——YAML 映射的键序是自由的，把 if: 写在 steps: 之后
+      // 同样是 job 级门控；按位置判会漏，且漏的方向是假绿（把会被跳过的 job 读成不被跳过）。
+      if (/^    if:\s*\S/.test(line)) cur.gated = true
+      if (/^\s*#/.test(line)) continue
+      cur.code += line + "\n"
+    }
+  }
+  if (jobs.length === 0) throw new Error("workflow 里一个 job 都没解析出来 —— 解析退化不得读成「没有需要核对的接线」")
+  return jobs
+}
+
+/** 接线资格判据：登记表里的每条锁，必须至少被一个「无 job 级 if」的 job 点名。 */
+function collectUngatedCheck(files, registry, jobs) {
+  const violations = []
+  const stale = []
+  for (const [file, reason] of Object.entries(registry)) {
+    if (!files.includes(file)) {
+      // 文件没了却还登记着：要么删登记、要么文件被"顺手"删掉逃避判据 —— 两种都要红
+      stale.push({ code: "UNGATED_WIRING_ACK_STALE", file, reason })
+      continue
+    }
+    const base = path.basename(file)
+    const hits = jobs.filter(j => j.code.includes(file) || j.code.includes(base))
+    const ungated = hits.filter(j => !j.gated)
+    if (ungated.length === 0) {
+      violations.push({
+        code: "TEST_ONLY_IN_SKIPPABLE_JOB",
+        file,
+        where: hits.length ? hits.map(h => `${h.workflow}::${h.name}(gated)`).join(", ") : "未被任何 job 点名",
+        reason,
+      })
+    }
+  }
+  return { violations, stale }
+}
+
+function collectCheck(root, exemptions = KNOWN_UNWIRED, nestedAcks = KNOWN_NESTED_WORKFLOWS, ungatedRegistry = {}) {
   const files = listTestFiles(root)
   const workflows = readWorkflowText(root)
   const basenameCount = new Map()
@@ -171,12 +254,24 @@ function collectCheck(root, exemptions = KNOWN_UNWIRED, nestedAcks = KNOWN_NESTE
     if (!nestedFiles.includes(f)) staleNested.push({ code: "NESTED_WORKFLOW_ACK_STALE", file: f })
   }
 
-  return { files, violations, staleExemptions, nested, staleNested, nestedFiles }
+  // 接线资格（第二问：它接的那个 job 会不会被整片跳过）。
+  // 只在登记表非空时解析 job 结构 —— 解析器对"一个 job 都解析不出来"是抛错的（fail-closed），
+  // 而单元测试的玩具夹具本来就没有 jobs: 段，不该被这条牵制。
+  let ungatedViolations = []
+  let staleUngated = []
+  if (Object.keys(ungatedRegistry).length > 0) {
+    const jobs = listJobBlocks(root)
+    ;({ violations: ungatedViolations, stale: staleUngated } = collectUngatedCheck(files, ungatedRegistry, jobs))
+  }
+
+  return { files, violations, staleExemptions, nested, staleNested, nestedFiles, ungatedViolations, staleUngated }
 }
 
 function run(root) {
-  const { files, violations, staleExemptions, nested, staleNested } = collectCheck(root)
-  const findings = [...violations, ...staleExemptions, ...nested, ...staleNested]
+  const {
+    files, violations, staleExemptions, nested, staleNested, ungatedViolations, staleUngated,
+  } = collectCheck(root, KNOWN_UNWIRED, KNOWN_NESTED_WORKFLOWS, MUST_LIVE_IN_UNGATED_JOB)
+  const findings = [...violations, ...staleExemptions, ...nested, ...staleNested, ...ungatedViolations, ...staleUngated]
   if (process.argv.includes("--json")) {
     process.stdout.write(JSON.stringify({ ok: findings.length === 0, checked: files.length, findings }, null, 2) + "\n")
   } else {
@@ -199,6 +294,16 @@ function run(root) {
     for (const n of staleNested) {
       process.stdout.write(`  过时的嵌套 workflow 承认 ${n.file} —— 文件已不在，请删除该条\n`)
     }
+    for (const u of ungatedViolations) {
+      process.stdout.write(
+        `  接线不住在不被跳过的 job ${u.file} —— 它只被点名在 ${u.where}；` +
+          `该测试的输入命中 docs-only 白名单（登记原因：${u.reason}），` +
+          `所以在纯文档 PR 上一次都不会跑。正解：把它的点名补进 changes job，而不是把登记删掉\n`,
+      )
+    }
+    for (const u of staleUngated) {
+      process.stdout.write(`  过时的接线资格登记 ${u.file} —— 该测试文件已不在检查域内，请删除登记（或说明它被谁替代）\n`)
+    }
     if (findings.length === 0) process.stdout.write("OK: 全部测试均已接线或按欠账登记\n")
   }
   return { exitCode: findings.length === 0 ? 0 : 1, findings }
@@ -219,6 +324,8 @@ if (require.main === module) {
 module.exports = {
   listTestFiles,
   listNestedWorkflows,
+  listJobBlocks,
+  collectUngatedCheck,
   walkRepoFiles,
   readWorkflowText,
   stripComments,
@@ -226,6 +333,7 @@ module.exports = {
   run,
   KNOWN_UNWIRED,
   KNOWN_NESTED_WORKFLOWS,
+  MUST_LIVE_IN_UNGATED_JOB,
   TEST_SUFFIXES,
   WORKSPACE_COVERED,
   VENDORED_MIRROR,

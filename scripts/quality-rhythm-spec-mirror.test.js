@@ -117,3 +117,92 @@ test("vendored 脚本副本与仓库真源逐字节一致", () => {
     assert.equal(dst, src, `vendored 副本与真源不一致：${copy} <-> ${source}`)
   }
 })
+
+/* ------------------------------------------------------------------ *
+ * 接线资格两锁（2026-10-08，动因见下）
+ *
+ * 这条漂移锁此前只点名在 quality-gate.yml 的 static-gates，而那个 job 有
+ * `if: needs.changes.outputs.docs-only != 'true'`，且它的输入 `openspec/**` 在 docs-only
+ * 白名单里 ⇒ 只改主规格的 PR 上它一次都不跑。实测代价：归档 PR #3114 全绿合并
+ * （QG Changes=pass / QG Static=skipping），main 的 push 才红，一次卡住所有 open PR。
+ * 现在它必须住在至少一个「没有 job 级 if」的 job 里，由下面第一条锁钉住。
+ * ------------------------------------------------------------------ */
+
+const SELF_BASENAME = "quality-rhythm-spec-mirror.test.js"
+
+/**
+ * 按两空格缩进的 job 键切分 jobs: 段，返回 [{ name, hasJobLevelIf, code }]。
+ * code = 该 job 的可执行正文（已剥 YAML 注释行）—— 注释里提一句文件名不构成接线，
+ * 这个口径与 scripts/check-unwired-tests.js 的 stripComments 一致，但这里刻意只做
+ * "这个 job 有没有引用我" 这一件事，不复用另一处的 step 级解析器（两者判据不同域）。
+ */
+function parseJobs(workflowText) {
+  const text = workflowText.replace(/\r\n/g, "\n")
+  const jobsAt = text.search(/^jobs:\s*$/m)
+  assert.ok(jobsAt >= 0, "workflow 里没有 jobs: 段（解析退化时本锁必须红，不得判通过）")
+  const lines = text.slice(jobsAt).split("\n")
+  const jobs = []
+  let cur = null
+  for (const line of lines) {
+    const key = line.match(/^  ([A-Za-z0-9_-]+):\s*$/)
+    if (key) {
+      cur = { name: key[1], hasJobLevelIf: false, code: "" }
+      jobs.push(cur)
+      continue
+    }
+    if (!cur) continue
+    if (/^    if:\s*\S/.test(line)) cur.hasJobLevelIf = true
+    if (/^  \S/.test(line) && !key) cur = null
+    if (/^\s*#/.test(line)) continue
+    cur.code += line + "\n"
+  }
+  return jobs
+}
+
+function workflowsInRepo() {
+  const dir = path.join(__dirname, "..", ".github", "workflows")
+  const names = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))
+  assert.ok(names.length > 0, "workflows 目录为空 —— 解析退化不得读成「没有需要接线的 job」")
+  return names.map((f) => ({ file: f, text: fs.readFileSync(path.join(dir, f), "utf8") }))
+}
+
+test("本锁必须被点名在至少一个没有 job 级 if 的 job 里（docs-only 短路的 job 不算接线）", () => {
+  const all = []
+  let ungatedHits = 0
+  let gatedHits = 0
+  for (const wf of workflowsInRepo()) {
+    for (const job of parseJobs(wf.text)) {
+      if (!job.code.includes(SELF_BASENAME)) continue
+      all.push(`${wf.file}::${job.name}${job.hasJobLevelIf ? "(gated)" : "(ungated)"}`)
+      if (job.hasJobLevelIf) gatedHits++
+      else ungatedHits++
+    }
+  }
+  // 反失明两条：一次都没解析到 = 接线丢了或被改名；全在被短路的 job 里 = 本轮修的那个洞
+  assert.ok(
+    all.length > 0,
+    `${SELF_BASENAME} 没有被任何 workflow 的 job 正文点名 —— 要么接线丢了，要么 job 段落解析退化；两种都不允许读成通过`,
+  )
+  assert.ok(
+    ungatedHits > 0,
+    `本锁只住在会被整体跳过的 job 里（${all.join(", ")}）—— 纯文档 PR 上它一次都不跑，` +
+      `漂移只能等 main 的 push 才红（#3114 形态）。请把它点名进 changes job`,
+  )
+})
+
+test("本锁的依赖面只能是 node 内置模块（changes job 没有 Install deps）", () => {
+  const src = fs.readFileSync(path.join(__dirname, SELF_BASENAME), "utf8")
+  const requires = [...src.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1])
+  assert.ok(requires.length >= 4, `依赖面解析退化（只解析到 ${requires.length} 个 require）—— 空集合会让本锁恒真`)
+  const builtins = new Set(require("node:module").builtinModules)
+  const external = requires.filter(
+    (r) => !(r.startsWith("node:") || builtins.has(r.replace(/^node:/, "")) || r.startsWith("./") || r.startsWith("../")),
+  )
+  assert.deepEqual(
+    external,
+    [],
+    `本锁引入了第三方包 ${JSON.stringify(external)} —— 它同时被点名在没有 Install deps 的 changes job，` +
+      `那里 require 任何 npm 包都会当场 MODULE_NOT_FOUND（本机有 node_modules 复现不了）。` +
+      `要么换成 node 内置实现，要么把这条锁从 changes job 摘掉并同步改上一条接线锁`,
+  )
+})
