@@ -2,9 +2,6 @@
 record: test-helper-dedupe
 task: 抽取共享 resolveGitBash/toPosixPath 探测链到 scripts/lib/ccg-test-helpers.js
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 回填 PR 的会话
 ---
 
 ## 本次执行记录：测试探测链去重（test-helper-dedupe，2026-10-08）
@@ -36,7 +33,7 @@ PR #3148 QM-6 评审 i6 两次点名、#3161 继承登记：Git Bash 探测链�
 | 体积 | — | 净 -12 行（+84/-96） |
 | QM-1 打包 / QM-4 视觉 | ➖ N/A | 未触 electron；无 UI |
 | QM-6 双模型外部评审 | **PASS** | critic=claude（69.6s），4 findings 0C/2W/2I 全处置（见下），scores correctness 9 / security 10 / performance 9 / maintainability 8 |
-| 远程同步 | PENDING | 合并后回填 merge SHA 与时间，同一次提交删 sync_* 三字段 |
+| 远程同步 | PASS | PR #3171 squash 合并为 origin/main e787274503c55095744125fd9fceed2a3cd06abb（2026-10-08T22:54:09+08:00，squash merge，CI 全绿）；git ls-remote --heads origin test-helper-dedupe 返回 0 行证远端分支已删。回填与销账在同一次提交内完成：删 frontmatter sync_* 三字段 |
 
 ### QM-6 CCG 评审处置（critic=claude，非自审）
 
