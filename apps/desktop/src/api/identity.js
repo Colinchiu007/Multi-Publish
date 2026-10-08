@@ -9,7 +9,7 @@
  */
 import { invokeWithFallback, on } from './electron-bridge'
 
-const UNAVAILABLE = { code: -1, message: 'IDENTITY_API_UNAVAILABLE' }
+const UNAVAILABLE = Object.freeze({ code: -1, message: 'IDENTITY_API_UNAVAILABLE' })
 
 export async function identityGetState() {
   return invokeWithFallback('identityGetState', UNAVAILABLE)

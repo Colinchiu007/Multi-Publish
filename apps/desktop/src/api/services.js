@@ -6,7 +6,7 @@
  */
 import { invokeWithFallback } from './electron-bridge'
 
-const UNAVAILABLE = { code: -1, message: 'SERVICES_API_UNAVAILABLE' }
+const UNAVAILABLE = Object.freeze({ code: -1, message: 'SERVICES_API_UNAVAILABLE' })
 
 export async function servicesGetStatus() {
   return invokeWithFallback('servicesGetStatus', UNAVAILABLE)

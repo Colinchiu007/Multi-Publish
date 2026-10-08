@@ -598,6 +598,9 @@ describe('扫描域棘轮（D6：新增含调用的文件必须显式登记）',
     /(?<![A-Za-z0-9_$.])invokeWithFallback\s*\(/,
     /(?<![A-Za-z0-9_$.])invokeWithTimeout\s*\(/,
     /(?<![A-Za-z0-9_$.])invokeNamespace\s*\(/,
+    // CCG 评审 i2：事件订阅（bridge.on）也是 IPC 触点，漏了它，
+    // 只做事件订阅的文件就能游离在 SCAN_DOMAIN 之外
+    /(?<![A-Za-z0-9_$.])on\s*\(\s*['"`]/,
     /window\.electronAPI/,
   ]
 
