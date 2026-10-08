@@ -2,6 +2,8 @@
 record: docs-ops-resilience-addendum
 task: 回写架构文档实施状态（PR #3126 已合入）与 R1/R2 风险实测结论，纯文档增补
 date: 2026-10-08
+sync_reason: PR #3144 已开、CI 进行中，远程同步行写 PENDING；合并后在同一次提交内改写为 PASS + merge SHA 并删除本 frontmatter 的 sync_reason / sync_backfill_owner 字段
+sync_backfill_owner: agent（PR #3144 自动合并后回填）
 ---
 
 ## 本次执行记录：架构文档增补（docs-ops-resilience-addendum，2026-10-08）【docs-only】
