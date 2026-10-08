@@ -2,9 +2,6 @@
 record: credit-pricing-deep-analysis
 task: 新增积分/算力计费体系深度分析报告（代码级取证 + 成本建模 + 定价测算）
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后回填）
 ---
 
 ## 本次执行记录：积分/算力计费体系深度分析报告（credit-pricing-deep-analysis，2026-10-08）
@@ -25,7 +22,7 @@ sync_backfill_owner: 下一个会话（合并后回填）
 | CHANGELOG 收口 | N/A | 纯分析报告，无运行时代码变更 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本环境无 `codeagent-wrapper`；本 PR 为纯文档，不以自审冒充通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3119)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin credit-pricing-deep-analysis` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3120 已 squash 合并为 `ac0612f200e5fca77d735341470708d689f0a4d0`（2026-10-08T10:50:18+08:00，取证 `git log origin/main --grep='(#3120)$' --format=%H\|%cI`）；`git ls-remote --heads origin credit-pricing-deep-analysis` 返回 0 行，证远端分支已删（`--delete-branch` 生效）。CI：19 checks 收敛于 8 success / 11 skipped / 0 failure，skipped 系 docs-only 通道对重型 job 的预期短路。frontmatter 的三个 `sync_*` 字段在同一次回填提交中删除 |
 
 ### 取证基线说明
 
