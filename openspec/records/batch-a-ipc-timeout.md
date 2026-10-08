@@ -2,9 +2,6 @@
 record: batch-a-ipc-timeout
 task: M-13 IPC 超时兜底 + M-14 权限不足兜底 + M-16 Collection 卸载清理
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 ---
 
 ## 本次执行记录：批次 A — IPC 韧性三项（batch-a-ipc-timeout，2026-10-07）
@@ -19,8 +16,8 @@ sync_backfill_owner: 下一个会话（合并后立即开回填 PR 收口）
 | 行尾与 diff 对账 | PASS | 两口径 numstat 一致 |
 | 接线棘轮 | PASS | 未新增测试文件（追加进既有两个），`vitest.config.js` 的 `include` 已覆盖 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（无 `electron/`、`packages/rpa-engine/` 改动）；纯逻辑与生命周期改动，视觉无变化 |
-| QM-6 CCG 双家族外部评审 | 未执行 | 见「遗留」 |
-| 远程同步 | PENDING | 合并后回填 merge SHA 与时间，`git ls-remote` 证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| QM-6 CCG 双家族外部评审 | 补充执行（deep-review.sh，2026-10-08） | critique 抓到 3 处新增硬编码中文（DEV-only 诊断日志），已改英文并经 check-locale-sync --cjk rc=0 验证；见提交 eeabf5ad |
+| 远程同步 | PASS | merge SHA bd01d578（PR #3109，2026-10-08）；git ls-remote 证远端分支 batch-a-ipc-timeout 已删（0 行输出） |
 
 ## 过程中被门禁挡下的一次返工（这是本批最有价值的部分）
 
