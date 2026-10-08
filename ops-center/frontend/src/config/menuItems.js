@@ -1,6 +1,6 @@
 import {
   Bell, Camera, Collection, Connection, Cpu, DataAnalysis, DataLine, Document, Edit, FolderOpened,
-  Grid, HomeFilled, Key, Lock, MagicStick, Monitor, Operation, Postcard, Refresh,
+  Grid, HomeFilled, Key, Lock, MagicStick, Monitor, Operation, PieChart, Postcard, Refresh,
   Search, ChatDotRound, Medal, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
 } from '@element-plus/icons-vue'
 
@@ -13,6 +13,7 @@ export const MENU_ITEMS = [
   { path: '/platforms', label: '平台凭证', icon: Connection },
   { path: '/usage', label: '模型用量', icon: DataLine },
   { path: '/diagnostics', label: '调用失败警告', icon: DataAnalysis },
+  { path: '/rollout', label: '生效看板', icon: PieChart, adminOnly: true },
   { path: '/publish-dashboard', label: '发布数据', icon: TrendCharts },
   { path: '/system-health', label: '系统健康', icon: Monitor },
   { path: '/licenses', label: '许可证管理', icon: Tickets },
