@@ -62,7 +62,9 @@ const NAV_WORDS = new Set([
 /**
  * 平台规则表。**判据真源**（PRD §6.3）：
  *   contentHosts  —— 内容域名（精确或 `.` 后缀匹配）；只是粗筛，path 才决定成败
- *   contentPathRe —— 公开内容页形态，作用于 `pathname + search`；null = 该平台 Web 端无公开永久链接
+ *   contentPathRe —— 公开内容页形态，**只锚 pathname**（QM-6 upheld F2：带 query
+ *                     的分享链接不得错杀；query 侧判据用 queryRe）
+ *   queryRe       —— 可选，作用于 parsed.search 的补充判据；无 = query 不参与判定
  *   postIdRe      —— 作品 ID 专属形态；null = 单一作品 ID 不足以定位公开页，禁止派生
  *   template      —— 公开内容页模板，`{id}` 为占位；null = 不可派生
  *
@@ -82,7 +84,8 @@ const PUBLIC_CONTENT_URL_RULES = Object.freeze({
   }),
   baijiahao: Object.freeze({
     contentHosts: Object.freeze(['baijiahao.baidu.com']),
-    contentPathRe: /^\/s\?(?:.*&)?id=\d{4,}(?:&|$)/,
+    contentPathRe: /^\/s$/,
+    queryRe: /(?:^|&)id=\d{4,}(?:&|$)/,
     postIdRe: /^\d{4,}$/,
     template: 'https://baijiahao.baidu.com/s?id={id}',
   }),
@@ -118,14 +121,19 @@ const PUBLIC_CONTENT_URL_RULES = Object.freeze({
   }),
   youtube: Object.freeze({
     contentHosts: Object.freeze(['youtube.com', 'youtu.be']),
-    contentPathRe: /^(?:\/watch\?(?:.*&)?v=[A-Za-z0-9_-]{11}(?:&|$)|\/[A-Za-z0-9_-]{11}\/?)$/,
+    contentPathRe: /^(?:\/watch|\/[A-Za-z0-9_-]{11}\/?)$/,
+    queryRe: /^(?!(?:.*&)?v=(?![A-Za-z0-9_-]{11}(?:&|$)))/,
     postIdRe: /^[A-Za-z0-9_-]{11}$/,
     template: 'https://www.youtube.com/watch?v={id}',
   }),
   // ↓ 以下平台可识别「平台直接给出的完整公开链接」，但**不从单一作品 ID 派生**
   wechat_mp: Object.freeze({
     contentHosts: Object.freeze(['weixin.qq.com']),
-    contentPathRe: /^\/s\?(?:.*&)?(?:__biz|mid)=/,
+    // QM-6 评审 upheld 修复（PR #3155 裁决书 F4）：必须 __biz 且 mid 双参数。
+    // 旧判据只要其一即认内容页，比 PRD §6.3 的四元组声明松——单参链接在微信
+    // 外链打开落异常页。平台真实永久链接必然同时携带两者，收紧不影响正常形态。
+    contentPathRe: /^\/s$/,
+    queryRe: /(?:^|&)__biz=[^&]+.*(?:^|&)mid=[^&]+(?:&|$)|(?:^|&)mid=[^&]+.*(?:^|&)__biz=[^&]+(?:&|$)/,
     postIdRe: null,
     template: null,
   }),
@@ -228,8 +236,23 @@ function isPublicContentUrl (platform, url) {
   } catch (_) {
     return false
   }
+  // QM-6 评审 upheld 修复（PR #3155 裁决书 F3）：拒绝 userinfo。
+  // 渲染层是「能不能进 href」的唯一守门员，不能靠「下游主进程
+  // isAllowedExternalUrl 会拒绝」豁免自己——那正是本 bug 的成因模式。
+  // 口径与主进程对齐：任何带 username/password 的 URL 都不判为内容页。
+  if (parsed.username || parsed.password) return false
   if (!hostMatches(parsed.hostname, rules.contentHosts)) return false
-  return rules.contentPathRe.test(parsed.pathname + parsed.search)
+  // QM-6 评审 upheld 修复（PR #3155 裁决书 F2）：contentPathRe 只锚 pathname。
+  // 旧判据把 query 并进来锚结尾，带 query 的真实内容页（分享链接普遍形态，
+  // 如 /p/123?from=share、youtu.be/…?si=…）被整体错杀；而 youtube 规则自身
+  // 接受 /watch?v=——同一模块标准不一。query 里的追踪参数由落库侧
+  // sanitizePublishResultUrl 处理，本判据不重复担责。
+  if (!rules.contentPathRe.test(parsed.pathname)) return false
+  // queryRe（可选）：作用于 parsed.search 的补充判据（QM-6 upheld F2 引入）
+  // queryRe 语义：search 非空时必须匹配（空 search 视为通过——短链形态无 query 天然合法）
+  const searchStr = parsed.search.replace(/^\?/, '')
+  if (rules.queryRe && searchStr !== '' && !rules.queryRe.test(searchStr)) return false
+  return true
 }
 
 /**

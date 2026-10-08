@@ -455,3 +455,28 @@ postId 通过 §4.2 闸门？        →  { url: buildFromTemplate(platform, pos
 | locale 成对 | 适用：zh/en 新增 3 键 + 修订 1 键（CI Gate 7 拦截） |
 | 变异反证 | 适用：把 `resolvePublishedContentUrl` 的内容页白名单临时放宽为「任意 `safeHttpUrl` 通过即算内容页」，跑 `published-content-url.test.js` 必须**恰好 R2/R3/R13 与 V3/V4/V6 转红**、其余仍绿；还原后确认实现文件 `git diff` 为空 |
 | 文档同步 | 适用：本 PRD + 三份关联 PRD 勘误 + CHANGELOG |
+
+---
+
+## 13. CCG 双模型评审结论与跟进修复（2026-10-08 追加）
+
+CCG 跨家族对抗评审（claude=critic × opencode=proposer）对本 PRD 对应的合并提交
+`23822b73` 补执行（PR #3155 固化裁决书与评审原文）。裁决 **2 upheld + 1 dismissed**，
+upheld 项已在本跟进 PR（`fix-public-link-followups`）全部修复：
+
+| # | 裁决 | 问题 | 修复 |
+| --- | --- | --- | --- |
+| F1 | upheld（复核实为 Minor） | 详情弹窗「作品链接」行的 `v-if` 在记录完全无链接证据（无 url、无 postId、无 platformWorkId）时整行不渲染，§7.2「未记录作品链接」占位承诺落空 | 该行改为**无条件渲染**；新增 F1 用例锁 `result={}` 记录仍显示占位文案 |
+| F2 | upheld | `contentPathRe` 锚定 `pathname+search` 结尾，带 query 的真实内容页（`/p/123456?from=share`、`youtu.be/…?si=…`）被错杀；而 youtube 规则自身接受 `/watch?v=`——同一模块标准不一 | 引入可选 `queryRe`（作用于 search）；`contentPathRe` 只锚 **pathname**。baijiahao / youtube / wechat_mp 三个 search 型平台同步迁移到 `queryRe` |
+| F3 | upheld（判据完备性） | `isPublicContentUrl` 不校验 userinfo（`https://user:pass@host/…` 判为内容页），与主进程 `isAllowedExternalUrl` 拒绝 userinfo 的口径分裂 | `new URL(safe)` 后追加 `username \|\| password` 拒绝；渲染层守门不再豁免自己 |
+| F4 | upheld | wechat_mp 判据只要 `__biz` 或 `mid` 之一即认内容页，比 §6.3 四元组声明松 | `queryRe` 要求 `__biz` 且 `mid` 双参数（顺序无关）；平台真实永久链接必然同时携带，收紧不影响正常形态 |
+
+dismissed（驳回理由与实测证据见 `.ccg/review/ccg-deep-23822b73/adjudication.json`）：
+douyin note hex ID「认得出页面、派生不出链接」的不对称——发布链路只产 video/aweme
+数字 ID，note hex ID 无生产可达路径；`postIdRe` 收窄到数字形态是刻意的防伪设计。
+
+**§4.4 解析顺序不变**：recorded（平台直接给的公开页，含 query 原样保留）→
+derived（作品 ID 派生，模板无 query 天然干净）→ none（诚实不给链接）。
+新增测试：shared-utils 10 例（F2×5、F2b、F3、F3b、F4×3）+ 视图 2 例（F1、F2）；
+四项变异反证全部精确捕获（F2→9 红、F3→2 红、F4→2 红、F1→1 红）。
+

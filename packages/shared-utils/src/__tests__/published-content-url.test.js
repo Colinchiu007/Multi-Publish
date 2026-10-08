@@ -390,3 +390,67 @@ describe('published-content-url — CJS/ESM 孪生 parity（R14）', () => {
     }
   })
 })
+
+// ── QM-6 评审裁决 upheld 的四项跟进修复（PR #3155 裁决书，2026-10-08）──
+describe('published-content-url — QM-6 upheld 跟进修复', () => {
+  // F2：带 query 的真实内容页不得被错杀（裁决 upheld：判据与 youtube 规则
+  // 自认 /watch?v= 自相矛盾；分享链接普遍带 query，错杀导致 recorded 来源
+  // 被整条丢弃）。修法：contentPathRe 只锚 pathname；query 里的追踪参数由
+  // 既有 sanitizePublishResultUrl 落库侧处理，本判据不重复担责。
+  describe('F2 带 query 的内容页（upheld）', () => {
+    it.each([
+      // 夹具用真实 aid 形态（≥4 位，与闸门 postIdRe 一致）；/p/123 是失真夹具
+      ['zhihu', 'https://zhuanlan.zhihu.com/p/123456?from=share'],
+      ['zhihu', 'https://zhuanlan.zhihu.com/p/123456?utm_source=x'],
+      ['youtube', 'https://youtu.be/dQw4w9WgXcQ?si=abc'],
+      ['bilibili', 'https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=a'],
+      ['xiaohongshu', 'https://www.xiaohongshu.com/explore/6530a1b2c3d4e5f600112233?xsec_token=t'],
+    ])('%s %s 判为内容页', (platform, url) => {
+      expect(esmUrl.isPublicContentUrl(platform, url)).toBe(true)
+    })
+
+    it('F2b query 不参与 recorded 原样保留（recorded 分支逐字返回，含 query）', () => {
+      const u = 'https://zhuanlan.zhihu.com/p/123456?from=share'
+      expect(esmUrl.resolvePublishedContentUrl({ platform: 'zhihu', recordedUrl: u }))
+        .toEqual({ url: u, source: 'recorded' })
+    })
+
+    it('F2c 派生模板不带 query——派生链接天然干净（既有行为不变）', () => {
+      expect(esmUrl.buildPublicContentUrl('zhihu', '123456789')).toBe('https://zhihu.com/p/123456789')
+    })
+  })
+
+  // F3：userinfo URL 不得判为内容页（裁决 upheld：渲染层是「能不能进 href」
+  // 的唯一守门员，不能靠「下游主进程 isAllowedExternalUrl 会拒绝」豁免自己
+  // ——那正是本 bug 的成因模式；口径与主进程对齐）。
+  describe('F3 userinfo 拒绝（upheld）', () => {
+    it('带 userinfo 的内容页 URL 不判为内容页', () => {
+      expect(esmUrl.isPublicContentUrl('bilibili', 'https://user:pass@www.bilibili.com/video/BV1xx411c7mD')).toBe(false)
+    })
+
+    it('F3b userinfo 也不能参与派生源 recorded', () => {
+      expect(esmUrl.resolvePublishedContentUrl({
+        platform: 'bilibili',
+        recordedUrl: 'https://user:pass@www.bilibili.com/video/BV1xx411c7mD',
+        postId: 'BV1xx411c7mD',
+      })).toEqual({ url: 'https://www.bilibili.com/video/BV1xx411c7mD', source: 'derived' })
+    })
+  })
+
+  // F4：wechat_mp 判据比 PRD §6.3 自我声明松——只要 __biz 或 mid 之一即认
+  // 内容页（裁决 upheld：单参链接在微信外链打开落异常页）。修法：要求
+  // __biz 且 mid 双参数（平台真实永久链接必然同时携带两者）。
+  describe('F4 wechat_mp 双参数（upheld）', () => {
+    it('只带 __biz 不算内容页', () => {
+      expect(esmUrl.isPublicContentUrl('wechat_mp', 'https://mp.weixin.qq.com/s?__biz=MzA5')).toBe(false)
+    })
+
+    it('F4b 只带 mid 不算内容页', () => {
+      expect(esmUrl.isPublicContentUrl('wechat_mp', 'https://mp.weixin.qq.com/s?mid=1000000001&idx=1')).toBe(false)
+    })
+
+    it('F4c __biz+mid 齐全才认（平台真实永久链接形态）', () => {
+      expect(esmUrl.isPublicContentUrl('wechat_mp', 'https://mp.weixin.qq.com/s?__biz=MzA5&mid=1000000001&idx=1&sn=abc')).toBe(true)
+    })
+  })
+})

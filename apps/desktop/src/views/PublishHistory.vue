@@ -363,11 +363,11 @@
           <div v-if="resultValue(selectedRecord, 'postId')"><dt>{{ t('historyPage.detailPostId') }}</dt><dd>{{ resultValue(selectedRecord, 'postId') }}</dd></div>
           <!-- 作品链接：按「目的地判据」三态渲染（PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07）。
                ① anchor —— 解析出公开内容页（recorded 原样 / derived 由作品 ID 推导）才给链接；
-               ② plain  —— 落库的是创作者后台页（登录墙），**如实给纯文本 + 说明**，绝不给一个
-                              点开必然看到登录页的可点链接；
-               ③ absent —— 压根没记录作品链接，给占位文案而不是留空白。
-               三态共用 publicLinkHref 单一出口，杜绝「文本显示 A、href 打开 B」。 -->
-          <div v-if="linkRenderState(selectedRecord).kind !== 'absent' || resultValue(selectedRecord, 'postId') || selectedRecord.platformWorkId">
+               ② plain  —— 落库的是创作者后台页（登录墙），**如实给纯文本 + 说明**，绝不给可点链接；
+               ③ absent —— 没记录作品链接，给占位文案。三态共用 publicLinkHref 单一出口。
+               QM-6 upheld F1（PR #3155 裁决书）：本行**无条件渲染**——旧 v-if 在完全无链接
+               证据的记录上整行消失，§7.2 占位承诺落空。 -->
+          <div>
             <dt>{{ t('historyPage.detailLink') }}</dt>
             <dd>
               <!-- :href 与 v-if 取**同一个**判据表达式（href-scheme-contract.test.js 的
