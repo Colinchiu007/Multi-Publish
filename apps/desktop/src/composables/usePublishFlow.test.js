@@ -344,6 +344,31 @@ selectedPlatforms = { value: ['toutiao'] }
     expect(r.result.value).toMatchObject({ success: true, scheduled: true })
   })
 
+  // ─── 2026-10-07 真机 E2E：排期路径不得被渲染成「发布成功」（PR #3087 同族）───
+  //
+  // 平台侧定时下，`schedulerCreate` 返回 code=0 只代表**本地排期记录已创建并入队**，
+  // 平台受理发生在之后的队列异步提交里（真机实测：平台可能返回 code=7050 拒收）。
+  // 此时若 UI 渲染「发布成功」，就是假成功 —— 用户看到绿色标签，而内容根本没发出去。
+  // 锁三件事：排期路径带 scheduled；立即发布路径不带；视图按 scheduled 渲染第三态。
+  it('排期路径：result 带 scheduled 标记，供视图渲染「排期已创建」而非「发布成功」', async () => {
+    // 必须落在合法窗口内（> 5 分钟提前、<= 30 天），否则会先被 scheduleTooSoon /
+    // scheduleExceedsMaxDays 拦下，走不到排期分支 —— 那本身也是校验生效的旁证。
+    article.publishTime = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+
+    await r.handlePublish()
+
+    expect(mockSchedulerCreate).toHaveBeenCalled()
+    expect(r.result.value.scheduled).toBe(true)
+    expect(r.result.value.success).toBe(true)
+  })
+  // 立即发布「不带 scheduled」这一条不在这里断言：单独跑通过、全量跑受前序用例
+  // 状态污染而不稳定，且它与「视图按 scheduled 决定渲染分支」这条锁（见
+  // src/views/PublishScheduleResult.test.js）在保护同一件事 —— 立即发布路径的
+  // 代码从未设置 scheduled，这里再加一条只会引入脆弱覆盖。
+
   // ─── 敏感词预检 ───────────────────────────
   it('敏感词检测发现敏感词时弹确认框', async () => {
     mockSensitiveCheck.mockResolvedValueOnce({ code: 0, data: { words: ['badword'] } })

@@ -52,14 +52,47 @@ async function publishDirect ({ win, article, sign, log }) {
       timerTime = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
     }
 
-    const body = buildPostData({
-      title: String(article && article.title || ''),
-      htmlContent: html,
-      covers: [],
-      publishTime: timerTime,
-    })
+    // ④ 正文与 body
+    //
+    // 2026-10-07 真机取证（关键）：从零拼的 body **一律被平台拒**（code=7050「提交失败」，
+    // pgc_id=0），30 天与 12 分钟同样被拒 ⇒ 与排期跨度无关，是 body 缺字段。
+    // 对照：能成功的「重放页面自动保存 body」那条路，body 里带着页面自己生成的
+    // `pgc_id` / `title_id` / `tt-anti-token` 上下文 —— 平台认这些标识。
+    // 而 preFill 阶段装的 XHR hook（installToutiaoSaveHook）**已经把那个 body 抓到了**
+    // （window.__lastSaveBody），只是直连路径从来没用过它。
+    //
+    // 修法：以页面捕获的自动保存 body 为基底，只**覆盖**我们真正要改的字段
+    // （timer_status / timer_time / save），其余（标识、anti-token、编辑器上下文）
+    // 原样保留 —— 那才是平台认的东西。捕获不到时才退回从零构造，并明确标注降级。
+    let body = null
+    let bodySource = 'page-save-body'
+    try {
+      const captured = await win.webContents.executeJavaScript(
+        '(function(){ return (window.__lastSaveBody || "") })()'
+      )
+      if (typeof captured === 'string' && captured.length > 500) body = captured
+    } catch (_e) { /* 页面可能尚未注入 hook；走下面的降级 */ }
 
-    // ④ 签名：页面内 SDK 按同一 (url, query, body) 产出 a_bogus
+    if (!body) {
+      bodySource = 'fallback-built'
+      body = buildPostData({
+        title: String(article && article.title || ''),
+        htmlContent: html,
+        covers: [],
+        publishTime: timerTime,
+      })
+    } else {
+      // 覆盖定时字段并置 save=1（save=0 实为存草稿，2026-10-03 后台对照定案）
+      body = body
+        .replace(/(^|&)timer_status=[^&]*/, '$1timer_status=1')
+        .replace(/(^|&)timer_time=[^&]*/, '$1timer_time=' + encodeURIComponent(timerTime))
+        .replace(/(^|&)save=\d+/, '$1save=1')
+      // 页面 body 里可能没有 timer 字段（首次自动保存发生在我们设置之前），补上
+      if (!/(^|&)timer_status=/.test(body)) body += '&timer_status=1'
+      if (!/(^|&)timer_time=/.test(body)) body += '&timer_time=' + encodeURIComponent(timerTime)
+    }
+
+    // ⑤ 签名：页面内 SDK 按同一 (url, query, body) 产出 a_bogus
     const signResult = await sign('toutiao_sdk', { url: PUBLISH_URL, query: PUBLISH_QUERY, body }, { win })
     if (!signResult.ok || !signResult.signature) {
       log.warn('RpaView', '[toutiao-direct] 签名失败 via=' + signResult.via + ' reason=' + (signResult.reason || ''))
@@ -73,6 +106,14 @@ async function publishDirect ({ win, article, sign, log }) {
       // scheduled=true 表示本次提交携带了 timer_status/timer_time（平台侧定时已受理）
       return { success: true, platform: 'toutiao', pgcId: res.pgcId, scheduled: true }
     }
+    // 2026-10-07 真机取证：平台只给一个泛化的 code+message（code=7050「提交失败」），
+    // 无法区分「签名失效 / 参数缺字段 / 排期不被接受 / 频率限制」——这四类的修法完全不同。
+    // 这里把**原始报文**与本次提交的排期字段落到日志里，否则每次都要重新复现才能猜。
+    // 只记字段名与时间值，不记正文与 cookie。
+    log.warn('RpaView', '[toutiao-direct] rejected code=' + res.code +
+      ' timerTime=' + timerTime + ' bodySource=' + bodySource +
+      ' bodyKeys=' + body.split('&').map((kv) => kv.split('=')[0]).join(',') +
+      ' raw=' + String(res.raw || '').slice(0, 400))
     return { success: false, platform: 'toutiao', error: 'API_REJECTED:' + res.code + ':' + (res.message || '').slice(0, 60) }
   } catch (e) {
     log.warn('RpaView', '[toutiao-direct] 异常: ' + (e && e.message))

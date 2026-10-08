@@ -1504,6 +1504,12 @@ export default {
       offlineProgress: '📡 网络已断开，发布任务已缓存，网络恢复后自动重试',
       scheduleCreated: (ctx) => '⏰ 已创建 ' + ctx.named('count') + ' 个定时任务',
       scheduleCreatedResult: '定时任务已创建',
+      // 2026-10-07 真机 E2E：排期路径的第三态标签与说明。
+      // 「定时任务已创建」只说明本地记录已建并入队，平台受理在之后的异步提交里，
+      // 此时渲染「发布成功」是假成功（平台拒收时用户看到的仍是绿色标签）。
+      scheduleCreatedTag: '⏰ 排期已创建',
+      scheduleCreatedHint: '排期已提交给平台，将由平台服务器在设定时间发布。若平台未能受理，失败原因会记录在「发布记录」中。',
+      scheduleViewHistory: '查看发布记录',
       publishTargets: (ctx) => '发布到 ' + ctx.named('count') + ' 个目标（含多账号）...',
       taskAdded: (ctx) => '✓ 已添加 ' + ctx.named('count') + ' 个任务',
       taskQueued: '任务已加入队列',

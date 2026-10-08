@@ -634,10 +634,17 @@
           </div>
           <div v-if="result" class="cohere-card cohere-card-offset">
             <div class="result-header-row">
-              <span v-if="result.success" class="cohere-tag cohere-tag-success">{{ t('publishPage.publishSuccess') }}</span>
+              <!-- 2026-10-07 真机 E2E（PR #3087 同族）：平台侧定时下，`result.success`
+                   只代表「本地排期记录已创建并入队」，平台受理发生在**之后**的队列异步提交里。
+                   此时渲染「发布成功」是假成功 —— 平台一旦拒收（如 code=7050），
+                   用户看到的仍是绿色成功标签，且失败只落在发布记录里、当场无感知。
+                   故排期路径单列第三态，措辞只承诺已发生的事。 -->
+              <span v-if="result.scheduled" class="cohere-tag cohere-tag-info">{{ t('publishPage.scheduleCreatedTag') }}</span>
+              <span v-else-if="result.success" class="cohere-tag cohere-tag-success">{{ t('publishPage.publishSuccess') }}</span>
               <span v-else class="cohere-tag cohere-tag-danger">{{ t('publishPage.publishFailed') }}</span>
               <span class="muted-text">{{ result.message }}</span>
             </div>
+            <p v-if="result.scheduled" class="publish-time-hint" data-testid="schedule-created-hint">{{ t('publishPage.scheduleCreatedHint') }}</p>
             <UiButton
               v-if="!result.success && !result.cancelled"
               variant="secondary"
@@ -646,6 +653,15 @@
               @click="retryPublish"
             >
               {{ t('publishPage.retryPublish') }}
+            </UiButton>
+            <UiButton
+              v-else-if="result.scheduled"
+              variant="secondary"
+              size="sm"
+              class="stack-gap-top"
+              @click="router.push('/publish/history')"
+            >
+              {{ t('publishPage.scheduleViewHistory') }}
             </UiButton>
             <div v-if="result.url" class="result-link-row">
               <a v-if="safeHttpUrl(result.url)" :href="safeHttpUrl(result.url)" target="_blank" rel="noopener" class="result-link">{{ t('publishPage.viewArticle') }}</a>
