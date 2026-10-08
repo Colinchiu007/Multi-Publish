@@ -1,3 +1,25 @@
+# [未发布] fix(visual): 重建被漏掉一档的暗色像素基线 collection-dark.png，并登记「PR 侧看不见暗档」这个结构性盲区（2026-10-08，visual-baseline-collection-dark）
+
+### 起因：main 上一条只有 0.011% 的红
+
+main push run `37640317864` 的基线新鲜度门禁报 `❌ collection-dark.png 237 px (0.011%) 来源=pixel-gate`，是 41 张里唯一一张违规。像素套两档全绿，因为 6% 的全页容差对 0.011% 天生失明 —— 说话的只有新鲜度门禁。
+
+### 归因：不是回归，是同一个 PR 只交付了一半基线
+
+逐像素严格相等求差集，包围盒 `(232,100)-(484,134)` 正是采集页顶部标签条；裁图对照，基线是 `内容采集 | 文案库`，CI 渲染是 `内容采集 | 文案库 | 博主监控`。再 `git log` 到基线文件本身：浅色 `collection.png` 最后由 #3053（`6bc65b3be`，就是加这张标签的 PR）刷新，暗色 `collection-dark.png` 最后由 #2815（`ed3e41d62`，2026-10-04）刷新 —— **即 #3053 重建了浅色那一档，没重建暗色那一档**。
+
+### 为什么 PR 拦不住（本条最关键）
+
+`test:visual:pixel:dark` 只存在于 `visual-test.yml`（push main / 手动 dispatch），`quality-gate.yml` 的 `visual` job 只跑浅色像素套。于是 Gate 7b 在 PR 侧拿不到暗档渲染，`--partial` 把它记进 `skipped` 后照常放行 —— **暗色基线的漂移在 PR 上永远不可判**，只能等合并后 main push 才红。这不是 Gate 7b 的 bug（partial 的语义就是「判据不存在时不得改变结论」），而是**采集面与判定面不同源**：判定域里有 19 张暗档，PR 侧的采集面一张都不产。补齐要在 PR 上多跑一遍暗色像素套（约 +2–3 min），属门禁改动需人工过目，本轮只在文档 §9.3 登记，不顺手改。
+
+### 修复与取证口径
+
+新基线逐字节取自那次红 run 的 CI artifact（QM-4 第 7 条唯一合法来源），**没有跑过任何本机 `update-baseline`**；复用该 artifact 的前提是量过的：`git diff --name-only 92802f8df origin/main` 命中 `apps/` 的文件数 = 0 ⇒ 渲染输入与本 head 逐字节相同。判据成对复现（同一条命令、同一批渲染，只换基线树）：旧树 `违规 1` 退出码 1、新树 `违规 0` 退出码 0。跨 run 确定性仍交给本 PR head 上的一次 `visual-test` dispatch 自证。
+
+另记一条度量口径（本轮踩过）：**定位漂移区域不能用 `pixelmatch` 的输出图扫非零像素** —— 它连匹配的像素也写成非零淡色，包围盒会摊成整页；正解是按逐像素严格相等求差集。两个度量的像素数不可互相校验（严格 3114 px vs `pixelmatch(0.1)` 237 px），后者是门禁里那个数，前者才是「哪里变了」的现场。
+
+见 `docs/visual-capture-settle-and-attribution.md` §9、`openspec/records/visual-baseline-collection-dark.md`。
+
 # [未发布] docs(creator): B 站审核回写修复的真机端到端复验入库（带一个天然对照组）（2026-10-07，keyfix-live-verify）
 
 ### 为什么还要专门跑一次
