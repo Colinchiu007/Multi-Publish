@@ -16700,3 +16700,29 @@ YouTube Data API 的 `quotaExceeded` / `rateLimitExceeded` 返回 **403（4xx）
 - **不要抬基线绕过**：碰到 NEW_OVER_LIMIT / LEDGER_GREW 就 --update 台账，等于自己把「存量挂账不许继续膨胀」这道闸门关掉。正确做法是按既有 mixin / composable 范式拆文件（本轮拆出 ops-resilience-protocol.js 与 config_fingerprint.py，行为不变、两端测试零修改即通过）。
 - **刻意造坏字符的夹具会被编码门禁拦下**：种子门禁要验证「文件含 U+FFFD 就失败」，夹具里写真的 U+FFFD 替换字符 ⇒ CI Gate 12b 扫本次变更文件里的裸 U+FFFD ⇒ 这条判据让它自己永远红。正解**不是豁免、也不是删判据**（两者都是关门禁的不同写法），而是换表达：String.fromCharCode(0xfffd)，源码层面 ASCII、运行时展开成真替换字符，判据强度不变。
 - **变异没注入 ≠ 测试没锁住**：PowerShell [IO.File]::WriteAllLines / WriteAllText 写回可能静默不落盘。做反向变异看到「全绿」时，先回读确认变异真的进了文件 —— 否则「变异没生效」与「测试没锁住」在输出上完全一样。本轮就踩过一次：第一次变异脚本返回成功、测试全绿，实际文件没变。
+
+## 「执行记录欠账」的两源键形态：给记录文件加 ledger 条目只有两种结局（2026-10-08）
+
+PR #3053 回填时踩过一次「登记被判陈旧」，这次接线又踩到它的反面，
+两条一起才是完整口径 —— 写进 `01-docs/learnings.md` 供后续会话直接取用。
+
+`scripts/check-gate-record-debt.js` 有**两套不同源**的判据：
+
+| 源 | 键形态 | 欠账登记位置 |
+|---|---|---|
+| `.quality-gates.md` | **## 标题**原文 | `scripts/gate-record-debt-ledger.json` |
+| `openspec/records/*.md` | **文件名**（去 `.md`） | 记录 frontmatter 的 `sync_*` 三字段 |
+
+关键约束（`check-gate-record-debt.js:191` 与 `:198`）：
+
+- `stale = ledger 键里不在 seen 集合中的` —— 记录文件源的 seen 收的是**文件名**，
+  所以拿 `## 标题` 当键登记**每次都判陈旧**；
+- 但有一条「两源键形态重叠」硬检查：ledger 键与记录文件名全等即**抛错**。
+
+⇒ 给 `openspec/records/*.md` 加 ledger 条目是**死路**：写成标题键判陈旧，
+写成文件名键触发重叠抛错。正确做法是**不加**，未收口原因由 frontmatter 的
+`sync_status` / `sync_reason` / `sync_backfill_owner` 自带承载
+（`staleRecordFields` 检查就是为这组字段准备的）。
+
+反过来，`.quality-gates.md` 里的记录**必须**登记 ledger —— 它的键是 `##` 标题，
+且门禁要求「新增未收口行必须带原因进 ledger」。这条不对称很容易记反。
