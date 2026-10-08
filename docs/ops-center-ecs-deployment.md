@@ -169,7 +169,8 @@ curl -s http://127.0.0.1:8010/health
 |---|---|---|
 | 站点可用性 | HTTP 探测 `https://<生产域名>/health`，探测点选「阿里云机房」 | 连续 3 次 ≥1 失败 → 短信/电话 |
 | 证书有效期 | SSL 证书到期监测 | 剩余 < 14 天告警 |
-| 接口级探测 | HTTP 探测 `https://<生产域名>/api/v1/system/health`（无需鉴权） | 连续 3 次非 200 → 告警 |
+
+> ⚠️ **探针只能打 `/health`**（无鉴权，`main.py` 根路由）。**不要**用 `/api/v1/system/health`——它是 `require_admin` 的内部巡检接口（`routers/health.py:11`），外部探测只会得到 401，恒定误报（2026-09-29 实测，见 `ops-center/docs/OPERATIONS.md` §11 附录）。探测口径以「HTTP 层可达」为准：`/health` 是纯静态响应，探不到 DB/依赖，但探针的职责就是「进程死了/域名挂了」，深度健康巡检走管理员人工查询（§10.3）。
 
 **替代方案**：UptimeRobot（免费 50 个探针），或自建（任一**不在同一台 ECS 上**的机器 crontab `curl`，失败经钉钉/企微 Webhook 通知）。**禁止**用运营中心服务器上的 cron 探测它自己。
 
