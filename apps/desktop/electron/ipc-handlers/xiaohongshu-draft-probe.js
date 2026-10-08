@@ -91,7 +91,7 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     const draft = arg && arg.draft === false ? false : true
 
     // ── 阶段 1：解密凭据（只在主进程内，DPAPI 可用）──
-    let cookies = []
+    let cookies
     try {
       const saved = AccountManager.loadSavedCredentials(accountId, 'xiaohongshu')
       cookies = (saved && Array.isArray(saved.cookies)) ? saved.cookies : []
