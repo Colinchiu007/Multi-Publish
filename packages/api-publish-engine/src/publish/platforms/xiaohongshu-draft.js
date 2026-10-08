@@ -178,12 +178,23 @@ class XiaohongshuDraftChain {
     const { cookie, authorization } = opts
     const fullUri = `${EDITH_ORIGIN}${NOTE_PATH}`
     // 签名覆盖完整 URL —— 与平台侧一致（signer-local 的 fullUri 语义）
-    const signHeaders = await this.sign({
+    // 签名器契约兼容：装配签名器（signer-assembly）返回裸字符串（XYW_ x-s），
+    // 也有实现返回完整头集合。字符串形态下补齐 x-t / x-s-common / traceid——
+    // 406 的根因之一是请求缺 x-s-common（真机 2026-10-09：permit+upload 已通，note 406）。
+    const signResult = await this.sign({
       fullUri,
       cookie,
       method: 'POST',
       payload: body,
     })
+    let signHeaders
+    if (signResult && typeof signResult === 'object') {
+      signHeaders = signResult
+    } else {
+      const { buildXiaohongshuSignHeaders } = require('../../signer-local')
+      signHeaders = buildXiaohongshuSignHeaders({ fullUri, cookies: cookie })
+      signHeaders['x-s'] = String(signResult)
+    }
     const headers = {
       ...this._baseHeaders(cookie, authorization),
       'Content-Type': 'application/json;charset=UTF-8',
