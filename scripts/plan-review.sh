@@ -237,8 +237,24 @@ EOF
       _RB_CODE=ABS
       _RB_MSG="已把绝对目录 $_rb_prepended 补到 PATH 最前；裸名解析到 $_rb_real"
     else
-      _RB_CODE=PATH
-      _RB_MSG="裸名解析到 $_rb_real（候选目录里没找到可 prepend 的，已按原样使用）"
+      # PATH 分支不得直接计为可用（QM-6 评审 i1，Critical）：
+      # 裸名命中但候选目录未命中，说明后端来自一条「来历不明」的 PATH 条目——
+      # 恰是本脚本要防的坏环境（无盘符条目按 cwd 解析 / Go wrapper ErrDot）。
+      # 此时「command -v 成功」推不出「wrapper 能起」（见上方 ErrDot 论证），
+      # 静默计入可用 = wrapper 起不来仍当双后端用，无告警无修法。
+      # 修法：从命中项反推绝对目录并 prepend（升级成 ABS）；推不出就按 MISS。
+      # ${_rb_real%/*} 参数展开取目录，不经 dirname——零外部依赖。
+      _rb_dir="${_rb_real%/*}"
+      if [ -n "$_rb_dir" ] && [ "$_rb_dir" != "$_rb_real" ] && [ -d "$_rb_dir" ]; then
+        PATH="$_rb_dir:$PATH"
+        export PATH
+        _RB_CODE=ABS
+        _RB_MSG="裸名命中来自非候选目录，已把其所在目录 $_rb_dir 补到 PATH 最前（裸名 → $_rb_real）"
+      else
+        _RB_CODE=MISS
+        _RB_MSG="裸名解析到 $_rb_real，但无法定位其目录以修复 PATH——按缺失处理"
+        return 1
+      fi
     fi
     return 0
   fi
@@ -277,7 +293,6 @@ report_backends() {
       say "  ⚠ 只剩单后端可用 —— 评审能跑，但跨家族交叉验证会缺失。" ;;
   esac
   _RB_OK=$([ "$_rb_n" -ge 1 ] && echo 1 || echo 0)
-  _RB_RC="$_rb_rc"
   return "$_rb_rc"
 }
 

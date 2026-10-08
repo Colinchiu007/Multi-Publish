@@ -82,6 +82,12 @@ function makeDualProposal() {
   fs.writeFileSync(f, "# 方案\n\n" + body, "utf8")
   return f
 }
+// 统一清理（QM-6 评审 i5：断言抛异常时 finally 也要清理临时目录）。
+function cleanup(proposals, homes) {
+  for (const f of proposals || []) { try { fs.rmSync(f, { force: true }) } catch { /* 忽略 */ } }
+  for (const d of homes || []) { try { fs.rmSync(d, { recursive: true, force: true }) } catch { /* 忽略 */ } }
+}
+
 function run(scriptArgs, extraEnv) {
   const home = makeFakeHome()
   const res = spawnSync(resolveGitBash(), [PLAN_REVIEW, ...scriptArgs], {
@@ -133,8 +139,7 @@ test("plan-review.sh：后端在候选目录时必须 prepend PATH 恢复，不�
   const out = `${res.stdout || ""}${res.stderr || ""}`
   assert.match(out, /已把绝对目录 .* 补到 PATH 最前/, "必须主动把候选目录 prepend 进 PATH（ABS 分支）")
   assert.doesNotMatch(out, /找不到 claude|找不到 opencode/, "装在候选目录的后端不得被判「找不到」")
-  fs.rmSync(proposal, { force: true })
-  fs.rmSync(home, { recursive: true, force: true })
+  cleanup([proposal], [home])
 })
 
 // ② 结构锁：与 deep-review-deps.test.js ⑧ 同判据，对象换成 plan-review.sh。
@@ -159,10 +164,13 @@ test("plan-review.sh：一个后端都没有时必须 rc=2 早退并给出修法
   assert.notEqual(rc, 0, "零后端时不得照跑引擎")
   assert.match(out, /claude/, "必须点名缺失后端")
   assert.match(out, /npm|安装|装/, "必须给出可操作修法")
-  fs.rmSync(proposal, { force: true })
+  cleanup([proposal])
 })
 
 // ④ 单后端降级必须点名跨家族缺失（不得静默）。
+//    i2 修复：同时断言 rc!=0 不可作为「早退」信号——④的语义是「降级后仍继续
+//    跑引擎」，所以这里断言输出点名降级即可；真正的「早退 vs 照跑」分界由
+//    ③（零后端 rc=2）与 ①（恢复后继续跑）两头钉住。
 test("plan-review.sh：只剩单后端时必须点名降级（不得静默放行）", () => {
   const proposal = makeDualProposal()
   const home = makeFakeHome()
@@ -179,6 +187,67 @@ test("plan-review.sh：只剩单后端时必须点名降级（不得静默放行
   })
   const out = `${res.stdout || ""}${res.stderr || ""}`
   assert.match(out, /只剩单后端|跨家族/, "降级必须点名跨家族交叉验证缺失")
-  fs.rmSync(proposal, { force: true })
-  fs.rmSync(home, { recursive: true, force: true })
+  cleanup([proposal], [home])
+})
+
+// ⑤（QM-6 评审 i1 的回归锁，Critical）：裸名经「来历不明」的 PATH 条目命中、
+//    候选目录不含它时，不得计为可用（旧 PATH 分支 = wrapper 可能起不来仍当
+//    双后端用）。修复后该场景升级为 ABS（反推目录并 prepend）或按 MISS。
+//    这里造「裸名命中 + 候选目录不含」：后端放进一个普通目录并加入 PATH，
+//    但 HOME 候选链与 CCG_BACKEND_BIN_DIRS 都不含它。
+test("PATH 分支：裸名来自非候选目录时必须反推目录 prepend（不得静默计可用）", () => {
+  const proposal = makeDualProposal()
+  const home = makeFakeHome()
+  const stray = path.join(home, "stray-bin")
+  fs.mkdirSync(stray, { recursive: true })
+  const IS_WIN = process.platform === "win32"
+  for (const tool of ["claude", "opencode"]) {
+    const f = path.join(stray, IS_WIN ? `${tool}.exe` : tool)
+    fs.writeFileSync(f, "#!/bin/sh\nexit 0\n")
+    try { fs.chmodSync(f, 0o755) } catch { /* 空操作 */ }
+  }
+  // stray-bin 显式放进 PATH（POSIX 形态），HOME 候选链不含它
+  const res = spawnSync(resolveGitBash(), [PLAN_REVIEW, proposal], {
+    encoding: "utf8",
+    timeout: 120000,
+    env: {
+      PATH: `${bashPath()}:${toPosixPath(stray)}`,
+      HOME: home,
+      USERPROFILE: home,
+      CCG_BACKEND_BIN_DIRS: "",
+    },
+  })
+  const out = `${res.stdout || ""}${res.stderr || ""}`
+  assert.match(
+    out,
+    /已把其所在目录 .* 补到 PATH 最前|找不到/,
+    "非候选目录的裸名命中必须升级为 ABS 或按 MISS，不得走旧 PATH 分支静默放行",
+  )
+  assert.doesNotMatch(out, /已按原样使用/, "旧 PATH 分支文案不得再出现（i1 反模式回潮检测）")
+  cleanup([proposal], [home])
+})
+
+// ⑥（QM-6 评审 i2）：test① 必须断言「恢复后继续跑」——
+//    旧实现的坑是把「体检通过」和「早退」混为一谈；①要钉的是
+//    「候选目录命中 → 双后端可用 → 继续跑引擎（不再有零后端早退）」。
+test("候选目录命中后不得早退：双后端齐备必须继续走完主流程", () => {
+  const proposal = makeDualProposal()
+  const home = makeFakeHome()
+  const bin = path.join(home, ".local", "bin")
+  fs.mkdirSync(bin, { recursive: true })
+  const IS_WIN = process.platform === "win32"
+  for (const tool of ["claude", "opencode"]) {
+    const f = path.join(bin, IS_WIN ? `${tool}.exe` : tool)
+    fs.writeFileSync(f, "#!/bin/sh\nexit 0\n")
+    try { fs.chmodSync(f, 0o755) } catch { /* 空操作 */ }
+  }
+  const res = spawnSync(resolveGitBash(), [PLAN_REVIEW, proposal], {
+    encoding: "utf8",
+    timeout: 120000,
+    env: { PATH: bashPath(), HOME: home, USERPROFILE: home, CCG_BACKEND_BIN_DIRS: "" },
+  })
+  const out = `${res.stdout || ""}${res.stderr || ""}`
+  assert.match(out, /已把绝对目录 .* 补到 PATH 最前/, "必须走 ABS 分支")
+  assert.match(out, /体检通过|只剩单后端|开始跨家族对抗评审/, "双后端齐备必须继续主流程（不得 rc=2 早退）")
+  cleanup([proposal], [home])
 })
