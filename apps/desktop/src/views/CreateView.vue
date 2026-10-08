@@ -1940,7 +1940,7 @@ export default {
       if (!Object.prototype.hasOwnProperty.call(this.s2vOpenSections, section)) return
       this.s2vOpenSections[section] = Boolean(event?.target?.open)
     },
-    // 旁白试听：浏览器内置 SpeechSynthesis（实现在 useS2VVoicePreview）
+    // 旁白试听：浏览器内置 SpeechSynthesis（实现在 useS2VVoicePreview；文案走 locale）
     previewS2VVoice() { this._s2vVoicePreview.previewS2VVoice(this.s2vConfig, this.showS2VOptionsToast) },
     categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
     costLabel(cost) { return COST_LABELS[cost] || cost },
@@ -5602,7 +5602,7 @@ export default {
     },
   },
   async mounted() {
-    this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview()
+    this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.translateWithLocaleFallback('story2video.voicePreviewUnsupported', '当前环境不支持语音合成', 'No speech synthesis'), previewText: this.translateWithLocaleFallback('story2video.voicePreviewText', '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。', 'Voice preview clip'), }))
     this.refreshS2VTemplates()
     this.startStageClock()
     // 「设置 → 模型设置」弹窗关闭后重新加载模型服务商列表（2026-08-12 Bug 修复）：

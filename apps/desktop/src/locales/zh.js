@@ -778,6 +778,8 @@ export default {
     resume_stage_not_found: '未定位到失败阶段，无法从断点继续，请重新启动生成。',
     optionsSaved: '选项已保存 ✓',
     optionsRestored: '已恢复上次的选项设置',
+    voicePreviewUnsupported: '当前环境不支持语音合成',
+    voicePreviewText: '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。',
     draftLoadFailed: '未找到要带入的草稿，请返回上一页重新发起',
     splitSceneCount: '拆分为了 {count} 个场景',
     optimizeProgress: '共 {total} 个场景，已完成 {done} 个',
