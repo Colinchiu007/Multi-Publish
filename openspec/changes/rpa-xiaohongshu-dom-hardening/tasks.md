@@ -13,7 +13,7 @@
 
 ## 2. PR-2 · Tier2 活体取证回填（需用户登录小红书）
 
-- [ ] 2.1 取证 runbook 脚本（gitignored staging）：headed login 扫码 → 发布页存草稿 → ResponseMonitor dump 草稿保存端点模式 + 成功响应结构
+- [x] 2.1 取证 runbook 脚本（gitignored staging）：headed login 扫码 → 发布页存草稿 → ResponseMonitor dump 草稿保存端点模式 + 成功响应结构（已就绪：`.agent_context/tier2/xhs_tier2_probe.py` + `RUNBOOK.md` + `_smoke.py` 零浏览器自检通过；含 permit≠成功的假阳性守卫；需用户扫码方可执行 2.2）
 - [ ] 2.2 抓真实草稿保存按钮/确认弹层/成功 toast/草稿箱列表条目稳定选择器（多候选），落 evidence 文档
 - [x] 2.3a 回填端点模式常量 DRAFT_SAVE_RESPONSE_PATTERNS=["/web_api/sns/v2/note"]（证据源：本仓 api-publish-engine/src/publish/platforms/xiaohongshu-draft.js 三步草稿链终步 + 其测试断言真实端点；XHR 主确认通道由此武装，仍属源证据非活体，需 2.4 活体复核）
 - [ ] 2.3b 回填 selector 链与 RISK_OVERLAY_SELECTOR / DRAFT_BOX_ITEM_SELECTOR（需 2.1/2.2 活体取证）
@@ -22,5 +22,5 @@
 
 ## 3. 收口
 
-- [ ] 3.1 `openspec validate rpa-xiaohongshu-dom-hardening --strict`
+- [x] 3.1 `openspec validate rpa-xiaohongshu-dom-hardening --strict`（2026-10-09 通过；Gate 12 本地 PASS。2.3b/2.4 完成后需复跑一次再归档）
 - [ ] 3.2 change 归档（两 PR 合并后）

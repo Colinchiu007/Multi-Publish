@@ -67,7 +67,8 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
 | 项 | 状态 | 阻塞 |
 |----|------|------|
 | 2.3a 端点模式常量回填 | 已完成（源证据） | — |
-| 2.1 / 2.2 活体取证 runbook + 真实选择器取证 | 待办 | **需用户登录小红书**（headed 浏览器扫码） |
+| 2.1 活体取证 runbook 脚本 | 已就绪（脚本+自检通过，未执行） | 执行需**用户登录小红书**（headed 浏览器扫码） |
+| 2.2 真实选择器取证 | 待办 | 同上 |
 | 2.3b `RISK_OVERLAY_SELECTOR` / `DRAFT_BOX_ITEM_SELECTOR` 回填 | 待办 | 依赖 2.1/2.2 |
 | 2.4 真实草稿箱活体验收 | 待办 | 依赖上面全部 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |
@@ -76,9 +77,21 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
 存草稿时的实际 XHR，仍需 2.4 活体复核。在那之前本能力视为「已具备确认通道，
 未活体验收」。
 
-## 6. 取证 runbook（2.1，待执行）
+## 6. 取证 runbook（2.1 已就绪，2.2 待执行）
 
-在用户登录态下跑 headed 发布器：`login()` 扫码 → 同 context 走存草稿 →
-`ResponseMonitor` dump 全部 XHR 的 url + 响应体 → 与草稿箱截图一并落 evidence 文档
-→ 用实测值替换 2.3b 的选择器占位，并把 `DRAFT_SAVE_RESPONSE_PATTERNS`
-从源证据升级为活体证据。
+探针脚本落在 gitignored 的 `.agent_context/tier2/`（不入库，产物含账号信息）：
+`xhs_tier2_probe.py` + `RUNBOOK.md` + `_smoke.py`（零浏览器自检，已 PASS）。
+
+流程：headed `launch_persistent_context`（与 `server.py` 同 `MULTI_PUBLISH_DATA_DIR`
+解析口径，可 `--account-id` 复用已登录 profile）→ 扫码登录 → 发布页逐候选统计
+`count/visible` → 人工「存草稿」（`--mode manual`，脚本只观察不代点）→ 捕获 note
+端点 `code==0` → 草稿箱列表逐候选取证 → 落 `EVIDENCE.md` / `evidence.json` /
+`network.json`。
+
+内置守卫：只 watch 笔记提交终步，`permit` 的 `code==0` 在探针侧同样**不**算命中
+（防"草稿未提交即判成功"）；`publish_button` 仅取证、脚本绝不点击，守住"只存草稿
+不公开发布"的验收红线。若 `--mode drive` 命中，则说明现有回退链可用，但该模式会
+真实存一条草稿，用完需人工删除。
+
+用实测值替换 2.3b 的选择器占位，并把 `DRAFT_SAVE_RESPONSE_PATTERNS` 从源证据升级
+为活体证据；随后 2.4 以"草稿箱人工可见本次条目"为通过口径。
