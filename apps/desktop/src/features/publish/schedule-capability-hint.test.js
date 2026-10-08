@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { usePublishFieldSurface } from './usePublishFieldSurface'
+import { usePublishFieldSurface, effectiveScheduleMaxDays, scheduleHintTextFor } from './usePublishFieldSurface'
 import { validateScheduleEntries } from './publish-schedule-contract'
 
 const surface = () => usePublishFieldSurface()
@@ -86,5 +86,36 @@ describe('定时校验提示（D3：显示平台名而非内部 id）', () => {
     expect(r.valid).toBe(false)
     expect(r.reason).toBe('scheduleTooSoon')
     expect(r.params.platform).toBe('今日头条')
+  })
+})
+
+// ── 定时 hint 的有效上限（2026-10-08，头条 7 天 bundle 取证）────────────────
+// 背景：maxHorizonDays 收窄为 7 后，若 hint 继续按全局常量显示「30 天」，
+// 用户按 30 天排期会在提交时被 scheduleExceedsMaxDays 拒绝 —— 文案与校验漂移
+// （与「徽标谎报 15/15」同族）。hint 必须按所选平台取有效值。
+describe('定时 hint 有效上限（effectiveScheduleMaxDays / scheduleHintTextFor）', () => {
+  it('未选平台 → 全局上限（30）', () => {
+    expect(effectiveScheduleMaxDays([])).toBe(30)
+    expect(effectiveScheduleMaxDays(undefined)).toBe(30)
+  })
+
+  it('未选任何支持定时的平台 → 全局上限（不支持平台由提交前门禁另行阻断）', () => {
+    expect(effectiveScheduleMaxDays(['zhihu', 'weibo'])).toBe(30)
+  })
+
+  it('选了头条 → 7 天（capability 真源，不是全局 30）', () => {
+    expect(effectiveScheduleMaxDays(['toutiao'])).toBe(7)
+  })
+
+  it('混选头条与未知 id → 仍按支持平台取 7 天', () => {
+    expect(effectiveScheduleMaxDays(['toutiao', 'some-unknown-platform'])).toBe(7)
+  })
+
+  it('hint 文案里出现的是有效上限而非全局常量（i18n 词条插值）', () => {
+    const text = scheduleHintTextFor(['toutiao'])
+    expect(text).toContain('7')
+    // 弱断言说明：词条模板其余部分不含「30」，若日后模板引入其他含 30 的数字
+    // （如「30 分钟」）需改按插值结构断言；当前模板只有 {maxDays} 一个数字位。
+    expect(text).not.toContain('30')
   })
 })

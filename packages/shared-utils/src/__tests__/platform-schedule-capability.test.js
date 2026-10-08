@@ -59,6 +59,19 @@ describe('platform-schedule-capability — 平台侧定时能力注册表', () =
       expect(cap.minLeadMinutes).toBeGreaterThan(0)
       expect(cap.maxHorizonDays).toBeGreaterThan(0)
     })
+
+    // 2026-10-08 真机取证（头条前端 bundle 自证，版本哈希可追溯）：
+    //   · graphic/7979.f3fa7c18e0.js 定时弹窗文案「请选择当前时间后 2小时 至 7天 进行定时发布」
+    //     与「最长支持7天」（Popover content: "最长支持".concat(7,"天")）
+    //   · graphic/publish.b8c90341ac.js 校验代码 ve.clone().add(2,"h").subtract(1,"minute")
+    //     ~ .add(7,"d")，越界文案「请重新设置定时发布时间」
+    //   此前登记的 30 是未经取证的我方假设值，高估 4 倍；平台必拒的排期不该走到提交才失败。
+    //   若要改此值：必须重新真机取证（发布页 bundle 的 disabledDate/校验代码或 UI 文案），
+    //   并同步更新 01-docs/PRD.md §6.3.15 与 openspec/records/ 取证记录。
+    it('头条最大排期跨度 = 7 天（2026-10-08 平台前端 bundle 取证，禁止凭记忆改回）', () => {
+      const cap = getPlatformScheduleCapability('toutiao')
+      expect(cap.maxHorizonDays).toBe(7)
+    })
   })
 
   describe('未知平台必须 fail-closed（而不是默认支持）', () => {

@@ -69,10 +69,10 @@ describe('platform-schedule-create —— 创建前校验', () => {
       }, NOW)).toThrow(/5/)
     })
 
-    it('超过平台最大跨度（头条 30 天）被拒', () => {
+    it('超过平台最大跨度（头条 7 天，2026-10-08 bundle 取证）被拒', () => {
       expect(() => assertSchedulableInput({
         platform: 'toutiao', article: {}, publishTime: future(365 * 24 * HOUR)
-      }, NOW)).toThrow(/30/)
+      }, NOW)).toThrow(/7/)
     })
 
     it('窗口内的时间通过', () => {

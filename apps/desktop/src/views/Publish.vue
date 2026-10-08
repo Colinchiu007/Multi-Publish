@@ -150,7 +150,7 @@
             <div class="cohere-form-item">
               <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
               <UiInput type="datetime-local" v-model="a.publishTime" class="input-max-260" />
-              <span class="publish-time-hint">{{ scheduleHintText }}</span>
+              <span class="publish-time-hint">{{ fieldSurface.hintTextFor(a.platforms) }}</span>
               <p v-if="scheduleCapabilityHint(a.platforms)" class="no-title-hint" data-testid="batch-schedule-capability">{{ scheduleCapabilityHint(a.platforms) }}</p>
             </div>
           </div>
@@ -776,7 +776,6 @@ import { usePublishDrafts } from '@/composables/usePublishDrafts'
 import {
   normalizePublishMentions,
   normalizePublishStringList,
-  PUBLISH_CONTRACT_LIMITS,
 } from '@/features/publish/publish-contract'
 import { normalizeUploadFile, resolveUploadFilePath } from '@/features/publish/publish-upload-file'
 import { usePublishFieldSurface } from '@/features/publish/usePublishFieldSurface'
@@ -800,13 +799,12 @@ defineOptions({ name: 'Publish' })
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-// 定时发布 hint 前置展示校验限制（2026-10-06）：30 天上限与同账号 5 分钟间隔此前
-// 只在被拒绝时才告知用户，用户只能靠一次次失败提交反推规则。限制值与
-// validateScheduleEntries 共用同一常量源，避免文案与实际校验漂移。
-const scheduleHintText = computed(() => t('publishPage.scheduleHintWithLimits', {
-  maxDays: PUBLISH_CONTRACT_LIMITS.maxScheduleDays,
-  minMinutes: Math.round(PUBLISH_CONTRACT_LIMITS.minAccountIntervalMs / 60000),
-}))
+// 定时发布 hint 前置展示校验限制（2026-10-06）：限制值与 validateScheduleEntries
+// 共用同一常量源，避免文案与实际校验漂移。
+// 2026-10-08 起按**所选平台**显示有效上限：头条排期上限经平台 bundle 取证为 7 天，
+// 若 hint 仍显示全局 30 天，用户按 30 天排期会在提交时被拒（文案与校验漂移）。
+// 具体实现见 fieldSurface.hintTextFor（在下方 fieldSurface 定义处接线，
+// computed 变量 `scheduleHintText` 亦声明在那里 —— 依赖顺序：fieldSurface 须先建）。
 const { notifySuccess, notifyWarning, notifyInfo } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
@@ -1249,6 +1247,9 @@ const { fieldSupportText } = fieldSurface
 // 不再用 fieldSupportText('schedule')：那个徽标统计的是「发布链路接入了 schedule
 // 字段」（15/15），与平台能否真正接下排期无关，属于改造后的语义错位。
 const scheduleCapabilityHint = (ids) => fieldSurface.scheduleCapabilityHint(ids)
+// 定时 hint（单篇）：按所选平台显示有效排期上限（2026-10-08，头条 7 天）。
+// 批量条目在模板里各自调 fieldSurface.hintTextFor(a.platforms)。
+const scheduleHintText = computed(() => fieldSurface.hintTextFor(selectedPlatforms.value))
 const noTitleHint = computed(() => fieldSurface.noTitleHintFor(selectedPlatforms.value))
 const selectedOverridePlatforms = computed(() =>
   fieldSurface.overridePlatformSpecsFor(platforms.value, selectedPlatforms.value))
