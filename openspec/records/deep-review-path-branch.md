@@ -2,9 +2,6 @@
 record: deep-review-path-branch
 task: deep-review.sh PATH 分支 fail-closed 三分判定，废除「已按原样使用」静默计可用
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 回填 PR 的会话
 ---
 
 ## 本次执行记录：deep-review.sh PATH 分支 fail-closed（deep-review-path-branch，2026-10-08）
@@ -58,7 +55,7 @@ PATH 分支重写为 **fail-closed 三分判定**（嵌套 case）：
 | 行尾对账 | PASS | 两口径 numstat 逐行一致（73+/23-） |
 | QM-1 打包 / QM-4 视觉 | ➖ N/A | 未触 electron；无 UI |
 | QM-6 双模型外部评审 | **PASS** | 两轮 critic=claude（首轮 + 二轮 5 findings 处置），opencode 侧由 pre-commit 决策层判定衔接；非自审 |
-| 远程同步 | PENDING | 合并后回填 merge SHA 与时间，同一次提交删 sync_* 三字段 |
+| 远程同步 | PASS | PR #3161 squash 合并为 origin/main 2df92f4c11a5171bb0fdf7652c93a6dddcb37fd4（2026-10-08T20:32:48+08:00，squash merge，CI 重跑后全绿）；git ls-remote --heads origin deep-review-path-branch 返回 0 行证远端分支已删。回填与销账在同一次提交内完成：删 frontmatter sync_* 三字段 |
 
 ### 遗留（不假装已闭合）
 
