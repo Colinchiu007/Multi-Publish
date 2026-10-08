@@ -1,5 +1,10 @@
 # 会员中心阶段 2 · 真实支付与自动续费设计（Member Center P2 Payment Spec）
 
+
+> ⚠️ **定价已于 2026-10-08 更新为 v1.2 定案**（`PLAN_MATRIX_VERSION = 2026-10-08`）。
+> 本文档中 `¥29/月 · ¥199/年` 与 `官方积分 0/500/3000` 为 **2026-09-23 旧值，已作废**。
+> 现行口径见 `01-docs/pricing-strategy.md` §1 与 `01-docs/DEEP-ANALYSIS-CREDIT-PRICING-2026-10-08.md` §6.1b。
+
 > 版本 v1.1 | 日期 2026-09-24 | 状态：🟡 CEO 评审完成（SELECTIVE EXPANSION）· 待最终签字后进入实施计划
 > 范围：Multi-Publish 桌面端「会员中心」订阅变现的**真实支付链路**——支付通道选型、通道无关抽象、订阅创建/续费/取消写入、自动续费、续费/退款 webhook。
 > 上游真源：`01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md`（阶段 1，已 CEO 签字、PR #2314 已合并落地）、`packages/api-publish-engine/src/auth/postgres-commerce-store.js`、`.../publish-api-commerce.js`、`ops-center/docs/pricing-strategy.md`
@@ -28,7 +33,7 @@
 ## 0. 背景与现状（承接阶段 1）
 
 阶段 1 已交付并合并（PR #2314）：
-- 三级订阅权益矩阵（free / standard ¥29·月 / pro ¥79·月）以服务端 `plan-matrix` 为唯一真源。
+- 三级订阅权益矩阵（free / standard ¥59·月 / pro ¥79·月）以服务端 `plan-matrix` 为唯一真源。
 - `identity_subscriptions` 补了统一 upsert 写入路径，但只有两条通道可用：**① 兑换码核销 ② ops-center 后台开通**；第 **③ 支付回调**通道置灰。
 - `identity_orders` 表已建（含 `channel / status / paid_at / refunded_at / invoice_status`），阶段 1 无真实扣款，订单仅由兑换码/后台开通回填。
 - `identity_webhook_events` 表已存在（阶段 1 用于承接幂等事件去重），本 spec 作为支付 webhook 落点复用。

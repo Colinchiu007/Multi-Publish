@@ -21,7 +21,7 @@ const log = require('./logger')
  *
  * ⚠️ 这里只认 `pro` 且是一次性 ¥99，与真正的定价体系脱节：
  *   - 权威源 `packages/api-publish-engine/src/auth/plan-matrix.js` 是
- *     free ¥0 / standard ¥29月 ¥199年 / **pro ¥79月 ¥599年**（三档订阅）
+ *     free ¥0 / standard ¥59月 ¥499年 / **pro ¥79月 ¥699年**（三档订阅，`PLAN_MATRIX_VERSION=2026-10-08`）
  *   - `license-manager.activate()` 落库时写 `expiresAt = null`，即**买断**，
  *     全文件零订阅/续期概念
  *

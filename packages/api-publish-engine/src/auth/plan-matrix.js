@@ -11,9 +11,14 @@
  *   quota 为顶层对象且键名对齐 `${feature}_monthly`；limits 为 UI 展示透传字段（扣减路径不读）。
  * - overrides 为运营可配注入（config.yaml，带 * 项），只允许覆盖基线已有数值键。
  * - 客户端禁止硬编码金额/配额，一律通过 GET /api/v1/plans 与 entitlement 快照下发。
+ * - officialCreditMonthly 是**唯一**的官方积分额度字段，**不设年付专用字段**：年付按月等额发放，
+ *   年付总量因此恒为 12×月付量。改动本字段前须先确认年付发放路径没有另起一套数值。
+ * - overrides（mergePlanSection）是运营改价/改配额的唯一入口，但**注入点在仓外**：
+ *   logto-runtime.js 读 options.planOverrides，本仓内无传参方，createLogtoRuntime 亦无仓内调用方。
+ *   依赖注入能否触达本矩阵取决于部署层——本仓无法自证。
  */
 
-const PLAN_MATRIX_VERSION = '2026-09-23'
+const PLAN_MATRIX_VERSION = '2026-10-08'
 
 const PLAN_IDS = Object.freeze(['free', 'standard', 'pro'])
 
@@ -28,13 +33,14 @@ const BASE_MATRIX = {
     videoMonthly: 0,
     scheduleBatch: false,
     dashboard: 'basic',
-    officialCreditMonthly: 0,
+    // 体验额度：约 2 条 720P 视频或 7 张标准清晰度配图
+    officialCreditMonthly: 30,
     concurrentTasks: 1,
   },
   standard: {
     label: '标准版',
-    priceMonthlyCents: 2900,
-    priceYearlyCents: 19900,
+    priceMonthlyCents: 5900,
+    priceYearlyCents: 49900,
     maxPlatforms: 15,
     dailyPublish: 50,
     // 「不限」前提是走自有 Key；官方积分受 officialCreditMonthly（中档）约束。
@@ -42,13 +48,14 @@ const BASE_MATRIX = {
     videoMonthly: 500,
     scheduleBatch: true,
     dashboard: 'full',
-    officialCreditMonthly: 500,
+    // 成本占比 27.1%（¥59 × 27.1% ≈ ¥16）。年付按月等额发放，年付总量因此恒为 12×本值
+    officialCreditMonthly: 1600,
     concurrentTasks: 3,
   },
   pro: {
     label: '专业版',
     priceMonthlyCents: 7900,
-    priceYearlyCents: 59900,
+    priceYearlyCents: 69900,
     maxPlatforms: -1,
     // spec：「不限（默认上限 1000，运营可配）」——用有限高值而非 -1，避免下游除零/无限逻辑。
     dailyPublish: 1000,
@@ -56,7 +63,8 @@ const BASE_MATRIX = {
     videoMonthly: 3000,
     scheduleBatch: true,
     dashboard: 'full',
-    officialCreditMonthly: 3000,
+    // 成本占比 27.8%（¥79 × 27.8% ≈ ¥22）。年付按月等额发放，年付总量因此恒为 12×本值
+    officialCreditMonthly: 2200,
     concurrentTasks: 10,
   },
 }

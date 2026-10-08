@@ -92,7 +92,7 @@ async function main() {
     const plans = await request(port, 'GET', '/api/v1/plans', 'member-read')
     assert.strictEqual(plans.status, 200)
     assert.strictEqual(plans.body.plans.length, 3)
-    assert.strictEqual(plans.body.plans[1].priceMonthlyCents, 2900)
+    assert.strictEqual(plans.body.plans[1].priceMonthlyCents, 5900)
     console.log('  ✅ GET /api/v1/plans 价目目录')
 
     const me = await request(port, 'GET', '/api/v1/me', 'member-read', null, { 'X-Device-ID': 'device-aaaaaaaaaaaa' })
