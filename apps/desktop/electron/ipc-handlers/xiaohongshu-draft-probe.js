@@ -118,7 +118,7 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
       cookies = (saved && Array.isArray(saved.cookies)) ? saved.cookies : []
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      ipcLog('warn', 'xiaohongshu:probe-draft-chain', 'load-failed', `accountId=${accountId} message=${msg}`)
+      ipcLog('warn', 'xiaohongshu:probe-draft-chain', 'load-failed', `accountId=${accountId} message=${sanitizeMessage(msg)}`)
       return {
         code: EC.REQUEST_ERROR, message: '凭证读取失败（见日志）',
         data: { stage: 'load-credentials', readable: false },
@@ -151,7 +151,7 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
       signer = (payload) => signXiaohongshuLocal(payload)
     } catch (e) {
       return {
-        code: EC.REQUEST_ERROR, message: '签名器装配失败: ' + (e instanceof Error ? e.message : String(e)),
+        code: EC.REQUEST_ERROR, message: '签名器装配失败: ' + sanitizeMessage(e instanceof Error ? e.message : String(e)),
         data: { stage: 'signer-load' },
       }
     }
