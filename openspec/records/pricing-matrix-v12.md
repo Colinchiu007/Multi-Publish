@@ -2,9 +2,6 @@
 record: pricing-matrix-v12
 task: 档位矩阵改 v1.2 定案数值，并同步 12 处文档 + 登记 5 处口径漂移
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后回填）
 ---
 
 ## 本次执行记录：档位矩阵改 v1.2 定案数值（pricing-matrix-v12，2026-10-08）
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（合并后回填）
 | QM-1 打包 | N/A | 改的是 `packages/api-publish-engine/`（纯 Node 服务端模块）与 2 处注释；按 AGENTS.md，QM-1 的强制打包范围是 `apps/desktop/electron/` 与 `packages/rpa-engine/`，本次未触及其运行链。注释改动不改变任何执行路径 |
 | QM-4 视觉 | N/A | 无 UI 变更（`.vue` 改动仅限文件头 JSDoc 注释，无模板/样式改动） |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本环境无 `codeagent-wrapper`；不以自审冒充通过。**本次评审替代方案**：对 15 个文件逐个核对了 diff 与门禁输出 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin pricing-matrix-v12` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3178 已 squash 合并为 `807d8144d29936b37ac092eaa69edb6c55370585`（2026-10-09T00:14:37+08:00，取证 `git log origin/main --grep='(#3178)$' --format=%H\|%cI`）；`git ls-remote --heads origin pricing-matrix-v12` 返回 0 行，证远端分支已删（`--delete-branch` 生效）。CI：23 checks 收敛于 22 success / 1 skipped / 0 failure——本 PR 为混合 PR（`docs-only=false`），重型 job 未短路，是实跑通过的。frontmatter 的三个 `sync_*` 字段在同一次回填提交中删除 |
 
 ### 取证基线说明
 
