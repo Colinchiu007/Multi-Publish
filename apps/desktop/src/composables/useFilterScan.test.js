@@ -114,12 +114,12 @@ describe('useFilterScan（M-11 状态机）', () => {
     // 正是这次调用把 filterScanStale 置真、触发让位重扫。单测必须复刻这条路径。
     const p2 = scan.loadRemainingRecordsForFilters()
     await p
-    // 重扫是 void 触发的 fire-and-forget：等它真正跑完再断言
-    // （连续两次微任务后 loadRecords 次数不再增长即认为静止）
+    // 重扫是 void 触发的 fire-and-forget：等它真正跑完再断言。
+    // 注意必须用 setTimeout 让出宏任务 —— 纯 `await Promise.resolve()` 循环
+    // 是微任务自旋（Gate 19 拦截的形态：vitest 超时打不断，可能挂死 worker）。
     for (let i = 0; i < 50; i++) {
       const before = loadRecords.mock.calls.length
-      await Promise.resolve()
-      await Promise.resolve()
+      await new Promise((r) => setTimeout(r, 0))
       if (loadRecords.mock.calls.length === before) break
     }
     await p2
