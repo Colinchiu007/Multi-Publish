@@ -52,9 +52,10 @@ vi.mock('@/stores/platforms', () => ({
 }))
 
 import PublishHistory from './PublishHistory.vue'
+// 与源码同源引用（不硬编码字面量）—— 该上限是临时值，将来改值不应让测试误红
+import { FILTER_SCAN_MAX_PAGES } from '@/composables/useDebouncedRef'
 
 const PAGE_SIZE = 50
-const FILTER_SCAN_MAX_PAGES = 20
 
 // 每页只放 5 条：页数上限判的是"翻了几页"，与每页多少条无关。
 // 用满页 50 × 20 页 = 1000 张卡片会把渲染拖到 30s 超时（实测），而判据强度不变。
@@ -274,11 +275,31 @@ describe('M-11：筛选补页扫描的防抖与上限', () => {
     wrapper.unmount()
   })
 
+  // ⚠️ 此处原有一条「扫描途中改筛选条件必须用新条件重扫」的用例，已**移除**。
+  //
+  // 移除原因（按证据纪律 §C.8「反证不通过先怀疑自己的实证」）：
+  // 我把它加上后做过反证 —— 撤掉修复（去掉 filterScanStale = true）后，
+  // 这条用例**仍然全绿**。也就是说它证明不了 CCG i1 那条 Critical：
+  // 旧行为下旧扫描会继续跑完，请求总数同样会超过一整轮，
+  // 我的判据（总调用数 > FILTER_SCAN_MAX_PAGES）区分不了"重扫"与"旧扫描跑完"。
+  //
+  // i1 的修复代码**保留**（它确实修掉了"新条件被吞"这条路径），
+  // 但**不能声称已有回归测试守护**。留一条证明不了东西的测试，
+  // 比没有测试更危险 —— 它会让下一个人以为这里有人看着。
+  //
+  // 待办：把「中途改条件 ⇒ 用新条件重扫」做成可判定断言。可行的方向是
+  // 让组件暴露一个可观测的重扫计数（而不是从 IPC 调用数间接推断）。
+
   it('反证：未触顶时用"已从 N 条中筛选"（防判据被写反）', async () => {
-    // total=60，首页 50 ⇒ 补一页就到底，不会触顶
-    historyListMock
-      .mockResolvedValueOnce({ code: 0, data: { total: 60, records: page('a', PAGE_SIZE) } })
-      .mockResolvedValueOnce({ code: 0, data: { total: 60, records: page('b', 10) } })
+    // total=60，首页 50 ⇒ 补一页就到底，不会触顶。
+    // 用 mockImplementation（而非只给两次 Once）：重扫机制可能多问几页，
+    // 只给两次会让第三次拿到 undefined 而走进异常分支，把这条用例变成测别的东西。
+    let seq = 0
+    historyListMock.mockImplementation(async () => {
+      seq += 1
+      if (seq === 1) return { code: 0, data: { total: 60, records: page('a', PAGE_SIZE) } }
+      return { code: 0, data: { total: 60, records: page(`b${seq}`, 10) } }
+    })
 
     const wrapper = mountView()
     await flushPromises()

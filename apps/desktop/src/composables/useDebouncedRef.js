@@ -26,6 +26,19 @@ import { ref, watch, onUnmounted } from 'vue'
 const DEFAULT_DELAY_MS = 300
 
 /**
+ * 筛选扫描的补页页数上限（M-11）。
+ *
+ * 放在这里而不是视图里，是为了让组件与测试**同源引用**：这个上限是临时值
+ * （M-15 落地服务端过滤后应移除），若测试硬编码字面量，将来改值会让测试
+ * 莫名其妙变红（CCG 外部评审 i5）。
+ *
+ * 取 20 页（每页 50 条 ⇒ 约 1000 条）的依据：
+ *   - 把最坏情况从「不限」压到 20 次串行 IPC；
+ *   - 不给上限则历史表每增长一倍、单次搜索代价就翻倍——那是随时间恶化的缺陷。
+ */
+export const FILTER_SCAN_MAX_PAGES = 20
+
+/**
  * @param {any} initial 初始值
  * @param {number} [delayMs=300] 延迟毫秒
  * @returns {{ immediate: import('vue').Ref, debounced: import('vue').Ref,
