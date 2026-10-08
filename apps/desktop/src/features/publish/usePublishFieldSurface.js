@@ -22,7 +22,14 @@ import {
 } from '@multi-publish/shared-utils/src/publish-capabilities'
 // 平台侧定时能力真源（api / rpa / unsupported 三态；未知平台 fail-closed）。
 // 必须走 vite alias 指向的 ESM 孪生，不能 import CJS 版（dev server 运行时无具名导出）。
-import { isPlatformSideScheduleSupported } from '@multi-publish/shared-utils/src/platform-schedule-capability'
+import {
+  getPlatformScheduleCapability,
+  isPlatformSideScheduleSupported,
+} from '@multi-publish/shared-utils/src/platform-schedule-capability'
+import {
+  DEFAULT_MAX_SCHEDULE_DAYS,
+  DEFAULT_MIN_ACCOUNT_INTERVAL_MS,
+} from './publish-schedule-contract'
 
 const t = (key, params) => i18n.global.t(key, params)
 
@@ -33,6 +40,37 @@ function uniqueIds (platformIds) {
 
 function joinLabels (platformIds) {
   return platformIds.map(id => getPlatformLabel(id)).join('、')
+}
+
+/**
+ * 当前所选平台下的**有效排期上限（天）**。
+ *
+ * 2026-10-08 引入：头条排期上限经平台前端 bundle 真机取证为 7 天
+ * （capability.maxHorizonDays=7）。若 hint 继续显示全局 30 天，用户按 30 天排期
+ * 会在提交时被 scheduleExceedsMaxDays 拒绝 —— 文案与校验漂移（门禁明令禁止的形态，
+ * 与「徽标谎报 15/15」同族）。规则：全局上限与所有「已支持平台侧定时」平台的
+ * maxHorizonDays 取最严者；未选平台 / 所选全不支持 ⇒ 返回全局上限
+ * （不支持平台由提交前能力门禁另行阻断，hint 不预判）。
+ * 单篇与批量共用本函数，两模式不可能漂移。
+ * @param {string[]} platformIds 当前所选平台
+ * @returns {number}
+ */
+export function effectiveScheduleMaxDays (platformIds) {
+  const ids = uniqueIds(platformIds).filter(id => isPlatformSideScheduleSupported(id))
+  if (ids.length === 0) return DEFAULT_MAX_SCHEDULE_DAYS
+  return Math.min(DEFAULT_MAX_SCHEDULE_DAYS,
+    ...ids.map((id) => {
+      const cap = getPlatformScheduleCapability(id)
+      return cap.maxHorizonDays > 0 ? cap.maxHorizonDays : DEFAULT_MAX_SCHEDULE_DAYS
+    }))
+}
+
+/** 定时 hint 文案（值与 validateScheduleEntries 共用同一常量源，避免漂移）。 */
+export function scheduleHintTextFor (platformIds) {
+  return t('publishPage.scheduleHintWithLimits', {
+    maxDays: effectiveScheduleMaxDays(platformIds),
+    minMinutes: Math.round(DEFAULT_MIN_ACCOUNT_INTERVAL_MS / 60000),
+  })
 }
 
 export function usePublishFieldSurface () {
@@ -80,6 +118,19 @@ export function usePublishFieldSurface () {
         supported: joinLabels(supported),
         unsupported: joinLabels(unsupported)
       })
+    },
+
+    /**
+     * 定时 hint：按所选平台显示有效排期上限（2026-10-08，头条 7 天）。
+     * 与 validateScheduleEntries 共用同一真源（capability JSON + 全局常量），
+     * 避免「文案说 30 天、提交 7 天就被拒」的漂移。
+     * 方法名 hintTextFor（非同名包装）：与下方模块级导出 scheduleHintTextFor
+     * 同一实现，命名错开以免在方法体内被误读为递归引用。
+     * @param {string[]} platformIds 当前所选平台
+     * @returns {string}
+     */
+    hintTextFor (platformIds) {
+      return scheduleHintTextFor(platformIds)
     },
 
     /**

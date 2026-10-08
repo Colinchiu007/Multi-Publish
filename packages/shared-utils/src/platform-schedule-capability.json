@@ -9,7 +9,7 @@
       "enableValueOn": 1,
       "timeFormat": "YYYY-MM-DD HH:mm",
       "minLeadMinutes": 5,
-      "maxHorizonDays": 30,
+      "maxHorizonDays": 7,
       "verified": true
     },
     "wechat_mp": { "mode": "unsupported", "reason": "notVerified", "verified": false },

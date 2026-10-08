@@ -210,13 +210,19 @@
 |--------|------|--------|---------------|
 | 平台支持 | 能力非 unsupported | schedulePlatformUnsupported | 「{platform} 暂不支持定时发布，已阻止提交。请选择其他平台或取消定时后立即发布。」 |
 | 最小提前量 | 距今 ≥ capability.minLeadMinutes（头条 5 分钟） | scheduleTooSoon | 「{platform} 的定时发布至少需要提前 {minMinutes} 分钟。」 |
-| 最大跨度 | ≤ min(全局 30 天, capability.maxHorizonDays) | scheduleExceedsMaxDays | 「定时发布时间不能超过 {maxDays} 天」 |
+| 最大跨度 | ≤ min(全局 30 天, capability.maxHorizonDays)（头条 7 天，2026-10-08 平台前端 bundle 取证：定时弹窗文案「请选择当前时间后 2小时 至 7天」+ 校验代码 add(2,"h")~add(7,"d")；若日后平台调整须重新取证再改） | scheduleExceedsMaxDays | 「定时发布时间不能超过 {maxDays} 天」 |
 | 时间格式 | new Date(publishTime) 可解析 | scheduleInvalidTime | 「定时发布时间无效」 |
 | 未来时间 | timestamp > now | scheduleMustBeFuture | 「定时发布时间必须晚于当前时间」 |
 | 同账号间隔 | 同 platform:accountId 两条间隔 ≥ 5 分钟 | scheduleIntervalTooShort | 「{platform} {accountId}的定时任务间隔必须至少 {minMinutes} 分钟」 |
 
 **主进程（scheduler.create，防绕过渲染层）**：不支持平台在**落盘前**抛错（文件不存在，无记录残留）；
 平台窗口再次校验；参数类型校验（platform 非空串、article 为对象、publishTime 有效未来时间）。
+
+**hint 与校验同源（2026-10-08）**：定时字段的 hint 文案按**当前所选平台**显示有效上限
+（`fieldSurface.scheduleHintTextFor`：全局 30 与所选支持平台 maxHorizonDays 取最严者），
+单篇跟随 selectedPlatforms、批量条目跟随各自 a.platforms。头条显示 7 天而非 30 天 ——
+用户按 hint 排的期不会被提交校验拒绝。既有断言：`schedule-capability-hint.test.js`
+（effectiveScheduleMaxDays：未选平台/全不支持 → 30；选头条 → 7；文案不含 30）。
 
 ##### 6.3.15.4 状态机
 

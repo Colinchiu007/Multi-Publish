@@ -18,8 +18,19 @@ const TOUTIAO_CAP = {
   enableValueOn: 1,
   timeFormat: 'YYYY-MM-DD HH:mm',
   minLeadMinutes: 5,
-  maxHorizonDays: 30
+  // 与 platform-schedule-capability.json 的头条取值保持一致（2026-10-08 bundle 取证）
+  maxHorizonDays: 7
 }
+
+// fixture 漂移锁：手工复制的 TOUTIAO_CAP 必须与 JSON 真源逐字段一致，
+// 否则本文件测的是一份不存在的平台配置（评审 MINOR：靠注释维持一致性有漂移风险）
+const JSON_CAP = require('../platform-schedule-capability.json').platforms.toutiao
+const { reason: _r, verified: _v, ...JSON_CAP_FIELDS } = JSON_CAP
+describe('TOUTIAO_CAP fixture 与能力 JSON 真源一致', () => {
+  it('逐字段相等（忽略 reason/verified 两个展示字段）', () => {
+    expect(TOUTIAO_CAP).toEqual(JSON_CAP_FIELDS)
+  })
+})
 
 describe('platform-schedule-time — 平台侧定时时间原语', () => {
   describe('formatForPlatform：按平台格式产出提交值', () => {
@@ -58,7 +69,7 @@ describe('platform-schedule-time — 平台侧定时时间原语', () => {
     it('超过最大跨度 → 抛错并说明最大天数', () => {
       const tooFar = new Date(now + 40 * 24 * 3600 * 1000).toISOString()
       expect(() => assertWithinPlatformWindow(tooFar, TOUTIAO_CAP, now))
-        .toThrow(/30/)
+        .toThrow(/7/)
     })
 
     it('窗口内合法时间通过', () => {
@@ -85,7 +96,7 @@ describe('platform-schedule-time — 平台侧定时时间原语', () => {
     it('超窗时间 → 抛错，绝不降级为立即发布', () => {
       const tooFar = new Date(now + 400 * 24 * 3600 * 1000).toISOString()
       expect(() => resolveScheduleSubmission(tooFar, TOUTIAO_CAP, { now, timeZoneOffsetMinutes: 480 }))
-        .toThrow(/30/)
+        .toThrow(/7/)
     })
   })
 })

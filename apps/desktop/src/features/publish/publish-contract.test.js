@@ -69,7 +69,7 @@ describe('publish contract', () => {
     ])
   })
 
-  it('拒绝过去时间、无效时间和超过 30 天的排期', () => {
+  it('拒绝过去时间、无效时间和超过头条 7 天上限的排期', () => {
     const now = Date.parse('2026-07-20T10:00:00.000Z')
     expect(validateScheduleEntries([
       { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-20T09:59:00.000Z' },
@@ -77,6 +77,7 @@ describe('publish contract', () => {
     expect(validateScheduleEntries([
       { platform: 'toutiao', accountId: 'a', publishTime: 'not-a-date' },
     ], { now })).toMatchObject({ valid: false })
+    // 2026-08-20T10:01Z 距 now 恰好 31 天 + 1 分钟：头条上限 7 天 ⇒ 被拒
     expect(validateScheduleEntries([
       { platform: 'toutiao', accountId: 'a', publishTime: '2026-08-20T10:01:00.000Z' },
     ], { now })).toMatchObject({ valid: false })
@@ -141,13 +142,15 @@ describe('publish contract', () => {
       expect(result.params.minMinutes).toBe(5)
     })
 
-    it('平台跨度上限比全局上限更严时，以平台为准（头条 30 天）', () => {
+    it('平台跨度上限比全局上限更严时，以平台为准（头条 7 天，2026-10-08 平台 bundle 取证）', () => {
+      // publishTime = now + 8 天 - 1 分钟：超过头条 7 天、但未超全局 30 天，
+      // 才能命中「平台分支返回平台上限」而不是先被全局检查拦下
       const result = validateScheduleEntries([
-        { platform: 'toutiao', accountId: 'a', publishTime: '2026-09-20T10:01:00.000Z' },
+        { platform: 'toutiao', accountId: 'a', publishTime: '2026-07-28T09:59:00.000Z' },
       ], { now })
       expect(result.valid).toBe(false)
       expect(result.reason).toBe('scheduleExceedsMaxDays')
-      expect(result.params.maxDays).toBe(30)
+      expect(result.params.maxDays).toBe(7)
     })
 
     it('支持平台在合法窗口内通过', () => {

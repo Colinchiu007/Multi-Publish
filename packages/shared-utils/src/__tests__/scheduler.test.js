@@ -313,14 +313,14 @@ describe('rearm（平台侧语义下退化为 legacy 恢复）', () => {
   // 旧用例「分段唤醒后时钟回拨/前跳」测的是 MAX_TIMER_DELAY 分段定时器 ——
   // 平台侧语义下本地不再武装任何定时器，该能力整体消失（时钟漂移由平台承担）。
   // 但原用例覆盖的「极端跨度」仍有价值：改为校验平台跨度约束，
-  // 避免 30 天/365 天排期本地通过、被平台默默拒绝。
-  it('超过平台最大跨度（30 天）的排期在创建时即被拒绝', () => {
+  // 避免超窗排期本地通过、被平台默默拒绝（头条上限 7 天：2026-10-08 bundle 取证）。
+  it('超过平台最大跨度（头条 7 天）的排期在创建时即被拒绝', () => {
     const taskQueue = { add: vi.fn() }
     scheduler.setTaskQueue(taskQueue)
 
     expect(() => scheduler.create({
       platform: 'toutiao', article: {}, publishTime: new Date(BASE_TIME.getTime() + 365 * DAY_MS).toISOString()
-    })).toThrow(/30/)
+    })).toThrow(/7/)
     expect(taskQueue.add).not.toHaveBeenCalled()
   })
 
