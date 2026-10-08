@@ -23,6 +23,8 @@ const invokeMock = vi.hoisted(() => vi.fn(async () => ({ code: 0, data: null }))
 vi.mock('@/api/electron-bridge', () => ({
   invoke: invokeMock,
   invokePageManager: vi.fn(),
+  // M-9 收敛后 ops-center-sync 的 onOpsCenterRuntimeUpdated 走 bridge.on()
+  on: vi.fn(() => () => {}),
 }))
 
 vi.mock('vue-router', () => ({

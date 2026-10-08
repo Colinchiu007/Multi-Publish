@@ -546,16 +546,18 @@ export async function videoProcess(type, params) {
 }
 /**
  * 提取视频首帧作为封面
+ * M-9：原先四处 window.electronAPI 直访的最后清算是本批之一 ——
+ * 改走 invokeWithFallback 后获得脱壳与「无 API 回 null」的统一语义。
  */
 export function extractVideoCover(videoPath) {
-  return window.electronAPI.extractVideoCover(videoPath)
+  return invokeWithFallback("extractVideoCover", null, videoPath)
 }
 
 export function generateAiCover(payload) {
-  return window.electronAPI.generateAiCover(payload)
+  return invokeWithFallback("generateAiCover", null, payload)
 }
 export function listPlatformCollections(platform, accountId) {
-  return window.electronAPI.listPlatformCollections({ platform, accountId })
+  return invokeWithFallback("listPlatformCollections", { code: -1, message: 'electronAPI not available' }, { platform, accountId })
 }
 
 // ── 博主监控（PRD-CREATOR-WIRING-2026-10-07）────────────────────
@@ -563,6 +565,8 @@ export function listPlatformCollections(platform, accountId) {
 // 「渲染层 IPC 单轨」——渲染进程不得直接触碰 `window.electronAPI`，
 // 必须经 `src/api` 桥接层，否则同一能力会出现两条调用路径，
 // 改一处漏一处。这也是 `check-frontend-consistency.js` 守的基线。
+// M-9：creatorPendingTotal 是当年报告点名三处之外又长出来的一处直访，
+// 一并收进桥接层。
 export function creatorPendingTotal() {
-  return window.electronAPI.creatorPendingTotal()
+  return invokeWithFallback("creatorPendingTotal", { code: 0, data: { total: 0 } })
 }

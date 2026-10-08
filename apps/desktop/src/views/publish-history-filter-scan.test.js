@@ -76,10 +76,14 @@ function page (prefix, n = SMALL_PAGE, status = 'success') {
  *
  * 用**真实定时器**而不是假定时器：假定时器下要驱动 20 轮串行 await 必须反复
  * advanceTimersByTimeAsync + flushPromises 上百次（实测直接把用例拖到 60s 超时）。
- * 真实定时器下这些 IPC mock 是立即 resolve 的，扫描本身几十毫秒就结束。
+ * 真实定时器下这些 IPC mock 是立即 resolve 的。
+ *
+ * 轮数覆盖：300ms 防抖 + 20 轮补页 + 余量，20ms/轮 × 60 轮 = 1.2s 上限；
+ * 文件级 testTimeout 60s 兜底（CI 慢机上单用例耗时波动大，shard2 实测
+ * 默认 10s 偶发超时）。
  */
 async function settleScan () {
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 20))
     await flushPromises()
   }
@@ -89,7 +93,10 @@ function mountView () {
   return mount(PublishHistory, { global: { plugins: [i18n] } })
 }
 
+// 文件级 60s 超时：本文件用例含真实定时器等待（防抖 300ms + 多轮补页），
+// CI 慢机上单用例耗时波动大（shard2 实测 10s 默认值偶发超时），提额消除偶发红。
 describe('M-11：筛选补页扫描的防抖与上限', () => {
+  vi.setConfig({ testTimeout: 60000 })
   beforeEach(() => {
     i18n.global.locale.value = 'zh'
     vi.clearAllMocks()

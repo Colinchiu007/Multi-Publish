@@ -44,10 +44,18 @@ const ACCESS_CONTROL = path.join(ELECTRON_DIR, 'preload', 'access-control.js')
 // ---------------------------------------------------------------------------
 const SCAN_DOMAIN = [
   'automation.js',
+  'cloud-publisher.js',
   'hot-topics.js',
+  'identity.js',
   'knowledge-library.js',
+  'model-providers.js',
+  'ops-center-sync.js',
+  'providers.js',
   'publisher.js',
   'rate-limit.js',
+  'services.js',
+  'tts-voice-catalog.js',
+  'tts-voice-clone.js',
 ]
 const SCAN_EXCLUDED = ['electron-bridge.js', '*.test.js']
 
@@ -192,6 +200,15 @@ function extractCalls (src) {
   const text = stripComments(src)
   const literal = []
   const dynamic = []
+  // M-9 新增：`const NS = 'ttsVoice'` 这类模块级常量作首参是合理形态
+  // （命名空间名在一个文件里只定义一次，比每处重复字面量更不易漂移）。
+  // 这里先收集模块级字符串常量，遇常量名首参时替换成其值再判定；
+  // 常量指向非字面量（表达式/动态拼接）的仍按 dynamic 处理。
+  const constMap = {}
+  for (const m of text.matchAll(/(?:^|\n)\s*const\s+([A-Z][A-Z0-9_]*)\s*=\s*'([^']*)'/g)) {
+    constMap[m[1]] = m[2]
+  }
+  const resolveArg = (raw) => (Object.prototype.hasOwnProperty.call(constMap, raw) ? constMap[raw] : null)
   for (const [fn, re] of Object.entries(CALL_RE)) {
     const r = new RegExp(re.source, re.flags)
     let m
@@ -240,10 +257,16 @@ function extractCalls (src) {
     while ((m = r.exec(text))) {
       const args = readCallArgs(text, m.index + m[0].length, arity)
       if (!args) continue
-      if (args.every((a) => a.literal !== null)) {
-        nsCalls.push({ fn, ns: arity === 2 ? args[0].literal : 'pageManager', method: args[arity - 1].literal })
+      // 首参（ns）/method 若是模块级常量名，先解析成字面量再判定
+      const resolved = args.map((a) => {
+        if (a.literal !== null) return a
+        const v = resolveArg(a.snippet)
+        return v !== null ? { literal: v } : a
+      })
+      if (resolved.every((a) => a.literal !== null)) {
+        nsCalls.push({ fn, ns: arity === 2 ? resolved[0].literal : 'pageManager', method: resolved[arity - 1].literal })
       } else {
-        dynamic.push({ fn, snippet: args.map((a) => (a.literal === null ? a.snippet : a.literal)).join(', ').slice(0, 60) })
+        dynamic.push({ fn, snippet: resolved.map((a) => (a.literal === null ? a.snippet : a.literal)).join(', ').slice(0, 60) })
       }
     }
   }
@@ -566,7 +589,22 @@ describe('失败分支的用户可见文案（3.2）', () => {
 })
 
 describe('扫描域棘轮（D6：新增含调用的文件必须显式登记）', () => {
-  it('src/api 下每个含 invoke 调用的非测试、非显式排除文件都在 SCAN_DOMAIN 内', () => {
+  // M-9 扩展：判据从「含 invoke( 调用」扩展为「含任何 IPC 访问形态」。
+  // 原来 8 个文件（identity/model-providers/providers/...）自己写 getApi() 拿
+  // window.electronAPI 再 api.X(...) 直调 —— 不含 invoke( 这四个字面，
+  // 恰好从旧判据的缝里漏出去（这正是 M-9 的根因形态：绕过桥接层零感知）。
+  const TOUCHES_IPC = [
+    /(?<![A-Za-z0-9_$.])invoke\s*\(/,
+    /(?<![A-Za-z0-9_$.])invokeWithFallback\s*\(/,
+    /(?<![A-Za-z0-9_$.])invokeWithTimeout\s*\(/,
+    /(?<![A-Za-z0-9_$.])invokeNamespace\s*\(/,
+    // CCG 评审 i2：事件订阅（bridge.on）也是 IPC 触点，漏了它，
+    // 只做事件订阅的文件就能游离在 SCAN_DOMAIN 之外
+    /(?<![A-Za-z0-9_$.])on\s*\(\s*['"`]/,
+    /window\.electronAPI/,
+  ]
+
+  it('src/api 下每个触碰 IPC 的非测试、非显式排除文件都在 SCAN_DOMAIN 内', () => {
     const excluded = new Set(SCAN_EXCLUDED.filter((x) => !x.includes('*')))
     const onDisk = fs
       .readdirSync(API_DIR, { withFileTypes: true })
@@ -575,7 +613,7 @@ describe('扫描域棘轮（D6：新增含调用的文件必须显式登记）',
       .filter((name) => !excluded.has(name)) // 显式排除项（electron-bridge.js）不参与棘轮
       .filter((name) => {
         const src = fs.readFileSync(path.join(API_DIR, name), 'utf8')
-        return /(?<![A-Za-z0-9_$.])invoke\s*\(/.test(src) || /(?<![A-Za-z0-9_$.])invokeWithFallback\s*\(/.test(src)
+        return TOUCHES_IPC.some((re) => re.test(src))
       })
       .sort()
 
@@ -587,5 +625,29 @@ describe('扫描域棘轮（D6：新增含调用的文件必须显式登记）',
       `已登记但磁盘上无调用（${stale.length}）：${stale.join(', ')}；` +
       `显式排除：${SCAN_EXCLUDED.join(', ')}`,
     ).toBe('未登记却含调用的文件（0）：；已登记但磁盘上无调用（0）：；显式排除：electron-bridge.js, *.test.js')
+  })
+
+  it('getApi / window.electronAPI 直访必须收敛到 electron-bridge 单一定义（M-9）', () => {
+    // M-9：9 份独立 getApi() 防御强度不一（有的有 typeof window 守卫、有的没有），
+    // 且绕过 toPlainIpcValue 脱壳。收敛后 electron-bridge 是唯一定义处；
+    // 任何人再在别的 api 文件里写 `function getApi` 或直接摸
+    // `window.electronAPI`，这条会点名（文件级，不数次数——文件里有就是绕过）。
+    const offenders = fs
+      .readdirSync(API_DIR, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.js') && !e.name.endsWith('.test.js'))
+      .filter((e) => e.name !== 'electron-bridge.js')
+      .map((e) => e.name)
+      .filter((name) => {
+        const src = stripComments(fs.readFileSync(path.join(API_DIR, name), 'utf8'))
+        return /(?<![A-Za-z0-9_$.])getApi\s*[=(]/.test(src) || /window\.electronAPI/.test(src)
+      })
+      .sort()
+    expect(
+      `绕过 electron-bridge 直访 IPC 的文件（${offenders.length}）：${offenders.join(', ')}\n` +
+      'getApi 的唯一定义在 electron-bridge.js；数据必须经 invokeWithFallback/invoke ' +
+      '获得脱壳（toPlainIpcValue）与统一 fallback 语义。直访 = 绕过两者。',
+    ).toBe('绕过 electron-bridge 直访 IPC 的文件（0）：\n' +
+      'getApi 的唯一定义在 electron-bridge.js；数据必须经 invokeWithFallback/invoke ' +
+      '获得脱壳（toPlainIpcValue）与统一 fallback 语义。直访 = 绕过两者。')
   })
 })

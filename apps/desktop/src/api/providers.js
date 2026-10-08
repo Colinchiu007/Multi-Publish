@@ -3,68 +3,55 @@
  *
  * 桥接 Vue 组件 ↔ Electron 主进程 provider-manager.js
  * 对应 orchestrator 的 /api/admin/providers* 和 /api/user/providers* 端点
+ *
+ * M-9 收敛：全部走 electron-bridge 的 invokeWithFallback（理由同
+ * model-providers.js 头注 —— providerCreate/providerSetUserKey 携带
+ * API Key，必须经 toPlainIpcValue 脱壳后过 IPC）。
  */
+import { invokeWithFallback } from './electron-bridge'
 
-function getApi () {
-  return window.electronAPI || null
-}
+const UNAVAILABLE = 'electronAPI not available'
 
 // ─── Admin CRUD ────────────────────────────────
 
 /** 列出所有 Provider */
-export async function providerList () {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available', data: [] }
-  return api.providerList()
+export function providerList () {
+  return invokeWithFallback('providerList', { code: -1, message: UNAVAILABLE, data: [] })
 }
 
-/** 创建 Provider */
-export async function providerCreate (data) {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available' }
-  return api.providerCreate(data)
+/** 创建 Provider（data 含 API Key，脱壳后过 IPC） */
+export function providerCreate (data) {
+  return invokeWithFallback('providerCreate', { code: -1, message: UNAVAILABLE }, data)
 }
 
 /** 更新 Provider */
-export async function providerUpdate (name, data) {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available' }
-  return api.providerUpdate(name, data)
+export function providerUpdate (name, data) {
+  return invokeWithFallback('providerUpdate', { code: -1, message: UNAVAILABLE }, name, data)
 }
 
 /** 删除 Provider */
-export async function providerDelete (name) {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available' }
-  return api.providerDelete(name)
+export function providerDelete (name) {
+  return invokeWithFallback('providerDelete', { code: -1, message: UNAVAILABLE }, name)
 }
 
 /** 测试连接 */
-export async function providerTest (name) {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available' }
-  return api.providerTest(name)
+export function providerTest (name) {
+  return invokeWithFallback('providerTest', { code: -1, message: UNAVAILABLE }, name)
 }
 
 // ─── User API ──────────────────────────────────
 
 /** 列出可用 Provider */
-export async function providerListUser () {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available', data: [] }
-  return api.providerListUser()
+export function providerListUser () {
+  return invokeWithFallback('providerListUser', { code: -1, message: UNAVAILABLE, data: [] })
 }
 
-/** 设置用户 API Key 覆盖 */
-export async function providerSetUserKey (name, apiKey, baseUrl) {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available' }
-  return api.providerSetUserKey(name, apiKey, baseUrl)
+/** 设置用户 API Key 覆盖（apiKey 经脱壳后过 IPC） */
+export function providerSetUserKey (name, apiKey, baseUrl) {
+  return invokeWithFallback('providerSetUserKey', { code: -1, message: UNAVAILABLE }, name, apiKey, baseUrl)
 }
 
 /** 移除用户 API Key 覆盖 */
-export async function providerDeleteUserKey (name) {
-  const api = getApi()
-  if (!api) return { code: -1, message: 'electronAPI not available' }
-  return api.providerDeleteUserKey(name)
+export function providerDeleteUserKey (name) {
+  return invokeWithFallback('providerDeleteUserKey', { code: -1, message: UNAVAILABLE }, name)
 }

@@ -30,6 +30,8 @@ vi.mock('vue-router', () => ({
 vi.mock('@/api/electron-bridge', () => ({
   invoke: vi.fn(async () => ({ code: 0, data: null })),
   invokePageManager: vi.fn(),
+  // M-9 收敛后 ops-center-sync 的 onOpsCenterRuntimeUpdated 走 bridge.on()
+  on: vi.fn(() => () => {}),
 }))
 
 // 版本号是装饰性信息：桩掉以隔离主进程调用
