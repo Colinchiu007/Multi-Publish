@@ -87,8 +87,8 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     if (!isSafe(accountId)) {
       return { code: EC.VALIDATION_ERROR, message: 'accountId 非法', data: { stage: 'validate' } }
     }
-    // 默认草稿箱，不公开发布
-    const draft = arg && arg.draft === false ? false : true
+    // 调试通道只走草稿：draft 锁死 true，调用方传 draft:false 一律忽略（公开发布走产品正式发布通道）
+    const draft = true
 
     // ── 阶段 1：解密凭据（只在主进程内，DPAPI 可用）──
     let cookies
