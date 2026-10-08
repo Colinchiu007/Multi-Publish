@@ -2,7 +2,6 @@
 record: fix-ccg-scanner-noise
 task: CCG 安全扫描器治理第一步——剔除测试文件噪音 + 修单文件假绿灯
 date: 2026-10-07
-sync_status: PASS
 ---
 
 ## 本次执行记录：CCG 扫描器噪音治理（fix-ccg-scanner-noise，2026-10-07）

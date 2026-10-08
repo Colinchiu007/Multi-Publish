@@ -2,7 +2,6 @@
 record: fix-xhs-draft-false-success
 task: 小红书草稿假成功修复——内容未写入却报 success:true
 date: 2026-10-07
-sync_status: PASS
 ---
 
 ## 本次执行记录：小红书草稿假成功修复（fix-xhs-draft-false-success，2026-10-07）

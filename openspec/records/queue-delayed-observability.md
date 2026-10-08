@@ -2,7 +2,6 @@
 record: queue-delayed-observability
 task: 频控等待任务（_delayed）纳入可观测与持久化——修多平台批量发布队列饿死
 date: 2026-10-06
-sync_status: PASS
 ---
 
 ## 本次执行记录：队列饿死修复（queue-delayed-observability，2026-10-06）

@@ -2,7 +2,6 @@
 record: exec-record-backfill-exit
 task: 执行记录存在性门禁补第四条合法出路——纯回填型 PR（变更集全为记录/台账载体的 M）不再被误判为「未携带执行记录」
 date: 2026-10-05
-sync_status: PASS
 ---
 
 ## 本次执行记录：执行记录门禁补「纯回填」出路④（exec-record-backfill-exit，2026-10-05）
