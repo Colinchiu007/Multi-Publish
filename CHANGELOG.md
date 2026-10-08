@@ -1,3 +1,56 @@
+# [未发布] docs(security): rgj7（libheif）可达性追踪完成——两条 sharp 公告均无可达路径，升级安全收益确证（2026-10-08，rgj7-reachability）
+
+### 追踪结论：`GHSA-rgj7-g3m4-5g8c` 不可达
+
+`#3129` sharp 升级时，`rgj7`（libheif / HEIF-HEIC 解码器）被如实标记为
+「可达性未能证实，不声称不可达」，并登记了独立 follow-up。本次追踪完成，结论：
+
+**rgj7 在本仓没有可达路径。** 两条公告（wq5f librsvg / rgj7 libheif）均无可达触发点，
+升级的安全收益是真实的。
+
+### 追踪过程与证据（两条候选路径逐一排除）
+
+**候选 1：桌面端 `cover:crop` IPC（`apps/desktop/electron/ipc-handlers/publish.js:167`）**
+
+- 入口 `payload.imagePath` 确实无扩展名白名单（`#3129` 时的判断只对这一层成立）
+- 但下游 `cropImageFile` → `readImageAsDataUrl`（`apps/desktop/electron/services/cover-cropper.js:194-197`）
+  **有**扩展名白名单：`{ '.jpg', '.jpeg', '.png', '.webp' }`，HEIC 文件在此被直接拒绝
+- 且裁剪走 Chromium offscreen BrowserWindow + canvas 解码（`buildCropPage`），
+  **不经过 sharp/libheif**——即使白名单放行 HEIC，也到不了 libheif 代码
+
+**候选 2：`packages/api-publish-engine/src/cover-cropper.js` 的 `cropCover`（直接 `sharp(imagePath)`）**
+
+- 全仓检索（排除 node_modules）：`cropCover` **无任何生产调用方**，
+  引用只有它自己、`test/cover-cropper.test.js` 与 `test/test-cover.js`
+- CI 的测试发现器（`scripts/run-tests.js:49`）只认 `*.test.js` 后缀——
+  `test-cover.js` **不进 CI**；`cover-cropper.test.js` 只断言
+  REQUIREMENTS 表和「未知平台返回原路径」，不触发 sharp 解码真实图片
+- 即便向 `sharp().metadata()` 传入 HEIC，0.35.5 的行为是解析报错 →
+  catch 后返回原路径，不构成漏洞利用面
+
+### 与 #3129 表述的关系
+
+`#3129` 条目中的「未证实不可达」是**当时的诚实记录**，保留不改写——
+台账记录的是每次决策时点的证据状态，本条目是证据状态的一次推进，
+两处并存正是台账的本意。
+
+### 不做什么
+
+- 不给 `cover:crop` 入口补扩展名/magic-bytes 校验：
+  下游白名单已实际拦截 HEIC，入口再加一层是重复校验；
+  若未来把 `cover-cropper.js` 换成 sharp 实现，白名单会随实现一起复审
+- 不改 `#3129` 的历史条目（棘轮门禁也不允许）
+
+### 数据校验
+
+| 校验 | 结果 |
+|---|---|
+| 全仓检索 `cropCover` 调用方（排除 node_modules） | ✅ 0 个生产调用方 |
+| `run-tests.js` 测试发现模式 | ✅ 仅 `*.test.js`，`test-cover.js` 不进 CI |
+| `readImageAsDataUrl` 白名单 | ✅ jpg/jpeg/png/webp，无 HEIC |
+| 裁剪实现是否经过 sharp | ✅ 否（Chromium canvas） |
+
+---
 # [unreleased] fix(ci): 超大文件门禁从「只挡新增」改为「点名还账 + 测试文件纳管」（M-7）
 
 ### 缺陷
