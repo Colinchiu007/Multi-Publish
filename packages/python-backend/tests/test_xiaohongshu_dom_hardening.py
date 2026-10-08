@@ -227,3 +227,91 @@ class TestRegression:
         result = await publisher.publish("", "")
         assert result.success is False
         assert "标题不能为空" in result.error
+
+
+class PatternAwareMonitor:
+    """按真实 ResponseMonitor 语义：子串匹配响应 URL，再用 predicate 过滤 body。
+
+    用于验证确认模式列表的语义精确性——只有命中被 watch 的端点才可能被确认。
+    """
+
+    def __init__(self, responses=None):
+        self.responses = responses or []
+        self.watched: list[str] = []
+
+    def watch_patterns(self, patterns):
+        self.watched = list(patterns)
+
+    async def wait_for_response(self, timeout=30.0, predicate=None):
+        for r in self.responses:
+            if not any(p in r.get("url", "") for p in self.watched):
+                continue
+            data = r.get("data")
+            if predicate is None or predicate(data):
+                return data
+        return None
+
+    def stop(self):
+        pass
+
+
+NOTE_URL = "https://edith.xiaohongshu.com/web_api/sns/v2/note"
+PERMIT_URL = "https://creator.xiaohongshu.com/api/media/v1/upload/web/permit"
+
+
+class TestTier2EndpointArming:
+    """Tier2 端点回填：默认模式下 XHR 主确认通道必须真实生效，且语义精确不误判。"""
+
+    def test_default_patterns_arm_the_xhr_channel(self):
+        patterns = list(xhs.DRAFT_SAVE_RESPONSE_PATTERNS)
+        assert patterns, "默认确认模式不得为空，否则 XHR 主确认通道永不注册"
+        assert any("/web_api/sns/v2/note" in p for p in patterns)
+
+    def test_confirm_patterns_exclude_upload_stages(self):
+        # 假阳性红线：上传 permit / ros-upload 也会返回 code==0，
+        # 若被 watch 会在笔记真正提交前误判草稿已保存。
+        patterns = list(xhs.DRAFT_SAVE_RESPONSE_PATTERNS)
+        assert not any("permit" in p for p in patterns)
+        assert not any("ros-upload" in p for p in patterns)
+        assert not any("upload" in p for p in patterns)
+
+    @pytest.mark.asyncio
+    async def test_watches_default_patterns_on_flow_start(self, publisher):
+        page, monitor = _base_page(), PatternAwareMonitor()
+        page.visible.add(DRAFT_SEL)
+        await _flow(publisher, page, monitor, draft=True)
+        assert monitor.watched == list(xhs.DRAFT_SAVE_RESPONSE_PATTERNS)
+
+    @pytest.mark.asyncio
+    async def test_real_note_response_confirms_draft(self, publisher):
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        monitor = PatternAwareMonitor(
+            responses=[{"url": NOTE_URL, "data": {"code": 0, "data": {"note_id": "N1", "draft_id": "D9"}}}]
+        )
+        result = await _flow(publisher, page, monitor, draft=True)
+        assert result.success is True
+        assert "D9" in (result.url or "")
+
+    @pytest.mark.asyncio
+    async def test_permit_success_alone_does_not_confirm(self, publisher):
+        # 只出现上传 permit 成功（code==0），未出现笔记提交 ⇒ 必须保持未确认失败。
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        page.item_texts[xhs.DRAFT_BOX_ITEM_SELECTOR] = []
+        monitor = PatternAwareMonitor(responses=[{"url": PERMIT_URL, "data": {"code": 0, "data": {"file_id": "F1"}}}])
+        result = await _flow(publisher, page, monitor, draft=True)
+        assert result.success is False
+        assert xhs.CODE_UNCONFIRMED in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_note_response_with_error_code_does_not_confirm(self, publisher):
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        page.item_texts[xhs.DRAFT_BOX_ITEM_SELECTOR] = []
+        monitor = PatternAwareMonitor(
+            responses=[{"url": NOTE_URL, "data": {"code": -1, "success": False, "msg": "risk"}}]
+        )
+        result = await _flow(publisher, page, monitor, draft=True)
+        assert result.success is False
+        assert xhs.CODE_UNCONFIRMED in (result.error or "")

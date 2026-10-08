@@ -59,9 +59,13 @@ SELECTOR_FALLBACKS: dict[str, list[str]] = {
     "tag_suggestion": ['[class*="tag-suggestion"]', '[class*="suggest"] li'],
 }
 
-# Tier2 活体取证回填项（当前为占位，未取证前确认通道保守返回未确认）：
-# 草稿保存成功的 XHR 端点子串（命中后经响应体判定 code==0/success==true）。
-DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = []
+# Tier2 端点回填：证据来自本仓 api-publish-engine/src/publish/platforms/xiaohongshu-draft.js
+# 的三步草稿链终步 POST https://edith.xiaohongshu.com/web_api/sns/v2/note
+# （其测试断言真实端点即此，/api/publish 不存在），成功体为 {code:0,data:{note_id,draft_id}}。
+# 创作者中心页面点「存草稿」打的是同一端点，故 DOM/RPA 轨据此武装 XHR 主确认通道。
+# 仅 watch 笔记提交终步：上传 permit 与 ros-upload 同样返回 code==0，
+# 若纳入会在笔记真正提交前误判草稿已保存（假阳性）。
+DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
 CONFIRM_TIMEOUT_S = 20.0
 # 草稿箱回查兜底：导航地址 + 条目匹配选择器（Tier2 取证回填）。
 DRAFT_BOX_URL = "https://creator.xiaohongshu.com/publish/publish?draft=true"
