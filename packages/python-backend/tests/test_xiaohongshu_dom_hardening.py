@@ -412,12 +412,29 @@ class TestRiskTextTrack:
         assert await publisher._risk_present(page) is False
 
     @pytest.mark.asyncio
-    async def test_risk_wording_in_second_visible_host_is_caught(self, publisher):
+    async def test_risk_wording_in_second_element_of_one_host_is_caught(self, publisher):
         """CCG i2：`[class*="modal"]` 命中多个容器时，风控层不在 DOM 首位也必须抓到。"""
         page = _base_page()
         host = xhs.RISK_TEXT_HOSTS[0]
         page.visible.add(host)
         page.item_texts[host] = ["笔记封面", "账号存在风险，请完成安全验证"]
+        assert await publisher._risk_present(page) is True
+
+    @pytest.mark.asyncio
+    async def test_risk_wording_in_a_later_host_is_caught(self, publisher):
+        """宿主轨必须真跨宿主，而不是只测 hosts[0]。
+
+        风控层常挂在 dialog/overlay 而非 modal 宿主；若轮询退化成"只查首宿主"，
+        漏判风控会让流程继续走向发布——比误判更违反红线。全部用例都塞进
+        hosts[0] 时，删掉 `for host in hosts[1:]` 仍全绿，即本条覆盖的缺口。
+        """
+        assert len(xhs.RISK_TEXT_HOSTS) >= 2, "宿主常量不足两条，跨宿主轮询无从可测"
+        first, second = xhs.RISK_TEXT_HOSTS[0], xhs.RISK_TEXT_HOSTS[1]
+        page = _base_page()
+        page.visible.add(first)
+        page.item_texts[first] = ["笔记封面"]
+        page.visible.add(second)
+        page.item_texts[second] = ["安全验证"]
         assert await publisher._risk_present(page) is True
 
     @pytest.mark.asyncio
