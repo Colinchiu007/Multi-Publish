@@ -46,6 +46,57 @@ const EXCLUDE = ['node_modules', 'dist', '.git', 'tests', 'test', '__tests__', '
 const DEFAULT_LIMIT = 500;
 const DEFAULT_GROWTH_ALLOWANCE = 200;
 
+// M-7（超大文件棘轮只挡新增、不逼偿还）新增的两组常量。
+//
+// ① targets —— 点名还账。register 的 files 是「登记值 + 容差 200」的天花板，
+//    也就是每个挂账文件都还能再胖 200 行。targets 把**指定文件**的天花板压到
+//    登记值本身（容差 0）：谁被点名，谁从今天起一行都不能再涨。
+//    取值必须 ≤ 当前登记值，否则一上线就红 —— 这不是 bug，是「先记下今天的位置」。
+//
+// ② 测试文件通道。此前 EXCLUDE 里的 'tests' / 'test' / '__tests__' 配合
+//    `rel.includes(x)` 的**子串**匹配，把 .test.js / .spec.js 一并顺带排掉了
+//    （'test' 是 'CreateView.test.js' 的子串）。结果是 1024 个测试文件全部门禁之外，
+//    其中 102 个 >500 行、13 个 >1500 行，最长的 CreateView.test.js 6574 行 ——
+//    比它所测的 CreateView.vue（5657 行）还长。这条通道给测试文件单列上限与
+//    独立挂账表，不动源码侧的既有口径（新增而非改写，避免回归面）。
+// 测试文件的扫描根比源码**多一个** apps/desktop/tests：源码侧不需要它（那里只有
+// e2e/visual 夹具，不是受管源码），但 M-7 恰恰要把测试文件纳进视野，而当前最大的
+// 几支测试文件（story2video-*、webview-manager）就在这个目录下。用源码的
+// SCAN_DIRS 会让「测试文件进门禁」只覆盖内联测试、漏掉整个 tests/ 目录。
+const TEST_SCAN_DIRS = SCAN_DIRS.concat(['apps/desktop/tests']);
+
+// 点名还账的排除名单。
+//
+// 外部跨家族评审（opencode/deepseek）指出：首批 targets 里混进了**机器生成或随
+// 业务例行增删**的文件，给它们 0 容差等于让门禁天天误红：
+//   *.bundle.js         —— esbuild 产物，每次构建行数随依赖/API 变动，与手写行数无关
+//   src/locales/*.js    —— i18n 词条表，任何一次新增文案都会让它变长
+//   *.design-system.css —— 设计令牌表，同样随设计系统维护而变
+// 这三类恰是 baseline 旧注释里「生成物行数随 API 变动、容差已被吃满」的同一批，
+// 对它们设零增长容差与既有容差设计直接冲突（表现：任何一次 i18n 新增都让 CI 红）。
+// 它们继续走「登记值 + 200」。
+const TARGET_EXCLUDE_RE = [/\.bundle\.[cm]?js$/i, /(^|\/)src\/locales\//, /\.design-system\.css$/i];
+
+// ⚠ targets 归属：目标值锚定在**设置那一刻的实际行数**，因此它会在「与设置无关的
+//   PR」上触发。实测：设完 targets 后 main 上有人给 Collection.vue 加了 4 行，
+//   于是下一个恰好开着的 PR（本 PR）被判红 —— 但那 4 行不是本 PR 加的。
+//
+//   处置原则：**漂移由漂移发生后第一个 rebase 的 PR 重新锚定**，而不是让无关 PR
+//   替人背锅。重新锚定时必须 (a) 逐条列出漂移与方向、(b) 区分「变大」与「变小」——
+//   目标值**高于**当前实际行数是危险的：那等于白送 (目标 - 当前) 行的免涨额度。
+//   本 PR 实测：`PublishHistory.vue` 被 main 拆小了 16 行，若不重锚，
+//   它就能在无人察觉的情况下再涨 16 行。
+/** 是否可被点名还债（返回 false 的继续走登记值+200） */
+function isTargetable(rel) {
+  return !TARGET_EXCLUDE_RE.some((re) => re.test(rel));
+}
+
+const TEST_FILE_RE = /\.(test|spec)\./;
+// 只挡真正的依赖与产物目录。**不能**在这里放 'test'/'tests' —— 那正是本次要放进来测的。
+const TEST_SCAN_DIR_EXCLUDE = ['node_modules', 'dist', '.git', 'dist-electron'];
+const DEFAULT_TEST_LIMIT = 1500;
+const DEFAULT_TEST_GROWTH_ALLOWANCE = 200;
+
 function walkDir(absDir, baseDir, out) {
   let entries;
   try { entries = fs.readdirSync(absDir, { withFileTypes: true }); } catch (_) { return out; }
@@ -59,6 +110,33 @@ function walkDir(absDir, baseDir, out) {
     try { lines = fs.readFileSync(fp, 'utf8').split('\n').length; } catch (_) { continue; }
     out.push({ path: rel, lines });
   }
+  return out;
+}
+
+/** 扫描测试文件（.test.* / .spec.*）。与源码扫描**并列而非替换**：源码侧的
+ *  EXCLUDE 子串匹配保持原样，本函数只走 TEST_SCAN_DIR_EXCLUDE，
+ *  因此不会把任何原先没被扫到的源码文件带进视野。 */
+function scanTestFiles(rootDir) {
+  const root = rootDir || ROOT;
+  const out = {};
+  const walk = (absDir) => {
+    let entries;
+    try { entries = fs.readdirSync(absDir, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of entries) {
+      const fp = path.join(absDir, e.name);
+      if (e.isDirectory()) {
+        if (TEST_SCAN_DIR_EXCLUDE.includes(e.name)) continue;
+        walk(fp);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      if (!TEST_FILE_RE.test(e.name)) continue;
+      let lines = 0;
+      try { lines = fs.readFileSync(fp, 'utf8').split('\n').length; } catch (_) { continue; }
+      out[path.relative(root, fp).replace(/\\/g, '/')] = lines;
+    }
+  };
+  for (const d of TEST_SCAN_DIRS) walk(path.join(root, d));
   return out;
 }
 
@@ -95,17 +173,29 @@ function readBaseline(p) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return null; }
 }
 
-/** 清单落盘：键按字典序排序，保证可复现（diff 只反映真实债务变化）；pruned 必须原样携带 */
+/** 清单落盘：键按字典序排序，保证可复现（diff 只反映真实债务变化）。
+ *  pruned 必须原样携带；M-7 起 testLimit / targets / testFiles / testPruned
+ *  也必须携带 —— 这四个键一旦在 --update 时被漏掉，门禁会静默退回「只挡新增、
+ *  测试文件全不管」的旧行为，且**不报任何错**（实测：跑一次 --update 四键全没）。
+ *  这是典型的「删掉也不变红」变更，只能靠显式携带 + 回归锁挡住。
+ */
 function writeBaseline(files, meta, p) {
   const file = p || BASELINE_PATH;
+  const m = meta || {};
+  const sortedCopy = (obj) => Object.keys(obj || {}).sort().reduce((acc, k) => { acc[k] = obj[k]; return acc; }, {});
   const body = {
     '//': '超大文件挂账清单（audit-batch-4）。limit 之上的存量文件在此登记；新文件超限一律阻断。'
       + '还完债用 --prune <路径> 单键清账（会同时在 pruned 立碑）；'
+      + '--prune-test <路径> 清测试账；'
       + '--update 仅做增量登记，--update --rewrite 才全量重生（会掩盖别人的漂移，需人工审 diff）。',
-    limit: meta && meta.limit ? meta.limit : DEFAULT_LIMIT,
-    growthAllowance: meta && meta.growthAllowance ? meta.growthAllowance : DEFAULT_GROWTH_ALLOWANCE,
-    files: Object.keys(files).sort().reduce((acc, k) => { acc[k] = files[k]; return acc; }, {}),
-    pruned: Object.keys((meta && meta.pruned) || {}).sort().reduce((acc, k) => { acc[k] = meta.pruned[k]; return acc; }, {}),
+    limit: m.limit ? m.limit : DEFAULT_LIMIT,
+    growthAllowance: m.growthAllowance ? m.growthAllowance : DEFAULT_GROWTH_ALLOWANCE,
+    testLimit: Number.isFinite(m.testLimit) ? m.testLimit : DEFAULT_TEST_LIMIT,
+    files: sortedCopy(files),
+    targets: sortedCopy(m.targets),
+    pruned: sortedCopy(m.pruned),
+    testFiles: sortedCopy(m.testFiles),
+    testPruned: sortedCopy(m.testPruned),
   };
   fs.writeFileSync(file, JSON.stringify(body, null, 2) + '\n', 'utf8');
   return body;
@@ -117,18 +207,33 @@ function writeBaseline(files, meta, p) {
  *                 缺省后退化为 scanned（仅包含超限文件，因此只能报出「不在扫描结果」类违规）。
  * @returns {{violations: string[], notices: string[], results: object}}
  */
-function evaluate(baseline, scanned, existing) {
+function evaluate(baseline, scanned, existing, testData) {
   const limit = baseline && Number.isFinite(baseline.limit) ? baseline.limit : DEFAULT_LIMIT;
   const allowance = baseline && Number.isFinite(baseline.growthAllowance)
     ? baseline.growthAllowance : DEFAULT_GROWTH_ALLOWANCE;
   const ledger = (baseline && baseline.files) || {};
   const pruned = (baseline && baseline.pruned) || {};
+  const targets = (baseline && baseline.targets) || {};              // M-7 点名还账
+  const testLedger = (baseline && baseline.testFiles) || {};         // M-7 测试文件挂账
+  const testPruned = (baseline && baseline.testPruned) || {};
+  const testLimit = baseline && Number.isFinite(baseline.testLimit)
+    ? baseline.testLimit : DEFAULT_TEST_LIMIT;
   const all = existing && typeof existing === 'object' ? existing : scanned;
   const violations = [];
   const notices = [];
 
   for (const rel of Object.keys(scanned).sort()) {
     const lines = scanned[rel];
+    // 点名还账优先于墓碑与登记：被 targets 点名的文件天花板 = targets 值，容差 0。
+    if (hasKey(targets, rel) && isTargetable(rel)) {
+      const ceiling = targets[rel];
+      if (lines > ceiling) {
+        violations.push('TARGET_GREW: ' + rel + ' 现 ' + lines + ' 行已超过点名目标 ' + ceiling
+          + ' 行（超 ' + (lines - ceiling) + '）。被点名还账的文件一律零增长容差：'
+          + '降到目标以下，或在 review 中说明理由后一并上调 targets');
+      }
+      continue;
+    }
     // 墓碑优先：同一路径一旦发过墓碑，登记值立即失效——它不得再充当免死金牌，
     // 重新超限按「新增债务」阻断（历史事故：僵尸条目被并发 PR 带回后，该文件可按容差静默涨回登记值）。
     if (hasKey(ledger, rel) && !hasKey(pruned, rel)) {
@@ -162,6 +267,43 @@ function evaluate(baseline, scanned, existing) {
     }
   }
 
+  // ── 测试文件通道（M-7）──────────────────────────────────────────────────
+// 与源码用完全独立的上限与挂账表：测试文件天然比被测代码长（断言 + 夹具 + mock），
+// 套用同一个 500 会逼出一堆无意义的拆分；但完全不管就出现了 6574 行的
+// CreateView.test.js。故单列 testLimit，存量按同一套「登记 + 容差」模式接住。
+//
+// 走独立的第四个参数 testData（{scanned, all}），**不**往 existing 里塞魔法键——
+// existing 是「路径→行数」映射，塞 `__tests__` 这种键会和真实文件重名。
+  const testScanned = (testData && testData.scanned) || {};
+  const testAll = (testData && testData.all) || testScanned;
+  for (const rel of Object.keys(testScanned).sort()) {
+    const lines = testScanned[rel];
+    if (hasKey(testPruned, rel)) continue; // 测试文件的墓碑同理
+    if (hasKey(testLedger, rel)) {
+      const grown = lines - testLedger[rel];
+      if (grown > DEFAULT_TEST_GROWTH_ALLOWANCE) {
+        violations.push('TEST_LEDGER_GREW: ' + rel + ' 较登记值 ' + testLedger[rel]
+          + ' 膨胀 ' + grown + ' 行（容差 ' + DEFAULT_TEST_GROWTH_ALLOWANCE
+          + '），测试文件同样要拆（按被测模块/场景分文件），别再堆成一个');
+      }
+      continue;
+    }
+    if (lines >= testLimit) {
+      violations.push('TEST_OVER_LIMIT: ' + rel + ' ' + lines + ' 行 >= ' + testLimit
+        + '，测试文件超过上限。新增的超限测试不得进来；存量已挂账的按 TEST_LEDGER_GREW 管');
+    }
+  }
+  for (const rel of Object.keys(testLedger).sort()) {
+    if (!hasKey(testAll, rel)) {
+      violations.push('TEST_STALE_LEDGER_ENTRY: ' + rel + ' 已不在测试文件扫描范围内（文件已删/改名），请 --prune-test ' + rel);
+      continue;
+    }
+    if (testAll[rel] < testLimit) {
+      violations.push('TEST_DEBT_REPAID: ' + rel + ' 已降到 ' + testAll[rel] + ' 行 < ' + testLimit
+        + '，请 --prune-test ' + rel + ' 单键清账');
+    }
+  }
+
   return {
     violations,
     notices,
@@ -169,8 +311,12 @@ function evaluate(baseline, scanned, existing) {
       overLimitCount: Object.keys(scanned).length,
       ledgerCount: Object.keys(ledger).length,
       prunedCount: Object.keys(pruned).length,
+      targetCount: Object.keys(targets).length,
       limit,
       allowance,
+      testLimit,
+      testOverLimitCount: Object.keys(testScanned).length,
+      testLedgerCount: Object.keys(testLedger).length,
     },
   };
 }
@@ -206,8 +352,14 @@ function computeUpdate(base, scanned) {
     '//': (base && base['//']) || '',
     limit,
     growthAllowance: base && Number.isFinite(base.growthAllowance) ? base.growthAllowance : DEFAULT_GROWTH_ALLOWANCE,
+    testLimit: base && Number.isFinite(base.testLimit) ? base.testLimit : DEFAULT_TEST_LIMIT,
     files,
+    // ↓ M-7：四个新键必须原样搬运。漏掉任何一个，--update 都会把它**静默**抹掉，
+    //   而门禁对此毫无察觉（外圈评审实测：跑一次 --update 四键全没）。
+    targets: (base && base.targets) || {},
     pruned,
+    testFiles: (base && base.testFiles) || {},
+    testPruned: (base && base.testPruned) || {},
   };
   return { body, changes };
 }
@@ -235,6 +387,15 @@ function pruneBaseline(rel, opts) {
   after.files = Object.keys(ledger).reduce((acc, k) => { if (k !== rel) acc[k] = ledger[k]; return acc; }, {});
   after.pruned = Object.keys((base.pruned || {})).reduce((acc, k) => { acc[k] = base.pruned[k]; return acc; }, {});
   after.pruned[rel] = cur === null ? ledger[rel] : cur;
+  // targets 里的同名条目必须一起摘掉：留着会让这个文件今后被 0 容差盯着，
+  // 而它已经还债降到 limit 以下 —— 一条永远命不中的点名目标 = 永久僵尸条目，
+  // 且没人说得清它还在盯什么。外部跨家族评审（opencode/deepseek）指出的问题。
+  if (hasKey(base.targets || {}, rel)) {
+    after.targets = Object.keys(base.targets).reduce((acc, k) => { if (k !== rel) acc[k] = base.targets[k]; return acc; }, {});
+  }
+  if (hasKey(base.testFiles || {}, rel)) {
+    after.testFiles = Object.keys(base.testFiles).reduce((acc, k) => { if (k !== rel) acc[k] = base.testFiles[k]; return acc; }, {});
+  }
   fs.writeFileSync(file, JSON.stringify(after, null, 2) + '\n', 'utf8');
   return { changed: [rel], tombstoneAt: after.pruned[rel], baseline: after, file };
 }
@@ -253,6 +414,38 @@ function main() {
   const limit = base && Number.isFinite(base.limit) ? base.limit : DEFAULT_LIMIT;
   const all = scanAllLines(rootDir);
   const scanned = Object.keys(all).sort().reduce((acc, k) => { if (all[k] >= limit) acc[k] = all[k]; return acc; }, {});
+
+  // M-7：测试文件走独立通道与独立上限，与源码扫描并列而非替换。
+  const allTests = scanTestFiles(rootDir);
+  const testLimit = base && Number.isFinite(base.testLimit) ? base.testLimit : DEFAULT_TEST_LIMIT;
+  const scannedTests = Object.keys(allTests).sort()
+    .reduce((acc, k) => { if (allTests[k] >= testLimit) acc[k] = allTests[k]; return acc; }, {});
+
+  const pruneTestIdx = args.indexOf('--prune-test');
+  if (pruneTestIdx >= 0) {
+    const rel = args[pruneTestIdx + 1];
+    if (!rel || rel.startsWith('--')) {
+      console.log('用法: node .github/scripts/check-max-lines.js --prune-test <相对路径>');
+      process.exit(2);
+    }
+    const ledger = (base && base.testFiles) || {};
+    if (!hasKey(ledger, rel)) {
+      console.log('✗ 测试挂账清单里没有 ' + rel + '（可能已还清，或从未登记），不做墓碑');
+      process.exit(2);
+    }
+    const cur = hasKey(allTests, rel) ? allTests[rel] : null;
+    if (cur !== null && cur >= testLimit) {
+      console.log('✗ ' + rel + ' 现 ' + cur + ' 行 >= ' + testLimit + '，测试债务未还清，不得清账');
+      process.exit(2);
+    }
+    const after = Object.assign({}, base);
+    after.testFiles = Object.keys(ledger).reduce((a, k) => { if (k !== rel) a[k] = ledger[k]; return a; }, {});
+    after.testPruned = Object.keys(base.testPruned || {}).reduce((a, k) => { a[k] = base.testPruned[k]; return a; }, {});
+    after.testPruned[rel] = cur === null ? ledger[rel] : cur;
+    fs.writeFileSync(bp, JSON.stringify(after, null, 2) + '\n', 'utf8');
+    console.log('✓ 已清测试账：' + rel + ' · 从 testFiles 移出 · testPruned 记为 ' + after.testPruned[rel] + ' 行');
+    process.exit(0);
+  }
 
   if (pruneIdx >= 0) {
     const rel = args[pruneIdx + 1];
@@ -304,14 +497,16 @@ function main() {
     process.exit(0);
   }
 
-  const { violations, notices, results } = evaluate(base, scanned, all);
+  const { violations, notices, results } = evaluate(base, scanned, all, { scanned: scannedTests, all: allTests });
   if (isJson) {
-    console.log(JSON.stringify({ results, scanned, violations, notices }, null, 2));
+    console.log(JSON.stringify({ results, scanned, scannedTests, violations, notices }, null, 2));
   } else {
     console.log('=== 逐文件行数门禁 ===');
     console.log('limit=' + results.limit + ' growthAllowance=' + results.allowance
       + ' 超限文件=' + results.overLimitCount + ' 挂账=' + results.ledgerCount
-      + ' 墓碑=' + results.prunedCount);
+      + ' 墓碑=' + results.prunedCount + ' 点名还账=' + results.targetCount);
+    console.log('testLimit=' + results.testLimit
+      + ' 测试超限=' + results.testOverLimitCount + ' 测试挂账=' + results.testLedgerCount);
     for (const v of violations) console.log('❌ ' + v);
     for (const n of notices) console.log('⚠️ ' + n);
     if (!violations.length) console.log('✅ 无新增超大文件，挂账清单与现实一致。');
@@ -322,7 +517,8 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  scanFiles, scanAllLines, collectOverLimit, evaluate, readBaseline, writeBaseline,
+  scanFiles, scanAllLines, collectOverLimit, scanTestFiles, evaluate, readBaseline, writeBaseline,
   computeUpdate, pruneBaseline,
-  DEFAULT_LIMIT, DEFAULT_GROWTH_ALLOWANCE, SCAN_DIRS, SOURCE_EXTS, EXCLUDE,
+  DEFAULT_LIMIT, DEFAULT_GROWTH_ALLOWANCE, DEFAULT_TEST_LIMIT, DEFAULT_TEST_GROWTH_ALLOWANCE,
+  SCAN_DIRS, SOURCE_EXTS, EXCLUDE, isTargetable,
 };

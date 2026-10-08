@@ -16,6 +16,17 @@ const G = require('./check-max-lines.js');
 
 function mk(n) { return new Array(n).fill('// x').join('\n'); }
 
+// M-7：evaluate 多了第四个参数 testData。真实仓断言必须把它一起喂 ——
+// 漏喂的表现不是「测试失败」而是「测试文件通道整段变成死代码」，而门禁主断言
+// 恰恰是最容易漏喂的那两处，故在此集中成一个 helper。
+function realRepoEvaluate(base) {
+  const allTests = G.scanTestFiles();
+  const tl = Number.isFinite(base.testLimit) ? base.testLimit : G.DEFAULT_TEST_LIMIT;
+  const scannedTests = Object.keys(allTests).sort()
+    .reduce((a, k) => { if (allTests[k] >= tl) a[k] = allTests[k]; return a; }, {});
+  return G.evaluate(base, G.collectOverLimit(null, base.limit), G.scanAllLines(), { scanned: scannedTests, all: allTests });
+}
+
 test('新代码阻断：超限且未挂账 → NEW_OVER_LIMIT', () => {
   const { violations } = G.evaluate({ limit: 500, growthAllowance: 200, files: {} }, { 'packages/a/big.js': 640 });
   assert.equal(violations.length, 1);
@@ -147,8 +158,10 @@ test('回归⑦--update 默认增量：不得抬高已有登记值、不得删�
 test('回归⑧真实仓现状：主断言必须带 existing 一起喂（防单侧断言再度掩盖死代码）', () => {
   const base = G.readBaseline();
   assert.ok(base, 'max-lines-baseline.json 必须入库（存量挂账）');
-  const { violations } = G.evaluate(base, G.collectOverLimit(null, base.limit), G.scanAllLines());
+  const { violations } = realRepoEvaluate(base);
   assert.deepEqual(violations, [], '当前 HEAD 不应有违规：\n' + violations.join('\n'));
+  assert.ok(G.collectOverLimit(null, base.limit) && Object.keys(G.collectOverLimit(null, base.limit)).length > 0,
+    '扫描到超限文件（否则口径失效）');
 });
 
 test('清单与现实一致时零违规，且违规按路径字典序稳定输出', () => {
@@ -218,7 +231,162 @@ test('真实仓现状：挂账清单与扫描结果一致（门禁主断言）',
   const base = G.readBaseline();
   assert.ok(base, 'max-lines-baseline.json 必须入库（存量挂账）');
   const scanned = G.collectOverLimit(null, base.limit);
-  const { violations } = G.evaluate(base, scanned);
+  const { violations } = realRepoEvaluate(base);
   assert.deepEqual(violations, [], '当前 HEAD 不应有违规：\n' + violations.join('\n'));
   assert.ok(Object.keys(scanned).length > 0, '扫描到超限文件（否则口径失效）');
+  // M-7：测试文件通道同样不得是死代码 —— 真实仓确有 >testLimit 的存量测试，
+  // 且必须全部落在 testFiles 挂账里，否则 evaluate 会报 TEST_STALE/TEST_OVER。
+  assert.ok(Object.keys(base.testFiles || {}).length > 0, 'testFiles 挂账不得为空（否则测试通道形同虚设）');
+  assert.equal(base.testLimit, G.DEFAULT_TEST_LIMIT);
+  assert.ok(Object.keys(base.targets || {}).length > 0, 'targets 点名清单不得为空');
+});
+
+// ── M-7：点名还账（targets）─────────────────────────────────────────────
+// 修复前每个挂账文件的天花板是「登记值 + 200」，还能再胖 200 行。实测 20 个 TOP
+// 文件里 14 个已静默漂到登记值之上（最多 +195），只是一直没碰到 +200 那条线。
+test('M-7 点名还账：targets 命中时天花板=目标值、容差 0（登记容差不得再兜底）', () => {
+  const rel = 'apps/desktop/src/views/CreateView.vue';
+  const base = { limit: 500, growthAllowance: 200, files: { [rel]: 5656 }, targets: { [rel]: 5656 } };
+  assert.deepEqual(G.evaluate(base, { [rel]: 5656 }, { [rel]: 5656 }).violations, [], '恰好等于目标放行');
+  const over = G.evaluate(base, { [rel]: 5657 }, { [rel]: 5657 });
+  assert.equal(over.violations.length, 1, over.violations.join(' | '));
+  assert.match(over.violations[0], /^TARGET_GREW/);
+  assert.ok(!over.violations.some((v) => /^LEDGER_GREW/.test(v)), '点名后不得退回「登记值+200」老路');
+});
+
+test('M-7 点名还账：未被点名的文件仍走登记值+200（不得把所有文件一起冻结）', () => {
+  const named = 'apps/desktop/src/views/CreateView.vue';
+  const other = 'packages/a/legacy.py';
+  const base = { limit: 500, growthAllowance: 200, files: { [named]: 1000, [other]: 1200 }, targets: { [named]: 1000 } };
+  const r = G.evaluate(base, { [named]: 1000, [other]: 1390 }, { [named]: 1000, [other]: 1390 });
+  assert.deepEqual(r.violations, [], '未点名文件容差内仍应放行');
+});
+
+test('M-7 点名还账：targets 优先于墓碑 —— 点名文件不得借墓碑复活逃逸', () => {
+  const rel = 'apps/desktop/src/views/CreateView.vue';
+  const base = { limit: 500, growthAllowance: 200, files: {}, pruned: { [rel]: 100 }, targets: { [rel]: 5656 } };
+  const r = G.evaluate(base, { [rel]: 6000 }, { [rel]: 6000 });
+  assert.equal(r.violations.length, 1, r.violations.join(' | '));
+  assert.match(r.violations[0], /^TARGET_GREW/);
+});
+
+// ── M-7：测试文件通道 ─────────────────────────────────────────────────
+test('M-7 测试通道：新测试文件超 testLimit → TEST_OVER_LIMIT', () => {
+  const base = { limit: 500, growthAllowance: 200, files: {}, testLimit: 1500, testFiles: {} };
+  const td = { scanned: { 'apps/desktop/src/views/New.test.js': 1501 }, all: { 'apps/desktop/src/views/New.test.js': 1501 } };
+  const r = G.evaluate(base, {}, {}, td);
+  assert.equal(r.violations.length, 1, r.violations.join(' | '));
+  assert.match(r.violations[0], /^TEST_OVER_LIMIT/);
+});
+
+test('M-7 测试通道：已挂账测试文件容差内放行、超容差报 TEST_LEDGER_GREW', () => {
+  const rel = 'apps/desktop/src/views/CreateView.test.js';
+  const base = { limit: 500, growthAllowance: 200, files: {}, testLimit: 1500, testFiles: { [rel]: 6574 } };
+  assert.deepEqual(G.evaluate(base, {}, {}, { scanned: { [rel]: 6700 }, all: { [rel]: 6700 } }).violations, [],
+    '+126 行在容差 200 内');
+  const r = G.evaluate(base, {}, {}, { scanned: { [rel]: 6900 }, all: { [rel]: 6900 } });
+  assert.equal(r.violations.length, 1, r.violations.join(' | '));
+  assert.match(r.violations[0], /^TEST_LEDGER_GREW/);
+});
+
+test('M-7 测试通道：测试挂账条目消失报 TEST_STALE、降到上限下报 TEST_DEBT_REPAID', () => {
+  const gone = 'apps/desktop/src/views/Gone.test.js';
+  const paid = 'apps/desktop/src/views/Paid.test.js';
+  const base = { limit: 500, growthAllowance: 200, files: {}, testLimit: 1500, testFiles: { [gone]: 1600, [paid]: 1600 } };
+  const r = G.evaluate(base, {}, {}, { scanned: {}, all: { [paid]: 1200 } });
+  const s = r.violations.join('\n');
+  assert.match(s, /TEST_STALE_LEDGER_ENTRY: apps\/desktop\/src\/views\/Gone\.test\.js/);
+  assert.match(s, /TEST_DEBT_REPAID: apps\/desktop\/src\/views\/Paid\.test\.js/);
+});
+
+test('M-7 测试通道：漏喂 testData 必须 fail-closed 报 TEST_STALE，不得静默跳过', () => {
+  // 这条是本轮被自己的实现纠正过一次的地方：初版我按「没喂参数就整段跳过」写断言，
+  // 实测发现代码会拿空表比对真实挂账、报 TEST_STALE —— 而那是**对**的。
+  // 漏喂参数是接线 bug，应当当场变红；改成静默通过只会把「测试通道接错了」
+  // 变成一条永远绿的装饰性检查（同 check-gate-record-debt 的「不完整的遍历
+  // 判出零条违规，那是假绿」）。断言按实际且正确的行为写。
+  const base = { limit: 500, growthAllowance: 200, files: {}, testLimit: 1500, testFiles: { 'a/b.test.js': 1600 } };
+  const r = G.evaluate(base, {}, {});
+  assert.equal(r.violations.length, 1, r.violations.join(' | '));
+  assert.match(r.violations[0], /^TEST_STALE_LEDGER_ENTRY: a\/b\.test\.js/);
+  assert.equal(r.results.testLedgerCount, 1, '结果里仍应报出挂账条数供人工核对');
+});
+
+test('M-7 测试通道：scanTestFiles 真的扫得到 .test/.spec（含 tests/ 目录），且不误伤源码', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-testscan-'));
+  try {
+    const put = (rel, n) => {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), mk(n));
+    };
+    put('apps/desktop/src/views/A.test.js', 700);
+    put('apps/desktop/src/views/B.spec.js', 800);
+    put('apps/desktop/tests/e2e/C.test.js', 900);
+    put('apps/desktop/src/views/plain.js', 700);
+    put('apps/desktop/src/views/data.ts', 800);
+    const keys = Object.keys(G.scanTestFiles(dir)).sort();
+    assert.deepEqual(keys, [
+      'apps/desktop/src/views/A.test.js',
+      'apps/desktop/src/views/B.spec.js',
+      'apps/desktop/tests/e2e/C.test.js',
+    ], '只收测试文件，且含 tests/ 目录下的');
+    assert.ok(!keys.some((k) => k.endsWith('plain.js')), '普通源码不得被这条通道带进来');
+    assert.ok(!keys.some((k) => k.endsWith('data.ts')), '.ts 源码不得被带进来');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// M-7 的 🔴CRITICAL（由外部跨家族评审 opencode/deepseek 抓出，自查未覆盖）：
+// --update / --update --rewrite 原本只重建 `//,limit,growthAllowance,files,pruned`，
+// 跑一次就把 testLimit / targets / testFiles / testPruned 四个键**静默**抹掉 ——
+// 门禁当场退回「只挡新增、测试文件全不管」的旧行为且零报错。
+// 这类缺陷只能靠「显式搬运 + 回归锁」挡住，写注释没用。
+test('M-7 CRITICAL：--update 不得抹掉 targets / testFiles / testLimit / testPruned', () => {
+  const full = {
+    '//': 'keep me',
+    limit: 500, growthAllowance: 200, testLimit: 1500,
+    files: { 'packages/a.js': 900 },
+    targets: { 'packages/a.js': 900 },
+    pruned: { 'packages/old.js': 700 },
+    testFiles: { 'apps/desktop/src/views/A.test.js': 6574 },
+    testPruned: { 'apps/desktop/src/views/Old.test.js': 1600 },
+  };
+  const { body } = G.computeUpdate(full, { 'packages/a.js': 900 });
+  for (const k of ['testLimit', 'targets', 'testFiles', 'testPruned']) {
+    assert.ok(k in body, '--update 后 ' + k + ' 必须在（实测曾被静默抹掉）');
+  }
+  assert.deepEqual(body.targets, full.targets, 'targets 必须原样搬运，不得被清空');
+  assert.deepEqual(body.testFiles, full.testFiles, 'testFiles 必须原样搬运');
+  assert.deepEqual(body.testPruned, full.testPruned, 'testPruned 必须原样搬运');
+  assert.equal(body.testLimit, 1500, 'testLimit 必须原样搬运');
+});
+
+test('M-7 CRITICAL：writeBaseline 同样不得丢四个新键', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-wb-'));
+  try {
+    const p = path.join(dir, 'bl.json');
+    const body = G.writeBaseline(
+      { 'packages/a.js': 900 },
+      { limit: 500, growthAllowance: 200, testLimit: 1500,
+        targets: { 'packages/a.js': 900 },
+        pruned: { 'packages/old.js': 700 },
+        testFiles: { 'apps/desktop/src/views/A.test.js': 6574 },
+        testPruned: { 'apps/desktop/src/views/Old.test.js': 1600 } },
+      p
+    );
+    const back = JSON.parse(fs.readFileSync(p, 'utf8'));
+    for (const k of ['testLimit', 'targets', 'testFiles', 'testPruned']) {
+      assert.ok(k in back, '落盘后 ' + k + ' 必须存在');
+    }
+    assert.deepEqual(back.targets, body.targets);
+    assert.deepEqual(back.testFiles, body.testFiles);
+    // 缺省时也必须给出可用的结构，不能是 undefined（否则 evaluate 读 targets 时炸）
+    const fresh = G.writeBaseline({}, {}, path.join(dir, 'fresh.json'));
+    assert.deepEqual(fresh.targets, {}, '缺省 targets 必须是空对象而非 undefined');
+    assert.deepEqual(fresh.testFiles, {}, '缺省 testFiles 必须是空对象');
+    assert.equal(fresh.testLimit, G.DEFAULT_TEST_LIMIT, '缺省 testLimit 必须是 DEFAULT_TEST_LIMIT');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
