@@ -1,3 +1,8 @@
+---
+sync_reason: 远程同步 PENDING——PR #3176 开启中；合并后在状态列改写 PASS + merge SHA，并同一次提交删除 gate-record-debt-ledger.json 的登记项（回填与销账必须同一次发生）
+sync_backfill_owner: agent（PR #3176 自动合并后回填）
+---
+
 # 头条排期上限取证与收窄（horizon-probe，2026-10-08）
 
 ## 任务与结论
@@ -61,5 +66,17 @@ UI 路线受阻的根因链（11 轮探针，probe-horizon7~13.cjs）：
 
 - shared-utils 39 文件 743 passed（10 skipped 为既有设计）；
 - desktop 分批全量 11021 passed（features 445 + composables/utils/stores 1356 + electron 9220，0 失败）；
-- 头条真实上限的复核路径：打开 mp.toutiao.com 发布页，任意含定时弹窗的平台版本
-  bundle 中搜「进行定时发布」即可复现「2小时 至 7天」文案。
+- 行尾对账：`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（13 文件）；
+- 品牌残留 PASS、locale 成对 PASS、eslint 0 error、`check-pr-exec-record` OK；
+- 变异反证：JSON 改回 30 → 契约测试红；8 天夹具精确命中平台分支。
+
+## 远程同步
+
+| 远程同步 | PENDING |
+|--------|---------|
+| PR | #3176（horizon-probe → main） |
+| 回填约定 | 合并后本行状态列改写 `PASS` + merge SHA，并同一次提交删除 `scripts/gate-record-debt-ledger.json` 的登记项（回填与销账必须同一次发生） |
+
+<!-- frontmatter 登记字段（sync_reason / sync_backfill_owner / sync_status）由 ledger 行承载：scripts/gate-record-debt-ledger.json 键「本次执行记录：头条排期上限取证与收窄 30→7（schedule-horizon-cap，2026-10-08）」 -->
+
+## 复核路径
