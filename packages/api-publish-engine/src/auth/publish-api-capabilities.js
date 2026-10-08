@@ -13,6 +13,7 @@
  *   POST /api/v1/platforms/:platform/permission-check 发布权限预检
  *   POST /api/v1/platforms/:platform/poi            POI / 位置推荐
  *   POST /api/v1/platforms/:platform/drafts         草稿箱列表
+ *   POST /api/v1/platforms/:platform/music-library  音乐库（search/recommend/hot 三模式）
  *
  * 纪律：
  *   - 不支持的平台/能力一律 404 + PLATFORM_CAPABILITIES_UNSUPPORTED，
@@ -32,7 +33,7 @@ const CAPABILITIES_PREFIX = '/api/v1/platforms/'
 const CAPABILITIES_BASE = '/api/v1/platforms/capabilities'
 
 /** 矩阵里允许暴露的能力名（白名单，防止模块新增方法被无意间暴露成 HTTP 面）。 */
-const EXPOSED_CAPABILITIES = ['userInfo', 'publishPermission', 'poiRecommend', 'drafts']
+const EXPOSED_CAPABILITIES = ['userInfo', 'publishPermission', 'poiRecommend', 'drafts', 'musicLibrary']
 
 /** 能力名 → HTTP 路径段 */
 const PATH_TO_METHOD = Object.freeze({
@@ -40,6 +41,7 @@ const PATH_TO_METHOD = Object.freeze({
   'permission-check': 'publishPermission',
   'poi': 'poiRecommend',
   'drafts': 'drafts',
+  'music-library': 'musicLibrary',
 })
 
 /** 匹配 /api/v1/platforms/<platform>/<action>；返回 null 表示不属本面。 */
@@ -115,7 +117,13 @@ class PublishApiCapabilitiesHelpers {
 
     let caps
     try {
-      caps = getCapabilities(parsed.platform, { cookie })
+      // 客户端注入面（2026-10-07）：getCapabilities 的 opts 本就透传给工厂构造器
+      // （见 publish/capabilities/index.js 的签名注释：cookie / client / signer / finderId …），
+      // 但此前本层只传了 cookie —— 能力层的代理/超时/自定义 client 因此**对所有平台都不生效**。
+      // 未设置 _capabilitiesClient 时行为与原先完全一致（各能力类自建默认 client）。
+      caps = getCapabilities(parsed.platform, this._capabilitiesClient
+        ? { cookie, client: this._capabilitiesClient }
+        : { cookie })
     } catch (err) {
       this._capabilitiesFailure(req, res, err)
       return true
@@ -128,8 +136,8 @@ class PublishApiCapabilitiesHelpers {
     try {
       // 只透传白名单内的业务入参：cookie 已单独取用，不重复下传。
       const args = {}
-      if (parsed.method === 'drafts' || parsed.method === 'poiRecommend') {
-        for (const k of ['page', 'pageSize', 'type', 'collection', 'search', 'width', 'height', 'url']) {
+      if (parsed.method === 'drafts' || parsed.method === 'poiRecommend' || parsed.method === 'musicLibrary') {
+        for (const k of ['page', 'pageSize', 'type', 'collection', 'search', 'width', 'height', 'url', 'mode', 'query', 'currentPage', 'lastBuffer']) {
           if (body[k] !== undefined) args[k] = body[k]
         }
       }
