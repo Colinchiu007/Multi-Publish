@@ -49,8 +49,8 @@ sync_backfill_owner: 下一个会话（PR 号由 `gh pr list --repo Colinchiu007
 | 回填与销账同一次 | PASS | 两条记录各自：`远程同步` 行 PENDING→PASS（含 merge SHA + committer + 三源取证写法）**且**同一次提交内删除 frontmatter 的 `sync_status`/`sync_reason`/`sync_backfill_owner` 三行；回读 `sync_fields_left=0` |
 | 未新增 ledger 键 | PASS | 两条都是**新载体**（登记随文件的 `sync_*` 走），按既有口径**不得**在 `scripts/gate-record-debt-ledger.json` 建键 —— 建了会当场报「陈旧登记」（#3089 那批实测踩过）。本 PR 未触碰该文件 |
 | 行尾 | PASS | 两条记录工作副本均为 LF（`attr=text=auto`，索引与 worktree 都是 `i/lf w/lf`），脚本按 `split('\n')/join('\n')` 逐行处理、不碰任何一行的行尾；提交后 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件对账 |
-| Gate 2c | PENDING | 提交后复跑 `node scripts/check-gate-record-debt.js`，结果回填于「本地门禁汇总」行 |
-| 本地门禁汇总 | PENDING | 提交后统一复跑并回填：`classify-docs-only` / `check-no-brand-residue.js` / `check-pr-exec-record.js --mode=enforce` / `check-gate-record-debt.js` / `check-docs-sync.sh` + 两口径 numstat |
+| Gate 2c | PASS（提交 `42160227c` 后复跑） | `node scripts/check-gate-record-debt.js` ⇒ 顶部 `OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留`；现场 `远程同步行 251 条 / 执行记录 453 篇（全部 ## 标题 461 个）/ 已登记欠账 8 条 / 记录文件 100 篇`。**用差值不用绝对数**：本 PR 对这几项只应动两项 —— 「记录文件」因本篇 +1（96→…→100，中间是并发合并进来的其它记录），「已登记欠账」必须**不变**（本篇不建 ledger 键，两条被收口的也是新载体、其账随文件走）；「远程同步行」总数不变（收 2 开 1 改的是状态列不是行数）。绝对数会随 base 漂，判据是形状 |
+| 本地门禁汇总 | PASS（提交 `42160227c` 后实跑） | `classify-docs-only --base=origin/main --head=HEAD` ⇒ **`docs-only=true` / files=3**（三篇都在 `openspec/records/` 下，未混任何 changes/CI 路径 ⇒ 重型 job 合法短路）；`check-no-brand-residue.js` ⇒ `PASS（扫描 7263 个 tracked 文件，无品牌残留…）`；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `OK`（现场 `变更文件 3 个（A=1 M=2 D=0）｜新增记录 1 篇｜载体M=2`）；`.github/scripts/check-max-lines.js` ⇒ `超限文件=98 挂账=98 墓碑=1 ✅ 无新增超大文件，挂账清单与现实一致`；`check-docs-sync.sh --base=main --head=HEAD` ⇒ `✅ 仅文档/流程变更，无需额外同步`。行尾两口径 numstat 逐文件相同（`61/0`、`1/4`、`1/4`）⇒ 无幽灵行 |
 | QM-1 / QM-2 / QM-4 / TDD / QM-6 | N/A | docs-only 通道，零运行时文件 |
 | 远程同步 | PENDING | 本条自己的欠账：PR 号回读后填入；合并后由下一批回填 PR 改写为 PASS + merge SHA（取证同上三源判据），并**同一次提交**删除本 frontmatter 的三个 `sync_*` 字段；新载体不在 ledger 建键。（这一行是**表格行**而不是 bullet —— `ROW_RE = /^\|\s*远程同步\s*\|/` 只认表格行） |
 
