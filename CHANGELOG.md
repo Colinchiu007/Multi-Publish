@@ -1,3 +1,94 @@
+# [未发布] chore(deps): sharp 0.35.1 → 0.35.5，销掉两条 high 级公告，解除门禁连续阻断（#3129 / dep-audit-sharp-0-35-5）
+
+### 用户感知的变化：门禁不再阻断所有 PR
+
+`依赖漏洞审计门禁` 自 **2026-10-06 13:43** 起连续阻断所有 PR。原因是两条 sharp 的 high 级公告，
+而 lockfile 一直锁在 `sharp@0.35.1`——恰好是 manifest 里 `^0.35.1` 这个 caret 范围的**最低值**，
+说明依赖从未被刷新过。本次升级后门禁恢复通过。
+
+| | 升级前 | 升级后 |
+|---|---|---|
+| 审计命中 | 30 | 28 |
+| 基线挂账 | 30 | 28 |
+| `check-dep-audit.js` | 阻断（2 条未登记公告） | exit 0，无新增已知公告 |
+
+本次的确定价值主要是**运营成本**：一次了结 `0.35.x` 整段公告，
+否则每条新公告都要付一次「阻断所有 PR + 一条 backfill PR + 一次全量 CI」的代价。
+
+### 两条公告分开评估，不笼统宣称"升级即修复漏洞"
+
+| 公告 | 漏洞实际在 | 本仓是否有可达路径 |
+|---|---|---|
+| `GHSA-wq5f-xc86-pv6w` | **librsvg**（SVG 光栅化器） | **无**——两条 SVG 路径均为自生成、拼接后转义，且无外部 SVG 文件读入 |
+| `GHSA-rgj7-g3m4-5g8c` | **libheif**（HEIF/HEIC 解码器） | **未证实不可达**——见下 |
+
+- `wq5f` 需要攻击者提供恶意 SVG。本仓有**两条**「SVG 喂给 sharp」的路径：
+  `apps/desktop/electron/services/local-cover-generator.js:327` 与
+  `packages/shared-utils/src/cover-processor/cover-generator.js:186`。
+  两者都在拼接后做 XML 转义，且都无外部 SVG 文件读入 → 无可达触发路径。
+- `rgj7` 需要 HEIF/HEIC 图片。代码中无 HEIF 字样，但 `apps/desktop/electron/ipc-handlers/publish.js:178`
+  的 `cover:crop` IPC 接收 `payload.imagePath` **无扩展名白名单**，来源是用户上传原图。
+  **可达性本次未能证实，因此不声称不可达。**
+
+### 不在本次范围：rgj7 可达性追踪
+
+作为本 PR 之外的独立 follow-up：追踪 `cover:crop` IPC 的图片来源链路，
+给出可达/不可达结论；若可达，附带扩展名或 magic-bytes 最小校验。
+本次**不改**该 IPC 的校验逻辑——它与 sharp 版本无关，
+混进来会让这次纯依赖升级变成行为变更，削弱回滚的干净性。
+
+### 改动明细（3 个文件，同一原子提交）
+
+| 文件 | 改动 | 说明 |
+|---|---|---|
+| `packages/shared-utils/package.json` | `"sharp": "^0.35.1"` → `"^0.35.5"` | **有意收紧版本范围**：维持 `^0.35.1` 等于允许 lockfile 停在有漏洞的 0.35.1~0.35.3 |
+| `pnpm-lock.yaml` | `sharp@0.35.1` → `0.35.5` | 已核对：顶层依赖仅此一包变化，无旧版残留，无连带升级 |
+| `scripts/dep-audit-baseline.json` | 清账 | git diff 为**纯删除 26 行、零新增**，删掉的正是上述两条 |
+
+### 数据校验
+
+| 校验 | 结果 |
+|---|---|
+| `node scripts/check-dep-audit.js`（`--update` 后复跑） | ✅ exit 0，命中 28 / 挂账 28 |
+| `node --test scripts/check-dep-audit.test.js` | ✅ 26/26 |
+| grep lockfile 无 `sharp@0.35.0`–`0.35.4` 残留 | ✅ |
+| 基线 diff 仅删两条 | ✅ 纯删除 26 行、零新增 |
+| 独立目录实装 `sharp@0.35.5`（1.4s） | ✅ `sharp=0.35.5` `vips=8.18.7` |
+| 含 `& < > " '` 与中文的 SVG → PNG 渲染 | ✅ 45515 字节 PNG，签名校验通过 |
+
+### 本地未覆盖的唯一一项
+
+**仓库内 hoisted `node_modules` 布局下的 sharp 调用**。造这个布局需全量安装
+（monorepo 921 个顶层依赖），本机两次超时。
+
+交由 CI 兜底：`cover-processor` 与 `local-cover-generator` 的既有单测会真实加载
+sharp 并渲染；`Ensure Electron binary` job 校验平台二进制。
+**这不是假想风险**——`main` 上 `a0336074 feat(desktop): …缺依赖导致桌面端启动失败`
+就是先例，说明本仓确实出现过「依赖没装好 → 运行时才发现」的故障。
+
+### 边界与不做的事
+
+- 不改两个 cover-generator 的任何逻辑：SVG 生成与转义方式保持原样
+- 不动 `publish.js` 的 IPC 校验（见上文 follow-up）
+- 不做指数退避、不顺带升级其他依赖（本次只动 `sharp` 一个包）、不动基线中其余 28 条
+- 不修两处转义覆盖度差异：desktop 转 5 字符 `& < > " '`，
+  shared-utils 内联转 4 字符 `& < > " `（缺 `'`）。`'` 在 SVG 文本节点里不构成注入，
+  如实记录，不在本次修改范围
+
+### 回滚方式
+
+三处改动放在**同一个原子提交**，`git revert` 一次即完全复原，
+不会出现 lockfile 与基线短暂不一致的中间态。`git revert` + `pnpm install`，
+sharp 与基线两条均复原。无数据迁移。
+
+**触发回滚的判据**：CI 中依赖审计门禁转红，或 `Ensure Electron binary` job 转红。
+
+### 评审
+
+CCG 外部双家族审核（claude + opencode），两个家族均 Critical 0、
+无未解决的 High 级问题，判 `cleared`。
+
+---
 # [未发布] docs(openspec): 归档 spec-mirror-wiring-gate，把「接线资格」那条契约落进主规格（2026-10-08，spec-mirror-gate-archive）
 
 ### 这一步在整条链里的位置
