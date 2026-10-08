@@ -2,9 +2,6 @@
 record: fix-learnings-encoding-damage
 task: 修复 01-docs/learnings.md 的7212 处编码损坏并重建 2026-07-11 复盘内容
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
-sync_backfill_owner: "backfill-learnings-encoding-record"
 ---
 
 ## 本次执行记录：learnings 编码损坏治理（fix-learnings-encoding-damage，2026-10-07）
@@ -25,7 +22,24 @@ sync_backfill_owner: "backfill-learnings-encoding-record"
 | 门禁收口 | PASS | `scripts/check-text-encoding-baseline.json` 经 `--update-baseline` 从 8 条收到 **7 条**（移除 `learnings.md`）；`node scripts/check-text-encoding-integrity.js` → **OK：无新增编码损坏** |
 | 剩余存量（未处理） | PASS | 7 个文件仍带损坏且**已在案不判红**：`.ccg/tasks/archive/…analysis-claude.md`(2)、`analysis-opencode.md`(1)、`01-docs/ARCH-OPS-CENTER-RESILIENCE-2026-10-06.md`(3)、`01-docs/marketing/01-产品卖点清单.md`(2)、`openspec/specs/creator-monitor/spec.md`(2)、`packages/api-publish-engine/src/adapters/xiaohongshu.js`(2)、`packages/shared-utils/src/__tests__/scheduler.test.js`(3)。其中 **`adapters/xiaohongshu.js` 的 2 处在本次范围内**（#3009 重写过该文件），其余为更早的独立存量，留待专项 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面与运行时代码 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | merge SHA `89a971eb734c43f1273e3cf3323186e89556c43d`（2026-10-08T17:39:09+08:00）。取证：`git log origin/main --grep='(#3091)
+
+### 机制层面的教训（比这次修复本身更重要）
+
+**① 「已登记不判红」是棘轮的固有盲区。** 本次 7212 处损坏之所以能静默三个月，
+正是因为当初把它**单独登记为例外**，而不是修掉。棘轮只能保证「不新增」，
+无法保证「已登记的一定会被修」。**登记必须带到期或复核条件**，否则等于永久豁免。
+
+**② `git blame` 在整文件重写场景下会误导归因。** #2792 重写了整个 learnings.md，
+导致 blame 把损坏行归给它，而它父提交里损坏早已存在。**归因必须用 blob 级逐提交
+计数，不能只信 blame**。
+
+**③ 编码损坏的「形态」本身就是线索。** ASCII 存活 + 中文全毁 + strict_utf8 通过
+⇒ 典型的「按错误编码解读后写回」；若strict_utf8 失败则是字节级损坏，两者修法不同。
+
+**④ 三次栽在编码上**（今日改测试注释写坏 2 处、回填时 `String.replace` 的 `$'`
+令牌损坏文件、本次 7212 处存量），说明**中文内容经脚本改写**是本机的高风险路径。
+本次已验证可行的做法：写 `.js` 脚本改写 + 只读探针回读 + 强校验后落盘。 --format=%H|%cI` → `89a971eb…56c43d|2026-10-08T17:39:09+08:00`；`git ls-remote --heads origin fix-learnings-encoding-damage` 返回 0 行（远端分支已删） |
 
 ### 机制层面的教训（比这次修复本身更重要）
 

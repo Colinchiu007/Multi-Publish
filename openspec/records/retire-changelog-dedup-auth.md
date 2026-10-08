@@ -2,9 +2,6 @@
 record: retire-changelog-dedup-auth
 task: 退役已消费的 CHANGELOG 去重授权——解除后续 PR 的坐标系死锁
 date: 2026-10-08
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，无法取证 merge SHA；合并后由回填 PR 同一次提交写入并删除本字段与 sync_backfill_owner。"
-sync_backfill_owner: "backfill-retire-clog-auth-record"
 ---
 
 ## 本次执行记录：CHANGELOG 去重授权退役（retire-changelog-dedup-auth，2026-10-08）
@@ -22,7 +19,16 @@ sync_backfill_owner: "backfill-retire-clog-auth-record"
 | QM-6 CCG 双模型评审 | 未执行 | 本机无 `codeagent-wrapper` 可执行文件（`X --version` 实测失败，与 2026-10-07 记录一致）；待环境可用后补评，不以自审冒充 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触渲染面与运行时代码；改的是 CI 门禁判据 |
 | 行尾与编码 | PASS | `bareLF=0`（CRLF 保持）；**本轮再次踩中全角逗号**（`retiredReason` 与 reason 两行尾 `,` 写成 `，`）⇒ `node --check` 即时抓住；脚本改写 + 只读回读 + 强校验的流程全程执行 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账 |
+| 远程同步 | PASS | merge SHA `a356572678e6375368a43ad19418286f89811552`（2026-10-08T17:35:38+08:00）。取证：`git log origin/main --grep='(#3151)
+
+### 与既有承诺的关系
+
+`dedup-changelog-history` 的提案承诺「默认判据与现有 11 条断言一字不动」。本 change **兑现**该承诺：30 条既有断言（含授权通路的全部 fatal 与默认判据的全部负控）一字未改且全绿；新增的退休分支只在「授权坐标系已是 base 祖先」这一**事后状态**下生效——它放行的不是"新的清理"，而是"已被授权的清理在 main 上的既成事实"。
+
+### 遗留（不假装已闭合）
+
+- `expected_entries_after=349` 与 main 当前 359 条的差 10 条是**清理之后**的正常新增，退休分支放行的只是"那次清理造成的缺失"，两者不混淆（当前用例未显式覆盖"清理后又有新增"的场景，若后续出现需补用例）。
+- PR #3076（小红书 permit 形态对齐）与 #3091（learnings 编码修复）在本 change 合并后重跑 CI 应转绿，需实际验证。 --format=%H|%cI` → `a3565726…11552|2026-10-08T17:35:38+08:00`；`git ls-remote --heads origin fix-changelog-auth-retirement` 返回 0 行（远端分支已删） |
 
 ### 与既有承诺的关系
 
