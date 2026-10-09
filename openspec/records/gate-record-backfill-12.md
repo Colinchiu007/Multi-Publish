@@ -7,7 +7,7 @@ date: 2026-10-08
 ## 本次执行记录：回填三篇记录的远程同步欠账（gate-record-backfill-12，2026-10-08）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见下表
-- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PASS（PR #3145 已 squash 合并，main `67a5047ff8aaab28bf57e2146a161ad32aa8afeb` @ 2026-10-08T15:40:13+08:00；取证 `git log origin/main --grep='(#3145)$' --format=%H|%cI` 恰 1 行、`git ls-remote --heads origin gate-record-backfill-12` 返回 0 行；本记录未登记 ledger，无登记项可删）
 
 ### 这批的特殊之处：它是在一把**刚被补宽的门禁**下做的回填
 
