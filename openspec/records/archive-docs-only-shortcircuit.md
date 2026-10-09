@@ -2,9 +2,6 @@
 record: archive-docs-only-shortcircuit
 task: 归档 openspec change docs-only-ci-shortcircuit（勾掉 6.3 的 skipped-required 实证），并把它的 delta 落进主规格 ci-path-gating
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由本会话或下一个会话按 `git log origin/main --grep='(#NNNN)$'` 取证回填
-sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug）
 ---
 
 ## 本次执行记录：归档 docs-only-ci-shortcircuit（archive-docs-only-shortcircuit，2026-10-09）
@@ -23,7 +20,7 @@ sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug
 | 行尾与 diff 对账 | ✅ | 两口径 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相等（数值见 PR 正文；四个 change 文件由 git 判为 rename，主规格与本篇为新增/修改）。纪律：动手前 `git ls-files --eol` 当场量档，未做整文件行尾统一回写 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/**`、`packages/rpa-engine/**` 与任何前端文件 |
 | QM-6 CCG 双模型外部评审 | N/A | 纯归档 + 规格同步，无判据与代码变更（AGENTS.md：纯文档/流程变更不强制 QM-6）。**但**"CLI 拒绝后改用 `--skip-specs` + 手工合并规格"这个决定属于改规格面，已在上面两行给出定责与产物核对，供抽查 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin archive-docs-only-shortcircuit` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：PR #3218 squash 进 main，`git log origin/main --grep='(#3218)$' --format=%H\|%cI` 取得 `3b81b66542f001da2b7e510d4b02d33637420797\|2026-10-09T22:06:13+08:00`；`git ls-remote --heads origin archive-docs-only-shortcircuit` 返回 **0 行**（远端分支随合并删除）。CI 侧按判据逐条复核而非只看桶位：`gh pr checks` 8 pass / 11 skipping / 0 fail / 0 pending，run 37940874161 的 `QG Changes › Detect docs-only changes` 步骤当次打印 `docs-only=true`（不是靠 job 全绿反推）。main 产物回读：`openspec/specs/ci-path-gating/spec.md` Requirement = **7**、旧场景名 `文档改动 PR 触发全量检查` 残留 **0** 处、归档目录 `tasks.md` 未勾选项 **0** 条、旧 `openspec/changes/docs-only-ci-shortcircuit/` 已从 tree 消失。回填 PASS 与删除上方三个 `sync_*` 字段发生在**同一次提交**内 |
 
 ### 遗留（不假装已闭合）
 
