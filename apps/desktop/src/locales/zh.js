@@ -287,4 +287,14 @@ knowledgeBase: {
   // ── 自动化模块（2026-10-03）：定时 / 启动触发的自动化任务 ──
   automation: { ...automationZh },
 
+  // ── 应用壳层（App.vue）全局提示（2026-10-09）────────────────────────
+  // App 级监听 scheduler:dispatch-failed：定时任务到点但入队失败时，无论用户
+  // 停在哪个页面都立即弹错误 toast。此前只有发布日历页监听，用户排完期去了
+  // 别的页面就收不到任何提示，失败只静静躺在发布历史里。
+  appShell: {
+    // 与 calendarPage.scheduleDispatchFailed 职责不同：那条在日历页内弹并刷新日历；
+    // 这条是全局兜底（文案不提「重新排期」操作——用户可能不在排期语境，只告知事实）。
+    scheduleDispatchFailed: '定时发布未能发出：{platform} {reason}。详情见「发布记录」。',
+  },
+
 }
