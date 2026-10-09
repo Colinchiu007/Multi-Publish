@@ -252,6 +252,40 @@ N=1 时 `goToDestination` 走 `?draft=<id>`，装载进**单篇编辑器**（保
 
 **未借鉴（明确不做）**：参考产品直接用平台 API 发布，本产品保留 RPA 轨（登录态复用与风控差异导致不能照搬），仅对齐**交互与编排语义**。
 
+### 9.1 小红书「草稿 / 发布」链路对照（2026-10-10 实测逆向，回答「它们怎么处理」）
+
+逆向对象：该目录下 `packages/main/dist/index.cjs`（7.9MB 打包产物，符号名未混淆）。检索区间为小红书适配器所在段落。
+
+**结论 1：参考产品没有「小红书只存草稿」这条路。** 小红书区段内 `draft` / `草稿` **零命中**；草稿语义只出现在**其它平台**（B站 `vupre/web/draft/add`、抖音 draft、视频号 `post_draft`、爱奇艺「推送草稿成功」、头条 `save=0` 等）。它的默认行为是**直接发布**——因此「小红书仅存草稿」是本产品的**更严格自我约束**，不是照搬。
+
+**结论 2：它有两条小红书轨，与本仓同构。**
+
+| 轨 | 参考产品实现 | 本仓现状 |
+|----|-------------|---------|
+| DOM/RPA | `xiaohongshuImageRun`（图文注入脚本，注册于 `TargetPlatformProcess[XiaoHongShu]`） | RPA 轨 `_publish_xiaohongshu`；**图文强制 draftOnly**（点发布被我们主动去掉） |
+| API | 上传（permit + ros）→ `POST https://edith.xiaohongshu.com/web_api/sns/v2/note` | 同端点、同 permit 参数（逐字一致）；note 步真机 406（见 §13） |
+
+**结论 3：它绕过 note 风控的关键是「签名外包」，这正是我们 406 的根因对照。**
+
+- 签名调用形态：`POST {签名服务}/Sign/GetSign`，body `{ url:"", cookie: JSON.stringify([cookieHeader, encodeURIComponent(bodyJson)]), signType:"browser", signCommand:"newxiaohongshu" }`；多端口轮询 + 失败重试（间隔 1s）。
+- 响应 `signature` 是**字符串化 JSON**（需把转义引号还原），内含 `X-s` / `X-t` / `X-S-Common` —— 参考产品**原样贴到请求头**，即 `x-s-common` 由**真实浏览器环境**算出，而不是本地模板。
+- 响应**还可能在 `a1` 字段返回一个刷新后的 `a1`**，参考产品把它替换进 cookie（`a1=<旧>` → `a1old=<旧>; a1=<新>`）——签名与 cookie **是联动的**。
+- 提交 note 的请求头：`cookie`、`referer`/`Origin: https://creator.xiaohongshu.com`、`Authorization: ''`（**空串，不传创作者 AT token**）、`Content-Type: application/json;charset=UTF-8`、桌面 Chrome/Edge UA。
+- note payload 含 `bizType: 13`、`noteOrderBind`、`timelines`、`cover`、`chapters`、`chapter_sync_text`、`segments`、`entrance: 'web'` 等字段（话题/好友在正文里以 `#话题[话题]#` / `@昵称` 形式并另附 `topic`/`friend` 结构）。
+- 上传步骤与我们一致：`GET creator…/api/media/v1/upload/web/permit?biz_name=spectrum&scene=video|image&file_count=1&version=1&source=web`（referer=`publish/publish`）→ `PUT https://{uploadAddr}/{fileIds[0]}`（`x-cos-security-token`、`Authorization:''`、`Content-Type:''`）→ 取响应头 `x-ros-preview-url`。
+
+**对照本仓差异（可解释我们的 406）**：
+
+| 维度 | 参考产品 | 本仓 |
+|------|---------|------|
+| 签名来源 | 自建**浏览器化签名服务**下发 `X-s`/`X-t`/`X-S-Common` | 进程内本地 XYW 算法（`signer-local.js`） |
+| `x-s-common` | 由签名服务给出（含当前环境指纹） | **硬编码模板**（webBuild 等固定值） |
+| `a1` | 接受签名服务下发的**刷新值**并回填 cookie | 只用账号里原值 |
+| 签名输入 | 路径 + `encodeURIComponent(body)` | 路径（A/B 过绝对 URL，两者都 406） |
+| `Authorization` | 空串 | `AT <access-token-creator…>` |
+
+**可落地路径（若要打通 API 轨，代价与风险并存）**：① 复刻其浏览器内求签形态——用隐藏页在 `creator.xiaohongshu.com` 真实上下文里取 `x-s-common`/`a1` 再签名（本仓 `signer-assembly` 已有 browser 形态，XHS 当前被降级成 localAlgorithm，可切回）；② 让账号具备主站会话（`web_session`）后再试（但签名环境不匹配仍可能 406）。两者都属于**对平台风控的对抗**，与「小红书避开真实发布」的取向相悖；本仓**保持 RPA draftOnly 轨**（已真机验证只存草稿、无发布点击），API 轨仅作诊断通道。
+
 ---
 
 ## 10. 验收标准
