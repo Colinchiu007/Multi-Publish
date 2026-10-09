@@ -120,9 +120,7 @@ function registerHandlers(ipcMain, deps) {
         aspect_ratio: ratio,
         outputDir,
       })
-      // 2026-10-09 快手图文 tofu：ffmpeg drawtext 占位图（degraded:true）在 Windows 打包环境
-      // 无 CJK 字形，中文全部渲染为方块（实锤：img_9400.png 仅 ASCII 可读）。占位图属内部
-      // 草稿示意，绝不能作为「AI 封面」发布——判定为 AI 失败，走本地标题卡兜底。
+      // 2026-10-09 快手图文 tofu：ffmpeg 占位图（degraded:true，Windows 无 CJK 字形）中文全方块，绝不能冒充「AI 封面」——判定 AI 失败走本地兜底。
       const isDegradedPlaceholder = result && result.data && result.data.degraded === true
       if (!result || result.code !== 0 || !result.data || !result.data.path || isDegradedPlaceholder) {
         const msg = isDegradedPlaceholder
