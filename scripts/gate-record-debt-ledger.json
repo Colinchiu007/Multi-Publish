@@ -2,7 +2,7 @@
   "本次执行记录：热门选题→一键发布图文的批量交接（hot-topics-publish-handoff，2026-10-09）": {
     "reason": "本 PR 尚未合并，merge SHA 尚不存在，无法在本会话内收口；回填者＝本会话或下一个会话（合并后同一次提交内把状态列改写为 PASS + merge SHA，并删除本登记项与 openspec/records 的 sync_* 三字段）。",
     "status": "待 PR 合并后核验",
-    "line": 25
+    "line": 27
   },
   "本次执行记录：多语言内容同步机制文档与规划（i18n-content-sync）（2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",

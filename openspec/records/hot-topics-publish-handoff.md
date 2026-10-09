@@ -17,7 +17,8 @@ sync_backfill_owner: 下一个会话（或本会话在合并后立即回填）
 | 修复 + 回归保护（QM-5 ④） | PASS | 修复：去向按成功条目数带参（多条 `?drafts=`／单条 `?draft=`）+ 发布页接收端（解析/装载/幂等/失败语义）+ `createArticleItem` 字段面工厂 + `seedArticlesFromDrafts` + `applyTargetsToAll` + 「批量设置发布目标」工具条 + 8 条成对文案。回归锁 15 例：`HotTopics.test.js` 2、`Publish.test.js` 6、`useBatchPublish.test.js` 7；三文件全绿（238 passed / 3 files） |
 | 防止再次发生（QM-5 ⑤） | PASS | ①「跳转参数」类缺陷改由组件测试直接断言 `router.push` 载荷（新增 2 例钉住多条/单条形态）；②跨页链路契约写进 openspec 能力 `hot-topics-publish-handoff`（参数形态、幂等、失败语义、目标分发四组 Requirement + Scenario）；③`createArticleItem` 工厂 + 「装载与 addArticle 键集一致」用例，堵住「新增字段只改一处」这一类复发形态；④PRD 记录弹窗文案与实现的对应关系（文案即验收承诺） |
 | 变异反证（锁是否在跑） | PASS | M1 `HotTopics` 去向退回 `push({path:'/publish',query:{}})` → HotTopics 1 红；M2 禁用 `Publish` 交接分支（`if (handoffIds.length > 0)` → `if (false)`）→ Publish 4 红；M3 `applyTargetsToAll` 不写账号 → useBatchPublish 2 红。脚本以 `stdio:'inherit'` 规避沙箱管道 EPERM，每轮结束用 git 还原并校验字节一致 |
-| 小红书仅存草稿（硬约束） | PASS | 用户追加要求「小红书风控严格，不得真实发布，只放平台草稿箱」。路由 `xiaohongshu` 由 `rpa_vm` 改 `xhs_draft`；新增 `xiaohongshu-draft-publisher.js`（只调 API + `draft=true`，**永不点发布按钮**）；缺 Cookie/`a1`/Authorization/图片/标题 与 业务码非 0/无草稿标识 全部 fail-closed；`draft` 结果不建审核回查、不登记可回采作品。回归锁 6 例 + 1 例（phase4-events） |
+| 小红书仅存草稿（硬约束） | PASS | 用户追加要求「小红书风控严格，不得真实发布，只放平台草稿箱」。**第一版设计（路由到新增 API 草稿轨 `xhs_draft`）被真机实测推翻**：RPA 轨图文自 2026-09-29 起本就是 `draftOnly`（并非「会点发布」），而 API 轨 note 步不可用（`creator` 域 404 / `edith` 域 406；permit+upload 均通过；账号缺主站 `web_session`）。落点改为轨内：图文强制 `draftOnly`、**视频 fail-closed**（`XHS_VIDEO_DRAFT_UNSUPPORTED`，此前视频仍走点发布链路）；删除 `xiaohongshu-draft-publisher.js` 与其 7 例，新增 2 例锁（图文必带 draftOnly / 视频 generic 零调用）。真机复验见下方 E2E |
+| CCG verify-security（存量误报） | PASS（附取证） | 门禁对本次触及的 `rpa-view-platforms.js` 报 2 条高危（`:1010` innerHTML / `:1078` 运行时 token 拼接）。取证：本 PR 在该文件只有 `@@ -1312,6 +1312,19 @@` 一个 hunk；对 `origin/main` 同文件扫描得到完全相同的两条同位置告警 ⇒ 存量误报。门禁无基线白名单，按文档化豁免 `SKIP_CCG_GATE=1` 提交（未用 `--no-verify`）并在此登记 |
 | 线上事故（新组件漏导入 UiInput） | PASS | E2E 现场发现：`BatchArticleCard.vue` 漏 `import UiInput` ⇒ `<UiInput>` 渲染成未知元素、标题/正文输入框整体失效（DOM 值空），而 `Publish.test.js` 夹具把 `UiInput` 注册为全局组件 ⇒ **单测全绿掩盖之**。修法：补局部导入；两层锁——①卡片渲染值断言（`.batch-articles input.ui-input` 值 = 草稿标题、textarea = 草稿正文）；②全仓结构锁「凡使用 `<UiInput|UiButton|UiSelect>` 的 SFC 必须自行 import」 |
 | 行数棘轮（max-lines） | PASS | 首轮 CI 三红：`TARGET_GREW: Publish.vue 1896 > 点名目标 1773`、`TEST_OVER_LIMIT: useBatchPublish.test.js 1508 ≥ 1500`、`TEST_LEDGER_GREW: Publish.test.js 膨胀 212 > 容差 200`。**修法为真实拆分而非上调 targets**：交接状态机 → `useHotTopicsDraftHandoff.js`；工具条 → `BatchTargetsToolbar.vue`；发布目标块 → `BatchTargetPicker.vue`；整卡片 → `BatchArticleCard.vue`；测试侧合并同场景用例。末态 `check-max-lines.js` ✅ |
 | 品牌残留（Gate 12，首轮 CI 红） | PASS | 首轮 QG Changes 红 7 处：PRD/proposal/learnings 写出了参考产品品牌名与含品牌词的目录路径。按仓内红线改写为「参考产品」并给出品牌词无关的定位法；`check-no-brand-residue.js` PASS（7463 tracked 文件） |
@@ -44,12 +45,22 @@ sync_backfill_owner: 下一个会话（或本会话在合并后立即回填）
 5. **提交与确认**：确认弹窗如实提示「即将发布 5 篇内容，共 40 个平台账号任务」并列出快手 480 字截断预告（1263→468 等）；点「确认发布」后回执「🚀 已接受 40 个发布任务」。
 6. **第二轮（含小红书草稿轨的完整验收）**：重启应用加载新代码后重跑同一链路——5 条改写完成（正文 1061/714/1081/863/1277 字）→ 去发布 → `?drafts=` 装载 5 条并预置 8 平台 + 默认账号 → 每条设封面（小红书草稿必须有图）→ 第 1 条取消百家号（避免与上一批已成功的那篇重复）→ 「批量发布 (39 个任务)」→ 确认弹窗「即将发布 5 篇内容，共 39 个平台账号任务」→ 回执「🚀 已接受 39 个发布任务」。
 7. **冷重载复验**：在 `?drafts=` URL 上 `location.reload()`（组件冷挂载）后，内容仍装载、平台仍预置、任务数回到 39 —— 验证「交接幂等 + 预置来自账号目录（不依赖平台目录就绪）」两项修复；同轮以 Vue 实例树直读确认 `articles` 内部状态与 DOM 输入一致。
-8. **小红书任务状态（检查点）**：39 个任务中，小红书 5 条均处于「⏳ 发布间隔限制，等待 30 分钟后重试（本账号间隔）」——**未发生真实发布**；其余平台按频控间隔推进（快手/抖音/视频号/腾讯视频等已在 RPA 轨执行）。草稿轨的最终回执（是否成功写入草稿箱、是否未公开）待该任务到点执行后回填。
+8. **小红书草稿落点（真机复验，PASS）**：第一版把 `xiaohongshu` 路由到新增 API 草稿轨被实测推翻——
+   - `xiaohongshu:probe-draft-chain` 实跑：permit（GET）与 ros-upload（PUT）**均通过**；note 步
+     `creator.xiaohongshu.com/web_api/sns/v2/note` → **404**（端点不在 creator 域），
+     `edith.xiaohongshu.com/web_api/sns/v2/note` → **406**（`{code:-1}`）。签名基址 A/B（绝对 URL vs 路径）
+     **两种都 406**；该账号 cookie 无主站 `web_session`（只有 creator 域会话）⇒ 签名/风控过不去。
+   - 改为轨内落点后单篇只投小红书（标题 17 字、1 张封面）：频控等待 6 分钟后于 16:57:36Z 执行 ——
+     `route-selected mode=rpa_vm` → `[xiaohongshu] DIAG[publish2] draftOnly=true` → `saving draft...`
+     → `draft-only done saved=true` → `RpaView publish done platform=xiaohongshu ... draft=true`
+     → `rpa-publish-ok mode=dom`。**全程无「发布」点击**，且随后**没有** `audit-requery` 行（草稿不建回查 ✅）。
+   - 平台侧历史成功例（同一机制）：`【验证稿·可直接删除】DOM轨草稿箱活体验收 …` · 小红书 · **成功**
+     （2026-10-08 21:01 / 21:24、2026-10-09 05:01 / 05:31，应用主页「近期动态」可见）。
 
 | 平台 | 结果 | 回执/说明 |
 |------|------|----------|
-| 小红书 | 待回填（检查点为「等待间隔」，未真实发布） | 路由已改 `xhs_draft`；任务到点后应只写草稿箱 |
-| 百家号 | 第一轮已成功（API 直连 · 全部发布成功 · 23:01:14，历史页取证） | 第二轮该条已从第 1 篇中移除，避免重复 |
+| 小红书 | **PASS（只存草稿）** | `draftOnly=true` → `draft saved` → `draft=true`；无发布点击、无审核回查 |
+| 百家号 | 第一轮已成功（API 直连 · 全部发布成功 · 23:01:14） | 第二轮该条已从第 1 篇中移除，避免重复 |
 
 ### 遗留（不假装已闭合）
 
