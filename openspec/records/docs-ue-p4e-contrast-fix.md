@@ -2,9 +2,6 @@
 record: docs-ue-p4e-contrast-fix
 task: P4E 深色可读性第四批收官——低对比 19→0 清零：EP light-9/popper/fill-blank 三槽桥接 + coral 暗色深橙 + Accounts/HomeGreeting/Dashboard 组件 dark 块
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: PR 尚未合并，merge SHA 待合并后取证
-sync_backfill_owner: 本会话（ue-p4e-contrast-fix 作者）
 ---
 
 ## 本次执行记录：P4E 深色可读性第四批收官（docs-ue-p4e-contrast-fix，2026-10-09）
@@ -22,7 +19,7 @@ sync_backfill_owner: 本会话（ue-p4e-contrast-fix 作者）
 | 行数门禁 | PASS | check-max-lines rc=0：Publish/Accounts dark 规则因登记零容差（1773/1578）迁 tokens.css（PublishHistory 1394 同款模式），三个点名文件净零增长 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未动 electron/ 主进程；视觉以 contrast-audit 实测 19→0 为准 |
 | QM-6 CCG 双模型外部评审 | PASS | 双家族已执行（proposer=opencode + critic=claude 跨家族，PowerShell 统一入口），出口为自扮演裁决档（置信 0.6），4 条发现全部裁决：i1 coral 全局改深被实证否决（前景 ~80 处会退化）→ 改三元素局部底色覆盖、i2 dismissed（primary 系已映射）、i3 dismissed（两阶段回填既定流程）、i4 upheld（Dashboard 改走 var(--color-sidebar-accent)）；裁决见 `.adversarial/ccg-deep-95063141/adjudication.json` |
-| 远程同步 | PENDING | 合并后取证 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，`git ls-remote --heads origin ue-p4e-contrast-fix` 应返回 0 行；随后删除上方 sync_* 三字段 |
+| 远程同步 | PASS | PR #3214 已 squash 合并，merge SHA `07550cf37f458e5596a08ccc53810583d5dd2260`（2026-10-09T22:08:49+08:00），取证 `git log origin/main --grep='(#3214)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin ue-p4e-contrast-fix` 返回 0 行，证远端分支已删；sync_* 三字段已删 |
 
 ### 复盘：已闭合
 - EP 桥接三槽缺口（light-9/popper/fill-blank）→ 补映射，亮色同值零回归
