@@ -43,7 +43,7 @@
 - **被否决的方案要说清理由**：「落盘时先删除账号分区平台域 Cookie 再重建」听起来更干净，但 `credential-saver` 自动保存的快照**就来自该分区**，删除会把**正在使用的标签**立刻打成掉登录态。对齐（同键覆盖）而非清空重建，是本场景唯一不伤害在用标签的动作。
 - **门控首个导航的新增 IPC 必须带硬超时**（第二条评审命中项，同 2026-09-24 头条白屏事故族）：「读分区 → 补缺注入」整条链被 await 在 `loadURL` 之前，会话命令可永久挂起。口径与 `LS_INJECTION_TIMEOUT_MS` 同构（默认 2500ms、`MP_COOKIE_RESTORE_TIMEOUT_MS` 可覆盖、非法值回落并出声、永不 reject），但**降级方向相反**：超时后「放弃注入、放行导航」而不是「回退全量注入」——挂起时补发 `set` 既可能同样挂死，也可能把陈旧快照盖回新鲜分区。
 - **可复用口径**：① 写「恢复/回填/同步」类测试，被恢复的目标存储必须**预置非空且更新鲜**的值，否则该类缺陷永远测不出；② 用户报告「做了 A 之后 B 就好了」时，先验证 A 是否真的写过任何东西，再验证 B 的成功是否由**中间那步失败动作的副作用**造成——假因果在本项目至少第三次出现；③ 恢复语义的方向问题（冻结值 vs 实时值）应作为 code review 的固定问句。
-- 详见 `01-docs/BUGFIX-ACCOUNT-TAB-COOKIE-RESTORE-2026-10-09.md`；回归锁 `webview-manager.test.js` + `account-session-restore.test.js` + `account-manager-relogin-status.test.js`（跨模块契约锁跑真 `seedAccountPartitionCookies`），四条变异反证各自独立变红。
+- 详见 `01-docs/BUGFIX-ACCOUNT-TAB-COOKIE-RESTORE-2026-10-09.md`；回归锁 `webview-manager-partition-restore.test.js`（开卡侧 8 例，2026-10-10 因 `check-max-lines.js` 报 `TEST_LEDGER_GREW` 而按被测模块从 webview-manager.test.js 拆出，**不是**抬高挂账登记值）+ `webview-manager.test.js`（`clean-session` 旁路 2 例留原文件）+ `account-session-restore.test.js` + `account-manager-relogin-status.test.js`（跨模块契约锁跑真 `seedAccountPartitionCookies`），十条变异反证（A–J）各自独立变红。
 
 ## 「放宽判据」的新设计先跑既有负控用例——v1 形状退役被 `B×2→B×1` 击穿（retire-changelog-dedup-auth，2026-10-08）
 

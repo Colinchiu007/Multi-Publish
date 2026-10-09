@@ -8,7 +8,7 @@
   - `apps/desktop/electron/services/webview-manager/constants.js`（超时默认值常量）
   - `apps/desktop/electron/publishers/account-session-restore.js`（分区对齐 `seedAccountPartitionCookies`）
   - `apps/desktop/electron/publishers/account-manager.js`（两条落盘入口的旁路接线）
-  - 回归：`apps/desktop/electron/services/webview-manager.test.js`、`apps/desktop/electron/publishers/account-session-restore.test.js`、`apps/desktop/electron/publishers/account-manager-relogin-status.test.js`
+  - 回归：`apps/desktop/electron/services/webview-manager-partition-restore.test.js`（本 PR 新建，开卡侧 8 例）、`apps/desktop/electron/services/webview-manager.test.js`（`clean-session` 旁路 2 例）、`apps/desktop/electron/publishers/account-session-restore.test.js`、`apps/desktop/electron/publishers/account-manager-relogin-status.test.js`
 
 ---
 
@@ -102,7 +102,7 @@
 
 | 层 | 为什么漏过 |
 | --- | --- |
-| 单元（`webview-manager.test.js`） | 既有恢复用例只断言「快照 Cookie 被 `set` 了」，夹具分区**恒空**。分区里有更新鲜的同键值这一前提在夹具里根本不可表示——夹具对所有输入返回同一份数据，「按输入区分」这一整类缺陷对它结构性免疫。 |
+| 单元（当时只有 `webview-manager.test.js`；开卡侧锁现拆至 `webview-manager-partition-restore.test.js`） | 既有恢复用例只断言「快照 Cookie 被 `set` 了」，夹具分区**恒空**。分区里有更新鲜的同键值这一前提在夹具里根本不可表示——夹具对所有输入返回同一份数据，「按输入区分」这一整类缺陷对它结构性免疫。 |
 | 集成 | 检测路径与开卡路径分别测，没有一条用例把「检测判已登录」与「开卡落在登录页」放在一起对照。 |
 | E2E / 真机 | 真机验收每次都从「刚登录完」出发，快照此刻确实是新的。 |
 | 代码审查 | `069bb07d8` 是纯平移，审查注意力在「拆得对不对」，不在被搬那段的行为语义。 |
@@ -276,7 +276,7 @@
    - (a) **恢复类夹具对「分区已有更新鲜值」这一前提结构性免疫**——夹具对所有输入返回同一份数据；
    - (b) **纯平移重构的行为审查盲区**——「移动代码」的 PR 标题会让审查者放弃对语义的质疑；
    - (c) **门控首个导航的新增异步 IPC 缺少超时护栏**（本轮由 QM-6 外部评审独立命中，自审漏掉）。
-4. **修复 + 回归保护**：见 §9，回归锁落 `webview-manager.test.js`（开卡侧）+
+4. **修复 + 回归保护**：见 §9，回归锁落 `webview-manager-partition-restore.test.js`（开卡侧 8 例）+ `webview-manager.test.js`（`clean-session` 旁路 2 例）+
    `account-session-restore.test.js`（seed 单元）+ `account-manager-relogin-status.test.js`（跨模块真实现契约锁）。
 5. **防止再次发生**（有具体文件变更落地）：
    - `AGENTS.md`：在「登录态固化契约覆盖全部『凭证落盘』同族路径」条目补记分区对齐这一步，
@@ -290,7 +290,9 @@
 
 ### 9.1 新增/改动用例
 
-`webview-manager.test.js`（开卡侧，8 条）：
+回归锁落点分两处（2026-10-10）：开卡侧 8 例在 `webview-manager-partition-restore.test.js`，`clean-session` 旁路 2 例仍在 `webview-manager.test.js`。
+
+**为什么拆**（不是审美）：`check-max-lines.js` 对挂账测试文件 `webview-manager.test.js`（登记 1649 行）报 `TEST_LEDGER_GREW`——本 PR 一度把它加到 +282，超出 `growthAllowance=200`。门禁文案自己给出的正解是「测试文件同样要拆（按被测模块/场景分文件）」，**不是**抬高登记值（抬高即把债务熔断改成记录现状，等于自拆护栏）。按此把与本 Bug 同族的开卡侧 8 例逐字搬入新文件：搬后两文件 `wc -l` = 1706 / 326，`1706 - 1649 = 57 ≤ 200` 且 `1706 ≥ 1500`（既不再触增长红，也不误判为「债务已还清」的 `TEST_DEBT_REPAID`），用例总数 85 + 8 = 93 与拆前逐字一致（证明没有丢用例）。新文件自带模块级夹具（`__registerMock('./logger', loggerMock)` 在 require 期冻结 logger、每轮 `mockReset()`），因为把日志类锁放进文件内新建 mock 会让断言恒 0 次却不报错（AGENTS.md 既有教训）。
 1. 读分区挂起时导航仍发生（门控必须有超时）——`cookies.get` 返回永不 resolve 的 promise，
    `MP_COOKIE_RESTORE_TIMEOUT_MS=30`，断言 `loadURL` 被调用、WARN 含 `gate timed out`、`setCalls` 为空。
 2. `cookies.get` **同步抛错**也走全量注入回退，且错误不逃出建标签流程。
@@ -301,14 +303,14 @@
 5. 显式传入的 `opts.cookies` 注入链挂起时导航仍发生（QM-6 前端评审 W1）——`cookies.set` 返回永不
    resolve 的 promise，断言 `loadURL` 被调用、WARN 含 `gate timed out` + `supplied-cookie:kuaishou:`、
    注入链只发起过 1 次 `set`。
-6. `cleanSession` 残留清除链挂起时导航仍发生（同 W1 的第二条链）——`cookies.get` 永不 resolve，
+6. （落点 `webview-manager.test.js`）`cleanSession` 残留清除链挂起时导航仍发生（同 W1 的第二条链）——`cookies.get` 永不 resolve，
    断言 `loadURL` 被调用且 WARN 含 `clean-session:wechat_mp:mp-9`。
-7. `cleanSession` 分支 `cookies.get` **同步**抛错不得逃出建标签——与 ① 的 `readExistingKeys` 同口径，
+7. （落点 `webview-manager.test.js`）`cleanSession` 分支 `cookies.get` **同步**抛错不得逃出建标签——与 ① 的 `readExistingKeys` 同口径，
    链首包 `Promise.resolve().then(...)` 把同步抛错转成 reject 走旁路；断言 `createNewTabPage` 不抛、
    `removeCalls` 为空、WARN 含 `clean session clear failed`、导航照常发生。
 8. `sameSite` 已是规范化值 `no_restriction` 时必须直通（QM-6 前端评审 W2）——同批夹具另带一条
    `from_none` 作对照，防止「整条映射被删空」时该用例假绿。
-（另有 2026-10-09 已交付的 2 条「分区优先不覆盖」「读失败降级」用例，共同构成行为矩阵。）
+（上面列出的 8 条里，⑥⑦ 两条 `cleanSession` 在 `webview-manager.test.js`，其余 6 条 + 2026-10-09 已交付的「分区优先不覆盖」「读失败降级」2 条 = `webview-manager-partition-restore.test.js` 的 8 例，共同构成行为矩阵。）
 
 `account-session-restore.test.js`（seed 单元，6 条）：平台域过滤 + `seeded/skipped` 精确断言、
 非法 `accountId` / 空快照 / 未注入 `deps` 一律不碰分区、`set` 失败只 warn 不 reject、
@@ -325,26 +327,31 @@
 5. 结构锁：`account-manager` 必须复用 `sessionRestore.seedAccountPartitionCookies`，
    不得自带第二份 `fromPartition(` 拼分区名。
 
-### 9.2 变异反证（八条均实测变红，且红的是**应当**变红的那条）
+### 9.2 变异反证（十条均实测变红，且红的是**应当**变红的那条）
 
 | 变异 | 结果 |
 | --- | --- |
-| 摘掉门控超时（`setTimeout` 预算改为等价于永不触发） | `回归：读分区挂起时导航仍发生` 1 红 |
-| 摘掉两处 `syncAccountPartitionWithCredential(...)` 调用 | 契约锁 3 红（创建 / 重登 / 旁路出声） |
-| 摘掉 `seedAccountPartitionCookies` 的平台域门禁 | `只把本平台域的可用 Cookie 写进 persist:account-{id}` 1 红（`seeded=3 skipped=2` vs `1/4`） |
-| 把 `injected` 计数退回 `credCookies.length` | `恢复日志的 injected 只计真正发起 set 的条数（被 normalize 判 null 的不计）` 1 红 |
-| 摘掉 `clean-session` 链的门控超时（`_gateRestoreWithTimeout` → 直接 push 原链） | `回归（2026-10-10，QM-6 评审命中）：cleanSession 清除链挂起时导航仍发生` 1 红 |
-| 摘掉 `supplied-cookie` 链的门控超时 | `回归（2026-10-10，QM-6 评审命中）：显式传入的 Cookie 注入链挂起时导航仍发生` 1 红 |
-| 摘掉 `normalizeElectronCookie` 的 `no_restriction` 直通分支 | `sameSite 已是规范化值 no_restriction 时必须直通` 1 红（`from_none` 对照仍命中，证明红的是直通而非映射整体） |
-| `cleanSession` 链首退回「同步求值 `cookies.get`」（摘掉 `Promise.resolve().then(...)` 包裹） | `cleanSession 分支 cookies.get 同步抛错不得逃出建标签` 1 红 |
+| A 摘掉「仅补缺」——`existingKeys.has(name@domain)` 判据改 `if (false)`，退回无条件覆盖 | `分区已有同 name+domain Cookie 时快照仅补缺、绝不覆盖` 1 红 |
+| B1 摘掉**第 1 处** `syncAccountPartitionWithCredential(...)`（`saveCapturedAccount` 创建路径） | `新建账号（saveCapturedAccount）与重登同口径，不得只锁一条落盘路径` 1 红 |
+| B2 摘掉**第 2 处** `syncAccountPartitionWithCredential(...)`（`updateCapturedAccount` 重登路径） | `重新登录（updateCapturedAccount）把新快照写进 persist:account-{id}，平台域外不碰` 1 红 |
+| C 把 `_gateRestoreWithTimeout` 改成 no-op（等价于永不计时） | `读分区挂起时导航仍发生（门控必须有超时）` 1 红 |
+| D 摘掉 `readExistingKeys` 对同步抛错的 `try/catch` | `cookies.get 同步抛错也走全量注入回退，不得逃出建标签` 1 红 |
+| E 摘掉 `clean-session` 清除链的门控超时（`_gateRestoreWithTimeout` → 直接 push 原链） | `cleanSession 清除链挂起时导航仍发生` 1 红（红在 `webview-manager.test.js`） |
+| F 摘掉 `supplied-cookie` 注入链的门控超时 | `显式传入的 Cookie 注入链挂起时导航仍发生` 1 红 |
+| G 摘掉 `normalizeElectronCookie` 的 `no_restriction` 直通分支 | `sameSite 已是规范化值 no_restriction 时必须直通` 1 红（同批夹具的 `from_none` 对照仍命中，证明红的是直通而非整条映射被删空） |
+| H `clean-session` 链首退回「同步求值 `cookies.get`」（摘掉 `Promise.resolve().then(...)` 包裹） | `cleanSession 分支 cookies.get 同步抛错不得逃出建标签` 1 红（红在 `webview-manager.test.js`） |
+| I 摘掉 `seedAccountPartitionCookies` 的平台域门禁 | `只把本平台域的可用 Cookie 写进 persist:account-{id}，url 由 domain 推出` 1 红（`seeded=3 skipped=2` vs `1/4`） |
+| J 把 `injected` 计数退回 `credCookies.length` | `恢复日志的 injected 只计真正发起 set 的条数（被 normalize 判 null 的不计）` 1 红 |
+
+十条由 `%TEMP%/mp-mut-run3.cjs` 一次性实跑（跑 4 个测试文件：`webview-manager.test.js`、`webview-manager-partition-restore.test.js`、`account-session-restore.test.js`、`account-manager-relogin-status.test.js`），末尾输出 `ALL_MUTATIONS_CAUGHT`，`finally` 逐字节还原源文件。驱动自身有两条纪律：**替换前断言命中次数**——`syncAccountPartitionWithCredential(...)` 在 `account-manager.js` 实出现 2 次，B1/B2 各按 1-based 序号定位一处并钉住总数为 2，否则「只摘了第一处」会被读成「两处都摘」（这正是初版驱动 `MUTATION_ESCAPED: B1` 的真因，属驱动缺陷而非回归锁缺口）；判红按**用例名精确行**（latin1 视图匹配，CJK 判据先 `Buffer.from(s, 'utf8').toString('latin1')`），不看整体 rc。
 
 一条边界澄清（避免把锁写成语义重复）：平台域过滤存在**两道**——调用点 `account-manager` 与 `seed` 自身。
 契约锁测的是「跨模块边界上不落平台域外记录」，`seed` 内部判据由 `account-session-restore.test.js`
-的 `seeded/skipped` 精确断言独占（变异 2 与变异 3 各自独立变红，证明两道锁不是同一道锁的重复）。
+的 `seeded/skipped` 精确断言独占（变异 I 与契约锁 B1/B2 各自独立变红，证明两道锁不是同一道锁的重复）。
 
 ### 9.3 验证范围（消费者并集）
 
-改动模块 `tab-lifecycle.js` / `constants.js` / `account-session-restore.js` / `account-manager.js`
+改动模块 `tab-lifecycle.js` / `utils.js` / `constants.js` / `account-session-restore.js` / `account-manager.js`
 的全部 `.test.js` 消费者并集全跑，加上 `vitest run electron` 全量；
 QM-1 打包（`electron-builder --win --dir`）后在 `app.asar` 内验证新增文件与 require 链，并做启动存活复测。
 
@@ -358,7 +365,7 @@ QM-1 打包（`electron-builder --win --dir`）后在 `app.asar` 内验证新增
 2. **`normalizeElectronCookie` 的 `sameSite` 映射**（QM-6 前端评审 W2，**已在本 PR 内闭合**）：原映射只覆盖
    Playwright 词表（`None/Strict/Lax`），会把已规范化的 `no_restriction` 降级为 `'unspecified'`，与
    `seedAccountPartitionCookies` 的保留口径**方向相反**——同一份凭证在「落盘对齐」与「开卡恢复」两侧写出的
-   出站属性不一致。现映射含 `no_restriction` 直通，回归锁为 `webview-manager.test.js`
+   出站属性不一致。现映射含 `no_restriction` 直通，回归锁为 `webview-manager-partition-restore.test.js`
    「sameSite 已是规范化值 `no_restriction` 时必须直通」（含 `from_none` 对照，防映射被整体删空后假绿）。
 3. **`credLocalStorage` 的恢复未收口**：localStorage 注入同样存在「快照 vs 分区实时值」的方向问题，
    但它已有 `LS_INJECTION_TIMEOUT_MS` 护栏且症状未观察到。本轮刻意不扩大改动面，留作后续评估。

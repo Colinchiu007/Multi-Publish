@@ -123,7 +123,7 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 - `account-session-restore.js`：新增 `seedAccountPartitionCookies(platform, accountId, cookies, deps)`——落盘时刻把快照对齐进 `persist:account-<id>`，只写 `isPlatformCookieDomain` 命中的记录，日志只记计数与 Cookie 名（禁记 value）。
 - `account-manager.js`：`saveCapturedAccount` / `updateCapturedAccount` 两条落盘入口在 `saveCredential` 成功后调用上述对齐（旁路 `try/catch` + `pending.catch` 双保险，不 `await`）。凭证未落盘（半成功）时不执行对齐。
 - 界面与 locale：无新增控件、无新增文案（`mp-home-shell` 与账号页显示项不变）；「一键检测」的结论口径与登录态真源单向证据规则均未改动。
-- 回归锁：`webview-manager.test.js`（挂起时导航仍发生 / 同步抛错回退 / 空快照不读分区 / `injected` 只计真正被 set 的条数）、`account-session-restore.test.js`（seed 6 例）、`account-manager-relogin-status.test.js`（跨模块契约锁 5 例，跑真实现只假宿主）。4 条变异反证均实测变红。
+- 回归锁：`webview-manager-partition-restore.test.js`（开卡侧 8 例：仅补缺 / 读失败降级 / 挂起时导航仍发生 / 同步抛错回退 / 空快照不读分区 / `injected` 只计真正发起 set 的条数 / `supplied-cookie` 链挂起 / `no_restriction` 直通）、`webview-manager.test.js`（`clean-session` 旁路 2 例）、`account-session-restore.test.js`（seed 6 例）、`account-manager-relogin-status.test.js`（跨模块契约锁 5 例，跑真实现只假宿主）。10 条变异反证（A–J，含 seed 两处调用点各测一处）均实测变红。
 - 详见 `01-docs/BUGFIX-ACCOUNT-TAB-COOKIE-RESTORE-2026-10-09.md`（含数据校验规则表 V1-V13、时序、日志文案表、逃逸链与遗留项）。
 
 ---
