@@ -2,6 +2,9 @@
 record: official-compute-stopgap
 task: 官方算力体系第一阶段安全止血（S1 激活码守卫 / S2 匿名权益门禁 fail-closed / S4 成本观测管道 / S6 日志脱敏双端对齐）
 date: 2026-10-09
+sync_status: PENDING
+sync_reason: PR #3217 待合并；合并后取 git log origin/main --grep='(#3217)$' --format=%H|%cI 回填 merge SHA 与时间，并同一次提交删除三个 sync_* 字段与 ledger 登记项。
+sync_backfill_owner: 本 PR 作者（official-compute-stopgap 会话）
 ---
 
 ## 本次执行记录：官方算力体系四项安全止血（official-compute-stopgap，2026-10-09）

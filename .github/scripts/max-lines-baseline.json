@@ -105,7 +105,7 @@
   },
   "targets": {
     "apps/desktop/electron/services/asset-generator.js": 1369,
-    "apps/desktop/electron/services/model-provider-manager.js": 1263,
+    "apps/desktop/electron/services/model-provider-manager.js": 1284,
     "apps/desktop/electron/services/pipeline-engine.js": 2724,
     "apps/desktop/electron/services/rpa-view-platforms.js": 1476,
     "apps/desktop/electron/services/story2video-compose-engine.js": 2486,
@@ -121,7 +121,7 @@
     "apps/desktop/src/views/PublishHistory.vue": 1394,
     "apps/desktop/src/views/ResultView.vue": 1888,
     "ops-center/backend/services/model_preset_service.py": 1221,
-    "packages/api-publish-engine/src/publish-api-server.js": 1537,
+    "packages/api-publish-engine/src/publish-api-server.js": 1574,
     "packages/python-backend/src/multi_publish/video_creation/providers/video/video_compose.py": 2638,
     "packages/story2video-engine/src/text-segmentation.ts": 1389
   },
