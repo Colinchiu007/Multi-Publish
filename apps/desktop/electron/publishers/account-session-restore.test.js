@@ -22,6 +22,7 @@ const {
   restoreLocalStorage,
   getAccountPartitionCookies,
   mergeCookies,
+  seedAccountPartitionCookies,
 } = require(SOURCE)
 
 function spyLog (method) {
@@ -333,5 +334,110 @@ describe('mergeCookies', () => {
     expect(mergeCookies([{ value: 'no-name' }, null], undefined)).toEqual([])
     expect(mergeCookies(null, [{ name: 'ok', domain: '.x.com' }])).toEqual([{ name: 'ok', domain: '.x.com' }])
     expect(mergeCookies(undefined, undefined)).toEqual([])
+  })
+})
+
+// 2026-10-09 快手开卡跳登录页修复的第二把锁：开卡恢复改成「分区优先、快照仅补缺」后，
+// 重新登录（走独立 persist:auth-* 分区）拿到的新快照会被账号分区里「未过期但已吊销」的
+// 同键旧 Cookie 挡掉 → 重登后开卡仍停在登录页。逐 Cookie 比新鲜度在文档 API 上不成立
+// （electron.d.ts 的 Cookie 没有 creationTime/lastAccessTime），只能在落盘时刻对齐分区。
+describe('seedAccountPartitionCookies（凭证落盘后把账号分区对齐到新快照）', () => {
+  const DEPS = { isSafePathSegment: v => typeof v === 'string' && /^[a-zA-Z0-9_-]+$/.test(v) }
+
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  function mockPartition (setImpl) {
+    const setCalls = []
+    const set = setImpl || function (cookie) { setCalls.push(cookie); return Promise.resolve() }
+    const fromPartition = vi.fn(partition => ({ partition, cookies: { set, setCalls } }))
+    global.__electronMock.session.fromPartition = fromPartition
+    return { fromPartition, setCalls }
+  }
+
+  it('只把本平台域的可用 Cookie 写进 persist:account-{id}，url 由 domain 推出', async () => {
+    const { fromPartition, setCalls } = mockPartition()
+    const snapshot = [
+      { name: 'kuaishou_sid', value: 'fresh', domain: '.kuaishou.com', path: '/', secure: true, httpOnly: true, expirationDate: 1800000000, sameSite: 'no_restriction' },
+      { name: 'weibo_sid', value: 'other', domain: '.weibo.com' },
+      { name: 'lookalike', value: 'x', domain: '.kuaishou.com.evil.example' },
+      { name: '', value: 'no-name', domain: '.kuaishou.com' },
+      { name: 'no_domain', value: 'x' },
+    ]
+
+    await expect(seedAccountPartitionCookies('kuaishou', 'abc123', snapshot, DEPS))
+      .resolves.toEqual({ seeded: 1, skipped: 4 })
+
+    expect(fromPartition).toHaveBeenCalledWith('persist:account-abc123')
+    expect(setCalls).toEqual([{
+      url: 'https://kuaishou.com/',
+      name: 'kuaishou_sid',
+      value: 'fresh',
+      domain: '.kuaishou.com',
+      path: '/',
+      secure: true,
+      httpOnly: true,
+      expirationDate: 1800000000,
+      sameSite: 'no_restriction',
+    }])
+  })
+
+  it('非法 accountId / 空快照 / 未注入路径校验时不碰任何分区', async () => {
+    const { fromPartition, setCalls } = mockPartition()
+    const cookies = [{ name: 'a', value: 'b', domain: '.kuaishou.com' }]
+
+    await expect(seedAccountPartitionCookies('kuaishou', '../etc/passwd', cookies, DEPS)).resolves.toEqual({ seeded: 0, skipped: 0 })
+    await expect(seedAccountPartitionCookies('kuaishou', 'abc123', [], DEPS)).resolves.toEqual({ seeded: 0, skipped: 0 })
+    await expect(seedAccountPartitionCookies('kuaishou', 'abc123', cookies)).resolves.toEqual({ seeded: 0, skipped: 0 })
+
+    expect(fromPartition).not.toHaveBeenCalled()
+    expect(setCalls).toEqual([])
+  })
+
+  it('set 失败只出声并如实计数，绝不 reject（旁路不得影响登录结果）', async () => {
+    const warn = spyLog('warn')
+    mockPartition(() => Promise.reject(new Error('set-boom')))
+
+    await expect(seedAccountPartitionCookies('kuaishou', 'abc123', [{ name: 'a', value: 'b', domain: '.kuaishou.com' }], DEPS))
+      .resolves.toEqual({ seeded: 0, skipped: 0 })
+
+    expect(warn.mock.calls.map(c => String(c[1] || '')).some(m =>
+      m.includes('seed partition cookie failed name=a') && m.includes('set-boom'))).toBe(true)
+  })
+
+  it('分区形状不符（无 cookies.set）时记 warn 降级，不抛错', async () => {
+    const warn = spyLog('warn')
+    global.__electronMock.session.fromPartition = vi.fn(() => ({ cookies: {} }))
+
+    await expect(seedAccountPartitionCookies('kuaishou', 'abc123', [{ name: 'a', value: 'b', domain: '.kuaishou.com' }], DEPS))
+      .resolves.toEqual({ seeded: 0, skipped: 0 })
+    expect(warn.mock.calls.map(c => String(c[1] || '')).some(m => m.includes('cookies.set unavailable kuaishou:abc123'))).toBe(true)
+  })
+
+  it('Playwright 形态 sameSite 归一，secure=false 走 http url', async () => {
+    const { setCalls } = mockPartition()
+
+    await seedAccountPartitionCookies('kuaishou', 'abc123', [
+      { name: 'a', value: '1', domain: '.kuaishou.com', sameSite: 'None' },
+      { name: 'b', value: '2', domain: '.kuaishou.com', sameSite: 'weird' },
+      { name: 'c', value: '3', domain: '.kuaishou.com', secure: false },
+    ], DEPS)
+
+    expect(setCalls.map(c => c.sameSite)).toEqual(['no_restriction', 'unspecified', 'unspecified'])
+    expect(setCalls[2].url).toBe('http://kuaishou.com/')
+  })
+
+  it('日志只记计数与平台账号，禁止出现 Cookie 值', async () => {
+    const info = spyLog('info')
+    mockPartition()
+
+    await seedAccountPartitionCookies('kuaishou', 'abc123', [{ name: 'session_secret', value: 'super-secret-value', domain: '.kuaishou.com' }], DEPS)
+
+    const lines = info.mock.calls.map(c => String(c[1] || '')).join('\n')
+    expect(lines).toContain('seeded account partition kuaishou:abc123 seeded=1 failed=0 skipped=0')
+    expect(lines).not.toContain('super-secret-value')
   })
 })

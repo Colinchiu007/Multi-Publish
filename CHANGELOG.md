@@ -107,6 +107,27 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 
 暗色基线在 PR 侧结构性不可判（门禁②）另 PR 推进；其前置条件经实测已破坏 —— main tip `a43287ac7` 的 Visual Tests 红在 `Baseline freshness gate`，8 张暗档漂移待归因。
 
+# [未发布] fix(account): 账号卡片开卡不再把旧快照盖回实时分区，修复「点开是登录页、检测后再开才正常」（2026-10-10，fix-account-tab-cookie-restore）
+
+### 用户感知
+
+点击账号卡片打开该平台页面时，此前会先「把加密快照逐条覆盖写入账号分区」，而快照只在显式保存凭证时更新（普通标签里平台的会话轮换不回写它），于是**每次开卡都把较新的实时会话打回较旧的冻结值**——首屏被判未登录、跳到登录页。用户观察到的「点一次一键检测后再开就正常」是假因果：检测读的是快照与分区的并集且零持久写，真正起作用的是那次失败导航被平台 `Set-Cookie` 静默修补。现在开卡改为**分区优先、快照仅补缺**（同 `name@domain` 一律不覆盖），首次点击即直接进入创作者中心，不再需要先做一次检测。
+
+同时闭合一个反向风险（不改就会出现比原 Bug 更糟的症状）：重新登录走独立 `persist:auth-*` 分区、从不触碰账号分区，分区里「未过期但已被平台吊销」的同键旧 Cookie 会挡掉新快照。现在**凭证成功落盘的时刻会把新快照对齐进账号分区**（旁路执行、只覆盖本平台域记录、失败只出声不影响登录结果），重登后开卡立即生效。
+
+### 变更明细
+
+- `webview-manager/tab-lifecycle.js`：恢复前读一次分区并构造 `name@domain` 集合，只注入分区缺失的 Cookie；读失败（含**同步抛错**）回退全量注入；快照无可用 Cookie 时不发起分区读（导航前不加无谓 IPC）。
+- `webview-manager/constants.js`：新增 `PARTITION_COOKIE_RESTORE_TIMEOUT_MS = 2500`（可经 `MP_COOKIE_RESTORE_TIMEOUT_MS` 覆盖，非法值回落默认并 `warn`）。门控首个导航的这条链带硬超时且永不 reject，超时语义是「放弃注入、放行导航」。
+- `webview-manager/utils.js`：承接 `_partitionRestoreTimeoutMs` 与 `_gateRestoreWithTimeout` 两个护栏（原在 `tab-lifecycle.js`，因该文件贴近 500 行逐文件上限而按既有「工具函数集中在 utils」范式移出；行为不变）。
+- `account-session-restore.js`：新增 `seedAccountPartitionCookies(platform, accountId, cookies, deps)`——落盘时刻把快照对齐进 `persist:account-<id>`，只写 `isPlatformCookieDomain` 命中的记录，日志只记计数与 Cookie 名（禁记 value）。
+- `account-manager.js`：`saveCapturedAccount` / `updateCapturedAccount` 两条落盘入口在 `saveCredential` 成功后调用上述对齐（旁路 `try/catch` + `pending.catch` 双保险，不 `await`）。凭证未落盘（半成功）时不执行对齐。
+- 界面与 locale：无新增控件、无新增文案（`mp-home-shell` 与账号页显示项不变）；「一键检测」的结论口径与登录态真源单向证据规则均未改动。
+- 回归锁：`webview-manager.test.js`（挂起时导航仍发生 / 同步抛错回退 / 空快照不读分区 / `injected` 只计真正被 set 的条数）、`account-session-restore.test.js`（seed 6 例）、`account-manager-relogin-status.test.js`（跨模块契约锁 5 例，跑真实现只假宿主）。4 条变异反证均实测变红。
+- 详见 `01-docs/BUGFIX-ACCOUNT-TAB-COOKIE-RESTORE-2026-10-09.md`（含数据校验规则表 V1-V13、时序、日志文案表、逃逸链与遗留项）。
+
+---
+
 
 # [未发布] fix(publish): 头条定时发布排期上限按平台取证收窄 30→7 天，发布页提示同步显示真实上限（2026-10-08，schedule-horizon-cap）
 
