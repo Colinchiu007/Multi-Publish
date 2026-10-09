@@ -7,7 +7,7 @@ sync_reason: 本 PR 尚未合并，merge SHA 还不存在
 sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list --repo Colinchiu007/Multi-Publish --head pr-dark-baseline-gate --json number,state,headRefOid` 回读取入，不得凭印象；合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除 frontmatter 的三个 sync_* 字段）
 ---
 
-## 本次执行记录：暗档在 PR 侧可判 + 8 张暗档漂移归零（pr-dark-baseline-gate，2026-10-09）
+## 本次执行记录：暗档在 PR 侧可判 + 19 张暗档漂移归零（pr-dark-baseline-gate，2026-10-09）
 
 - 变更类型与分层：`.github/workflows/**` + `scripts/**` + `apps/**` 基线工件 ⇒ 运行时代码级 ⇒ 隔离 worktree `mp-pr-dark-baseline-gate`（分支 `pr-dark-baseline-gate`）；`classify-docs-only` 必然 `docs-only=false`，走完整质量节拍
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见下表
@@ -21,9 +21,9 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 | ② 逃逸链 | 单元不渲染 CSS → `test:visual:pixel` 只读浅色基线 → Gate 7b 把暗档记 skipped 并**放行** → main 侧 `Full visual suites` 用 6% 全页阈值吃掉局部漂移（实测 0.539% 整个隐没）→ 唯一暴露点是 main push 的 `Baseline freshness gate`，而它**不是必需上下文** |
 | ③ 系统性漏洞 | `quality-gate.yml` 的 `visual` job 缺「判定域 == 渲染来源」的接线锁；`scripts/check-baseline-freshness.test.js` 此前**没有任何一条**含 `dark` 的用例（实测 grep 命中 0），所以暗档判定域从未被测过 |
 | ④ 修复 + 回归保护 | 接线（Gate 7 + Gate 7b round2 两处跑 `test:visual:pixel:dark`）+ 结构锁（`workflow-contract.test.js` 新增「两处都接 + 退出码逐条打印 + partial 保留」）+ 行为锁（`check-baseline-freshness.test.js` 新增 2 条：暗档有 `<view>-dark-current.png` 时必须判、不得进 skipped；确实无渲染时才允许 skipped） |
-| ⑤ 预防措施 | 结构锁接进 CI（`workflow-contract.test.js` 已在 `quality-gate.yml:464` 点名执行，无需新接线）；本记录 + `docs/visual-capture-settle-and-attribution.md` 的归因章节 |
+| ⑤ 预防措施 | 结构锁所在测试文件已在 `quality-gate.yml:460` 的 `node --test` 清单里点名（实测 `grep -n` 得 460，先前我写 464 是行号漂移，前端轴评审指出后核实纠正），无需新接线；「新增暗档视图要同步哪几处」落成 `docs/visual-capture-settle-and-attribution.md` §10 的显式清单（原先只指向归因方法论章节，是留给后人的真实缺口） |
 
-### 8 张暗档漂移的归因（推翻我最初的假设）
+### 归因：`a43287ac7` 那一次是 8 张（推翻我最初的假设）
 
 最初假设「#3159 漏刷暗档」。**实测否证**：`git show --name-only a43287ac7 -- .../base-screenshots` 的 29 张里这 8 张**全在**。逐张严格逐像素定位 + 颜色对取证显示：渲染侧的新色值**逐字命中该提交自己新增的 CSS 行**（`cloud-publish-dark` 最大一类 `#23232a → #232329` 占 20236 个像素，而 `#232329` 就在新增行里），仓库基线侧是旧值 ⇒ **基线是在那次 CSS 生效之前抓的（陈旧采集）**，不是漏刷。
 
@@ -50,9 +50,50 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 | N4 把 `findRender` 的 pixel-gate 回落档改名 | `fail=2`（新增两条暗档行为锁同时红，证明它们真在读该档） |
 | 还原自证 | 四个文件 `byte_identical=true`；还原后 `contract fail=0 / freshness fail=0` |
 
+### QM-6 后端轴（`nemotron-3-ultra-free`，绑 head `a68fe767a`）：1 条被否证、1 条边界留账、3 条确认
+
+结论逐字读该模型自己的 stdout（它同样没按指令落 JSON 文件）。**每条都回原文核实后才处置**，不照单全收：
+
+| # | 它说的 | 核实依据 | 处置 |
+| --- | --- | --- | --- |
+| 1 | 结构锁不会假绿：匹配的是 YAML `run` 正文而非注释；两处锚点唯一，锚点失效直接报错 | 复核 `workflow-contract.test.js` + 变异 N1/N2/N3 各自变红 | 确认 |
+| 2 | 行为锁真读 `findRender` 第二档：用例只造 `home-dark-current.png`、不造 `home-dark.png`，必走 pixel-gate 回落 | 复核用例 + 变异 N4 让两条暗档锁同时红 | 确认 |
+| 3 | **报缺陷**：round2 前未清空渲染目录，round1 残留会被 `findRender` 当本轮渲染 ⇒ 误判 | **否证**：`quality-gate.yml:1281` `mv screenshots → screenshots-round1`、`:1282` `mkdir -p .../screenshots` 都在 round2 暗档采集（`:1309`）**之前**；该清理正是 Gate 7b 注释里自述的既有行为 | **不采纳、不改代码**。记为"评审读漏了 round2 前的目录置换"——若照它加一次 `rm -rf`，是对已存在的清理再清一遍，还会把取证用的 `screenshots-round1` 一起纳入删除面 |
+| 4 | 无死锁但有隐患：`KNOWN_DYNAMIC` 被测试钉为空，若出现"钉不住时钟"的实时值视图就变成"违反测试 or PR 永远红"二选一，缺采集层钉时钟有效性的自证 | 复核 `check-baseline-freshness.js` 的 `KNOWN_DYNAMIC = {}` 与那条"必须为空"断言属实 | **留账不改**：属采集层自证机制，另案；本 PR 不扩面 |
+| 5 | 退出码只打印不进门禁的取舍没被写歪，注释与实现一致 | 复核 `:1072` / `:1309` 确实只取 `$?` 不 `exit` | 确认 |
+
+方法学留痕：它报的唯一"缺陷"是**读漏**而不是真问题——这正说明外部评审结论必须逐条回原文核实再处置，`upheld / overturned` 要分开记账。
+
+### QM-6 前端轴（`ling-3.1-flash-free`，同 head）：4 条全部核实为真，3 条已照改
+
+它没有只听我说——自己跑了 `node --test` 两个套件（34/34、36/36）并去 `git show` 父提交核实「此前无 `dark` 用例」命中 0。四条逐条：
+
+| # | 它说的 | 我的核实 | 处置 |
+| --- | --- | --- | --- |
+| 1 | 记录第 74 行「其余见下表」是**悬空引用**，下文没有对应的本地门禁表 | 属实——而且根因更难看：我上一次的插入把 `### 本地门禁` **这个标题本身吞掉了**（Edit 的 new_string 没回写被消耗的锚点），所以那行字是挂在一个已消失的标题下面 | 已修：补回标题 + 落成 8 行结果表（数值全部本轮实跑取，不沿用旧数） |
+| 2 | 记录写结构锁在 `quality-gate.yml:464`，实际在 **460** | `grep -n workflow-contract.test.js` 实跑得 460 | 已改为 460，并在正文记下"行号漂移、评审指出后核实纠正" |
+| 3 | 两条新用例与既有 `partial：…` 命名/语义一致，skipped 语义双向钉死 | 复核用例名与断言方向一致 | 无需改（确认） |
+| 4 | 「新增暗档视图要同步哪几处」的清单**在任何可见处都不存在**；我写的预防措施指向的 docs 章节实为归因方法论，不含步骤 | 属实：`docs/visual-capture-settle-and-attribution.md` §1–§9 全是归因/不可复现分类，无操作清单 | 已补 **§10「新增一个暗档视图要同步哪几处」** 四条清单（含"缺了会怎样"与"谁在守"两列），并把记录的 ⑤预防措施 指向 §10 |
+
+它同时把自己的**未验证项**标了出来（dispatch run 属远程 CI、本机不可取证；变异反证只有记录自述无产物落盘）——这个标注是对的，我没有为了好看把它抹掉。
+
+### 不在本 PR 范围（已登记，不静默修）
+
+- 上表第 4 条：采集层"钉时钟有效性"的自证机制。
+- `ops-center` 生效看板等他人会话的在制品，不代改其执行记录。
+
 ### 本地门禁
 
-`workflow-contract.test.js` 34/0（含新增锁）· `check-baseline-freshness.test.js` 36/0（含新增 2 条）· 其余见下表
+| 门禁 | 命令 | 结果 |
+| --- | --- | --- |
+| 结构锁 | `node --test .github/scripts/workflow-contract.test.js` | 34 pass / 0 fail（含新增暗档锁） |
+| 行为锁 | `node --test scripts/check-baseline-freshness.test.js` | 36 pass / 0 fail（含新增 2 条暗档用例） |
+| 品牌残留 | `node scripts/check-no-brand-residue.js` | PASS（7450 个 tracked 文件） |
+| 欠账机制 | `node scripts/check-gate-record-debt.js` | OK（登记字段无残留） |
+| 超大文件 | `node .github/scripts/check-max-lines.js` | 无新增超限 |
+| 测试接线 | `node scripts/check-unwired-tests.js` | 全部已接线或按欠账登记 |
+| 文档同步 | `bash scripts/check-docs-sync.sh --base=main --head=HEAD` | 通过 |
+| 基线自证 | 同一份 dispatch 产物跑 `check-baseline-freshness.js` | `检查 41 张 / 违规 0 张 / 本次跳过 0 张` |
 
 ### 第二刀：基线重建（**19 张**，不是最初的 8 张）
 
