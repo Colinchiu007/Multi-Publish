@@ -2,9 +2,6 @@
 record: pin-entitlement-public-key
 task: 安全加固——发行公钥钉入编译期常量，packaged 模式禁止替换
 date: 2026-10-07
-# 下面两个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由 docs-only PR 回填
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：钉死发行公钥（pin-entitlement-public-key，2026-10-07）
@@ -135,7 +132,7 @@ SELF-REVIEW，结论记入 `.quality-gates.md`。
   已识别的架构遗留，本 PR 不动，属独立工程项。
 - 新公钥轮换需发版，属可接受代价（低频操作）。
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS —— PR #3102 squash 合并，merge SHA `8b3d3e91`；quality-gate 11/11 全绿 |
 |---|
 
 ---
