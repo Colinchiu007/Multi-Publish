@@ -136,12 +136,13 @@ src/locales/
 3. 新增文案时开发者只改对应域的小文件 → 冲突面从「全仓共用两个文件」降为「按域隔离」。
 4. 命名空间重名键检查：聚合时若后展开的覆盖先展开的，结构锁测试必须报红。
 5. **CI 脚本零改动成立（v3 修正，外部 E2）**：v3 已改回先例同构结构 `locales/<domain>/{zh,en}.js`，成对 regex（:88）天然命中，**确认无需改脚本**。仍需验证两点（审查 A-5+B-6）：①`evalLocaleModule` 递归跟随默认相对 import **限深 4 层**——装配链深度不得超过，且**只允许默认导出形式**（脚本遇不支持形式直接抛错）；②脚本的 **key 存在性校验段（:447-448）读单文件 zh.js/en.js**——zh.js 改为装配文件后导出面不变，必须在 PR 中显式跑一次 key 校验证明仍生效。
-6. **「消费方零改动」不成立（v2 修订，审查 A-3，Critical）**：import 型消费方（i18n/index.js、pipeline-error-formatter.js 等 58 处）确实零改动，但 **4 个测试读的是文件原始文本**而非模块导出，键搬走后立即变红，**必须列入 locales PR 必改清单**：
+6. **「消费方零改动」不成立（v2 修订，审查 A-3，Critical）**：import 型消费方（i18n/index.js、pipeline-error-formatter.js 等）确实零改动，但 **5 个测试读的是文件原始文本**而非模块导出，键搬走后立即变红，**必须列入 locales PR 必改清单**：
    - `apps/desktop/src/tab-independent-home.test.js:64`（`read('locales/zh.js')` + `toMatch(/newTabTitle/)`）
    - `apps/desktop/src/views/Home.todo-guard.test.js:12-13`（readFileSync zh.js/en.js）
    - `apps/desktop/src/views/selfcheck-migrate.test.js:19-20`（`read('src/locales/zh.js')`）
    - `apps/desktop/src/views/PublishScheduleResult.test.js:43`（硬编码遍历 `['src/locales/zh.js','src/locales/en.js']`）
-   - 处置：改为 import 模块后断言键，或断言对象改为扫描聚合目录；**过渡期 zh.js 保留 re-export 全文展开也能兜住文本断言（原文本仍含全部键），但必须逐案核实断言形式**。
+   - `apps/desktop/electron/services/webview-manager/home-shell-title.test.js:50-53`（**里程碑 1 落地时被 CI QG Desktop Shards 1/2 抓到的第 5 个**，此前按 `src/` 目录圈定 grep 漏检 electron/services——教训：raw-text 测试清单必须以**全仓** `readFileSync.*locales` 复扫为准，不能按目录圈定）
+   - 处置：改为 import 模块后断言键；**断言路径按真实嵌套层级写**（实测 `scheduleCreatedTag` 在 `publishPage.publishFlow` 子对象 depth-2，文本断言时代「全文搜得到」掩盖了真实层级）。
 
 ### 3.3 拆分顺序与中间态装配契约（v3 修订，审查 A-2 + 外部 E3/E4）
 
