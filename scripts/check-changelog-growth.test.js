@@ -516,3 +516,25 @@ test('CI 接线锁：Gate 2c3 必须以 merge-base 为坐标系，且不得退�
   assert.ok(/node scripts\/check-changelog-growth\.js/.test(step) && /node --test/.test(step),
     '单测与门禁本体都必须接在同一步骤里（只接一个 = 另一半永不执行）');
 });
+
+// 一次性授权的生命周期锁（2026-10-09 决定 A：只退授权件，不改判据）。
+// 动因是实测：授权文件 88669579 合入 main 后一直没退，而它声明的坐标系（expected_entries_after=349）
+// 与今天 main 的台账规模（369 条）已经对不上 —— 它既不再服务任何 PR（进不了通路：base 已含该文件即撞
+// 「不是本次新增」防白蹭），又让“一次性”在语义上变成常驻。真正解除死锁的是 re-sync 推 base，不是这条通路。
+test('一次性去重授权不得作为常驻文件留在仓库里', () => {
+  const live = path.join(__dirname, '..', AUTH_PATH);
+  assert.ok(!fs.existsSync(live),
+    'scripts/changelog-dedup-authorization.json 必须只在“需要它的那次清理 PR”里新增，用完即随该 PR 一起消失。' +
+    '要重跑清理请在同一个 PR 里用 scripts/changelog-dedup-regen.js 现生成一份，不得把历史授权留在 main 上。');
+});
+
+test('退的是授权件不是通路：常量/生成器/校验函数三样都必须在', () => {
+  assert.equal(typeof AUTH_PATH, 'string', 'AUTH_PATH 仍是门禁导出的真源常量');
+  assert.equal(AUTH_PATH, 'scripts/changelog-dedup-authorization.json', '路径不得被改名来绕开上一条锁');
+  const regen = require('./changelog-dedup-regen.js');
+  assert.equal(typeof regen.regenerate, 'function', '生成器必须还在（否则一次性授权再也造不出来）');
+  assert.equal(regen.AUTH_PATH, AUTH_PATH, '生成器与门禁必须指向同一个路径（两份口径必然漂移）');
+  const growth = require('./check-changelog-growth.js');
+  assert.equal(typeof growth.evaluateAuthorization, 'function', '授权通路本体不得被顺手删掉');
+  assert.equal(typeof growth.checkDedupShape, 'function', '形状四条判据不得被顺手删掉');
+});

@@ -1,4 +1,25 @@
-## Why
+## 实际落地对账（2026-10-09 补写，以本节为准）
+
+**本 change 的 3b 设计（"两侧都无授权文件时按清理前后形状放行"）从未实施，也无需实施。** 实际发生的是：
+PR #3151（merge `a3565726`）落地了**另一套更小的退休判据** —— `evaluateAuthorization` 里当
+`applies_to_base` 是本次 base 的**祖先**时，视为"那次清理的成果已在 main 上、授权已消费"，
+不再报「坐标系不等」fatal，而是继续由 `collect` 层核形状四条与额度数字（`check-changelog-growth.js:340-372`）。
+回归锁为 `scripts/check-changelog-growth-retire.test.js`（5 条，含"不是祖先⇒维持 fatal"
+与"authBaseText 非 null⇒维持防白蹭 fatal"两条负控）。
+
+**本 change 原前提里有两处推断被当场实测否证，留在下文作历史快照，不得再当作现状引用**：
+
+1. 「清理提交一旦合入 main，所有分叉早于清理的 PR 都卡死」——不成立。实测 #2992（2026-10-06 开，早于清理）
+   当前 **8 pass / 11 skipping / 0 fail**：默认判据卡的是**标题丢失**，而清理对每个标题都保留了一份，
+   多重集包含关系成立 ⇒ 那类 PR 根本不进授权通路。触发 #3076 现场的是它自己 re-sync 解冲突造成的形状变化，不是"分叉早"。
+2. 「授权机制从落库那刻起就锁死了 main」——措辞过强。真实后果是**语义残留**：一次性的授权文件常驻在 main 上，
+   而它声明的额度（`expected_entries_after=349`）与今天的台账规模（**369** 条）已不可重合，
+   即它既不可能再授予任何事，又让"一次性"这件事失去现场证据。
+
+**因此本 change 的实际范围收缩为一件清理**（用户 2026-10-09 选定方案 A）：删除
+`scripts/changelog-dedup-authorization.json`，并加一条**生命周期锁**防止它再次变成常驻文件；
+门禁判据与授权通路本体一字不动（未来确需一次性授权时，由 `scripts/changelog-dedup-regen.js` 在**同一个清理 PR**里现生成）。
+
 
 `scripts/changelog-dedup-authorization.json`（PR #3059 → `88669579` 落库）是
 `dedup-changelog-history` 那次清理的一次性书面授权。清理已成功执行并合入 main：
