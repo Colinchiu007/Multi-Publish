@@ -54,9 +54,25 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 
 `workflow-contract.test.js` 34/0（含新增锁）· `check-baseline-freshness.test.js` 36/0（含新增 2 条）· 其余见下表
 
-### 基线重建（第二刀，待同 head CI 渲染）
+### 第二刀：基线重建（**19 张**，不是最初的 8 张）
 
-按 QM-4 第 7 条，8 张暗档只能取**本 head 的 CI 渲染**。第一刀先落接线与锁，随后 `gh workflow run visual-test.yml --ref pr-dark-baseline-gate` 取同一次 run 的 `*-dark-current.png` 入库，并自证「新基线 vs 同一次 CI 渲染 = 0 px」。
+复查 main 实况时漂移已扩散：`a43287ac7` 那次红 8 张，之后 **P4C 第二批 `2b2db5c1a`** 与 **P4D 第三批 `15fd49c0d`** 两拨暗色可读性改动继续合并，main push 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:42 / `07550cf37` 14:08，均为 `基线新鲜度：检查 41 张 / 违规 19 张`，19 张**全部** `来源=pixel-gate`）。另有 `aecb75ab3`（#3202 三列表渲染截断 + 加载更多）改了 `Accounts.vue`/`HotTopics.vue` 的内容，把 `accounts-list-dark` 推到 44603 px（2.151%）。连我 #3113 重建的 `collection-dark.png` 也再次漂了——**这条正是"没有 PR 侧判定，修好的基线也会在下一次暗色改动后静默失效"的实证**。
+
+重建来源与自证（QM-4 第 7 条同源要求）：
+
+| 步骤 | 证据 |
+| --- | --- |
+| 取渲染 | `gh workflow run visual-test.yml --ref pr-dark-baseline-gate` → run `37945181027`（head `c67576658`，即本 PR 重建前的 head），产物 `visual-test-reports` 含 19 张 `*-dark-current.png` |
+| 该 run 自身的"重建前"判定 | `基线新鲜度：检查 41 张 / 违规 19 张` —— 与本 head 的漂移清单逐张一致，证明漂移不来自我的改动 |
+| 重建 | 19 张逐字节写回（`replaced=19 already_same=0 missing_baseline=0`），逐张写入后回读并断言与渲染**逐像素相等** |
+| 自证 | 用**同一份产物**跑 `node scripts/check-baseline-freshness.js --renders=<artifact screenshots> --baselines=<worktree base>` ⇒ `检查 41 张 / 违规 0 张 / 本次跳过 0 张` |
+| 未新建基线 | `missing_baseline=0`：本 PR 不新增任何基线，只刷新既有 19 张 |
+
+**reuse 前提的口径修正（不得沿用 #3113 那条粗判据）**：#3113 里我写的"复用别的 run 产物要证 `git diff --name-only <run-head>..<我的 head>` 命中 `apps/` 为 0"在**本 PR 上不可满足也无需满足**——基线 PNG 本身就在 `apps/` 下且正是本次要改的对象。正确的判据是**「渲染输入不变」**：本 PR 对 `apps/desktop/src/**` 零改动，改的只有基线工件与 workflow。而且本 PR 没有"复用"：产物取自**我自己的 head** 的 dispatch run，因此自证链是闭环的（同 sha 渲染 vs 同 sha 基线）。
+
+### 门禁②的端到端证据（本 PR 就是第一次）
+
+合并后 `QG Visual` 的 Gate 7 会跑暗档像素套、Gate 7b 因此在**判定域内**看到 19 张暗档。判据不写在本 PR 里靠断言，而是看本 PR 自己那次 `QG Visual` 的现场：`[GATE-7] suite exits: pixel=… views=… views-supplement=… dark=…` 一行出现，且 Gate 7b 的 skipped 名单不再包含暗档。
 
 | 门禁 | 结果 |
 | --- | --- |
