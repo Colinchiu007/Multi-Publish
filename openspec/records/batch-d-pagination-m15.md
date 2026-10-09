@@ -2,9 +2,6 @@
 record: batch-d-pagination-m15
 task: M-15 三列表渲染截断 + 加载更多（Accounts / CopyLibraryView / HotTopics）
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 关联 PR 尚未合并，无 merge SHA 可取证
-sync_backfill_owner: 下一会话（合并后单开回填 PR 收口）
 ---
 
 ## 任务执行记录：批次 D 第一部分（batch-d-pagination-m15，2026-10-09）
@@ -23,8 +20,8 @@ sync_backfill_owner: 下一会话（合并后单开回填 PR 收口）
 | 行尾 diff 对账 | PASS | 两口径 numstat 一致 |
 | 门禁自测 | PASS | check-max-lines rc=0（Accounts 重锚 1578，理由：M-15 功能增量本身需 ~10 行，与批次 B/C 重锚同规则）；check-debt-budget rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 无运行面改动；视觉变化为新增提示行 + 按钮（组件测试覆盖） |
-| QM-6 CCG 跨家族外部评审 | 待跑 | 提交后执行 |
-| 远程同步 | PENDING | 合并后回填 |
+| QM-6 CCG 跨家族外部评审 | 已执行 | deep-review.sh（critic=claude）产出 6 条全处置：i1/Critical 网格样式截断（grid-template-columns 被甩出块外）已恢复；i3 删除未用 useRenderTruncation；i4 load-more 样式归一到 LoadMoreRow scoped；i5 补 CopyLibrary 截断回归 2 用例；i6 反证写法实测有效；i2 全选语义 PRD/记录统一声明 |
+| 远程同步 | PASS | merge SHA aecb75ab（PR #3202，2026-10-09）；git ls-remote 证远端分支 batch-d-pagination-m15 已删（0 行输出） |
 
 ## 关键判断与取舍
 
