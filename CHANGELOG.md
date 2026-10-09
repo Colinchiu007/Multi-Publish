@@ -7,7 +7,7 @@
 ### 变更明细
 
 - 删除 `scripts/changelog-dedup-authorization.json`。它是随清理 PR #3059（`88669579`，2026-10-07）落库的一次性书面授权，用完没退；
-  它声明的额度 `expected_entries_after=349` 与今天台账的 **369** 条已不可能重合，即"一次性"在语义上变成了常驻。
+  它声明的额度 `expected_entries_after=349` 与今天台账的 **365** 条（门禁 `HEADING_RE` 口径）已不可能重合，即"一次性"在语义上变成了常驻。
 - 新增两条锁（落在**已接线**的 `scripts/check-changelog-growth.test.js`，不新建测试文件）：
   ①「一次性去重授权不得作为常驻文件留在仓库里」；②「退的是授权件不是通路」——断言 `AUTH_PATH` 字面量、`changelog-dedup-regen.js` 的
   `regenerate`、门禁的 `evaluateAuthorization` 与 `checkDedupShape` 四样都还在，防止为了消除红而把整条通路删掉。
