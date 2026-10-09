@@ -113,7 +113,7 @@
     "apps/desktop/electron/services/story2video-stages.js": 4006,
     "apps/desktop/electron/services/tts-voice-clone-service.js": 1748,
     "apps/desktop/src/styles/cohere-design-system.css": 1698,
-    "apps/desktop/src/views/Accounts.vue": 1568,
+    "apps/desktop/src/views/Accounts.vue": 1578,
     "apps/desktop/src/views/Collection.vue": 2920,
     "apps/desktop/src/views/CreateView.vue": 5656,
     "apps/desktop/src/views/ModelProviders.vue": 1496,
