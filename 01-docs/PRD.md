@@ -21,7 +21,7 @@
 | 1 | **P0** | 取消失败被谎报成功 | `scheduler:cancel` 无条件返回 `data:true`，丢弃 `cancel()` 返回值 | 如实回传布尔；日历区分「无法取消」与「失败可重试」两套文案 |
 | 2 | P1 | JSONL 无界增长 + O(n) 全量重写 | 终态记录永不清理，`updateStatus` 每次全量读-改-写 | 终态记录保留策略（30 天 / 200 条），`create()` 后旁路剪枝 |
 | 3 | P1 | 休眠/时钟跳变后定时器不重算 | 墙钟目标一次性换算成相对延时；`restore()` 对已武装任务走 `isTaskTracked` 直接跳过 | 新增 `scheduler.rearm()` + `powerMonitor` resume 守卫（`bootstrap/resume-guard.js`） |
-| 4 | P1 | 派发失败零用户可见性 | 只 `logger.error`，无渲染层提示、不进发布历史、且不重试 | `onDispatchFailed` 钩子 → preload `scheduler:dispatch-failed` → 日历实时错误提示 + 刷新 |
+| 4 | P1 | 派发失败零用户可见性 | 只 `logger.error`，无渲染层提示、不进发布历史、且不重试 | `onDispatchFailed` 钩子 → preload `scheduler:dispatch-failed` → 日历实时错误提示 + 刷新（2026-10-09 补全局化：监听提升到 App 壳层，任何页面收到拒收即弹错误 toast，文案 `appShell.scheduleDispatchFailed`；日历页监听保留做页面内刷新联动。**用户停留在日历页时会看到两条不同文案的 toast 并存**——App 级兜底文案与日历级文案刻意不同（前者无重排指引），不依赖 ElMessage 合并去重（useNotify 未开启 grouping，不同文案本就不合并），属已接受的取舍） |
 | 5 | P1 | 批量排期取消仅会话内可做 | `scheduledBatchId` 内存态，日历只渲染 `scheduler:*` | 日历接入 `batchList` + `batchCancel`，补持久取消入口 |
 | 6 | P2 | 校验提示硬编码中文 | `publish-contract.js` 内 5 条中文字面量，en 用户看到中文 | 新增结构化 `reason`/`params` + `translate` 注入，文案入 locales zh/en |
 | 7 | P2 | 校验限制未前置 | hint 仅「留空 = 立即发布」，30 天/5 分钟只在被拒时告知 | hint 改为带限制文案，限制值复用 `PUBLISH_CONTRACT_LIMITS` 单一真源 |

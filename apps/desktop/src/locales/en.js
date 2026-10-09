@@ -286,4 +286,16 @@ knowledgeBase: {
   // ── Automation module (2026-10-03): scheduled / app-start triggered tasks ──
   automation: { ...automationEn },
 
+  // ── App shell (App.vue) global toasts (2026-10-09) ──────────────────
+  // App-level listener for scheduler:dispatch-failed: when a scheduled task
+  // reaches its time but fails to enqueue, an error toast pops no matter which
+  // page the user is on. Previously only the calendar page listened — users who
+  // navigated away never learned the task never went out.
+  appShell: {
+    // Distinct from calendarPage.scheduleDispatchFailed (which shows inside the
+    // calendar page and refreshes it); this is the global fallback and does not
+    // mention re-scheduling — the user may not be in a scheduling context.
+    scheduleDispatchFailed: 'Scheduled publish did not go out: {platform} {reason}. See Publish History for details.',
+  },
+
 }

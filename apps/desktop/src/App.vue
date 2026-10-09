@@ -105,6 +105,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountActions } from '@/composables/useAccountActions'
+import { useNotify } from '@/composables/useNotify'
 import { useSpaNavHistory } from '@/composables/useSpaNavHistory'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useRoute, useRouter } from 'vue-router'
@@ -134,6 +135,7 @@ const isHomeTab = computed(() => isHomeShell || isHomeTabFromStore.value)
 const tabTitleReporter = isHomeShell ? useTabDocumentTitle() : null
 const accountActions = useAccountActions()
 const { t } = useI18n()
+const { notifyError } = useNotify()
 
 // ── 登录标签（参考产品式全屏登录视图）──
 // 「保存账号」按钮显示条件：认证登录标签（isLogin）或账号浏览器标签（accountId，
@@ -215,6 +217,19 @@ const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null
 // 内嵌主页实例订阅「共享左侧边栏」下发的导航指令（方案 B：点菜单驱动当前聚焦标签）
 let unsubscribeHomeShellNav = null
+// ── 定时派发失败的全局提示（2026-10-09，App 级监听提升）────────────────
+// 定时任务到点后入队失败时，主进程 scheduler.onDispatchFailed 会向主窗口广播
+// scheduler:dispatch-failed。此前渲染端只有「发布日历」页在监听：用户排完期去了
+// 别的页面，拒收发生时就收不到任何提示，失败只静静躺在发布历史里（hint 文案
+// 「失败原因会记录在发布记录中」本质是在承认这一点）。监听提升到壳层后，
+// 任何页面收到信号都立即弹错误 toast。
+// 双 toast 取舍（评审核验定案）：用户停留在日历页时会看到两条**不同文案**的
+// toast 并存（App 级兜底 vs 日历级重排指引）——useNotify 未开启 ElMessage
+// grouping、且两条文案刻意不同，**不存在合并去重**，属已接受取舍：日历页是
+// 排期管理语境，多一条含操作指引的提示反而准确。单实例前提：广播只发
+// getAllWindows()[0]（主窗口），home-shell（独立 WebContentsView）收不到，
+// 同一 renderer 内 App 只挂载一次（main.js createApp 单例），无双订阅。
+let unsubscribeDispatchFailed = null
 
 // 弹窗互斥（2026-09-23 Bug 修复）：浏览器/登录标签（外部网页 WebContentsView）活动时，
 // 原生图层永远压在渲染层 DOM 之上——设置弹窗打开后「屏幕闪一下但没出现」。
@@ -378,6 +393,20 @@ onMounted(() => {
       }
     })
   }
+
+  // 定时派发失败 → 全局错误 toast（App 级监听提升，2026-10-09）。
+  // preload 未暴露该能力（老版本兼容）时静默跳过，绝不影响壳层挂载。
+  if (api && typeof api.onSchedulerDispatchFailed === 'function') {
+    unsubscribeDispatchFailed = api.onSchedulerDispatchFailed((failure) => {
+      const { platform = '', reason = '' } = failure || {}
+      notifyError('appShell.scheduleDispatchFailed', {
+        // fallback 必须是可读硬编码串：i18n 缺 key 时 t(同 key) 返回 key 本身，
+        // 与主路径产物相同、兜底零价值（评审 MINOR）。
+        fallback: '定时发布未能发出：' + platform + ' ' + reason + '。详情见「发布记录」。',
+        params: { platform, reason },
+      })
+    })
+  }
 })
 
 onBeforeUnmount(() => {
@@ -387,6 +416,8 @@ onBeforeUnmount(() => {
   unsubscribeNavigate = null
   if (typeof unsubscribeHomeShellNav === 'function') unsubscribeHomeShellNav()
   unsubscribeHomeShellNav = null
+  if (typeof unsubscribeDispatchFailed === 'function') unsubscribeDispatchFailed()
+  unsubscribeDispatchFailed = null
   if (!isHomeShell) tabStore.dispose()
   identityStore.dispose()
 })
