@@ -199,7 +199,7 @@ const GATE_COVERAGE_FOR_WHITELIST = [
   { pattern: '.hermes/**', noGate: '计划存档目录，内容不做机器判定' },
   { pattern: '.agents/**', noGate: '上游技能制品副本目录，无仓内门禁消费' },
   { pattern: '.quality-rhythm/**', commands: MIRROR_CMDS,
-    why: '该树里唯一被仓内门禁消费的内容是 vendored 契约镜像 spec-contract.md，其漂移锁必须住在不被 docs-only 短路的 changes job（AGENTS.md 进白名单前提锁；先搬锁、再放开名单）。11 个可执行脚本不构成放行面：check-unwired-tests.js 的 VENDORED_MIRROR 已把整棵 .quality-rhythm/ 排除在测试扫描域外，全仓 workflow 正文不执行该树里的任何脚本' },
+    why: '该树里被仓内门禁**判定**的内容只有 vendored 契约镜像 spec-contract.md，其漂移锁必须住在不被 docs-only 短路的 changes job（AGENTS.md 进白名单前提锁）。另有两处引用不是"判定其内容"：check-unwired-tests.js 把整棵 .quality-rhythm/ 作为 VENDORED_MIRROR **排除集**引用（因此那 11 个可执行脚本不构成本次放行面），三个全量 workflow 的 push.paths-ignore 引用该 glob。全仓 workflow 正文不执行该树里的任何脚本' },
 ]
 
 test('白名单对账表必须与 CI_IGNORED_PATHS 双向相等（新增白名单不登记即红，不允许静默收窄）', () => {
