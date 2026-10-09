@@ -33,7 +33,7 @@
 - **WHEN** 用户粘贴 `youtube.com/watch?v=xxx`
 - **THEN** 系统提示「这是作品链接，请粘贴博主主页链接」，MUST NOT 尝试按频道解析
 
-### Requirement: 正文来源可��性与端到端前置验证
+### Requirement: 正文来源可控性与端到端前置验证
 
 正文 SHALL 来自字幕、AI 识别补全或视频描述，媒体下载 SHALL NOT 作为正文来源。系统 MUST 在写入运行时代码前，先用真实 API Key 跑通端到端冒烟（E2E-1~E2E-5）。
 

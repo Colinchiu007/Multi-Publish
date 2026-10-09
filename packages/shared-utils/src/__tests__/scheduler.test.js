@@ -633,7 +633,7 @@ describe('rearm（平台侧语义下退化为 legacy 恢复）', () => {
     restored.stopAll()
   })
 
-  // P1：无界增长。旧实现没有任何 prune/rotate：executed/cancelled/failed 条目永久留���，
+  // P1：无界增长。旧实现没有任何 prune/rotate：executed/cancelled/failed 条目永久留存，
   // 且 updateStatus 每次状态迁移都「全量读-改-写」整个文件，成本随历史线性增长。
   describe('终态记录剪枝', () => {
     const seedTerminal = (id, status, createdAt) => {

@@ -159,7 +159,7 @@
 | **R-A3** | 无配置版本号，无法判断生效 | 🟠 P1 | `runtime_service.py:357` 只有 `synced_at` | 运营改完不知是否生效（**用户核心痛点**） |
 | **R-A4** | 审计日志只覆盖 2 张表 | 🟠 P1 | `config_audit_log` 仅被 `config_service.py`/`snapshot_service.py` 写入 | 39 个运营页面中 37 个的改动**无审计记录** |
 | **R-A5** | 零配置用户无法上报限流自检 | 🟡 P2 | `rate-limit.js:38` 硬要求 `apiKeyConfigured` | 限流规则无法校准 |
-| **R-A6** | 墓碑丢失导致账号复活 | 🟡 P2 | `cloud-account-tombstone.js:70` `recorded:false` | 断连时删账号，下���同步复活 |
+| **R-A6** | 墓碑丢失导致账号复活 | 🟡 P2 | `cloud-account-tombstone.js:70` `recorded:false` | 断连时删账号，下次同步复活 |
 | **R-A7** | 无断连可观测性 | 🟠 P1 | 客户端仅本地 `log.warn` | **批量断连官方零感知**（用户核心痛点） |
 | **R-A8** | 打包版无信任锚则全部策略拒绝 | 🔴 P0 | `runtime-trust-anchor.js` / `ops-center-sync.js:97` | `NO_PRODUCTION_TRUST_ANCHOR` → 打包版**必须**配自定义 Ed25519 公钥，否则运行时策略全废 |
 
