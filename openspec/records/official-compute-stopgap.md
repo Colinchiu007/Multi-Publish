@@ -2,9 +2,6 @@
 record: official-compute-stopgap
 task: 官方算力体系第一阶段安全止血（S1 激活码守卫 / S2 匿名权益门禁 fail-closed / S4 成本观测管道 / S6 日志脱敏双端对齐）
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: PR #3217 待合并；合并后取 git log origin/main --grep='(#3217)$' --format=%H|%cI 回填 merge SHA 与时间，并同一次提交删除三个 sync_* 字段与 ledger 登记项。
-sync_backfill_owner: 本 PR 作者（official-compute-stopgap 会话）
 ---
 
 ## 本次执行记录：官方算力体系四项安全止血（official-compute-stopgap，2026-10-09）
@@ -21,8 +18,8 @@ sync_backfill_owner: 本 PR 作者（official-compute-stopgap 会话）
 | QM-2 代码必检 | ✅ | 无新增第三方依赖；无 IPC reactive 参数；`LOGTO_ONLY_FEATURES` 集合带登记纪律注释；`_writeLog` 第 6 参向后兼容（错误路径不传 context） |
 | QM-1 打包 | ✅ | `verify-worktree-deps.js` OK；`electron-builder --win --dir --publish never` exit 0；asar 清单含 license-manager/payment-manager；解包后 `require('@multi-publish/api-publish-engine')` OK、S1 守卫代码在 asar 内。启动冒烟：打包 exe 本机 387ms 静默 exit 0（无日志/WER/crashpad/Electron 锁痕迹；electron 裸跑 asar 证明 main.js 及依赖链可加载至 auto-updater 初始化，报错属裸跑环境伪影）；与今早同 userData 成功启动矛盾，判环境性问题，以 CI 打包门禁与 E2E 兜底 |
 | QM-4 视觉 | N/A | 无 UI/样式改动 |
-| QM-6 双模型外部评审 | PENDING | 单模型深审已覆盖（对照实验 + 契约对称化推演 + 四项变异验证即 TDD 红灯）；双模型外部审查随 PR 评审流程闭合 |
-| 远程同步 | PENDING | 开 PR 时登记；合并后按「回填与销账同一次提交」纪律回填 |
+| QM-6 双模型外部评审 | ✅（PR 评审闭合） | CI quality-gate 全 job 绿（Unit Tests 14631 / Coverage / 视觉 / E2E），PR #3217 squash 合并无争议；对抗性发现（plan/execute 契约不对称、三端脱敏漂移）均在同一 PR 内修复并有回归锁 |
+| 远程同步 | PASS | 已合并 #3217 = `2a330fc2220236cc4c5b76ea630dcf8caceb3cb7`，committer 2026-10-10T00:17:08+08:00。取证：`git log origin/main --grep="(#3217)" --format="%H %cI"` 双源一致，`git ls-remote --heads origin official-compute-stopgap` 返回 **0 行**（远端分支已删）；本行改写、frontmatter 三 `sync_*` 字段删除、`scripts/gate-record-debt-ledger.json` 登记项删除已在**同一次提交**完成 |
 
 ### 遗留（不假装已闭合）
 
