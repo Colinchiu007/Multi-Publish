@@ -13,6 +13,7 @@
  * 合规红线：本模块零 HTTP 客户端；注入脚本只回传签名结果字符串，绝不回传函数体源码。
  */
 const { EXTRACTOR_SCRIPT } = require('./signer-page-manager')
+const { buildXhsExtractorScript } = require('./xhs-extractor')
 
 // S2b 实证平台档案（evidence/api-w3-kuaishou/spike-verdict.md §EXTRACTOR 重写形态）
 const PROFILES = {
@@ -142,7 +143,11 @@ function createSignerAssembly (deps) {
     const payload = (ctx.payload && typeof ctx.payload === 'object')
       ? ctx.payload
       : Object.fromEntries(Object.entries(ctx || {}).filter(([k]) => !RESERVED[k]))
-    const script = buildExtractorScript(platform, payload)
+    // xiaohongshu 走页内 _webmsxyw（XYS_ 代签名，note-406-signature-report.md），
+    // kuaishou 维持 webpack probe——extractor 按平台分派。
+    const script = platform === 'xiaohongshu'
+      ? buildXhsExtractorScript({ url: payload.fullUri || payload.url || '', data: payload.data !== undefined ? payload.data : payload.payload })
+      : buildExtractorScript(platform, payload)
     let outcome
     try {
       outcome = await withTimeout(Promise.resolve(entry.win.webContents.executeJavaScript(script)), timeoutMs, 'extractor ' + platform, log)
@@ -154,6 +159,11 @@ function createSignerAssembly (deps) {
     }
     if (!outcome || outcome.ok !== true || typeof outcome.signature !== 'string' || !outcome.signature) {
       throw new Error(`signer-assembly: extractor failed platform=${platform} reason=${(outcome && outcome.reason) || 'unknown'}`)
+    }
+    // xiaohongshu 的 X-t 一并带回（后续头拼装需要），挂在 outcome 透传
+    if (platform === 'xiaohongshu' && outcome.xT) {
+      entry.lastXiaohongshuXT = outcome.xT
+      cookieStore.set('__xt__' + platform + '::' + sessionKey, outcome.xT)
     }
     return outcome.signature
   }
@@ -186,9 +196,14 @@ function createSignerAssembly (deps) {
 // （对照 Cloxl/xhshow，MIT；Go 版 tamnd/xiaohongshu-cli 独立复现同常量），
 // 不依赖浏览器 VM 环境 —— 故改为 localAlgorithm：不创建窗口即不引入
 // wechat_mp/baijiahao 那种隐藏窗口原生崩溃面，同时不再受 verified 闸门约束。
+//
+// 2026-10-09 更新（note-406-signature-report.md）：真机取证证明 note 端点
+// 已要求 XYS_ 代签名（Base64 JSON 信封，页内 window._webmsxyw 生成），
+// 本地 XYW_ AES 形态被 406 拒绝 —— 小红书切回 browser 形态，extractor 走
+// buildXhsExtractorScript（页内 _webmsxyw），cookie 经 bindSignerCookie 注入。
 const BRIDGE_COMMANDS = [
   ['kuaishou.ns-sig3-browser', 'kuaishou', true, 'browser'],
-  ['xiaohongshu.x-s-browser', 'xiaohongshu', false, 'localAlgorithm'],
+  ['xiaohongshu.x-s-browser', 'xiaohongshu', false, 'browser'],
 ]
 
 /**

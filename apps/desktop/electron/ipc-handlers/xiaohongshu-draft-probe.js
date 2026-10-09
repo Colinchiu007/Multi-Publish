@@ -164,15 +164,24 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     }
 
     // ── 阶段 2：实跑三步链 ──
-    // 签名器：进程内 XYW_ 纯算法（不开窗、不触达活页）
+    // 签名器（2026-10-09）：走签名页浏览器通道（XYS_ 代签名，note-406-signature-report.md）。
+    // 旧本地 XYW_ AES 形态对 note 端点 406，降级保留在 signer-xhs-local.test.js 锁的
+    // 降级路径里（signXiaohongshuLocal），probe 不再直连。
+    // fail-closed：browserPageProvider 未接 bridge（主进程装配未跑）时如实带回 stage=signer-bridge。
     let signer
     try {
-      const { signXiaohongshuLocal } = require('../signer/signer-assembly')
-      signer = (payload) => signXiaohongshuLocal(payload)
+      const { browserPageProvider } = require('@multi-publish/api-publish-engine/src/signer/index')
+      signer = (payload) => browserPageProvider.sign('xiaohongshu.x-s-browser', {
+        accountId,
+        fullUri: payload.fullUri,
+        cookie: payload.cookie,
+        method: payload.method,
+        data: payload.payload,
+      })
     } catch (e) {
       return {
         code: EC.REQUEST_ERROR, message: '签名器装配失败: ' + sanitizeMessage(e instanceof Error ? e.message : String(e)),
-        data: { stage: 'signer-load' },
+        data: { stage: 'signer-bridge' },
       }
     }
 
