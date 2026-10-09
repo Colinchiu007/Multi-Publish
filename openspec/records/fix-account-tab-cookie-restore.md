@@ -2,9 +2,6 @@
 record: fix-account-tab-cookie-restore
 task: 账号卡片开卡凭证恢复方向修正——由「快照无条件覆盖账号分区」改为「分区优先、快照按 name@domain 仅补缺」，并在凭证落盘时刻对齐账号分区
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；记录与 ledger 登记在同一次提交，回填须等合并后取 git log/ls-remote 实证
-sync_backfill_owner: 下一个会话（或本会话在合并后的回填 PR）
 ---
 
 ## 本次执行记录：账号卡片开卡凭证恢复方向修正（fix-account-tab-cookie-restore，2026-10-10）
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话（或本会话在合并后的回填 PR）
 | QM-2 代码必检 | ✅ | 无新增依赖；`require('./utils')` 解析目标真实存在且仅 `tab-lifecycle.js` 一处消费者；日志禁记 Cookie **值**（只记计数与 `name=`）；门控 promise 永不 reject 且定时器 `unref()`；`constants.js` 导入清单与实际使用匹配（`tab-lifecycle.js` 已不再引 `PARTITION_COOKIE_RESTORE_TIMEOUT_MS`） |
 | QM-1 打包 / QM-4 视觉 | ✅ | 打包链在本 worktree 实跑：`pnpm build:vue` rc=0 → `pnpm exec electron-builder --win --dir --publish never` rc=0 → `node node_modules/@electron/asar/bin/asar.js list dist-electron/win-unpacked/resources/app.asar` 确认 `tab-lifecycle.js` / `utils.js` / `constants.js` / `account-session-restore.js` 四文件均在产物内（asar 内路径为反斜杠）→ extract 后 `REQUIRE_CHAIN_OK`。**启动存活**：以隔离 userData（`D:\Temp\mp-qm1-4337ffd4`）启动 `dist-electron/win-unpacked/Multi-Publish.exe`（PID 8168），8s 后 `alive=True`，进程树 4 个 PID；stderr 共 162 字节且只有一条 `[DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.`，致命模式逐条计数全 0（`Failed to load platform config` / `mkdir failed` / `ENOTDIR` / `app.asar` / `Uncaught` / `Cannot find module`）。验证前先跑 `node scripts/verify-worktree-deps.js`（rc=0，`@multi-publish/*` 全部解析到本 worktree）。收尾：只按 `ExecutablePath` 前缀命中本 worktree 的进程逐个终止，终止后 `REMAINING_FROM_THIS_ROOT=0`，另一 worktree 的 7 个 `electron.exe` 全程未触碰（`HOT_TOPICS_ELECTRON_STILL_RUNNING=7`）。QM-4=N/A（构造性）——无控件、无样式、无文案改动，`mp-home-shell` 与账号页显示项不变 |
 | QM-6 CCG 双模型外部评审 | ✅ | 双模型并行（`codeagent-wrapper`；模型真源 `~/.claude/.ccg/config.toml` → `[routing.backend].primary=claude`、`[routing.frontend].primary=opencode`）。第一轮命中的两条已修（① 重登只写 `persist:auth-*` 不碰账号分区 → 补落盘时刻 `seedAccountPartitionCookies` 对齐；② 门控首个导航的新增链必须带硬超时 → `PARTITION_COOKIE_RESTORE_TIMEOUT_MS=2500`）。**针对最终 diff（含护栏搬家）的复评结论**：前端 PASS / 0 Critical / 2 Warning——W1「凡进入 `preNavPromises` 的三条链都要门控，不得只修凭证恢复」、W2「`normalizeElectronCookie` 把已规范化的 `no_restriction` 降级为 `unspecified`，与 seed 的保留口径方向相反」，**两条均在本 PR 内闭合**，各配回归锁 + 变异反证（变异 E/F/G）；后端 PASS / 0 Critical / 3 Warning / 3 Info——去重键对 url-only 条目失配、seed 与开卡对 `value` 类型判据不同、seed 自身无超时守卫（调用点刻意不 `await` ⇒ 属守卫范式的启发式缺口非缺陷），三条按「暴露面低 + 与症状无关的第二判据」列入 BUGFIX 文档 §10 第 6-8 条**不在本修复半改**，并写下反向约束「任何人把 seed 调用点改成 `await` 必须先套 `_gateRestoreWithTimeout`」；另独立确认护栏从 `tab-lifecycle.js` 移入 `utils.js` **行为等价**（exports/require 清单一致、无循环 require、logger 同一模块实例；其自跑 131 passed + 消费者 185 passed）。Info 项「超时措辞写成『放弃注入』与实现不符」已按实现纠正（见本文「遗留」与 §6.2） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-account-tab-cookie-restore` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段，并在同一次提交删除 `scripts/gate-record-debt-ledger.json` 的同名登记项 |
+| 远程同步 | PASS | 已合并：squash merge commit `92f9b05217fc191efd34b04b7f5088c88801113a`（2026-10-10T04:50:33+08:00），PR #3239；`git ls-remote --heads origin fix-account-tab-cookie-restore` 返回 0 行（远端分支已删）。本行由回填 PR 就地改写，同时删除本文件 frontmatter 的 `sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 的同名登记项（三者必须同一次提交，否则 `check-gate-record-debt.js` 报「陈旧登记」） |
 
 ### 遗留（不假装已闭合）
 
