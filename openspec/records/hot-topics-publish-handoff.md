@@ -2,9 +2,6 @@
 record: hot-topics-publish-handoff
 task: 热门选题改写完成后「去发布」批量交接全部草稿 + 批量发布目标一次分发 + 小红书仅存平台草稿箱
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（或本会话在合并后立即回填）
 ---
 
 ## 本次执行记录：热门选题 → 一键发布图文 的批量交接（hot-topics-publish-handoff，2026-10-09）
@@ -33,7 +30,7 @@ sync_backfill_owner: 下一个会话（或本会话在合并后立即回填）
 | QM-4 视觉 | PARTIAL | 涉及渲染端 UI（工具条 + 批量卡片），已用 CDP 截图存证；未跑像素基线对比（本机无 baseline 流程）——如实记录 |
 | QM-6 CCG 双模型外部评审 | NOT RUN | 本机未执行 `codeagent-wrapper` 双模型评审；不得以自审冒充通过 |
 | E2E（本次修复的验收） | PASS | 见下方「E2E 实证」 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin hot-topics-publish-handoff` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并 #3227 = `ff8e3b260c9059aa5bb908285679961ab924fb46`（2026-10-09T18:44:53Z）。取证：`git log origin/main --grep='(#3227)$' --format=%H|%cI` 唯一命中该 SHA 与时间；`git ls-remote --heads origin hot-topics-publish-handoff` 返回 **0 行**证远端分支已删；本行与 records 的同步行、frontmatter `sync_*` 三字段、`scripts/gate-record-debt-ledger.json` 登记项已在**同一次提交**内收口 |
 
 ### E2E 实证（CDP，运行中实例：worktree `mp-hot-topics-publish`，vite 7595 / CDP 11643，共享 `shared-user-data`）
 
@@ -46,7 +43,8 @@ sync_backfill_owner: 下一个会话（或本会话在合并后立即回填）
 5. **提交与确认**：确认弹窗如实提示「即将发布 5 篇内容，共 40 个平台账号任务」并列出快手 480 字截断预告（1263→468 等）；点「确认发布」后回执「🚀 已接受 40 个发布任务」。
 6. **第二轮（含小红书草稿轨的完整验收）**：重启应用加载新代码后重跑同一链路——5 条改写完成（正文 1061/714/1081/863/1277 字）→ 去发布 → `?drafts=` 装载 5 条并预置 8 平台 + 默认账号 → 每条设封面（小红书草稿必须有图）→ 第 1 条取消百家号（避免与上一批已成功的那篇重复）→ 「批量发布 (39 个任务)」→ 确认弹窗「即将发布 5 篇内容，共 39 个平台账号任务」→ 回执「🚀 已接受 39 个发布任务」。
 7. **冷重载复验**：在 `?drafts=` URL 上 `location.reload()`（组件冷挂载）后，内容仍装载、平台仍预置、任务数回到 39 —— 验证「交接幂等 + 预置来自账号目录（不依赖平台目录就绪）」两项修复；同轮以 Vue 实例树直读确认 `articles` 内部状态与 DOM 输入一致。
-8. **小红书草稿落点（真机复验，PASS）**：第一版把 `xiaohongshu` 路由到新增 API 草稿轨被实测推翻——
+8. **批量 5 条小红书草稿（终证据）**：带封面重投后首条于 `2026-10-09T18:12:15Z` 走 RPA 轨成功——`uploading image...` → `DIAG[publish2] draftOnly=true` → `draft-only done saved=true` → `draft saved` → `publish done platform=xiaohongshu ... draft=true`；**批量路径同样只存草稿、无发布点击**。其余 4 条按每账号 30 分钟频控排队（store 现场：1×`✓ 发布成功` + 4×`⏳ 发布间隔限制`），未为取证放宽频控.`
+9. **小红书草稿落点（真机复验，PASS）**：第一版把 `xiaohongshu` 路由到新增 API 草稿轨被实测推翻——
    - `xiaohongshu:probe-draft-chain` 实跑：permit（GET）与 ros-upload（PUT）**均通过**；note 步
      `creator.xiaohongshu.com/web_api/sns/v2/note` → **404**（端点不在 creator 域），
      `edith.xiaohongshu.com/web_api/sns/v2/note` → **406**（`{code:-1}`）。签名基址 A/B（绝对 URL vs 路径）
