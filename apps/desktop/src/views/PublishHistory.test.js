@@ -730,6 +730,14 @@ describe('PublishHistory 发布方式徽标（§6.1）', () => {
     expect(wrapper.find('[data-testid="delivery-mode-rec-mode"]').text()).toContain('RPA 浏览器')
   })
 
+  it('record.result.mode=fallback 显示「降级发布」徽标（第三态）', async () => {
+    const wrapper = await mountWithMode('fallback')
+    const badge = wrapper.find('[data-testid="delivery-mode-rec-mode"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('降级发布')
+    expect(badge.classes()).toContain('delivery-mode-fallback')
+  })
+
   it('无 result.mode 不显示发布方式徽标', async () => {
     const wrapper = await mountWithMode(null)
     expect(wrapper.find('[data-testid="delivery-mode-rec-mode"]').exists()).toBe(false)
