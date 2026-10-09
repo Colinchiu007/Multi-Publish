@@ -34,6 +34,5 @@
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
     "line": 4479
-  },
-  "本次执行记录：快手图文封面 tofu 乱码修复（fix-kuaishou-tuwen-tofu，2026-10-09）": "cover:generate-ai 新增 degraded 占位图判定（fix-kuaishou-tuwen-tofu 分支）；远程同步行 PENDING，合并后由后续 docs PR 回填 .quality-gates.md 与 openspec/records/fix-kuaishou-tuwen-tofu.md 并删除本条登记。"
+  }
 }

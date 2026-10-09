@@ -61,11 +61,16 @@ usePublishFlow.js（图文平台无图自动附封面）
       │    └─ 兜底仍失败 → 返回错误（不阻断无图平台发布，图片平台由引擎层如实报错）
 ```
 
-### 3.4 显示项与提示文字（不变）
+### 3.4 显示项与提示文字（不变，但本节按实现纠正键名与文案）
 
-- 渲染端按 `source` 区分提示：`ai` →「AI 封面生成成功」；`local-fallback` →
-  「本地封面生成成功（AI 生图不可用，已按文章内容生成封面）」。本次修复不新增 locale 键，
-  复用既有文案（`usePublishFlow.js` 的 `publishPage.publishFlow.coverGenerated` 等）。
+- 判定与提示的**唯一接线点**是 `apps/desktop/src/views/Publish.vue:1170`：AI 封面弹窗拿到 `result.data.coverPath` 后，按 `result.data.source` 二选一提示——
+  `source === 'local-fallback'` → `publishPage.aiCoverLocalGenerated`，否则 → `publishPage.aiCoverGenerated`。
+- 文案单一真源在拆分后的 locale 文件 `apps/desktop/src/locales/publish-page/zh.js:156-157`（英文同键位于同目录 `en.js`，成对维护，见 AGENTS.md「locale 成对修改」）：
+  - `aiCoverGenerated` = 「AI 封面已生成」/ "AI cover generated"
+  - `aiCoverLocalGenerated` = 「AI 生图不可用，已按文章内容生成封面」/ "AI image generation unavailable — cover generated from your article content"
+- 取不到封面时走 `publishPage.aiCoverGenerateFailed`（warn 级，带 `message` 参数），不在本次修复范围。
+- 本次修复**不新增任何 locale 键**：degraded 占位图被拒后返回的正是既有的 `local-fallback` 形态，因此用户看到的那条提示与「provider 未注入」路径逐字相同——这是刻意的：用户关心的是「封面里中文能不能正常显示」，不是「AI 生图为什么被降级」。降级原因只进主进程日志（`ipcLog('warn','cover:generate-ai','failed', ...)`），不进界面。
+- 显示项：封面弹窗关闭后 `coverFileList` 与 `article.cover_path`/`cover_file` 同步为兜底图路径，用户在发布页看到的是本地标题卡预览（非占位图）。
 
 ## 4. QM-5 第 2 步：测试逃逸链
 
