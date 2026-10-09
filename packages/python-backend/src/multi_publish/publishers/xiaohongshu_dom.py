@@ -158,26 +158,39 @@ async def await_draft_box_increment(
     return hit, last["count"]
 
 
-async def draft_title_present(page, sel: str, title: str) -> bool:
+async def draft_title_present(page, sel: str, title: str, *, scan_cap: int) -> bool:
     """草稿箱条目标题匹配——**未经活体取证**的次级兜底。
 
     它可以命中来确认，不能因它不命中就判失败：真正的失败条件是"所有正面信号都没拿到"，
     由调用方归一成 XHS_UNCONFIRMED，而不是在这里替平台猜选择器。
+
+    `scan_cap` 是成本闸，同 `visible_texts` 的 `probe_cap`：该选择器是跨层级通配形态，
+    SPA 模板页命中数十上百个节点完全正常，逐元素 `inner_text` 会把回查拖成无界往返
+    （CCG 七轮 i1）。被闸截断又一条没命中时同样必须留痕——"没匹配上"和"没扫到"是两件事。
     """
     if not title:
         return False
     items = page.locator(sel)
     count = await items.count()
-    for i in range(count):
-        txt = await items.nth(i).inner_text()
-        if title[:12] and title[:12] in (txt or ""):
+    probe = title[:12]
+    for i in range(min(count, scan_cap)):
+        try:
+            txt = await items.nth(i).inner_text()
+        except Exception:
+            continue
+        if probe in (txt or ""):
             return True
+    if count > scan_cap:
+        logger.warning(
+            f"[小红书] 草稿条目兜底扫描被截断: {sel} 命中 {count} 个节点，仅扫描前 {scan_cap} 个"
+            "——本次未命中不代表草稿不存在，不排除命中落在未扫描的节点里"
+        )
     return False
 
 
 async def recheck_draft_box(
     page, title: str, baseline, *, box_url: str, counter_sel: str, item_sel: str,
-    timeout_s: float, interval_s: float, probe_cap: int
+    timeout_s: float, interval_s: float, probe_cap: int, item_scan_cap: int
 ) -> bool:
     """重载草稿箱页复核：主判据是计数相对基线增长，标题匹配只兜底。
 
@@ -190,7 +203,7 @@ async def recheck_draft_box(
         await page.goto(box_url, wait_until="domcontentloaded")
         if baseline is None:
             logger.info("[小红书] 无草稿箱基线（节点未挂载或文本不含计数），只能退到标题回查")
-            return await draft_title_present(page, item_sel, title)
+            return await draft_title_present(page, item_sel, title, scan_cap=item_scan_cap)
         hit, now = await await_draft_box_increment(
             page, counter_sel, baseline=baseline, timeout_s=timeout_s,
             interval_s=interval_s, probe_cap=probe_cap,
@@ -199,9 +212,13 @@ async def recheck_draft_box(
             logger.info(f"[小红书] 草稿箱计数 {baseline} → {now}，确认已写入")
             return True
         logger.info(f"[小红书] 草稿箱计数 {baseline} → {now} 未增长，退到标题回查")
-        return await draft_title_present(page, item_sel, title)
+        return await draft_title_present(page, item_sel, title, scan_cap=item_scan_cap)
     except Exception as e:
-        logger.debug(f"草稿箱回查失败: {e}")
+        # 回查是自动保存路径唯一被活体证实的判据，它整体抛错时必须warning 级留痕：
+        # 只记 debug 会让"莫名 XHS_UNCONFIRMED"在正常日志里查不到成因（CCG 七轮 i2）。
+        logger.warning(
+            f"[小红书] 草稿箱回查异常，本次确认判据不可用: {e}（{box_url} / {counter_sel}）"
+        )
         return False
 
 
