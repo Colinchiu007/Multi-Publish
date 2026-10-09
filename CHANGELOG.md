@@ -18,6 +18,17 @@
 - 变异反证三处全部捕获：M1 HotTopics 去向参数 → 1 红；M2 Publish 交接分支禁用 → 4 红；M3 目标不写账号 → 2 红。
 - 文档：`01-docs/PRD-HOT-TOPICS-PUBLISH-HANDOFF-2026-10-09.md`（含数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字、参考产品对照、验收标准、遗留）；`openspec/changes/hot-topics-publish-handoff/`；见 `openspec/records/hot-topics-publish-handoff.md`。
 
+### 追加：小红书仅存平台草稿箱（硬约束，同日）
+
+用户明确要求「小红书不要真实发布（风控严格），只把内容放进平台草稿箱，之后由我用 App 扫码/确认再发布」。因此：
+
+- 发布路由 `ROUTE_TABLE.xiaohongshu` 由 `rpa_vm`（RPA 轨会点平台「发布」按钮）改为新增的 `xhs_draft` 轨，新增 `apps/desktop/electron/services/xiaohongshu-draft-publisher.js`：只调用平台 API 且 `draft=true`，**永不点击发布按钮**。
+- fail-closed：缺 Cookie / 缺 `a1` / 缺 `access-token-creator.xiaohongshu.com` / 无图片 / 标题为空 / 平台业务码非 0 / 未返回草稿标识 —— 一律抛错失败，**绝不静默回落到真实发布**。
+- 结果语义：`{ mode: 'xhs_draft', draft: true, postId: <草稿标识> }`；下游据此**不建审核回查**、**不把草稿当已公开作品登记回采**（草稿在平台内容列表里查不到）。
+- 界面提示（zh/en 成对）：单篇在发布目标下方、批量按条目分别提示「小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布」。
+- 回归锁：路由模式、发布器类型、`draft` 恒真、不触碰 RPA 视图管理器、缺件 fail-closed、草稿不建回查；另加「用到 Ui* 基础组件的 SFC 必须自行导入」结构锁（E2E 现场发现新组件漏 `import UiInput` 会让输入框整体失效，而单测夹具的全局注册会掩盖它）。
+- 详见 PRD §13 与 `openspec/records/hot-topics-publish-handoff.md`。
+
 # [未发布] fix(publish): 快手图文封面 tofu 乱码修复——ffmpeg 占位图不再冒充 AI 封面（2026-10-09，fix-kuaishou-tuwen-tofu）
 
 ### 用户感知
@@ -29,6 +40,7 @@
 - `cover:generate-ai` handler 新增占位图判定：`result.data.degraded === true` 视为 AI 生成失败，走 `fallbackLocalCover('ai-generate-degraded-placeholder')` 本地兜底；日志明确记「AI 生图返回的是 ffmpeg 占位图（无真实生图 provider），拒绝作为封面」。
 - 回归锁：`publish.test.js` 新增 degraded 第三态用例（修复前红灯复现 tofu 路径，修复后 37/37 绿）。
 - 根因链与逃逸分析详见 `01-docs/PRD-KUAISHOU-TUWEN-TOFU-2026-10-09.md`。
+
 
 
 ---

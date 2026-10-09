@@ -44,6 +44,32 @@ function freshKey() {
   return 'a_' + (_keyCounter++) + '_' + Date.now()
 }
 
+/**
+ * 计算「交接预置发布目标」应含哪些平台（纯函数，便于单测覆盖冷启动时序）。
+ *
+ * 真源是**账号目录**（`byPlatform`）而不是平台目录：账号决定「这个平台能不能发」，
+ * 平台目录只提供展示元数据（label/分组）。
+ *
+ * 为什么不能只读平台目录：渲染进程冷重载（URL 仍带 `?drafts=`、组件重新挂载）时
+ * 平台目录可能尚未就绪，只读目录会得到空集合 ⇒ 用户看到「内容已装载、但 0 个发布目标」
+ * 的批量区（不可用）；而账号目录在同一条 onMounted 路径上已被 `await loadAccounts()` 就绪。
+ *
+ * 目录就绪时与目录求交：账号数据里可能残留已下线平台的账号，预置不该把它带进来。
+ *
+ * @param {Record<string, unknown>|null|undefined} byPlatform 账号目录（platformId → 账号数组/账号）
+ * @param {Iterable<string>|null|undefined} catalogIds 平台目录里的平台 id（空集合 = 目录未就绪）
+ * @returns {string[]} 预置平台 id
+ */
+export function selectHandoffPresetPlatforms(byPlatform, catalogIds) {
+  const map = byPlatform && typeof byPlatform === 'object' ? byPlatform : {}
+  const withAccounts = Object.keys(map).filter(platformId => (
+    Array.isArray(map[platformId]) ? map[platformId].length > 0 : Boolean(map[platformId])
+  ))
+  const known = catalogIds ? new Set(Array.from(catalogIds).filter(id => typeof id === 'string' && id.trim())) : new Set()
+  // 目录未就绪（已知集合为空）时不做求交——否则冷重载会预置出空目标
+  return known.size > 0 ? withAccounts.filter(id => known.has(id)) : withAccounts
+}
+
 function toPlainJson(value) {
   return JSON.parse(JSON.stringify(value))
 }
@@ -220,6 +246,20 @@ export function useBatchPublish(options) {
     ).map(function (target) {
       return { platform: target.platform, accountId: target.accountId || null }
     })
+  }
+
+  /**
+   * 条目级平台勾选切换（批量卡片 v-model 的替代：卡片是子组件，不得就地改 props）。
+   * 关闭平台时一并清掉该平台的账号选择，避免「平台未选、账号仍残留」在改回时静默生效。
+   */
+  function toggleBatchPlatform (articleItem, platformId) {
+    if (!Array.isArray(articleItem.platforms)) articleItem.platforms = []
+    const at = articleItem.platforms.indexOf(platformId)
+    if (at === -1) articleItem.platforms.push(platformId)
+    else {
+      articleItem.platforms.splice(at, 1)
+      if (articleItem.accounts && articleItem.accounts[platformId] !== undefined) delete articleItem.accounts[platformId]
+    }
   }
 
   function toggleBatchAccount (articleItem, platformId, accountId) {
@@ -575,6 +615,7 @@ export function useBatchPublish(options) {
     applyTemplate,
     checkBatchAccess,
     toggleBatchAccount,
+    toggleBatchPlatform,
     isBatchAccountSelected,
     // P2-7 批量条目字段面写入点
     setBatchArticleCover,

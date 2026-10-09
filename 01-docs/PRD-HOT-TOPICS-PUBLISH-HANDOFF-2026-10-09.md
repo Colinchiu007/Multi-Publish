@@ -226,17 +226,17 @@ N=1 时 `goToDestination` 走 `?draft=<id>`，装载进**单篇编辑器**（保
 
 ---
 
-## 9. 参考产品对照（蚁小二 4.0 逆向分析）
+## 9. 参考产品对照（参考产品 4.x 逆向分析）
 
-资料来源（只读逆向产物）：
+资料来源（只读逆向产物；**该目录名含参考产品品牌词，按品牌残留红线不写入本 tracked 文档**，用品牌词无关的定位法可复现：`D:\Data\projects\` 下以「逆向工程」开头、版本号 4.x 的目录）：
 
-- `D:\Data\projects\_逆向工程_蚁小二4.0\README.md`（版本 4.13.19，Electron + React 19，主进程入口 `packages/main/dist/index.cjs` 8.4MB）
-- `D:\Data\projects\_逆向工程_蚁小二4.0\RPA分析报告.md`（架构图：账号管理 + 发布引擎 + 平台适配器层 + 通用基础设施层）
-- `D:\Data\projects\_逆向工程_蚁小二4.0\可复用代码分析.md`（§9 统一发布流程模板、§10 平台适配器示例）
+- 该目录下 `README.md`（版本 4.13.19，Electron + React 19，主进程入口 `packages/main/dist/index.cjs` 8.4MB）
+- 该目录下 `RPA分析报告.md`（架构图：账号管理 + 发布引擎 + 平台适配器层 + 通用基础设施层）
+- 该目录下 `可复用代码分析.md`（§9 统一发布流程模板、§10 平台适配器示例）
 
 关键结论与对照：
 
-| 维度 | 参考产品（蚁小二） | 本产品（本期） |
+| 维度 | 参考产品 | 本产品（本期） |
 |------|------------------|---------------|
 | 发布实现 | **调平台创作者 API**（axios + Cookie 认证 + Referer/Origin/UA），非 DOM 注入 | 平台适配器混合（API 轨 + RPA 轨），本期不动 |
 | 适配器形态 | 抽象基类 `PlatformPublisher`：`uploadVideo` / `uploadCover` / `buildPostData` / `publish` 必须由子类实现 | 本仓 `packages/api-publish-engine`、`packages/rpa-engine` 各自适配器 |
@@ -290,3 +290,89 @@ N=1 时 `goToDestination` 走 `?draft=<id>`，装载进**单篇编辑器**（保
 3. **平台账号解析依赖默认账号**：若用户希望「多条内容发到同一平台的不同账号」，需逐条改（工具条只写默认账号）。这是刻意的保守选择（避免误发）。
 4. **预置全部可发布平台**：交接后默认勾选所有有账号的平台。用户若只想发部分平台，必须在提交前取消勾选。已通过「逐条可调整 + 仍须手动点提交」控制风险，但**存在误发到非预期平台的可能**，属产品取舍，需要用户在发布前确认。
 5. **未做「草稿箱多选 → 批量装载」**：本期只在热门选题链路补齐，通用入口另立。
+
+---
+
+## 13. 小红书「仅存平台草稿箱」（硬约束，2026-10-09 追加）
+
+### 13.1 需求原文与判定
+
+> 小红书要特殊对待，不要真实发布。因为小红书风控比较严格。只需要实现发布内容放在小红书平台的草稿箱里就好，之后可以通过我用小红书 APP 扫二维码再真实发布。
+
+判定：小红书**不得走真实发布**。内容只写进**小红书创作者中心草稿箱**（服务端持久化），由用户在手机 App 内确认后自行发布。
+
+### 13.2 为什么必须做成「路由级硬约束」而不是「界面提示」
+
+- 真实发布一旦发生就**不可撤回**（笔记已公开、已进平台审核），而自动化点击发布正是风控最敏感的行为；
+- 仅靠界面提示无法防住其它入口（单篇发布、批量发布、自动化流水线、定时任务都会经过发布路由）；
+- 因此约束落在**发布路由表**（`ROUTE_TABLE.xiaohongshu`）上：小红书从 `rpa_vm`（RPA 轨会点「发布」按钮）改为 `xhs_draft`（只调 API 且 `draft=true`）。任何缺件一律抛错，**绝不回落到 RPA 真实发布**。
+
+### 13.3 实现
+
+| 层 | 内容 |
+|----|------|
+| 路由 | `apps/desktop/electron/services/publisher-router.js`：`xiaohongshu: { mode: 'xhs_draft', timeout: 180000 }`；`createPublisher` 新增 `xhs_draft` 分支 |
+| 发布器 | `apps/desktop/electron/services/xiaohongshu-draft-publisher.js`（新增）：凭证装载 → 图片收集 → 调链 → 结果判定 |
+| 链 | `packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`（既有，本期接入正式链路）：GET permit → PUT ros-upload → POST note（`draft=true`） |
+| 凭证 | Cookie（`a1` / `web_session` …）+ `Authorization: AT <access-token-creator.xiaohongshu.com>`；签名走进程内本地算法（不开窗、不触达活页） |
+| 结果 | `{ success: true, platform: 'xiaohongshu', mode: 'xhs_draft', draft: true, postId: <draftId>, url: '' }` |
+
+### 13.4 数据校验（fail-closed，全部为硬失败）
+
+| 校验项 | 规则 | 失败表现 |
+|--------|------|---------|
+| Cookie | 账号凭证（加密文件或分区回退）里必须有 cookie | 抛「平台 Cookie 缺失（账号 … 未登录或凭证不可用）」 |
+| `a1` | 必须存在 | 抛「缺发布链硬凭据 a1」 |
+| `access-token-creator.xiaohongshu.com` | 必须存在（Authorization AT） | 抛「缺发布链硬凭据 access-token-creator.xiaohongshu.com」 |
+| 标题 | 非空（平台标题上限 20 字，链内截断） | 抛「标题为空」 |
+| 图片 | ≥1 张（图片 → 图片文件描述 → 封面，去重保序） | 抛「小红书草稿需要至少 1 张图片（小红书不支持纯文字笔记）…」 |
+| 业务码 | 平台返回 `code !== 0` 即失败 | 抛「note 失败：code=…」（带业务码与消息，便于判断端点变更） |
+| 草稿标识 | 平台必须返回 `draft_id` 或 `note_id` | 抛「平台未返回草稿标识，无法确认已存入草稿箱」 |
+
+### 13.5 流程
+
+```
+发布任务（platform=xiaohongshu）
+ → PublisherRouter.getRoute → mode=xhs_draft
+ → XiaohongshuDraftPublisher.publish
+    ① loadAuthForTask（accountId → 加密凭证 → 分区 cookie 回退）
+    ② 校验 cookie / a1 / Authorization / 标题 / 图片（任一缺失即抛错）
+    ③ 逐图：GET permit（scene=image）→ PUT ros-upload
+    ④ POST /web_api/sns/v2/note（draft=true；带 x-s/x-t/x-s-common/traceid 签名头）
+    ⑤ 判定：业务码 0 且拿到草稿标识 → 成功（draft: true）
+ → 任务队列 task:success → 历史记录 success（result.draft=true）
+ → **不建审核回查**（草稿不是已公开作品，平台内容列表里查不到）
+ → tracked_content 记 untrackable（无公开锚点，不排回采）
+```
+
+### 13.6 交互逻辑与显示项
+
+| 位置 | 显示项 | 触发条件 |
+|------|--------|---------|
+| 单篇发布页（发布目标下方） | 「小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布」 | 所选平台含小红书 |
+| 批量发布页（每条条目的发布目标下方） | 同上（逐条显示，`data-testid=batch-xhs-draft-only-<idx>`） | 该条目所选平台含小红书 |
+
+### 13.7 提示文字
+
+| key | 中文 | English |
+|-----|------|---------|
+| `publishPage.xhsDraftOnlyHint` | 小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布 | Xiaohongshu saves to the platform draft box only (not published). Confirm in the mobile app to publish. |
+
+### 13.8 验收标准
+
+| 编号 | 验收项 | 判定 |
+|------|--------|------|
+| XHS-1 | `ROUTE_TABLE.xiaohongshu.mode === 'xhs_draft'`（非 `rpa_vm`） | 单测 |
+| XHS-2 | `createPublisher('xiaohongshu')` 返回 `XiaohongshuDraftPublisher` | 单测 |
+| XHS-3 | 成功路径 `draft` 恒为 `true`，返回 `mode: 'xhs_draft'`、`draft: true`，且**不触碰** rpaViewManager | 单测 |
+| XHS-4 | 缺 a1 / 缺 Authorization / 无图片 / 无草稿标识 → 全部抛错且不发起平台请求 | 单测 |
+| XHS-5 | `task:success` 且 `result.draft === true` → 不建审核回查、不登记可回采作品 | 单测 |
+| XHS-6 | 真实链路：内容出现在小红书创作者中心草稿箱，且平台侧**未公开发布** | E2E（见执行记录） |
+
+### 13.9 遗留与风险（不假装已闭合）
+
+1. **必须有图**：小红书草稿要求 ≥1 张图片。本期由用户提供（发布页选择图片/封面）；未提供时 fail-closed 报错，不静默跳过。
+2. **RPA 轨的 `_publish_xiaohongshu` 仍在代码里**（`rpa-view-platforms.js`）：本期只改路由（唯一入口）；该函数未被任何路由使用，但**未被删除**——删除属单独的清理动作，避免误伤其它调用点。
+3. **视频笔记未接入**：草稿链只实现了图片笔记（链内注释已声明「不外验证视频」）；小红书视频任务目前会因缺图片而 fail-closed，而不是静默改走真实发布。
+4. **草稿 ID 不等于公开作品 ID**：历史记录与 tracked_content 不把它当作品锚点（见 13.5）。
+

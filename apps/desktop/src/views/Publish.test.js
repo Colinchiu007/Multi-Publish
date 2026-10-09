@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { flushPromises, mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
@@ -22,16 +24,25 @@ vi.mock("@/stores/platforms", () => ({
   })
 }));
 
-const mockAccountLoad = vi.fn().mockResolvedValue(undefined);
+/**
+ * 账号目录用「可变容器」建模真实加载时序：ensureLoaded 解析**之前** `byPlatform` 为空。
+ * 这直接对应线上缺陷现场——hash 路由首次写入 query 会先触发 watch(route.query.drafts)，
+ * 那时 onMounted 的 `await loadAccounts()` 尚未跑完，按账号推导预置平台会得到空集。
+ */
+const accountState = { byPlatform: null };
+function populateAccounts() {
+  accountState.byPlatform = {
+    wechat_mp: [{ id: "acc1", name: "My Account", is_default: true }],
+    baijiahao: [{ id: "bj1", name: "百家号账号", is_default: true }],
+    xiaohongshu: [{ id: "xhs1", name: "小红书账号", is_default: true }],
+  };
+}
+const mockAccountLoad = vi.fn(async () => { populateAccounts(); });
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
     load: mockAccountLoad,
     ensureLoaded: mockAccountLoad,
-    byPlatform: {
-      wechat_mp: [{ id: "acc1", name: "My Account", is_default: true }],
-      baijiahao: [{ id: "bj1", name: "百家号账号", is_default: true }],
-      xiaohongshu: [{ id: "xhs1", name: "小红书账号", is_default: true }],
-    },
+    get byPlatform() { return accountState.byPlatform || {}; },
     getDefault: (p) => {
       if (p === "wechat_mp") return { id: "acc1", name: "My Account" };
       if (p === "baijiahao") return { id: "bj1", name: "百家号账号" };
@@ -632,28 +643,22 @@ describe("PublishView", () => {
     expect(w.find('[data-testid="batch-targets-toolbar"]').exists()).toBe(true)
   });
 
-  it("?drafts= 部分草稿已删除：只装载存在的条目，不整批失败", async () => {
+  it("?drafts= 部分缺失/全缺失的语义：只装载存在的条目；全缺失不进入空批量态", async () => {
+    // 部分缺失：装载命中项，不整批失败
     await router.push('/?tab=publish&drafts=d1,gone')
-    window.electronAPI.draftList.mockResolvedValue({
-      code: 0,
-      data: [{ id: 'd1', title: '仍在的选题', content: '正文' }],
-    })
+    window.electronAPI.draftList.mockResolvedValue({ code: 0, data: [{ id: 'd1', title: '仍在的选题', content: '正文' }] })
     const w = await createWrapper()
     await flushPromises()
-
     expect(w.vm.batchMode).toBe(true)
-    expect(w.vm.articles).toHaveLength(1)
-    expect(w.vm.articles[0].title).toBe('仍在的选题')
-  });
+    expect(w.vm.articles.map(a => a.title)).toEqual(['仍在的选题'])
 
-  it("?drafts= 草稿全不存在：不进入空批量态（如实提示，不渲染空卡片）", async () => {
+    // 全缺失：不进批量模式、不渲染空卡片（如实提示）
     await router.push('/?tab=publish&drafts=gone1,gone2')
     window.electronAPI.draftList.mockResolvedValue({ code: 0, data: [] })
-    const w = await createWrapper()
+    const w2 = await createWrapper()
     await flushPromises()
-
-    expect(w.vm.batchMode).toBe(false)
-    expect(w.vm.articles).toHaveLength(0)
+    expect(w2.vm.batchMode).toBe(false)
+    expect(w2.vm.articles).toHaveLength(0)
   });
 
   it("同一批交接 id 重复激活不覆盖用户编辑（keep-alive 幂等键）", async () => {
@@ -676,14 +681,9 @@ describe("PublishView", () => {
 
     expect(reloaded).toBe(0)
     expect(w.vm.articles[0].title).toBe('用户改过的标题')
-  });
-
-  it("parseHandoffDraftIds 去空白、去重、忽略非法值", async () => {
-    const w = await createWrapper()
+    // 参数解析：去空白、去重、忽略非法值（无则空集合）
     expect(w.vm.parseHandoffDraftIds(' a , b ,,a ')).toEqual(['a', 'b'])
-    expect(w.vm.parseHandoffDraftIds('')).toEqual([])
-    expect(w.vm.parseHandoffDraftIds(undefined)).toEqual([])
-    expect(w.vm.parseHandoffDraftIds(null)).toEqual([])
+    for (const empty of ['', undefined, null]) expect(w.vm.parseHandoffDraftIds(empty)).toEqual([])
   });
 
   it("批量设置发布目标：应用到全部条目（含各平台默认账号）", async () => {
@@ -711,6 +711,95 @@ describe("PublishView", () => {
     }
     // 账号缺失的平台不得写入空数组（否则校验文案指向错误原因）
     expect(w.vm.articles[0].accounts.zhihu).toBeUndefined()
+  });
+
+
+  it("交接内部自带「账号目录就绪」保证：目录晚到时仍预置平台（时序回归锁）", async () => {
+    await router.push('/?tab=publish&drafts=d1')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: 'd1', title: 'A', content: 'a' },
+        { id: 'd2', title: 'B', content: 'b' },
+      ],
+    })
+    const w = await createWrapper()
+    await flushPromises()
+
+    // 模拟「交接发生在账号目录尚未就绪时」：hash 路由首次写入 query 会先触发
+    // watch(route.query.drafts)，此时 onMounted 的 await loadAccounts() 还没跑完。
+    accountState.byPlatform = null
+    mockAccountLoad.mockClear()
+
+    const loaded = await w.vm.applyDraftHandoff(['d1', 'd2'])
+    await flushPromises()
+
+    expect(loaded).toBe(2)
+    // 交接必须自身确保账号就绪（不得依赖调用方的 await 顺序）
+    expect(mockAccountLoad).toHaveBeenCalled()
+    expect(w.vm.articles[0].platforms).toContain('wechat_mp')
+    expect(w.vm.articles[0].accounts).toEqual({ wechat_mp: ['acc1'] })
+  });
+
+
+  it("勾选小红书时给出「仅存草稿箱」提示（用户硬约束：不得真实发布）", async () => {
+    await router.push('/?tab=publish&drafts=d1')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [{ id: 'd1', title: 'A', content: 'a' }],
+    })
+    const w = await createWrapper()
+    await flushPromises()
+
+    // 未选小红书 → 无提示
+    expect(w.find('[data-testid="batch-xhs-draft-only-0"]').exists()).toBe(false)
+    w.vm.articles[0].platforms = ['xiaohongshu', 'wechat_mp']
+    await nextTick()
+    const hint = w.find('[data-testid="batch-xhs-draft-only-0"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('草稿箱')
+  });
+
+
+  it("批量卡片真实渲染输入控件且值来自草稿（漏导入 UiInput 会渲染成未知元素）", async () => {
+    await router.push('/?tab=publish&drafts=d1')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [{ id: 'd1', title: '草稿标题X', content: '草稿正文Y' }],
+    })
+    const w = await createWrapper()
+    await flushPromises()
+
+    const titleInput = w.find('.batch-articles input.ui-input')
+    expect(titleInput.exists()).toBe(true)
+    expect(titleInput.element.value).toBe('草稿标题X')
+    // 正文用 textarea（type=textarea 分支），同样必须真实渲染
+    const textarea = w.find('.batch-articles textarea.ui-input')
+    expect(textarea.exists()).toBe(true)
+    expect(textarea.element.value).toBe('草稿正文Y')
+  });
+
+  it("所有用到 Ui* 基础组件的 SFC 都必须自行导入（局部注册；夹具的全局注册不得掩盖漏导入）", () => {
+    // 事故形态（2026-10-09 E2E 现场）：新组件漏 import UiInput ⇒ 渲染成未知元素、输入框失效，而夹具全局注册让单测全绿
+    const files = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else if (entry.name.endsWith('.vue')) files.push(p);
+      }
+    };
+    walk('src');
+    const offenders = [];
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8');
+      for (const name of ['UiInput', 'UiButton', 'UiSelect']) {
+        const used = new RegExp('<' + name + '[\\s/>]').test(source);
+        const imported = new RegExp('import\\s+' + name + '\\s+from').test(source);
+        if (used && !imported) offenders.push(`${file} → ${name}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
 

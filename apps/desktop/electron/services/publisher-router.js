@@ -23,6 +23,8 @@ const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/ric
 const { extractInlineTopicNames } = require('@multi-publish/api-publish-engine/src/content-formatter')
 const { getConfigPath } = require('./config-resolver')
 const { buildApiTaskData } = require('./api-task-data')
+// 小红书「仅存草稿箱」轨（2026-10-09 用户硬约束：小红书不得真实发布）
+const { XiaohongshuDraftPublisher } = require('./xiaohongshu-draft-publisher')
 // P1-5 语义级可见性：语义档位（public/friends/private）→ 平台字段值的单一真源在注册表层。
 const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publish-capabilities')
 
@@ -36,12 +38,15 @@ const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publi
 // 前置 fail-closed 见 resolvePlatformArticle 内的 VIDEO_ONLY_API_PLATFORMS 检查。
 const VIDEO_ONLY_API_PLATFORMS = new Set(['bilibili'])
 
+// 2026-10-09 用户硬约束：小红书**不得真实发布**（平台风控严格）——
+// 内容只写进小红书创作者中心的**平台草稿箱**，由用户在手机 App 确认后自行发布。
+// 因此 xiaohongshu 从 rpa_vm（会点「发布」按钮）改路由到 xhs_draft 轨（只调 API + draft=true）。
 const ROUTE_TABLE = {
   wechat_mp:    { mode: 'rpa_vm', timeout: 120000 },
   zhihu:        { mode: 'rpa_vm', timeout: 120000 },
   weibo:        { mode: 'rpa_vm', timeout: 120000 },
   douyin:       { mode: 'rpa_vm', timeout: 300000 },
-  xiaohongshu:  { mode: 'rpa_vm', timeout: 120000 },
+  xiaohongshu:  { mode: 'xhs_draft', timeout: 180000 },
   tencent_video:{ mode: 'rpa_vm', timeout: 300000 },
   kuaishou:     { mode: 'rpa_vm', timeout: 300000 },
   toutiao:      { mode: 'rpa_vm', timeout: 120000 },
@@ -758,6 +763,14 @@ class PublisherRouter {
         return new RpaVmPublisher(route, deps)
       case 'api':
         return new ApiPublisher(route, deps)
+      case 'xhs_draft':
+        // 小红书只存草稿（用户硬约束）：复用本模块的文章装配与凭证装载，
+        // 经 deps 注入给独立模块，避免 publisher-router ↔ xiaohongshu-draft-publisher 循环 require。
+        return new XiaohongshuDraftPublisher(route, {
+          ...deps,
+          buildArticle: buildPublishArticle,
+          loadAuth: loadAuthForTask,
+        })
       case 'backend':
         return new BackendPublisher(route, deps)
       default:
@@ -774,5 +787,4 @@ class PublisherRouter {
 }
 
 module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask, resolvePlatformArticle, buildPublishArticle }
-
 

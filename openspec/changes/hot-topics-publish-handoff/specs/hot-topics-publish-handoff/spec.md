@@ -101,3 +101,42 @@
 
 - **WHEN** 从热门选题交接装载完成且存在可发布平台
 - **THEN** 工具条已勾选全部可发布平台，且每条条目已带上这些平台及其默认账号（用户仍须手动点「批量发布」才会提交）
+
+### Requirement: 小红书仅存平台草稿箱（硬约束）
+
+小红书 SHALL NOT 走真实发布链路。发布路由 SHALL 把 `xiaohongshu` 指向「仅存草稿」轨（只调用平台 API 且 `draft=true`），SHALL NOT 路由到会点击平台「发布」按钮的 RPA 轨。该轨 SHALL 在缺任一硬凭据（Cookie / `a1` / `access-token-creator.xiaohongshu.com`）或缺少至少 1 张图片或缺少标题时**抛错失败**，SHALL NOT 静默降级为真实发布。平台返回业务码非 0 或未返回草稿标识时 SHALL 判为失败（不得虚报「已存入草稿箱」）。成功结果 SHALL 携带草稿语义标记（`draft: true`、`mode: 'xhs_draft'`），下游 SHALL 据此不建审核回查、不把草稿 ID 当作已公开作品锚点登记回采。
+
+#### Scenario: 路由不再走 RPA
+
+- **WHEN** 查询发布路由表或创建小红书的发布器
+- **THEN** 模式为仅存草稿轨（非 `rpa_vm`），且发布器实例为草稿轨发布器
+
+#### Scenario: 成功只写草稿箱
+
+- **WHEN** 账号具备 `a1` 与 Authorization、标题非空、至少 1 张图片，平台业务码为 0 且返回草稿标识
+- **THEN** 结果标记 `draft: true` 与 `mode: 'xhs_draft'`，且全程未触碰 RPA 视图管理器
+
+#### Scenario: 缺件一律失败而非退回真实发布
+
+- **WHEN** 缺 `a1`、缺 Authorization、无图片或无草稿标识
+- **THEN** 抛错（不发起平台请求或不判定成功），绝不改走 RPA 真实发布
+
+#### Scenario: 草稿不进审核回查
+
+- **WHEN** 任务成功且结果为草稿语义（`draft: true`）
+- **THEN** 不创建平台审核回查任务，且该记录不登记为可回采的已公开作品
+
+### Requirement: 小红书草稿语义的用户可见提示
+
+发布页 SHALL 在所选平台包含小红书时给出「仅保存到平台草稿箱（不直接发布）」的提示：单篇模式在发布目标下方提示一次；批量模式 SHALL 按条目分别提示（每条只在该条目选中小红书时出现）。提示文案 SHALL 成对维护于 zh/en 语言包。
+
+#### Scenario: 单篇勾选小红书
+
+- **WHEN** 单篇模式的所选平台包含小红书
+- **THEN** 发布目标下方出现草稿箱提示
+
+#### Scenario: 批量按条目提示
+
+- **WHEN** 批量模式下第 N 条选中小红书、其它条未选
+- **THEN** 只有第 N 条出现提示（`batch-xhs-draft-only-<N>`）
+

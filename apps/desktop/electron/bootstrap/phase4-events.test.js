@@ -337,6 +337,22 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
       await flush()
     }
 
+    it('草稿结果（小红书仅存草稿）不建审核回查：草稿不是已公开作品', async () => {
+      // 用户硬约束（2026-10-09）：小红书只存平台草稿箱。草稿在平台的「内容列表」里
+      // 永远查不到，若照常建监控任务，只会得到恒定的「查无此作品」重试风暴。
+      const { taskQueue, history, monitorCalls } = wireWithMonitor()
+      taskQueue.emit('task:success', {
+        id: 'task-xhs-draft', owner_subject: 'user-a', platform: 'xiaohongshu',
+        article: { title: '小红书草稿' },
+        result: { postId: 'draft-9', draft: true, mode: 'xhs_draft', url: '' },
+      })
+      await flush()
+
+      expect(monitorCalls).toHaveLength(0)
+      // 写入草稿箱仍是成功结果（API 已确认），历史照记
+      expect(history.addRecord).toHaveBeenCalledTimes(1)
+    })
+
     it('明确结论（rejected）回写原记录，不追加重复行', async () => {
       const { taskQueue, history, monitorCalls } = wireWithMonitor()
       await emitSuccess(taskQueue)
