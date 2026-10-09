@@ -34,10 +34,5 @@
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
     "line": 4479
-  },
-  "本次执行记录：定时派发失败的全局提示（dispatch-toast-global-listener，2026-10-09）": {
-    "reason": "开 PR 时登记：远程同步 PENDING，合并后回填 PASS + merge SHA 并同一次提交删除本登记项（回填与销账必须同一次发生）",
-    "status": "待 PR 合并后销账",
-    "line": 0
   }
 }
