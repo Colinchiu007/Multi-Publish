@@ -19310,3 +19310,11 @@ PR1 骨架 + 首批 8 小域（signer/tabs/common/loginGate/providerCrud/publish
 | L3 | Gate 7 成对校验 + key 存在性（1478 key）PASS | ✅ |
 | L4 | locales + 4 改造测试 + i18n 消费方抽样全绿 | ✅ 66 测 |
 | L5 | 键名/键值零变更（结构锁 ①② + Gate 7 key 校验双重保证） | ✅ |
+
+## 附录：快手图文封面 tofu 乱码修复（2026-10-09，fix-kuaishou-tuwen-tofu）
+
+> 完整规格见 `01-docs/PRD-KUAISHOU-TUWEN-TOFU-2026-10-09.md`。本节只登记主文档必须常驻的口径。
+
+- **契约新增**：`cover:generate-ai` 的出参校验补一条——`assetGenerator` 返回 `data.degraded === true`（ffmpeg drawtext 占位图）时**不得**以 `source:'ai'` 成功返回；必须判定为 AI 失败并走本地标题卡兜底（`source:'local-fallback'`）。占位图在 Windows 打包环境无 CJK 字形（中文全 tofu），历史上曾被当 AI 封面上传快手图集（实锤 `img_9400.png`）。
+- **流程不变式**：封面来源优先级 = 真实 AI 生图（非 degraded）> 本地标题卡兜底 > 如实报错；任何「降级/占位」产物不得跨模块冒充成功产物消费。
+- **验收**：`publish.test.js`「degraded 占位图不得当成功返回，必须回退本地封面」（修复前红灯精确复现 tofu 路径）。

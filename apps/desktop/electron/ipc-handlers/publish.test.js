@@ -242,6 +242,35 @@ describe('publish IPC 可信来源正常工作', () => {
       expect(generateLocalCover).toHaveBeenCalled()
     })
 
+    // 2026-10-09 快手图文 tofu 修复：ffmpeg drawtext 占位图（degraded:true）在 Windows 打包环境
+    // 无 CJK 字形，中文字符全部渲染为方块（实锤证据 D:\Temp\story2video\assets\default\img_9400.png，
+    // 标题「白应苍临刑前称随口1个资金盘就20亿」仅 ASCII「1」「20」可读）。占位图绝不能作为
+    // 「AI 封面」成功返回——必须视为 AI 生成失败，走本地标题卡兜底（sharp/Pango 正确渲染 CJK）。
+    it('degraded 占位图（ffmpeg-placeholder）不得当成功返回，必须回退本地封面', async () => {
+      const generateLocalCover = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/multi-publish-cover-local/cover-degraded-probe.png' } }))
+      const assetGenerator = {
+        generateImage: vi.fn(async () => ({
+          code: 0,
+          data: { path: 'C:/tmp/story2video/assets/default/img_9400.png', source: 'ffmpeg-placeholder', degraded: true },
+        })),
+      }
+      const deps = createMockDeps({ assetGenerator, localCoverGenerator: { generateLocalCover } })
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(TRUSTED_EVENT, { prompt: '白应苍临刑前称随口1个资金盘就20亿', ratio: '3:4' })
+
+      // 不再把 tofu 占位图当 AI 封面返回
+      expect(result.code).toBe(0)
+      expect(result.data.coverPath).toBe('C:/tmp/multi-publish-cover-local/cover-degraded-probe.png')
+      expect(result.data.coverPath).not.toContain('img_9400')
+      expect(result.data.source).toBe('local-fallback')
+      // 占位图判定为失败后真实走了兜底
+      expect(assetGenerator.generateImage).toHaveBeenCalled()
+      expect(generateLocalCover).toHaveBeenCalled()
+    })
+
     // 2026-10-06 内容感知封面：兜底必须拿到文章标题与正文，否则封面与内容无关
     it('兜底分支把文章标题与正文透传给本地封面生成器', async () => {
       const generateLocalCover = vi.fn(async () => ({

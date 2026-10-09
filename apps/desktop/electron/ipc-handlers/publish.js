@@ -120,10 +120,16 @@ function registerHandlers(ipcMain, deps) {
         aspect_ratio: ratio,
         outputDir,
       })
-      if (!result || result.code !== 0 || !result.data || !result.data.path) {
-        const msg = (result && result.message) || 'AI 封面生成失败'
+      // 2026-10-09 快手图文 tofu：ffmpeg drawtext 占位图（degraded:true）在 Windows 打包环境
+      // 无 CJK 字形，中文全部渲染为方块（实锤：img_9400.png 仅 ASCII 可读）。占位图属内部
+      // 草稿示意，绝不能作为「AI 封面」发布——判定为 AI 失败，走本地标题卡兜底。
+      const isDegradedPlaceholder = result && result.data && result.data.degraded === true
+      if (!result || result.code !== 0 || !result.data || !result.data.path || isDegradedPlaceholder) {
+        const msg = isDegradedPlaceholder
+          ? 'AI 生图返回的是 ffmpeg 占位图（无真实生图 provider），拒绝作为封面'
+          : ((result && result.message) || 'AI 封面生成失败')
         ipcLog('warn', 'cover:generate-ai', 'failed', `error=${msg} 耗时=${Date.now() - startedAt}ms，走本地封面兜底`)
-        return await fallbackLocalCover('ai-generate-failed')
+        return await fallbackLocalCover(isDegradedPlaceholder ? 'ai-generate-degraded-placeholder' : 'ai-generate-failed')
       }
       ipcLog('info', 'cover:generate-ai', 'ok', `path=${result.data.path.slice(-80)} 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data: { coverPath: result.data.path, source: 'ai' }, message: 'AI 封面生成成功' }
