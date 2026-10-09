@@ -16823,3 +16823,20 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
 - **回填 PR 的销账范围靠人肉列举必然漏（pitfall）**：#3164 批量回填 #3076/#3091/#3151 时，只回填了「当时记得的」记录；`openspec/records/fix-xhs-api-chain-contract.md` 等 **5 份**已合并 PR 的记录仍挂着 `sync_*` 三字段 + 正文 `PENDING`。之后 #3179 才补齐。**机械判据**：开回填 PR 前必须跑 `Select-String -Path openspec\records\*.md -Pattern '^sync_status:'`（或等价 grep），结果非空就是还有漏项，零命中才允许提交。人肉「想一遍还有谁没销账」不可靠，5/5 全漏就是实证。
 - **前置真源先取 `origin/main` 再数 PENDING（pattern）**：销账动作要同时改 `.quality-gates.md`、`openspec/records/*.md`、`gate-record-debt-ledger.json` 三处；批量回填前先 `git fetch` 并以 `origin/main` 的记录文件为清单源，本地滞后的工作区会给出假的「无漏项」结论。
 - **worktree 里重跑 `git rebase origin/main` 对已合并分支必然冲突（pitfall）**：PR squash 合并后，原分支的提交在 origin/main 上已有「同内容不同 SHA」的对应物，rebase 会把每个提交都判成冲突（AA）。分支已合并的 worktree 同步，正确做法是丢弃本地分支、从 origin/main 重建（`git branch -m <old> <old>-merged` 留档 → `git checkout -b <new> origin/main`），不要 rebase。
+## 降级/占位产物不得跨模块当成功产物消费——ffmpeg 占位图冒充 AI 封面致快手图文中文全 tofu（fix-kuaishou-tuwen-tofu，2026-10-09）
+
+- **事故**：用户经应用发布的快手图文，图片上中文在快手创作者中心全部显示为空心方块，仅 ASCII 数字可读。取证 `D:\Temp\story2video\assets\default\img_9400.png`（纯深蓝底 `#1a1a2e` + 居中白字，中文全方块、标题里「1」「20」正常）与日志 `cover:generate-ai ok :: path=... 耗时=112ms`——112ms 不可能是真实生图。
+- **本质**：生产方 `asset-generator.generateImage` 在未配置生图 provider 时用 ffmpeg `drawtext` 生成占位图，返回 `{code:0, data:{source:'ffmpeg-placeholder', degraded:true}}`，并在数据里如实打了降级标记；消费方 `cover:generate-ai`（apps/desktop/electron/ipc-handlers/publish.js）**只判 `result.code === 0`**，把 `degraded` 字段读都不读地当成功产物返回并上传。Windows 打包环境 drawtext 无 CJK 字形，于是 tofu 图进发布链。渲染缺陷（无 CJK 字体）在生产方、**契约缺陷（降级字段无人消费）在消费边界**，本次修的是后者。
+- **正确顺序**：① 先判「这个成功码代表的是不是同一件事」——`code:0` 只代表「命令成功执行」，不代表「产出了用户要的那种产物」；② 消费边界必须对降级/占位标记**显式分流**（`result.data.degraded === true` ⇒ 按失败处理，走 `fallbackLocalCover('ai-generate-degraded-placeholder')` 本地标题卡，SVG→sharp 渲染且字体栈含 Microsoft YaHei/PingFang SC，CJK 正常）；③ 修在选择正确性的一侧（谁消费谁负责），而不是顺手改生产方——Story2Video 内部分镜草稿合法依赖占位图，改 drawtext 接 CJK fontfile 是独立任务。
+- **逃逸为什么是结构性的**：既有单测夹具只造「成功/失败」两态，**degraded 第三态在夹具里根本无法表示**，所以任何数量的用例都不会发现；E2E 只断言发布终态 success，不校验图片字形；封面是运行时生成文件，不在视觉基线域。**教训**：给跨模块契约加测试时，先问「这个契约有几态」，逐态都能被 mock 构造出来才算覆盖，两态夹具测不出三态缺陷。
+- **配套**：回归锁 `apps/desktop/electron/ipc-handlers/publish.test.js`「degraded 占位图（ffmpeg-placeholder）不得当成功返回，必须回退本地封面」（红灯先行，修复前精确复现 `Received: img_9400.png`）；根因链与逃逸分析见 `01-docs/PRD-KUAISHOU-TUWEN-TOFU-2026-10-09.md`；PR #3208。
+
+## 置顶型/追加型共享文件的 rebase 冲突：先判别「并集」还是「重建」，判据一律用删除数（2026-10-10）
+
+- **事故**：PR #3208 rebase 时 `.quality-gates.md` 顶部记录块与 `CHANGELOG.md`、`scripts/gate-record-debt-ledger.json` 同时冲突。用「删掉 `<<<<<<< / ======= / >>>>>>>` 三种标记行、保留两侧内容」的脚本消解，`--numstat` 只报 2 行删除，看着像正常收敛；实际那 2 行是 main 已回填的**远程同步 PASS + merge SHA** 证据，被我们自己记录里的 `PENDING` 顶掉了。这类文件是「追加型 + 状态列」结构，两侧都有同名键，摘标记会按块序随机取胜。
+- **本质**：`git checkout --theirs/--ours` 与「摘标记硬合」对**同一条记录的不同状态列**都无解——两侧不是一边对一边错，而是 main 那侧的 PASS 是本 PR 合并**之后**才成立的事实，本 PR 那侧的 PENDING 是合并**之前**的事实。任何以「保留两侧」为目标的机械合并都必然留下一个说谎的状态列。
+- **判别（先问这一条，再选修法）**：看冲突两侧承载的是「**不同记录**」还是「**同一记录的不同状态**」。
+  - 不同记录 ⇒ **并集合法**。同日 `01-docs/PRD.md` 的 EOF 冲突即此类：main 侧是「locales 结构拆分」附录、本侧是「快手图文封面 tofu」附录，两份各自完整、互不覆盖，删标记保两侧是正确解（实得 8/0 纯插入，两个 `## 附录：` 标题各出现一次）。
+  - 同一记录的不同状态 ⇒ **必须重建**，禁止并集。`.quality-gates.md` 顶部记录、`CHANGELOG.md` 未发布段、ledger 同名键属此类。
+- **正确顺序（重建）**：① `git show origin/main:<file>` 取 main 的**整份内容**为底（不是取自己的）；② 只把自己的新增块插回正确位置（`.quality-gates.md`/`CHANGELOG.md` 插到最顶，ledger 插到最后一个键之后并补逗号）；③ 逐行保留 main 那一行原本的结尾，禁止统一回写行尾（本仓这类文件 `i/lf w/crlf`，统一改写会把整文件变成 diff）；④ 提交前用 `git diff --numstat origin/main -- <file>` 断言**删除数为 0**（纯插入），并 grep 关键点确认 main 的回填证据（如 `已合并 #NNNN`）仍在。
+- **配套**：判据不是「冲突解完了」而是「相对 origin/main 是否纯插入 + main 的证据行是否还在」；对「删除数>0」的置顶文件冲突一律重做。**`Auto-merging` 同样不构成证据**——git 自动合并的文件也可能改动 main 的证据行，所以未冲突文件也要跑同一次删除数对账（本次 `01-docs/PRD.md` 之外，`.quality-gates.md` 17/0、`CHANGELOG.md` 14/0、ledger 2/1 全部逐个实测）。另注：ledger 的 `line` 字段是信息性的、不被 `check-gate-record-debt.js` 校验，重建时不必逐字对齐行号，但键必须与记录标题逐字相同。
