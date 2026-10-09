@@ -41,9 +41,15 @@ function planBatches (shotIds, batchSize = PRODUCTION_BATCH_SIZE) {
   return batches
 }
 
+/** 默认批次 runId（既有全量出片语义：prod-<taskId>-b<N>，产物落 <mediaRoot>/<runId>/） */
+function defaultRunIdFor (taskId, batchIndex) {
+  return 'prod-' + taskId + '-b' + batchIndex
+}
+
 /** 新建台账（确定性 runId；重复调用同输入产出一致批次结构） */
-function createLedger ({ taskId, shotIds, batchSize }) {
+function createLedger ({ taskId, shotIds, batchSize, runIdFor }) {
   const size = Number.isInteger(batchSize) && batchSize > 0 ? batchSize : PRODUCTION_BATCH_SIZE
+  const makeRunId = typeof runIdFor === 'function' ? runIdFor : defaultRunIdFor
   const plan = planBatches(shotIds, size)
   return {
     schemaVersion: 1,
@@ -52,7 +58,7 @@ function createLedger ({ taskId, shotIds, batchSize }) {
     createdAt: new Date().toISOString(),
     batches: plan.map((b) => ({
       batchIndex: b.batchIndex,
-      runId: 'prod-' + taskId + '-b' + b.batchIndex,
+      runId: String(makeRunId(String(taskId), b.batchIndex)),
       shotIds: b.shotIds.slice(),
       shots: b.shotIds.map((sid) => ({ shotId: sid, status: 'pending', error: null })),
       status: 'pending',
@@ -150,6 +156,7 @@ function buildRenderManifest (ledger, { mediaRoot = getFilmMediaRoot(), probe })
  *   emit?: (event: object) => void, now?: () => number,
  *   mediaRoot?: string, batchSize?: number,
  *   runOnlyBatch?: number|null,
+ *   runIdFor?: (taskId: string, batchIndex: number) => string,   // 默认 prod-<taskId>-b<N>；自动模式传 'auto/<taskId>/b<N>'
  * }} opts
  */
 async function runProduction (opts) {
@@ -157,7 +164,7 @@ async function runProduction (opts) {
     taskId, shotIds, ledgerDir, runBatch, probe,
     emit = () => {}, now = Date.now,
     mediaRoot = getFilmMediaRoot(), batchSize = PRODUCTION_BATCH_SIZE,
-    runOnlyBatch = null,
+    runOnlyBatch = null, runIdFor,
   } = opts || {}
   if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
     throw new Error('production-driver: taskId 必须为非空且路径安全的字符串')
@@ -180,7 +187,7 @@ async function runProduction (opts) {
     && ledger.batches.length === planShape.length
     && ledger.batches.every((b, i) => b.shotIds.length === planShape[i].shotIds.length)
   if (!sameShape) {
-    ledger = createLedger({ taskId, shotIds, batchSize })
+    ledger = createLedger({ taskId, shotIds, batchSize, runIdFor })
     saveLedger(ledgerDir, ledger)
   }
 
@@ -270,6 +277,7 @@ async function runProduction (opts) {
 module.exports = {
   planBatches,
   createLedger,
+  defaultRunIdFor,
   saveLedger,
   loadLedger,
   resolveResumePlan,

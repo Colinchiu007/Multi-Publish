@@ -107,6 +107,16 @@ class FilmEngineeringService {
     return kit.doctrine
   }
 
+  /**
+   * 全部模板分镜（自动模式规划用）
+   * 规划只需要「够用的结构模板」：不传 limit 时由 ShotLibrary.listAllShots 兜底为 MAX_PAGE_LIMIT(200) 条，
+   * 按 kit 原始顺序返回。
+   * @param {number} [limit]
+   */
+  listTemplateShots (limit) {
+    return this._ensure().listAllShots(limit)
+  }
+
   /** kit 登记的下载来源域清单（D7）：shot-downloader 只信该清单，精确匹配不通配 */
   getAllowedHosts () {
     const kit = this._ensureKit()

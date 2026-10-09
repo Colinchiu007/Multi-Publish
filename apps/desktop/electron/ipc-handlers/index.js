@@ -43,6 +43,9 @@ function registerAllHandlers(ipcMain, deps) {
   require('./generation-feedback')(ipcMain, deps)
   // 影视工程（film-engineering）流水线
   require('./film-engineering')(ipcMain, deps)
+  // 影视工程「自动」模式（film-auto-mode）：规划/执行/片段编辑/收口校验
+  // 注意：执行不经 pipeline 引擎（直连 production-driver + auto-runner），合成仍走既有 manifest 通道
+  require('./film-engineering-auto')(ipcMain, deps)
   require('./aggregation')(ipcMain, deps)
   // 博主监控与采集（PRD-CREATOR-WIRING-2026-10-07）。
   // 必须注册：缺了它，渲染端点「博主监控」会拿到 Electron 原生的

@@ -31,27 +31,27 @@
 
 ## 3. 后端执行层（IPC + runner）
 
-- [ ] 3.1 测试先行：`film-engineering-auto.test.js`（6 通道 sender 校验 + 入参矩阵 + 错误码 + **确认前 provider 调用 = 0**）
-- [ ] 3.2 实现 `film-engineering:auto-plan`（零 provider 调用）
-- [ ] 3.3 实现 `film-engineering:auto-start`（`confirmed !== true` → `AUTO_NOT_CONFIRMED`；落项目文件）
-- [ ] 3.4 实现 `film-engineering:auto-status`（只读，项目+台账+磁盘+manifest）
-- [ ] 3.5 实现 `runAutoBatch`（从项目文件取 prompt/refPaths → `generateShotVideo`），复用 `production-driver`（`runOnlyBatch=null`）
-- [ ] 3.6 实现 `film-engineering:auto-update-shot`（prompt ≤50000 非空、refPaths 受控根校验、seconds 枚举）
-- [ ] 3.7 实现 `film-engineering:auto-regenerate-shot`（前置落盘编辑 → 单镜重生成 → 覆盖 `shot_NNN.mp4`）
-- [ ] 3.7b 成本门槛绑定所有调用通道：`editedAt > confirmedAt` 时 `auto-start` 与 `auto-regenerate-shot` 均先返回「需重新确认」，未确认前零调用（含累计重生成场景用例）
-- [ ] 3.7c append-only `confirmations[]`（时间 + 载荷哈希 + 分镜指纹 + 计划版本）+ 最新一条为基准 + 历史只追加用例
-- [ ] 3.7d `providerCalls` 回写与台账对账 + 载荷哈希不匹配拒绝启动用例
-- [ ] 3.7e 校验时机：全部输入域校验在 auto-plan（越界即拒不落盘），auto-start 只复查归属/taskId/受控根
-- [ ] 3.8 实现 `film-engineering:auto-compose`（manifest 收口校验 → manifest 直通 run）
-- [ ] 3.9 事件 `film-engineering:auto-update`（节流 500ms、只带计数）+ 停止标志（批间生效）
-- [ ] 3.9b 计划归属校验：`planId = plan-<sha256(taskId|scriptHash|aspect|seconds|targetDuration) 前16hex>`、计划内记录 taskId、`AUTO_PLAN_MISMATCH` / `AUTO_PLAN_EXPIRED` / `AUTO_TASK_EXISTS` 负向用例（跨 task 复用、孤儿/过期 planId、无 overwrite 覆盖既有 taskId）
-- [ ] 3.9c 续跑成本再确认：`confirmedAt` / `editedAt` 时间戳规则 + 「编后续跑必须先重新确认」用例
-- [ ] 3.9d 重生成原子覆盖：`.part` → ffprobe 校验 → rename；崩溃中点恢复用例（半写文件不得被磁盘复核判为已完成）
-- [ ] 3.9e 磁盘缺单镜只重生成该镜（不使计划失效）用例
-- [ ] 3.9f 原文直送防回归锁：`auto-start` / `auto-regenerate-shot` 断言 prompt 逐字符等于项目文件值且提示词优化器未被调用（对照 `video-gen.test.js:74` 的 `CONTRACT VIOLATION` 模式）
-- [ ] 3.10 preload（6 方法 + 1 订阅）→ **`pnpm run build:preload` 重建 bundle** → `preload.test.js` 计数断言
-- [ ] 3.11 `license-access-control.js` 公开清单登记 6 通道
-- [ ] 3.12 集成测试：plan → start（假 provider）→ 台账 → manifest → 真实 ffmpeg 出 `final.mp4`
+- [x] 3.1 测试先行：`film-engineering-auto.test.js`（18 条：6 通道 sender 校验 + 入参矩阵 + 错误码 + **确认前 provider 调用 = 0**）
+- [x] 3.2 实现 `film-engineering:auto-plan`（零 provider 调用；返回**预览投影**——只有 `promptPreview/promptLength`，完整提示词只留在服务端计划文件里，避免 120×KB 级 IPC 负载）
+- [x] 3.3 实现 `film-engineering:auto-start`（落项目文件）。**实现口径调整**：首次/续跑未确认时返回 `{code:0, data:{started:false, needsReconfirm:true, payloadHash}}` 而非错误码 `AUTO_NOT_CONFIRMED`——渲染端要据 `needsReconfirm` 弹确认卡而不是弹错误；错误码仅用于拒绝（`AUTO_PLAN_EXPIRED`/`AUTO_PLAN_MISMATCH`/`AUTO_TASK_EXISTS`/`AUTO_TASK_BUSY`/`AUTO_BAD_PARAM`）
+- [x] 3.4 实现 `film-engineering:auto-status`（只读，项目+台账+磁盘+manifest+计数对账）
+- [x] 3.5 实现 `runAutoBatch`（`auto-runner.js`：从**项目文件**取 prompt/refPaths/seconds → `generateShotVideo`），复用 `production-driver`（`runOnlyBatch=null`，`runIdFor='auto/<taskId>/b<N>'`）
+- [x] 3.6 实现 `film-engineering:auto-update-shot`（prompt ≤50000 非空、refPaths 受控根校验、seconds 枚举、patch 字段白名单、越界拒绝且不改动）
+- [x] 3.7 实现 `film-engineering:auto-regenerate-shot`（按「全局镜号→批号/批内号」定位，先编辑落盘再单镜重生成并覆盖 `shot_NNN.mp4`）
+- [x] 3.7b 成本门槛绑定所有调用通道：`editedAt > 最新确认` 时 `auto-start` 与 `auto-regenerate-shot` 均先返回「需重新确认」，未确认前零调用（IPC 层已各有一例）
+- [x] 3.7c append-only `confirmations[]`（`at` + `payloadHash` + `shotsFingerprint` + `planVersion`）+ 最新一条为基准 + 历史只追加（含第二条追加用例）
+- [x] 3.7d `providerCalls` 派发前自增 + `reconcileCounters` 对账（单测）；载荷哈希不一致触发重新确认已有用例。**缺口**：计划哈希被篡改导致「载荷哈希不匹配即拒绝」的独立 IPC 负向用例留待 T7 收口（现由 `needsReconfirm` + 参考图越界拒绝两例间接覆盖）
+- [x] 3.7e 校验时机：全部输入域校验在 `auto-plan`（越界即拒不落盘）；`auto-start` 复查归属/taskId/**计划内 refPaths 受控根**（纵深防御，篡改计划即 `AUTO_BAD_PARAM` 拒绝启动，有用例）
+- [x] 3.8 实现 `film-engineering:auto-compose`。**实现口径调整（D31）**：服务端做「台账 + 磁盘」双判据的收口清单校验并返回 `renderManifest`，合成 run 仍由渲染端经既有 `pipelineStartOrchestrated` 发起——避免在 IPC 层复制第二套引擎启动路径
+- [x] 3.9 事件 `film-engineering:auto-update`（复用 driver 的 `EVENT_MERGE_MS` 节流，负载只带计数）；**缺口**：用户「停止」标志（批间生效）未实现，与 T4 的停止按钮一并落地
+- [x] 3.9b 计划归属校验：`planId = 'plan-' + sha256(taskId|scriptHash|refsFingerprint|aspect|seconds|targetDurationSec|providerId).slice(0,16)`、计划内记录 taskId、`AUTO_PLAN_MISMATCH` / `AUTO_PLAN_EXPIRED` / `AUTO_TASK_EXISTS` 负向用例齐备（含计划被消费后二次启动）
+- [x] 3.9c 续跑成本再确认：`editedAt`（内容变更时间）+ 最新确认 `at` 的时间戳规则 + 「编辑后续跑必须先重新确认」用例（`needsReconfirm` 三判据单测 + IPC 用例）
+- [x] 3.9d 重生成原子覆盖：临时目录生成 → `probeClip`（ffmpeg/ffprobe）校验 → `rename` 覆盖；**校验失败不得破坏既有产物**（用例断言旧文件内容不变）；半写文件不被磁盘复核判为完成由 driver 的 probe 兜底
+- [ ] 3.9e 磁盘缺单镜只重生成该镜（不使计划失效，项目文件/计划文件不被改写）用例 — 能力已具备（`regenerateOneShot` 按镜索引），缺一条「缺镜→只重生成该镜→台账/计划不变」的显式用例
+- [x] 3.9f 原文直送防回归：`auto-runner` 用例断言生成函数收到的是**项目文件里的 prompt 原值**（`PROMPT-0`）；提示词优化器未被调用由 `video-gen.test.js:74` 的 `CONTRACT VIOLATION` 锁保证（同一 `buildShotSubmitPayload` 提交路径）
+- [x] 3.10 preload（6 方法 + 1 订阅）→ **`pnpm run build:preload` 重建 bundle** → `preload.test.js` 计数断言 17→**24** 且新增 6 条 invoke 转发行
+- [x] 3.11 `license-access-control.js` 公开清单登记 6 通道（`preload.test.js` 断言 `requiredLevelForChannel('film-engineering:auto-*') === 'public'`）
+- [ ] 3.12 集成测试：plan → start（假 provider）→ 台账 → manifest → 真实 ffmpeg 出 `final.mp4`（留待 T7 与 CDP 真机 E2E 一并）
 
 ## 4. 前端自动模式
 

@@ -98,6 +98,16 @@ class ShotLibrary {
   }
 
   /**
+   * 全部模板分镜（自动模式规划用；按 kit 原始顺序，受 limit 保护）
+   * 与 listShots 的区别：不按场景过滤、不受 FULL_LOAD_LIMIT 约束，但一律截断到 limit（默认 MAX_PAGE_LIMIT=200），
+   * 因为规划只需要「够用的结构模板」，不必把全量语料读进内存。
+   */
+  listAllShots (limit) {
+    const max = Number.isInteger(limit) && limit > 0 ? limit : MAX_PAGE_LIMIT
+    return this.kit.shots.slice(0, max).map((s) => this._toPublic(s))
+  }
+
+  /**
    * 分镜列表（按 sceneId）。
    * - 不传 opts：返回全量数组（精选模式回归锚）；场景超过 FULL_LOAD_LIMIT(500) 镜时报错强制分页，
    *   未知 sceneId 一律抛错（不空数组冒充）。

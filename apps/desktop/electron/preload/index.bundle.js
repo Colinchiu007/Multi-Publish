@@ -1043,6 +1043,18 @@ var require_film_engineering = __commonJS({
             const h = (_e, p) => callback(p);
             ipcRendererRef.on("film-engineering:production-update", h);
             return () => ipcRendererRef.removeListener("film-engineering:production-update", h);
+          },
+          // ── 自动模式 ──────────────────────────────────────────────────────
+          autoPlan: (payload) => ipcRendererRef.invoke("film-engineering:auto-plan", payload),
+          autoStart: (payload) => ipcRendererRef.invoke("film-engineering:auto-start", payload),
+          autoStatus: (payload) => ipcRendererRef.invoke("film-engineering:auto-status", payload),
+          autoUpdateShot: (payload) => ipcRendererRef.invoke("film-engineering:auto-update-shot", payload),
+          autoRegenerateShot: (payload) => ipcRendererRef.invoke("film-engineering:auto-regenerate-shot", payload),
+          autoCompose: (payload) => ipcRendererRef.invoke("film-engineering:auto-compose", payload),
+          onAutoUpdate: (callback) => {
+            const h = (_e, p) => callback(p);
+            ipcRendererRef.on("film-engineering:auto-update", h);
+            return () => ipcRendererRef.removeListener("film-engineering:auto-update", h);
           }
         }
       };

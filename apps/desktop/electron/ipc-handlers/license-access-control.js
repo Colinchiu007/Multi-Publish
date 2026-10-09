@@ -62,6 +62,9 @@ const PUBLIC_CHANNELS = new Set([
   'film-engineering:retry-shot',
   'film-engineering:download-recycled',
   'film-engineering:production-plan', 'film-engineering:production-run-batch', 'film-engineering:production-status',
+  // 自动模式（film-auto-mode）：与既有影视工程通道同级（本地规划/执行，provider 由用户自己的模型配置决定）
+  'film-engineering:auto-plan', 'film-engineering:auto-start', 'film-engineering:auto-status',
+  'film-engineering:auto-update-shot', 'film-engineering:auto-regenerate-shot', 'film-engineering:auto-compose',
   'usage:stats', 'usage:daily', 'usage:track',
   'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
   // 服务状态面板：纯本地只读诊断信息，未登录可见（与 identity:* 对齐）
