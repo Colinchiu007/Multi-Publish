@@ -2,9 +2,6 @@
 record: frontend-split-plan
 task: locales 结构拆分里程碑 1 — zh/en 51 命名空间从单文件拆分为装配文件 + 51 域子模块（FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR（#3224）尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：locales 结构拆分里程碑1 — 51 命名空间按域隔离（frontend-split-plan，2026-10-09）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | PASS | 新增 `structure-lock.test.js` 位于 `src/locales/`，被 vitest 全量扫描自然覆盖（locales 目录 28 测含此 4 条） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 electron 主进程与视觉面（locales 纯文案模块，渲染消费面无感知） |
 | QM-6 CCG 双模型外部评审 | PASS | 方案 v3 经内部双模型（12 findings 全接受）+ 外部 codex（9 findings 全接受）两轮对抗评审；E1 claude 通道因后端实为 DeepSeek-V4-Flash 级模型低效空转 20+ 分钟，经用户确认中止（CCG fallback 纪律：不得以自审冒充通过，此处外部 codex 通道独立返回完整结果，非自审） |
-| 远程同步 | PENDING | PR #3224；合并后取 `git log origin/main --grep='(#3224)$' --format=%H|%cI` 回填 merge SHA，`git ls-remote --heads origin frontend-split-plan` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3224 已 squash 合并，merge SHA `1a0a34723131228b733e1663828202289c936c71`（2026-10-10T00:42:01+08:00），取证 `git log origin/main --grep='(#3224)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin frontend-split-plan` 返回 0 行，证远端分支已删；台账登记项已在本次回填提交删除 |
 
 ### 验证
 
