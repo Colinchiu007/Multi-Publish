@@ -6,19 +6,22 @@
  * 也不触碰 publishMode。它是一条独立的"频道"实体 —— 频道元信息配置一次，
  * 逐期追加单集，生成/更新 Podcast RSS，再按分发端目录把 feed 地址提交给各聚合端。
  *
- * IPC 合同（与主进程代理共享，键名以合同为准）：
- *   window.electronAPI.podcast.channelGet()    → { ok, channel }
- *   window.electronAPI.podcast.channelSave(c)  → { ok, channel }
- *   window.electronAPI.podcast.episodeList()   → { ok, episodes }
- *   window.electronAPI.podcast.episodeSave(e)  → { ok, episode }（新增/原地更新，按 id）
- *   window.electronAPI.podcast.episodeRemove(id) → { ok }
- *   window.electronAPI.podcast.feedBuild()     → { ok, xml, path, itemCount }
- *   window.electronAPI.podcast.feedVerify()    → { ok, issues, checks, itemCount }
- *   window.electronAPI.podcast.endpointList()  → { endpoints }
+ * IPC 合同（与主进程代理共享，键名以合同为准；取用一律经
+ *   src/api/podcast-channel.js 的 8 个具名导出，导出名即下列键名）：
+ *   channelGet()    → { ok, channel }
+ *   channelSave(c)  → { ok, channel }
+ *   episodeList()   → { ok, episodes }
+ *   episodeSave(e)  → { ok, episode }（新增/原地更新，按 id）
+ *   episodeRemove(id) → { ok }
+ *   feedBuild()     → { ok, xml, path, itemCount }
+ *   feedVerify()    → { ok, issues, checks, itemCount }
+ *   endpointList()  → { endpoints }
  *
  * 纪律：
- * - 传给 electronAPI 的对象一律 JSON.parse(JSON.stringify(x)) 脱壳（QM-2 IPC 参数序列化），
- *   reactive proxy 直接传会抛 "An object could not be cloned"。
+ * - 传给主进程的对象一律 JSON.parse(JSON.stringify(x)) 脱壳（QM-2 IPC 参数序列化），
+ *   reactive proxy 直接传会抛 "An object could not be cloned"。桥接层也会再脱一次，
+ *   对本文件是幂等的；保留本地脱壳是因为它同时承担"不可序列化即返回 null"的判据，
+ *   那才会产出 PAYLOAD_NOT_SERIALIZABLE 这个用户可见错误码。
  * - 校验码文案映射只在本文件持有一份（issueText），视图不得再抄第二份。
  * - 分发端目录：优先消费 IPC endpointList()；主进程不可达时降级到共享引擎的
  *   ESM 孪生 podcast-endpoints.browser.js 的本地目录（只读展示，不写库）。
@@ -26,6 +29,18 @@
  */
 import { ref, computed } from 'vue'
 import i18n from '@/i18n'
+// 渲染端 IPC 唯一取用点（单轨制）：本文件任何位置（含注释）都不得直写桌面端暴露面
+// 的属性名——结构锁见 src/composables/usePodcastChannel-ipc.test.js「IPC 单轨制结构锁」
+import {
+  channelGet,
+  channelSave,
+  episodeList,
+  episodeSave,
+  episodeRemove,
+  feedBuild,
+  feedVerify,
+  endpointList,
+} from '@/api/podcast-channel'
 import { listPodcastEndpoints } from '@multi-publish/shared-utils/src/podcast-endpoints'
 // 共享引擎的 ESM 孪生（vite alias 登记，见 apps/desktop/vite.config.js）：只消费枚举与目录，禁止改写
 import {
@@ -162,32 +177,33 @@ export function usePodcastChannel () {
     return issues
   })
 
-  function podcastApi () {
-    if (typeof window === 'undefined') return null
-    const api = window.electronAPI && window.electronAPI.podcast
-    return api && typeof api === 'object' ? api : null
-  }
-
-  /** 统一 IPC 调用：命名空间缺失 → IPC_UNAVAILABLE；调用抛错 → IPC_EXCEPTION */
-  async function call (method, ...args) {
-    const api = podcastApi()
-    if (!api || typeof api[method] !== 'function') {
-      return { ok: false, code: IPC_UNAVAILABLE }
-    }
+  /**
+   * 统一 IPC 调用：命名空间缺失 → IPC_UNAVAILABLE；调用抛错 → IPC_EXCEPTION。
+   * 取用桌面端暴露面的动作不在本文件发生，一律经 src/api/podcast-channel.js
+   *（IPC 渲染端访问单轨制，check-frontend-consistency 计数钉 0）。
+   * 形参收的是**桥接层函数引用**而非方法名字符串：字符串派发会让桥接层退化成
+   * 「按变量名转发」，ipc-exposure-contract 的静态对账就看不见这条路径。
+   */
+  async function call (invoke, ...args) {
+    let envelope
     try {
-      const res = await api[method](...args)
-      if (res == null || typeof res !== 'object') {
-        return { ok: false, code: IPC_EXCEPTION }
-      }
-      return res
+      envelope = await invoke(...args)
     } catch (err) {
       return { ok: false, code: IPC_EXCEPTION, message: (err && err.message) || String(err) }
     }
+    if (!envelope.available) {
+      return { ok: false, code: IPC_UNAVAILABLE }
+    }
+    const res = envelope.result
+    if (res == null || typeof res !== 'object') {
+      return { ok: false, code: IPC_EXCEPTION }
+    }
+    return res
   }
 
   async function loadChannel () {
     channelError.value = ''
-    const res = await call('channelGet')
+    const res = await call(channelGet)
     if (res.ok) {
       channel.value = res.channel == null ? null : res.channel
     } else {
@@ -199,7 +215,7 @@ export function usePodcastChannel () {
 
   async function loadEpisodes () {
     episodesError.value = ''
-    const res = await call('episodeList')
+    const res = await call(episodeList)
     if (res.ok) {
       episodes.value = Array.isArray(res.episodes) ? res.episodes : []
     } else {
@@ -215,7 +231,7 @@ export function usePodcastChannel () {
    */
   async function loadEndpoints () {
     endpointsError.value = ''
-    const res = await call('endpointList')
+    const res = await call(endpointList)
     if (res && res.endpoints && Array.isArray(res.endpoints) && res.endpoints.length > 0) {
       endpoints.value = res.endpoints
       return { ok: true, source: 'ipc' }
@@ -241,7 +257,7 @@ export function usePodcastChannel () {
         channelError.value = PAYLOAD_NOT_SERIALIZABLE
         return { ok: false, code: PAYLOAD_NOT_SERIALIZABLE }
       }
-      const res = await call('channelSave', channelFormToPayload(plain))
+      const res = await call(channelSave, channelFormToPayload(plain))
       if (res.ok && res.channel) channel.value = res.channel
       else if (!res.ok) channelError.value = res.code || IPC_EXCEPTION
       return res
@@ -260,7 +276,7 @@ export function usePodcastChannel () {
         episodesError.value = PAYLOAD_NOT_SERIALIZABLE
         return { ok: false, code: PAYLOAD_NOT_SERIALIZABLE }
       }
-      const res = await call('episodeSave', plain)
+      const res = await call(episodeSave, plain)
       if (res.ok && res.episode) {
         const saved = res.episode
         const idx = episodes.value.findIndex((e) => e && e.id === saved.id)
@@ -277,7 +293,7 @@ export function usePodcastChannel () {
 
   async function removeEpisode (id) {
     episodesError.value = ''
-    const res = await call('episodeRemove', String(id == null ? '' : id))
+    const res = await call(episodeRemove, String(id == null ? '' : id))
     if (res.ok) {
       episodes.value = episodes.value.filter((e) => e && e.id !== id)
     } else {
@@ -291,7 +307,7 @@ export function usePodcastChannel () {
     buildingFeed.value = true
     feedResult.value = null
     try {
-      const res = await call('feedBuild')
+      const res = await call(feedBuild)
       feedResult.value = res && res.ok
         ? { ok: true, path: res.path || '', itemCount: Number(res.itemCount) || 0 }
         : { ok: false, code: (res && res.code) || IPC_EXCEPTION, issues: (res && res.issues) || [] }
@@ -306,7 +322,7 @@ export function usePodcastChannel () {
     verifying.value = true
     verifyResult.value = null
     try {
-      const res = await call('feedVerify')
+      const res = await call(feedVerify)
       // ok 取自引擎语义（issues 为空才算通过），不沿用 IPC envelope 的 ok——
       // 主进程成功路径恒回 code=0，envelope.ok 对任何有 issues 的结果都是 true。
       const issues = Array.isArray(res?.issues) ? res.issues : null

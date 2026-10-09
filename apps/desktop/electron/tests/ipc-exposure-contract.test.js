@@ -50,6 +50,7 @@ const SCAN_DOMAIN = [
   'knowledge-library.js',
   'model-providers.js',
   'ops-center-sync.js',
+  'podcast-channel.js',
   'providers.js',
   'publisher.js',
   'rate-limit.js',

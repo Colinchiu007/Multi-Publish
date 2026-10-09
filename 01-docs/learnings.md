@@ -16916,6 +16916,77 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
   - 同一记录的不同状态 ⇒ **必须重建**，禁止并集。`.quality-gates.md` 顶部记录、`CHANGELOG.md` 未发布段、ledger 同名键属此类。
 - **正确顺序（重建）**：① `git show origin/main:<file>` 取 main 的**整份内容**为底（不是取自己的）；② 只把自己的新增块插回正确位置（`.quality-gates.md`/`CHANGELOG.md` 插到最顶，ledger 插到最后一个键之后并补逗号）；③ 逐行保留 main 那一行原本的结尾，禁止统一回写行尾（本仓这类文件 `i/lf w/crlf`，统一改写会把整文件变成 diff）；④ 提交前用 `git diff --numstat origin/main -- <file>` 断言**删除数为 0**（纯插入），并 grep 关键点确认 main 的回填证据（如 `已合并 #NNNN`）仍在。
 - **配套**：判据不是「冲突解完了」而是「相对 origin/main 是否纯插入 + main 的证据行是否还在」；对「删除数>0」的置顶文件冲突一律重做。**`Auto-merging` 同样不构成证据**——git 自动合并的文件也可能改动 main 的证据行，所以未冲突文件也要跑同一次删除数对账（本次 `01-docs/PRD.md` 之外，`.quality-gates.md` 17/0、`CHANGELOG.md` 14/0、ledger 2/1 全部逐个实测）。另注：ledger 的 `line` 字段是信息性的、不被 `check-gate-record-debt.js` 校验，重建时不必逐字对齐行号，但键必须与记录标题逐字相同。
+---
+
+## 2026-10-09 · 播客 RSS 第三刀：结构锁不剥注释造出的假缺口，与「首跑必然红」的基线回填范式（PR #3193）
+
+### 事件一：我写的告诫注释，被门禁当成了一段真实注册
+
+`QG Static` Gate 6（`.github/scripts/check-ipc-bridge.js`）报「Handler 已注册但 preload.js 未暴露」，点名的通道是 `podcast:…` ——一个**从未存在过**的通道名。
+
+根因不在代码，在注释：为了让后人别把通道名收回 helper，我在 `apps/desktop/electron/ipc-handlers/podcast.js` 顶部写了「通道名必须在注册点写成 `ipcMain.handle('podcast:…', …)` 字面量」。**RE1 是对源码原文做正则、不剥离注释**，于是这句示例被读成一次真实注册。现场取证很干脆：修复前脚本统计 **432 handlers**，修复后 **431**，差的那 1 条正是幽灵通道；`rc` 从 1 变 0。
+
+**教训（可泛化）**：
+1. **结构锁读的是文本，不是 AST**。凡是「用正则扫源码来断言某写法在/不在」的门禁（本仓这类锁很多：IPC harvest、显式声明锁、`getVisibilityState` 禁用锁、href 协议字面量扫描），它的判据域都**天然包含注释和字符串**。往注释里举"错误写法"的例子，等于往判据域里投一条假事实。
+2. **修法方向唯一是改措辞，不是放宽门禁**。这里最容易走的两条歪路：把 RE1 改成"跳过注释行"（本文件其它锁立刻失去对注释的防御，且这条锁存在的目的本来就是抓"写了但没注册"），或把通道改成集中注册表（会让整条通道从 `ipc-contract.test.js` 的双向对账里隐身，表现恰好是它想防的那个症状）。
+3. **处置**：注释改成"本文件注释内禁止出现 `ipcMain.handle(` 紧跟引号的写法"并写明原因——**把这个坑本身写进踩坑的位置**，是这类"注释污染判据域"缺陷唯一便宜的免疫方式。
+
+### 事件二：QM-1 打包红是上一刀的遗留进程，不是构建回归
+
+`pnpm run build:dir` rc=1，`app-builder.exe ... EnsureEmptyDir ... d3dcompiler_47.dll: Access is denied`（`ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`）。第一反应是"新代码把产物结构改坏了"，实际是前两次 QM-1 的**启动验证**留下的 4 个 `Multi-Publish.exe` 仍持有 `dist-electron\win-unpacked`。
+
+**判据**：`Get-Process | Where-Object { $_.Path -like '*<本 worktree 路径>*' }`，kill 后重跑即 rc=0。
+**禁止项**：不要因为"目录被占住"就去递归删 `win-unpacked`——R0 删除守卫拒绝，且即便允许也会把"到底是进程还是代码"这条线索一起删掉。
+**顺带一条工具层坑**：Git Bash 里 `taskkill /PID` 的 `/PID` 会被 MSYS 当路径改写，须写 `//PID` 或改走 PowerShell。
+
+### 事件三：`ERR_VISUAL_BASELINE_MISSING` 不是失败，是一次可闭合的信号
+
+`podcast-channel` 这条新像素用例首次进 CI 必然缺基线（AGENTS QM-4 第 7 条禁止本机截图入库）。关键是当时差点做出"这一刀合不掉、要等两次 run"的错误判断。实际结构是：`quality-gate.yml` Gate 7 的产物上传步骤是 `if: always()`，**所以那次报红的 run 同时就提供了可当基线用的渲染**。一次闭合：
+
+- 下载 run `37840950306` 的 `quality-gate-visual-reports`，选图**复用** `scripts/check-baseline-freshness.js` 导出的 `findRender()`（它优先取 views 域 `<name>.png`，其次才是像素套的 `<name>-current.png`）。这两者不是同一张图——workflow 自己的注释里记着实测：同一次 run 内 dashboard 差 350 px、collection 差 67870 px 且跨 head 逐字相同（确定性差异，不是噪声）。**另写第二份名字映射就会拿错域比错图**。
+- 除新基线外，还须重建 8 张被侧栏「播客」条目位移的视图（`calendar`/`cloud-publish`/`collection`/`create-editor`/`intelligence`/`keyword-monitor`/`model-providers`/`viral-analysis`）。识别法：**多张视图的 diff 量级完全相同（各 473 px）且包围盒落在同一条带**，那是"一个共享元素在每页各渲染一次"的形状，属本次改动；真正的噪声不会这么整齐。
+- 自证用 SHA-256 比「落盘字节 == artifact 渲染字节」，全跑 `check-baseline-freshness` 看违规数 **8 → 0**（不带 `--renders` 时它必然 rc=1，那是它拒绝假绿，不是门禁坏了）。全程不动 `PIXEL_THRESHOLD`、不加 mask、`KNOWN_DYNAMIC` 保持为空。
+
+### 事件四（未闭合，如实登记）：暗色基线在 PR 内拿不到
+
+`test:visual:pixel:dark` 只接在 `.github/workflows/visual-test.yml:100`（main push / workflow_dispatch），PR 侧 `QG Visual` 只跑浅色。因此 `podcast-channel-dark.png` **结构上无法在本 PR 内同源产出**——只能合并后由那次 main 的 Visual Tests artifact 回填。`visual-ci.test.js` 的白名单锁对此是容忍的：它只要求 `.gitignore` 里存在 `!podcast-channel-dark.png` 这条**放行条目**，不要求 PNG 已入库。同族先例见 CHANGELOG 的 `visual-baseline-collection-dark` 条目（那条正是"PR 侧看不见暗档"这个盲区被复发后补的账）。
+
+**登记方式**：把它写进 PRD §十五状态表、openspec tasks §4.5、proposal 未闭合项、执行记录「已知未闭合」四处，明确"这是取不到同源渲染，不是忘了做"。不要为了看起来完整而用本机截图充数——那会把 QM-4 第 7 条换来的确定性一次性花掉。
+
+### 事件五：同一 job 里"下一道门禁"永远不会在同一次 run 里告诉你（第四刀）
+
+`QG Static` 修绿 Gate 6 后推上去，下一次 CI 又红在 **Gate 10**（渲染端 IPC 访问单轨制，`check-frontend-consistency.js`）；而 **Gate 16**（字号标度，`check-font-size-scale.js`）是我本机预跑才发现的第二颗雷。原因不是门禁不稳定，是 GitHub 的步骤语义：**一个步骤失败，后续步骤一律 `skipped`**。所以每次 run 只暴露"当前第一道红"，Gate 16（该 job 第 22 步）在 Gate 10 修好之前**从未被执行过一次**——它不是"新引入的回归"，是"一直没跑过的既有约束第一次被看见"。
+
+**可执行判据**：改动 `QG Static` 覆盖的面（`apps/desktop/src/**`、`packages/shared-utils/**`、styles / locales / preload bundle）时，本机必须把该 job 的**全部**门禁脚本逐个跑一遍（本刀实测 37 个），而不是只跑"与我改动相关的那一个"。跑法有两处会把人骗到：① 各脚本 `--base` 默认值不一致（`sh` 类需显式 `--base=main`）；② 有些脚本**无参必然 rc=1**（`check-baseline-freshness.js` 不带 `--renders` 时是"拒绝假绿"的设计），把它当回归就会去修一个不存在的问题。
+
+### 事件六：同一个仓里，"注释算不算代码"有两种判据——写注释前必须查这道锁剥不剥注释
+
+第四刀新加的结构锁（扫 `usePodcastChannel.js`，断言其中不得出现桌面暴露面的属性名）**第一次运行就红在自己身上**：为了说明"为什么要走 `src/api` 这一层"，我在注释里把这个被禁的字面量原样写了出来。判据按文本抓取，注释里的示例与代码里的真实调用在它眼里没有区别——这是事件一同族缺陷的**第二次**发生，而且这次是我主动给自己埋的。（同一次红还澄清了一件事：`PodcastChannelView.vue` 从来是 0 处命中，违规全部集中在 composable 的 9 处自制探测；写报告前按文件逐个计数，不要把"整条链路都违规"当成默认结论。）
+
+**但本仓两种判据并不一致，不能凭直觉推广**（这条最容易记错）：
+
+| 门禁 | 是否剥注释 | 后果 |
+| --- | --- | --- |
+| `check-ipc-bridge.js` 的 `RE1`（Gate 6，清点 `ipcMain.handle('…')`） | **不剥** | 注释里举反例 = 往判据域投一条假事实（事件一） |
+| `check-frontend-consistency.js`（Gate 10，清点 `window.<暴露面>`） | **剥块注释**（`stripBlockComments(line, blockState)`） | 注释里出现该字面量**不会**变红——但我新写的测试锁不剥，照样红 |
+
+所以口径不是"注释随便写"，而是：**动手前读一眼该锁的实现有没有剥注释**。而最稳的写法是两边都安全——注释里**永远不写被判据命中的那个字面量本身**，改用描述性指称（"桌面端暴露面属性名"）并指向锁的名字与所在文件。本刀最终采用后者，并把这句自解释写进被扫文件顶部，让下一个想"顺手举例子"的人当场看到。
+
+### 事件七：把字号字面量换成设计令牌，是一次**真实的**像素变更，不是无害重构
+
+`check-font-size-scale.js` 禁止新增 `font-size: Npx`（存量按只下棘轮管理）。本刀把新视图的 16 处字面量折进七档标度（xs12 / sm13 / base15 / md17 / lg20 / xl24 / xxl32），而 16px、14px **不在标度上**，只能就近取 md(17) 与 base(15) ⇒ 页面上两处标题各高 1 px。两条结论：
+
+1. **不得**用 `calc(var(--font-size-md) - 1px)` 把 off-scale 值藏回令牌里——那正是该门禁要消灭的形态，锁会因为出现 `var(` 而满意，标度却名存实亡。
+2. 像素基线与源码是**成对**的：改了渲染尺寸，上一刀按 CI artifact 回填的 `podcast-channel.png` 立刻不再等于本次渲染。所以这一刀必须显式登记"浅色基线待下一次 run 重取"，走与事件三完全相同的口径（同一 `findRender()`、逐张 SHA-256 自证、不动 `PIXEL_THRESHOLD`、不加 mask）。**「测试全绿」不等于「视觉证据仍然有效」**——单测断言的是 DOM/class，对 1 px 完全失明，能发现它的只有像素门禁。
+
+### 事件八：为过一道门禁而写的「窄面入口」，会被另一道门禁判成「看不见的路径」
+
+Gate 10（`check-frontend-consistency.js` 的 `rendererIpcDirect`，基线 0）把渲染层直取桌面端暴露面的写法压到 `src/api/**` 之后。第一版把新层写成**一个泛化入口**：`callPodcastIpc(method, ...args) → invokeNamespace(NS, method, ...args)`。Gate 10 当场归零，但全量回归红在另一处：`electron/tests/ipc-exposure-contract.test.js` 报 `生产侧动态取名（1）：podcast-channel.js: invokeNamespace(podcast, method)`，同时该文件还要求新文件先登记进 `SCAN_DOMAIN`（D6 棘轮）。
+
+1. **这两道门禁的方向是相反的，必须同时读**：Gate 10 只看"字面量出现在哪个文件"，`ipc-exposure-contract` 看"调用名能不能被静态抽出来与 preload 暴露面对账"。泛化转发恰好满足前者、破坏后者——而后者破坏的是真问题（C-1 那类"名字运行时才拼出来、账面看不见、缺方法时静默走 undefined 回落"）。**为过一道锁设计的形态，要拿同域的所有锁一起跑一遍**，不是跑那道红掉的锁。
+2. **正解是先读先例的头部注释，不是先读先例的函数名**：`src/api/tts-voice-catalog.js:9-12` 原文就写着"为什么每个导出直接写字面量而不经内部辅助函数转发……经参数转发会变成动态取名，对账就看不见这条路径"。我只 grep 到它用了 `invokeNamespace` 就照抄了接缝、自己发挥了收敛形态，把仓里已经付过学费的结论重新付了一遍。**抄先例要抄到注释**，注释里那种"为什么这样写"的段落通常就是一次事故的墓碑。
+3. **改形的判据是"每条路径都在账上"**：8 个具名导出、每个各自一行 `invokeNamespace(NS, '<方法名>')` 字面量，`SCAN_DOMAIN` 增一行登记。反证做了两条：`toEnvelope` 恒报 available → 行为锁红 3 例；把其中一个导出退回 `forward(name, …)` 变量转发 → **两道锁同时红**（外部门禁的"动态取名" + 本 PR 结构锁的逐条字面量 `toContain`）。后者是关键证据：它说明这条"形"不是靠人记得住，而是内外各守一处。
+4. **顺带纠正自己写下的报告**：Gate 10 那一行原本描述新层为"只调 `invokeNamespace('podcast', method, ...args)`"，这是把**错的形态**当成结论写进了记录。文档描述实现形态时，要在实现**定稿后**再写，不能边写边改——否则下一个会话会照抄一个已被门禁否决的形状。
 
 
 ## 小红书签名代差与页内求签（xhs-xys-signer + note-e2e 复盘，2026-10-10）
