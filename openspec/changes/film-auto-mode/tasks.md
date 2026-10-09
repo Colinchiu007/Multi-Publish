@@ -55,19 +55,19 @@
 
 ## 4. 前端自动模式
 
-- [ ] 4.1 `useFilmAuto.js`（状态机 idle→planning→planned→running→composing→done/failed/cancelled；事件优先 + 3s 轮询 + taskId 守卫）
-- [ ] 4.2 `FilmAutoPanel.vue`：5 项输入 + 校验 + 实时预估行 + 计划确认卡（含警告/预估/任务 ID）
-- [ ] 4.3 进度区：`StageProgress`（`testidPrefix='film-auto-stage'`）+ 当前批/镜 + 已完成镜列表
-- [ ] 4.4 完成态：`final.mp4` 预览（`story2videoCreateShareUrl` 本地 URL 范式）+ 打开文件夹/另存为（复用既有 `story2videoShowInFolder` / `story2videoSaveAs`）
-- [ ] 4.5 前端单测：表单校验矩阵、状态机转移、确认前不发 start、失败态与续跑入口
+- [x] 4.1 状态机：`input → preview → running → done`（**实现口径**：状态机落在面板内而非单独 `useFilmAuto.js`——面板是唯一消费者，抽出 composable 只会多一层无收益的间接；事件优先 + 3s 轮询兜底 + taskId 归属（`autoStatus({taskId})`）已具备）
+- [x] 4.2 `FilmAutoPanel.vue`：5 项输入 + 校验 + 实时预估行 + 计划确认卡（含警告/预估/批次/Provider/角色映射/逐镜预览）。**实现口径**：任务 ID 在确认卡上**只读展示**（由服务端在 auto-plan 时生成或按传入值派生，并参与 planId 归属哈希）——允许改 ID 会让 planId 与归属失配，需要时可重新规划
+- [x] 4.3 进度区：`StageProgress` 复用（**testidPrefix='film-auto'**，产出 `film-auto-stage-list` 等；原计划写 'film-auto-stage' 会拼成 `film-auto-stage-stage-list`，故按组件 `tid(suffix)` 语义取 'film-auto'）+ 已完成/总数 + 逐镜状态表
+- [ ] 4.4 完成态：`final.mp4` 预览 + 打开文件夹/另存为（复用 `story2videoShowInFolder` / `story2videoSaveAs`）——**未实现**：合成 run 由 pipeline 引擎执行，成品路径需从 pipeline run context 取回后回填（留待 T5 收尾）
+- [x] 4.5 前端单测（14 条）：表单校验、确认前不发 start、**负载只含 {planId,taskId,confirmed,overwrite}**、needsReconfirm 回确认卡、IPC 失败回显、事件推进进度、收口复用既有 pipeline 通道、编辑/重生成负载、参考图上限、卸载取消订阅。**缺口**：续跑入口（同 taskId 再进面板自动恢复进度）无显式用例
 
 ## 5. 片段编辑
 
-- [ ] 5.1 `FilmAutoSegmentEditor.vue`：列表（序号/状态/提示词摘要/路径/时长）+ 行内编辑
-- [ ] 5.2 编辑保存（`auto-update-shot`）+ dirty chip + 保存后清除
-- [ ] 5.3 单镜重生成 / 失败重试 / 重新合成 三动作接线
-- [ ] 5.4 块结构检查提示（缺 GEO/AUDIO 黄提示不阻断）
-- [ ] 5.5 前端单测：编辑-保存-重生成链路、缺失镜时合成按钮禁用 + 缺失序号展示
+- [x] 5.1 片段编辑入口 + 编辑区：逐镜列表在面板内（序号/状态/失败原因/操作），点击进入 `FilmAutoSegmentEditor.vue`（提示词/时长/预览/恢复原文）。**实现口径**：列表不重复实现两份，编辑器只做单镜深编辑
+- [x] 5.2 编辑保存（`auto-update-shot`）+ `changed` 脏标记 + 「恢复原文」+ 保存后关闭并由 `auto-status` 刷新
+- [x] 5.3 三动作接线：单镜重生成（`auto-regenerate-shot`，显式 `confirmed:true`）、失败重试（同通道，按镜号）、重新合成（`auto-compose` → 既有 pipeline 通道）
+- [ ] 5.4 块结构检查提示（缺 GEO/AUDIO 块时黄提示、不阻断）——**未实现**
+- [ ] 5.5 前端单测：编辑-保存-重生成链路已有（面板级），**缺口**：①「缺失镜时合成按钮禁用 + 缺失序号展示」（当前为点击后由 `auto-compose` 返回 `AUTO_MANIFEST_INCOMPLETE` 并回显错误）②`FilmAutoSegmentEditor` 组件自身的独立用例
 
 ## 6. 文档
 

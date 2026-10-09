@@ -46,21 +46,27 @@ describe('Story2Video fast-mode UI contract', () => {
   })
 
   it('renders stage checklist instead of Story2Video percentage progress', () => {
-    expect(source).toContain('data-testid="story2video-stage-list"')
-    expect(source).toContain('story2video-stage-${stage.name || index}')
+    // 2026-10-09 参数化：StageProgress 的 testid 改为经 tid(suffix) 前缀化（影视工程自动模式复用同一组件），
+    // 本锁随之改为「默认前缀 + 可组合后缀」两段断言——默认值锁死 story2video，行为等价性另有挂载级用例
+    // （src/views/video-creation/StageProgress.testid.test.js 断言默认渲染出 story2video-* 节点）。
+    expect(spSource).toContain("testidPrefix: { type: String, default: 'story2video' }")
+    expect(spSource).toContain("tid('stage-list')")
+    expect(spSource).toContain('tid(`stage-${stage.name || index}`)')
     expect(source).toContain("!isOrchestratedPipeline(selectedPipeline?.name) && pipelineProgressStages.length === 0 && pipelineRunStatus && pipelineRunStatus.progress")
   })
 
-  it('阶段迷你进度条通用渲染（任意阶段带合法 percent；compose 保留既有 testid）', () => {
-    expect(source).toContain('story2video-stage-compose-progress')
-    expect(source).toContain('stageProgressPercent(stage) !== null')
-    expect(source).toContain('stage-sub-fill')
+  it('阶段迷你进度条通用渲染（任意阶段带合法 percent；compose 保留既有 testid 语义）', () => {
+    expect(spSource).toContain("tid('stage-compose-progress')")
+    expect(spSource).toContain('stageProgressPercent(stage) !== null')
+    expect(spSource).toContain("tid('stage-sub-fill')")
     expect(source).toContain("stageProgressPercent(stage)")
     // compose 旧快照降级路径保留（无 stage.progress 时读 context.compose_progress）
     expect(source).toContain('ctx.compose_progress')
     // 统一契约：stage.progress.message / stage.summary 优先渲染
     expect(source).toContain('stage.progress.message')
     expect(source).toContain('stage.summary')
+    // 禁止回退为裸 testid 字面量（那会让自动模式复用再次破锁）
+    expect(spSource).not.toContain('data-testid="story2video-')
   })
 
   it('合成时间说明块由父组件按 story2video 门控（2026-08-17）', () => {

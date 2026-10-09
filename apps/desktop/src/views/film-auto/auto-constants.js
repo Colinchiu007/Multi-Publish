@@ -15,6 +15,8 @@ export const AUTO_SHOT_SECONDS = Object.freeze([5, 8, 10])
 export const AUTO_DEFAULT_ASPECT = '16x9'
 export const AUTO_DEFAULT_SHOT_SECONDS = 5
 export const AUTO_DEFAULT_TARGET_DURATION_SEC = 60
+/** 单镜提示词上限（与后端 auto-project.js 的 MAX_SHOT_PROMPT_LENGTH 同值：50000） */
+export const MAX_AUTO_SHOT_PROMPT_LENGTH = 50000
 
 /** 目标时长 ÷ 单镜秒数 → 目标镜数（与后端同公式：clamp(round(T/s), 1, MAX_AUTO_SHOTS)） */
 export function planShotCount (targetDurationSec, shotSeconds) {
