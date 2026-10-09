@@ -36,6 +36,7 @@ function makeDeps (overrides = {}) {
     showStory2VideoErrorDialog: vi.fn(),
     resolveMediaImportFailure: vi.fn((r, k) => ({ messageKey: 'story2video.media_invalid', messageParams: { kindLabel: k } })),
     validateStory2VideoFile: vi.fn(() => true),
+    story2videoKindLabel: vi.fn(() => '背景音乐'),
     ...overrides,
   }
 }
@@ -48,7 +49,7 @@ describe('useBgmLibrary', () => {
   })
 
   it('deps 未注入时 fail-closed（抛错而非静默）', async () => {
-    await expect(bgmLibraryMethods.addFileToBgmLibrary({ name: 'a.mp3' })).rejects.toThrow('deps 未注入')
+    await expect(bgmLibraryMethods.addFileToBgmLibrary({ name: 'a.mp3' })).rejects.toThrow('deps not injected')
   })
 
   it('openBgmLibraryDialog：挂起 owner + 加载列表', async () => {

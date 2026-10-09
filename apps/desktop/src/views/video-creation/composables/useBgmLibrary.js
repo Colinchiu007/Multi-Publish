@@ -48,6 +48,7 @@ let deps = typeof window !== 'undefined' ? (window.__bgmLibraryDeps || null) : n
  * @param {(payload: object) => void} d.showStory2VideoErrorDialog 错误弹窗
  * @param {(result: object, kindLabel: string) => object} d.resolveMediaImportFailure 媒体导入失败细分
  * @param {(file: File, kind: string) => boolean} d.validateStory2VideoFile 文件校验
+ * @param {(kind: string) => string} d.story2videoKindLabel 媒体类别宾语（走 locale，替代硬编码「背景音乐」）
  */
 export function setupBgmLibraryDeps (d) {
   deps = d
@@ -57,7 +58,7 @@ export function setupBgmLibraryDeps (d) {
 /** 取依赖（兜底 window 单例：模块级 deps 变量在跨实例/早调用时序下可能为 null） */
 function requireDeps () {
   const d = deps || (typeof window !== 'undefined' ? window.__bgmLibraryDeps : null)
-  if (!d) throw new Error('[useBgmLibrary] deps 未注入：壳组件必须先调 setupBgmLibraryDeps')
+  if (!d) throw new Error('[useBgmLibrary] deps not injected: shell component must call setupBgmLibraryDeps first')
   return d
 }
 
@@ -86,6 +87,7 @@ async function addFileToBgmLibrary (file) {
     s2vConfig.bgmPath = ''
     return null
   }
+  const kindLabel = requireDeps().story2videoKindLabel('bgm')
   try {
     const result = await story2videoBgmLibraryAdd(file)
     if (result?.code === 0 && result.data?.path) {
@@ -94,11 +96,11 @@ async function addFileToBgmLibrary (file) {
       return result.data
     }
     s2vConfig.bgmPath = ''
-    requireDeps().showStory2VideoErrorDialog(requireDeps().resolveMediaImportFailure(result, '背景音乐'))
+    requireDeps().showStory2VideoErrorDialog(requireDeps().resolveMediaImportFailure(result, kindLabel))
     return null
   } catch (_) {
     s2vConfig.bgmPath = ''
-    requireDeps().showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '背景音乐' } })
+    requireDeps().showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel } })
     return null
   }
 }

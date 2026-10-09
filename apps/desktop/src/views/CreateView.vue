@@ -5530,6 +5530,7 @@ export default {
       showStory2VideoErrorDialog: (payload) => this.showStory2VideoErrorDialog(payload),
       resolveMediaImportFailure: (result, kindLabel) => this.resolveMediaImportFailure(result, kindLabel),
       validateStory2VideoFile: (file, kind) => this.validateStory2VideoFile(file, kind),
+      story2videoKindLabel: (kind) => this.story2videoKindLabel(kind),
     })
     this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.translateWithLocaleFallback('story2video.voicePreviewUnsupported', '当前环境不支持语音合成', 'No speech synthesis'), previewText: this.translateWithLocaleFallback('story2video.voicePreviewText', '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。', 'Voice preview clip'), }))
     this.refreshS2VTemplates()
