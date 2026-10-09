@@ -1,3 +1,34 @@
+# [未发布] test(ci-gate): 暗档在 PR 侧可判 —— QG Visual 补产暗档渲染 + 19 张漂移基线同源重建（2026-10-09，pr-dark-baseline-gate）
+
+## 背景
+
+`test:visual:pixel:dark` 只存在于 `visual-test.yml`（main push / dispatch 才跑），`quality-gate.yml` 的 `QG Visual` 只跑浅色 ⇒ Gate 7b 的 `--partial` 把每张 `*-dark.png` 记成 skipped 并**放行**。后果不是"少判几张"，是**暗色档漂移在 PR 侧结构性不可判**。
+
+## 现场（不引记忆，全部当场取）
+
+main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:42 / `07550cf37` 14:08），每次都是 `基线新鲜度：检查 41 张 / 违规 19 张`，19 张**全部** `来源=pixel-gate`。漂移从 8 涨到 19 的路径是三批暗色可读性 PR 依次合并而不刷全暗档：`a43287ac7`（P4）→ `2b2db5c1a`（P4C）→ `15fd49c0d`（P4D）；另有 `aecb75ab3`（#3202 三列表渲染截断 + 加载更多）改了列表内容，把 `accounts-list-dark` 推到 44603 px（2.151%）。**连上一轮刚按同源口径重建的 `collection-dark.png` 也再次漂了**——这正是"没有 PR 侧判定，修好的基线也会在下一次暗色改动后静默失效"的实证。
+
+`Visual Tests` 不是必需上下文，所以它红了既拦不住合并也没人认领。
+
+## 改动
+
+- `quality-gate.yml`：`Gate 7` 与 `Gate 7b` 的 round2 各补跑 `test:visual:pixel:dark`，退出码并入既有的 `suite exits:` 行逐条打印。暗档像素套的比较结果**不另设门禁**（Gate 7b 的 0 px 严格强于它的 6% 阈值），目的只是产出 `<view>-dark-current.png` 让 Gate 7b 有判定域。
+- `.github/scripts/workflow-contract.test.js`：新增结构锁，要求暗档采集**两处都在**（只补首轮不补 round2 会得到"首轮判、round2 不判"的半接线）+ 退出码必须含 `dark=` + `--partial` 必须保留（摘掉会把"无渲染"变成假红）。
+- `scripts/check-baseline-freshness.test.js`：新增 2 条行为锁——暗档只要有 `*-dark-current.png` 就必须判、不得进 skipped；确实无渲染时才允许 skipped 且逐个点名。**此前该文件里没有任何一条含 `dark` 的用例**（grep 命中 0），暗档判定域从未被测过。
+- 19 张暗档基线按本 head 的 CI 渲染逐字节重建，并用同一份产物自证 `检查 41 张 / 违规 0 张 / 本次跳过 0 张`。
+
+## 一条口径修正（写下来免得下次又误用）
+
+上一轮我给自己立的"复用别 run 产物"判据是 `git diff --name-only <run-head>..<我的 head>` 命中 `apps/` 为 0。这条在**基线重建类 PR 上不可满足也无需满足**——基线 PNG 本来就在 `apps/` 下且正是被改对象。正确判据是**「渲染输入不变」**（`apps/desktop/src/**` 零改动），且本 PR 不存在"复用"：产物取自**我自己 head** 的 dispatch run，自证链闭环。
+
+## 反证
+
+四条变异各自实测变红后逐字节还原并自证 `byte_identical=true`：摘 Gate 7 暗档采集 / 只摘 round2 的 / 退出码行去掉 `dark=` / 把 `findRender` 的 pixel-gate 回落档改名（最后一条同时让 2 张暗档行为锁变红，证明它们真在读那一档）。还原后 `contract fail=0 / freshness fail=0`。
+
+## 已知边界
+
+`--partial` 仍在，因为该 job 确实产不出 3 张基线的渲染（`CI 无渲染 3 张`）；`KNOWN_DYNAMIC` 保持为空（`calendar-dark` / `keyword-monitor-dark` 由采集层钉住的时钟决定，本次重建后仍是 0 px）。
+
 # [未发布] fix(ci-gate): `.quality-rhythm/**` 进 docs-only 白名单，镜像漂移锁收成一处真源（2026-10-09，ci-quality-rhythm-whitelist）
 
 ## 背景

@@ -198,6 +198,36 @@ test('KNOWN_DYNAMIC 必须为空：实时值一律在采集层钉住，不靠漂
 })
 
 // ---- partial 模式：只缩小判定面，不得弱化已判的那部分 ----
+test('partial：暗色基线只要有 <view>-dark-current.png 渲染就必须判，不得落进 skipped', () => {
+  // 这条锁的是「暗档在 PR 侧可判」的机制本身：findRender 的第二档（pixel-gate 回落）
+  // 一旦改名或后缀口径漂移，暗档会静默退回 skipped —— 而 skipped 在 partial 下是放行的，
+  // 于是 PR #3159 那类"基线与自身 CSS 不一致"就又一次只能在 main push 暴露。
+  const { dir, baselines, renders } = mkDirs()
+  try {
+    fs.writeFileSync(path.join(baselines, 'home.png'), pngOf(1))
+    fs.writeFileSync(path.join(baselines, 'home-dark.png'), pngOf(2))
+    fs.writeFileSync(path.join(renders, 'home.png'), pngOf(1))
+    // 渲染与基线不一致 ⇒ 必须判红，而不是"没渲染 ⇒ skipped"
+    fs.writeFileSync(path.join(renders, 'home-dark-current.png'), pngOf(5))
+    const r = D.evaluateFreshness(baselines, renders, null, 0, true)
+    assert.deepEqual(r.skipped, [], '暗档有同源渲染时不得进 skipped')
+    assert.deepEqual(r.violated.map((v) => v.name), ['home-dark.png'], '必须判暗档为过期')
+    assert.equal(r.checked, 2, '两张都要判到')
+    assert.equal(r.rows.find((x) => x.name === 'home-dark.png').from, 'pixel-gate',
+      '暗档的判定域必须是像素套渲染，且来源要如实标注')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('partial：暗色基线确实无渲染时才允许记 skipped，并逐个点名', () => {
+  const { dir, baselines, renders } = mkDirs()
+  try {
+    fs.writeFileSync(path.join(baselines, 'ghost-dark.png'), pngOf(2))
+    const r = D.evaluateFreshness(baselines, renders, null, 0, true)
+    assert.deepEqual(r.skipped, ['ghost-dark.png'])
+    assert.deepEqual(r.violations, [], '无渲染不判违规（判据不存在时不得改变结论）')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('partial：本次无渲染的基线记为 skipped，不报违规也不报未登记欠账', () => {
   const { dir, baselines, renders } = mkDirs()
   try {
