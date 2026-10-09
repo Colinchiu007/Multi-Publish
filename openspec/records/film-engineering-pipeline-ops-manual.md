@@ -2,9 +2,6 @@
 record: film-engineering-pipeline-ops-manual
 task: 影视工程流水线深度解读与操作手册（代码取证 + 六路线操作 + 安全合同 + 排障）
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后回填）
 ---
 
 ## 本次执行记录：影视工程流水线操作手册（film-engineering-pipeline-ops-manual，2026-10-09）
@@ -19,7 +16,7 @@ sync_backfill_owner: 下一个会话（合并后回填）
 | 文档同步 | ✅ | Doc Sync Gate / QG Changes check 随 CI |
 | QM-1 打包 / QM-2 / QM-4 视觉 / TDD | N/A | 未触运行面（纯新增 md） |
 | QM-6 CCG 双模型外部评审 | 豁免 | docs-only 快速通道命中（与运行时无关） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填；`git ls-remote --heads origin docs/film-engineering-ops-manual` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3216 已 squash 合并，merge SHA `db17ab75a0ed978362ac7937dd5f28fb6778b9d6`（2026-10-09T22:48:34+08:00），取证 `git log origin/main --grep='(#3216)$' --format=%H\|%cI` 唯一命中；`git ls-remote --heads origin docs/film-engineering-ops-manual` 返回 0 行，证远端分支已删；frontmatter 三个 sync_* 字段已在本回填提交删除 |
 
 ### 内容与取证说明
 
