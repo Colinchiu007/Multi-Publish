@@ -31,6 +31,8 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 
 `check-gate-record-debt.js` 的行判据是 `ROW_RE = /^\|\s*远程同步\s*\|/`（:25），只看**以 `|` 开头的表格行**；而 docs-only 记录按 AGENTS.md 精简模板把状态写在 `- 保留门禁：… | 远程同步 PENDING` 这种 **bullet 内**，该行不会被 `ROW_RE` 命中 → 于是 `readRecord()` 找的是别处的表格行（若有），bullet 里的 PENDING 对门禁**完全失明**，`#3145` 这次的"行 PASS、正文 PENDING"就是它的现场产物。这不是本轮引入的，也不在本轮范围内（本轮只改文档，改判据属运行时代码变更，需独立 PR + 反证）。登记于此，供下一个动这条门禁的会话取证。
 
+**本轮当场撞上的对照现场**：本记录初稿只写了 bullet 形态的 PENDING、没有表格行，`check-gate-record-debt.js` **当场**报 `❌ 记录文件整块缺 远程同步 行 1 篇 —— gate-record-backfill-13.md`（rc=1）。所以"整行缺席"是被拦住的；真正漏网的是**行已 PASS、bullet 仍写 PENDING** 这种两处并存且互相矛盾的形态 —— 它有两行里的其中一行合规，判据看不到另一行。
+
 ### 证据（每条三源，缺一不回填）
 
 | 记录（== 分支名） | PR | main 上的 squash 提交 | committer | 远端分支 |
@@ -49,11 +51,17 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 - main 侧（Visual Tests run `37954471616` / job `visual-test` id `113901352944`，head `8a64e3d1e`，success）：`基线新鲜度：检查 41 张 / 违规 0 张 / … / 本次跳过 0 张`；`gh run list --workflow visual-test.yml --limit 8` 显示其前四个 main push（`aecb75ab3` / `15fd49c0d` / `8b3d3e91f` / `07550cf37`）全 failure。
 - **同一节里如实登记了残留**：Gate 7b 的 round2 暗档重采在本 run 没有被运行时执行过（round1 干净即 `exit 0`），它的保障目前只有结构锁，运行时现场要等下一次 round1 报违规的 run。
 
+### 远程同步状态
+
+| 门禁 | 状态 | 取证与后续动作 |
+| --- | --- | --- |
+| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后由后续回填轮把本行改写为 `PASS（PR #NNNN → main <sha> @ <committer ISO8601>）`，并在**同一次提交**删除 frontmatter 的 `sync_status`/`sync_reason`/`sync_backfill_owner` 三字段与本行以外的 PENDING 措辞；取证一律用 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` + `git ls-remote --heads origin gate-record-backfill-13`（须 0 行），不得凭记忆抄写。 |
+
 ### 本地门禁
 
 | 门禁 | 命令 | 结果 |
 | --- | --- | --- |
-| Gate 2c 欠账自证 | `node scripts/check-gate-record-debt.js` | rc=0；`远程同步行 255 条 / 执行记录 463 篇 / 已登记欠账 8 条 / 记录文件 137 篇`，顶部 `OK…记录文件登记字段无残留` |
+| Gate 2c 欠账自证 | `node scripts/check-gate-record-debt.js` | rc=0；`远程同步行 255 条 / 执行记录 463 篇 / 已登记欠账 8 条 / 记录文件 138 篇（含本篇）`，顶部 `OK…记录文件登记字段无残留` |
 | 品牌残留（硬红线） | `node scripts/check-no-brand-residue.js` | 见下表（提交后复跑） |
 | 编码完整性 | `node scripts/check-text-encoding-integrity.js` | 见下表（提交后复跑） |
 | 行尾两口径对账 | `git diff --numstat` vs `git diff --ignore-cr-at-eol --numstat` | 逐文件相等：`1/4`、`1/1`、`17/7`（改前三份均 `i/lf w/crlf attr/text=auto`，脚本按 CRLF 逐行写回，改后 `lone LF=0`） |
