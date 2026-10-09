@@ -2573,7 +2573,7 @@ esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analy
 ## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
 
 - **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是
-  `C:\Users\RUNNER~1\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\runneradmin\...`（长名）。
+  `C:\Users\<RUNNER~1>\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\<runneradmin>\...`（长名）。
 - **根因**：`os.tmpdir()` 在 CI 返回 8.3 短路径（`RUNNER~1`），业务代码 `resolveReadableMediaFile` 经
   `fs.realpathSync.native()` 归一化为长路径（`runneradmin`）——同一文件两种字符串。任何「测试直接比较本地路径字符串」的断言在 CI 都会炸。
 - **教训**：按 AGENTS.md「Windows 路径身份断言」合同，比较生产代码返回的 canonical 路径时，期望值与实际值**必须同时**过
@@ -6371,7 +6371,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 1. **第一性原因**：`e1b46eb` 同时引入了 Story2Video 媒体摄取的 canonical 路径安全合同和音频阶段测试，
    但测试把 `importUserSelectedMedia()` 返回的原始目标字符串直接与阶段输出比较。生产路径会经过
    `resolveReadableMediaFile()` 并返回 `fs.realpathSync.native()`；GitHub Windows Runner 的临时目录环境值使用
-   `C:\Users\RUNNER~1`，真实路径返回 `C:\Users\runneradmin`，二者指向同一文件却被断言误判。
+   `C:\Users\<RUNNER~1>`，真实路径返回 `C:\Users\<runneradmin>`，二者指向同一文件却被断言误判。
 2. **测试逃逸链**：单元测试只在本机长路径临时目录运行；集成和 E2E 不构造 Windows 8.3 别名；视觉测试不检查
    文件路径；代码审查关注受控根和 symlink 防护，没有核对测试断言是否匹配 canonical 输出合同。两个并行
    Quality Gate 在同一断言上稳定 RED，证明这不是 30 分钟 watchdog 超时。
@@ -6781,8 +6781,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 - `e1b46eba` 同时引入 Story2Video 受控媒体目录加固和对应阶段测试。生产读取链通过
   `fs.realpathSync.native()` 返回 canonical 路径，测试却把结果与 `importUserSelectedMedia()` 返回的原始
   目标路径字符串直接比较。
-- GitHub Windows runner 的临时目录可表示为 `C:\Users\RUNNER~1`，而 `realpath` 返回
-  `C:\Users\runneradmin`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
+- GitHub Windows runner 的临时目录可表示为 `C:\Users\<RUNNER~1>`，而 `realpath` 返回
+  `C:\Users\<runneradmin>`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
 
 ### 测试逃逸链与系统性漏洞
 1. **单元测试**：本地临时目录的原始路径与 canonical 路径文本相同，旧断言无法暴露 8.3 别名差异。
@@ -8692,7 +8692,7 @@ esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analy
 ## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
 
 - **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是
-  `C:\Users\RUNNER~1\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\runneradmin\...`（长名）。
+  `C:\Users\<RUNNER~1>\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\<runneradmin>\...`（长名）。
 - **根因**：`os.tmpdir()` 在 CI 返回 8.3 短路径（`RUNNER~1`），业务代码 `resolveReadableMediaFile` 经
   `fs.realpathSync.native()` 归一化为长路径（`runneradmin`）——同一文件两种字符串。任何「测试直接比较本地路径字符串」的断言在 CI 都会炸。
 - **教训**：按 AGENTS.md「Windows 路径身份断言」合同，比较生产代码返回的 canonical 路径时，期望值与实际值**必须同时**过
@@ -12490,7 +12490,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 1. **第一性原因**：`e1b46eb` 同时引入了 Story2Video 媒体摄取的 canonical 路径安全合同和音频阶段测试，
    但测试把 `importUserSelectedMedia()` 返回的原始目标字符串直接与阶段输出比较。生产路径会经过
    `resolveReadableMediaFile()` 并返回 `fs.realpathSync.native()`；GitHub Windows Runner 的临时目录环境值使用
-   `C:\Users\RUNNER~1`，真实路径返回 `C:\Users\runneradmin`，二者指向同一文件却被断言误判。
+   `C:\Users\<RUNNER~1>`，真实路径返回 `C:\Users\<runneradmin>`，二者指向同一文件却被断言误判。
 2. **测试逃逸链**：单元测试只在本机长路径临时目录运行；集成和 E2E 不构造 Windows 8.3 别名；视觉测试不检查
    文件路径；代码审查关注受控根和 symlink 防护，没有核对测试断言是否匹配 canonical 输出合同。两个并行
    Quality Gate 在同一断言上稳定 RED，证明这不是 30 分钟 watchdog 超时。
@@ -12900,8 +12900,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 - `e1b46eba` 同时引入 Story2Video 受控媒体目录加固和对应阶段测试。生产读取链通过
   `fs.realpathSync.native()` 返回 canonical 路径，测试却把结果与 `importUserSelectedMedia()` 返回的原始
   目标路径字符串直接比较。
-- GitHub Windows runner 的临时目录可表示为 `C:\Users\RUNNER~1`，而 `realpath` 返回
-  `C:\Users\runneradmin`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
+- GitHub Windows runner 的临时目录可表示为 `C:\Users\<RUNNER~1>`，而 `realpath` 返回
+  `C:\Users\<runneradmin>`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
 
 ### 测试逃逸链与系统性漏洞
 1. **单元测试**：本地临时目录的原始路径与 canonical 路径文本相同，旧断言无法暴露 8.3 别名差异。
