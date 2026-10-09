@@ -27,6 +27,7 @@ import { useFilmAutoRefs } from './useFilmAutoRefs'
 import { useFilmAutoRun } from './useFilmAutoRun'
 import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import StageProgress from '@/views/video-creation/StageProgress.vue'
 import FilmAutoSegmentEditor from './FilmAutoSegmentEditor.vue'
@@ -43,10 +44,10 @@ const { t } = useI18n()
 
 function feApi () {
   if (props.api) return props.api
-  if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.filmEngineering) {
-    return window.electronAPI.filmEngineering
-  }
-  return null
+  // 经 src/api 桥接层取暴露面（Gate 10「前端一致性」：window.electronAPI 只允许出现在 src/api/**；
+  // getApi 是全仓唯一定义，由 ipc-exposure-contract 契约测试守卫——不要在这里另写一份访问逻辑）
+  const api = getApi()
+  return (api && api.filmEngineering) || null
 }
 
 /** 阶段机：input（填表）→ preview（清单确认）→ running → done（可收口/可编辑） */
