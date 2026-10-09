@@ -23,25 +23,16 @@
  *   - 未勾选确认 → 不调用 `auto-start`；服务端返回 `needsReconfirm`（编辑过/计划变更）时回到确认卡；
  *   - 事件推送优先 + 轮询兜底（3000ms），runId/taskId 守卫防止陈旧响应覆盖新状态（对齐 story2video 纪律）。
  */
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useFilmAutoRefs } from './useFilmAutoRefs'
+import { useFilmAutoRun } from './useFilmAutoRun'
+import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import StageProgress from '@/views/video-creation/StageProgress.vue'
-import {
-  pipelineStartOrchestrated, pipelineGetRunContext, onPipelineUpdate,
-  story2videoShowInFolder, story2videoSaveAs,
-} from '@/api/publisher'
 import FilmAutoSegmentEditor from './FilmAutoSegmentEditor.vue'
-import { toFileUrl } from './file-url'
-import {
-  MAX_AUTO_SCRIPT_LENGTH, MAX_AUTO_REFS, MIN_AUTO_DURATION_SEC, MAX_AUTO_DURATION_SEC,
-  AUTO_ASPECTS, AUTO_SHOT_SECONDS,
-  AUTO_DEFAULT_ASPECT, AUTO_DEFAULT_SHOT_SECONDS, AUTO_DEFAULT_TARGET_DURATION_SEC,
-  planShotCount,
-} from './auto-constants'
+import { MAX_AUTO_SCRIPT_LENGTH, MAX_AUTO_REFS, MIN_AUTO_DURATION_SEC, MAX_AUTO_DURATION_SEC, AUTO_ASPECTS, AUTO_SHOT_SECONDS, AUTO_DEFAULT_ASPECT, AUTO_DEFAULT_SHOT_SECONDS, AUTO_DEFAULT_TARGET_DURATION_SEC, planShotCount } from './auto-constants'
 
 const DURATION_PRESETS = Object.freeze([30, 60, 90, 120])
-
 const props = defineProps({
   /** 注入 window.electronAPI.filmEngineering（测试用；生产为 null 时自动取全局） */
   api: { type: Object, default: null },
@@ -69,42 +60,15 @@ const form = reactive({
   targetDurationSec: AUTO_DEFAULT_TARGET_DURATION_SEC,
   shotSeconds: AUTO_DEFAULT_SHOT_SECONDS,
 })
-/** @type {import('vue').Ref<Array<{name:string,path:string}>>} */
-const characterRefs = ref([])
-/** @type {import('vue').Ref<string[]>} */
-const sceneRefs = ref([])
-const uploadingKind = ref('')
-
 /** 服务端预览投影（完整提示词只在服务端计划文件里） */
 const plan = ref(null)
 /** 项目视图（auto-status 投影；含可编辑 shots） */
 const project = ref(null)
-const progress = ref({ doneCount: 0, totalCount: 0, batchIndex: null, lastType: '' })
 const confirmed = ref(false)
 const overwriteExisting = ref(false)
 const editingShotIndex = ref(null)
-const composeRunId = ref('')
-const composePercent = ref(0)
-const composePhase = ref('')       // '' | 'running' | 'done' | 'failed'
-const composeError = ref('')
-const finalPath = ref('')
-const finalUnavailable = ref('')
 /** 最近一次失败的错误码（面板据此给出可解除的处置入口，如同名任务的「覆盖」勾选） */
 const errorCode = ref('')
-/** 已请求停止（批间生效，等当前批跑完） */
-const stopping = ref(false)
-/** 本会话是从「上次的任务」恢复而来（而非刚规划）——决定确认卡是否展示 */
-const restored = ref(false)
-
-/** 记住最近一次任务的 ID：这是「重新打开可续跑」在界面上的落点（服务端续跑靠同名任务） */
-const LAST_TASK_KEY = 'film-auto:last-task-id'
-
-let unsubscribeAuto = null
-let unsubscribePipeline = null
-let pollTimer = null
-let composePollTimer = null
-let fileInput = null
-
 const scriptLength = computed(() => String(form.script || '').trim().length)
 const scriptTooLong = computed(() => scriptLength.value > MAX_AUTO_SCRIPT_LENGTH)
 const durationValid = computed(() => (
@@ -114,55 +78,6 @@ const durationValid = computed(() => (
 ))
 const estimatedShots = computed(() => planShotCount(form.targetDurationSec, form.shotSeconds))
 const canPlan = computed(() => !busy.value && scriptLength.value > 0 && !scriptTooLong.value && durationValid.value)
-const percent = computed(() => {
-  const total = Number(progress.value.totalCount) || 0
-  if (total <= 0) return 0
-  return Math.round((Number(progress.value.doneCount) || 0) / total * 100)
-})
-const stepIndex = computed(() => ({ input: 0, preview: 1, running: 2, done: 3 }[phase.value] || 0))
-
-/** StageProgress 阶段清单：把 auto 的批次进度映射成阶段列表（复用既有渲染与状态语义） */
-const stageList = computed(() => {
-  const total = Number(progress.value.totalCount) || Number(plan.value?.shotCount) || 0
-  const done = Number(progress.value.doneCount) || 0
-  const running = phase.value === 'running'
-  const finished = phase.value === 'done'
-  const batchCount = Number(plan.value?.batchCount) || (plan.value?.estimates?.batchCount) || 1
-  const planStage = { name: 'film_auto_plan', status: phase.value === 'preview' ? 'paused' : 'completed' }
-  const genStage = {
-    name: 'film_auto_generate',
-    status: finished ? 'completed' : (running ? 'running' : 'pending'),
-    progress: total > 0 ? { percent: Math.round(done / total * 100), messageKey: 'filmEngineering.auto.stageShotProgress', messageParams: { done, total } } : null,
-  }
-  const composeStage = {
-    name: 'film_auto_render',
-    status: composeRunId.value ? (composePercent.value >= 100 ? 'completed' : 'running') : (finished ? 'pending' : 'pending'),
-    progress: composeRunId.value ? { percent: composePercent.value } : null,
-  }
-  void batchCount
-  return [planStage, genStage, composeStage]
-})
-
-const shots = computed(() => (project.value && Array.isArray(project.value.shots) ? project.value.shots : []))
-/** 未完成的镜：缺镜时先禁用收口合成并列出序号，而不是等用户点了才报错（成本/体验双考虑） */
-const missingShots = computed(() => shots.value.filter((s) => s.status !== 'done'))
-const canCompose = computed(() => phase.value === 'done' && missingShots.value.length === 0 && !busy.value)
-const finalFileUrl = computed(() => toFileUrl(finalPath.value))
-/** 预估磁盘占用（服务端已返回，此前未在确认卡上展示——用户应当在花钱前看到硬盘代价） */
-const diskEstimateText = computed(() => {
-  const bytes = Number(plan.value && plan.value.estimates && plan.value.estimates.diskEstimateBytes) || 0
-  if (bytes <= 0) return ''
-  const gib = bytes / (1024 * 1024 * 1024)
-  return gib >= 1 ? gib.toFixed(1) + ' GB' : Math.max(1, Math.round(bytes / (1024 * 1024))) + ' MB'
-})
-/** 预估墙钟（按每镜 300s 的既有口径，与 IPC 的 production-plan 同源） */
-const wallclockText = computed(() => {
-  const sec = Number(plan.value && plan.value.estimates && plan.value.estimates.wallclockEstimateSeconds) || 0
-  if (sec <= 0) return ''
-  const hours = sec / 3600
-  return hours >= 1 ? hours.toFixed(1) + ' h' : Math.max(1, Math.round(sec / 60)) + ' min'
-})
-
 function fail (message, code) {
   errorCode.value = code || ''
   errorText.value = message || t('filmEngineering.auto.genericError')
@@ -178,70 +93,6 @@ function unwrap (res) {
   }
   return res.data
 }
-
-// ── 参考图（复用 upload-reference：受控根 + 引用计数）────────────────────
-
-function pickRefFile (kind) {
-  uploadingKind.value = kind
-  if (typeof document === 'undefined') return
-  if (!fileInput) {
-    fileInput = document.createElement('input')
-    fileInput.type = 'file'
-    fileInput.accept = 'image/png,image/jpeg,image/webp'
-    fileInput.style.display = 'none'
-    if (document.body) document.body.appendChild(fileInput)
-  }
-  fileInput.onchange = () => {
-    const file = fileInput.files && fileInput.files[0]
-    fileInput.value = ''
-    if (file) void uploadRefFile(kind, file)
-  }
-  fileInput.click()
-}
-
-/** 供测试与拖拽入口复用的上传路径（file 为浏览器 File 或 {name, dataUrl}） */
-async function uploadRefFile (kind, file) {
-  const api = feApi()
-  if (!api) return fail(t('filmEngineering.auto.noDesktop'))
-  const limit = kind === 'character' ? characterRefs.value.length : sceneRefs.value.length
-  if (limit >= MAX_AUTO_REFS) return fail(t('filmEngineering.auto.refsFull', { max: MAX_AUTO_REFS }))
-  try {
-    const dataUrl = file.dataUrl || await readAsDataUrl(file)
-    uploadingKind.value = kind
-    const data = unwrap(await api.uploadReference({ dataUrl, kind }))
-    const stored = data && (data.path || data.filePath)
-    if (!stored) throw new Error(t('filmEngineering.auto.uploadNoPath'))
-    if (kind === 'character') {
-      const base = String(file.name || '').replace(/\.[^.]+$/, '').slice(0, 20)
-      characterRefs.value = characterRefs.value.concat([{ name: base || t('filmEngineering.auto.defaultCharName'), path: stored }])
-    } else {
-      sceneRefs.value = sceneRefs.value.concat([stored])
-    }
-    errorText.value = ''
-  } catch (e) {
-    fail((e && e.message) || String(e))
-  } finally {
-    uploadingKind.value = ''
-  }
-}
-
-function readAsDataUrl (file) {
-  return new Promise((resolve, reject) => {
-    if (typeof FileReader === 'undefined') return reject(new Error('FileReader unavailable'))
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('read failed'))
-    reader.readAsDataURL(file)
-  })
-}
-
-function removeCharRef (index) {
-  characterRefs.value = characterRefs.value.filter((_r, i) => i !== index)
-}
-function removeSceneRef (index) {
-  sceneRefs.value = sceneRefs.value.filter((_p, i) => i !== index)
-}
-
 // ── ① → ② 规划（零 provider 调用）──────────────────────────────────────
 
 async function runPlan () {
@@ -319,305 +170,32 @@ async function startRun () {
   }
 }
 
-// ── 只读状态同步（事件优先 + 轮询兜底）─────────────────────────────────
+// ── 两块职责已抽成 composable（拆分动因：CI 行数门禁 500 行）──────────────
+// 模板可见名一律经解构保持同名：模板只能看到 setup 作用域的绑定，不能透过 defineExpose。
+const {
+  characterRefs, sceneRefs, uploadingKind,
+  pickRefFile, uploadRefFile, readAsDataUrl, removeCharRef, removeSceneRef,
+} = useFilmAutoRefs({ feApi, t, form, errorText, fail, unwrap })
 
-async function refreshStatus () {
-  const api = feApi()
-  if (!api || !plan.value) return
-  try {
-    const data = unwrap(await api.autoStatus({ taskId: plan.value.taskId }))
-    if (!data || !data.exists) return
-    project.value = data
-    progress.value = {
-      doneCount: Number(data.doneCount) || 0,
-      totalCount: Number(data.totalCount) || progress.value.totalCount,
-      batchIndex: progress.value.batchIndex,
-      lastType: progress.value.lastType,
-    }
-    const total = Number(data.totalCount) || 0
-    const done = Number(data.doneCount) || 0
-    const shotsNow = Array.isArray(data.shots) ? data.shots : []
-    const failed = shotsNow.filter((s) => s.status === 'failed').length
-    if (data.running) {
-      phase.value = 'running'
-      return
-    }
-    // 收口条件：**不再运行**且每一镜都有结论（完成或失败）。
-    // 早期写法只认「全部完成」，导致部分失败的任务永远停在运行态、连片段编辑与收口入口都到不了——
-    // 失败镜必须能被看见并单镜重生成，这才是「生成后可对某个片段修改调整」的完整闭环。
-    if (total > 0 && (done + failed) >= total) {
-      finalUnavailable.value = data.manifestError || ''
-      phase.value = 'done'
-      stopPolling()
-    }
-  } catch { /* 轮询失败不改状态（下一轮重试） */ }
-}
-
-function applyAutoEvent (evt) {
-  if (!evt || typeof evt !== 'object') return
-  progress.value = {
-    doneCount: Number(evt.doneCount) || progress.value.doneCount,
-    totalCount: Number(evt.totalCount) || progress.value.totalCount,
-    batchIndex: evt.batchIndex === undefined ? progress.value.batchIndex : evt.batchIndex,
-    lastType: String(evt.type || ''),
-  }
-  if (evt.type === 'production:complete') {
-    stopPolling()
-    void refreshStatus()
-  }
-}
-
-function startPolling () {
-  stopPolling()
-  const interval = Number(props.pollIntervalMs) > 0 ? Number(props.pollIntervalMs) : 3000
-  pollTimer = setInterval(() => { void refreshStatus() }, interval)
-}
-
-function stopPolling () {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-}
-
-// ── 停止与「重新打开继续」──────────────────────────────────────────────
-
-/** 记住/读取最近任务 ID：这是「重新打开可续跑」在界面上的落点（服务端续跑靠同名任务） */
-function persistLastTask (taskId) {
-  try {
-    if (typeof localStorage !== 'undefined' && taskId) localStorage.setItem(LAST_TASK_KEY, String(taskId))
-  } catch { /* 隐私模式/无 localStorage：不影响主流程 */ }
-}
-
-function readLastTask () {
-  try {
-    if (typeof localStorage === 'undefined') return ''
-    return String(localStorage.getItem(LAST_TASK_KEY) || '')
-  } catch { return '' }
-}
-
-/**
- * 请求停止（**批间生效**）：当前批跑完即止，未开始的批保持待跑 ⇒ 停下后天然可续跑。
- * 服务端只对正在运行的任务置标志；界面立刻回「已请求停止」，真实停点由后续状态同步确认。
- */
-async function stopRun () {
-  const api = feApi()
-  if (!api || !plan.value) return { ok: false }
-  try {
-    const data = unwrap(await api.autoStop({ taskId: plan.value.taskId }))
-    const stoppingNow = Boolean(data && data.stopping)
-    stopping.value = stoppingNow
-    if (stoppingNow) ElMessage.warning(t('filmEngineering.auto.stopRequested'))
-    return { ok: true, stopping: stoppingNow }
-  } catch (e) {
-    fail((e && e.message) || String(e), e && e.errorCode)
-    return { ok: false }
-  }
-}
-
-/**
- * 恢复上次任务（「重新打开可续跑」）：同名任务在服务端就是续跑。
- * 关键：**不依赖计划**——计划在首次启动时已被消费（防重放），续跑的信息全部来自项目投影与磁盘复核。
- */
-async function restoreLastTask (taskId) {
-  const api = feApi()
-  const id = String(taskId || readLastTask() || '')
-  if (!api || !id) return false
-  try {
-    const data = unwrap(await api.autoStatus({ taskId: id }))
-    if (!data || !data.exists) return false
-    project.value = data
-    plan.value = {
-      planId: data.planId,
-      taskId: data.taskId,
-      aspect: data.aspect,
-      seconds: data.seconds,
-      targetDurationSec: data.targetDurationSec,
-      plannedDurationSec: data.plannedDurationSec,
-      shotCount: data.totalCount,
-      batchCount: Math.max(1, Math.ceil((Number(data.totalCount) || 0) / 10)),
-      provider: { id: data.providerId, model: '' },
-      warnings: [],
-      shots: [],
-      estimates: null,
-    }
-    progress.value = {
-      doneCount: Number(data.doneCount) || 0,
-      totalCount: Number(data.totalCount) || 0,
-      batchIndex: null,
-      lastType: '',
-    }
-    restored.value = true
-    errorText.value = ''
-    if (data.running) {
-      phase.value = 'running'
-      startPolling()
-    } else {
-      const failed = (data.shots || []).filter((s) => s.status === 'failed').length
-      const total = Number(data.totalCount) || 0
-      const done = Number(data.doneCount) || 0
-      phase.value = total > 0 && (done + failed) >= total ? 'done' : 'preview'
-    }
-    return true
-  } catch { return false }
-}
-
-// ── ④ 收口合成（与全量出片同一条引擎路径）──────────────────────────────
-
-/** 合成 run 快照：推送路径带 runId 守卫（防陈旧事件覆盖新 run），轮询路径由调用方比对 */
-function applyComposeSnapshot (snapshot, fromPush) {
-  if (!snapshot || typeof snapshot !== 'object') return
-  if (fromPush && snapshot.runId !== composeRunId.value) return
-  const statusObj = snapshot.status && typeof snapshot.status === 'object' ? snapshot.status : null
-  const runStatus = statusObj ? statusObj.status : snapshot.status
-  const context = snapshot.context && typeof snapshot.context === 'object' ? snapshot.context : null
-  if (context && context.render && typeof context.render === 'object' && context.render.finalPath) {
-    finalPath.value = String(context.render.finalPath)
-  }
-  const p = Number(snapshot.progress)
-  if (Number.isFinite(p)) composePercent.value = Math.max(0, Math.min(100, Math.round(p)))
-  if (runStatus === 'completed') {
-    composePhase.value = 'done'
-    composePercent.value = 100
-    stopComposePolling()
-    return
-  }
-  if (runStatus === 'failed') {
-    composePhase.value = 'failed'
-    composeError.value = (snapshot.error && (snapshot.error.message || snapshot.error.error)) || t('filmEngineering.auto.composeFailed')
-    stopComposePolling()
-  }
-}
-
-async function compose () {
-  const api = feApi()
-  if (!api || !plan.value) return
-  if (missingShots.value.length > 0) return fail(t('filmEngineering.auto.composeMissing', { shots: missingShots.value.length }))
-  busy.value = true
-  errorText.value = ''
-  composeError.value = ''
-  try {
-    const data = unwrap(await api.autoCompose({ taskId: plan.value.taskId }))
-    const manifest = data && data.renderManifest
-    if (!Array.isArray(manifest) || manifest.length === 0) throw new Error(t('filmEngineering.auto.composeNoManifest'))
-    const payload = JSON.parse(JSON.stringify({ autoAdvance: true, initialContext: { renderManifest: manifest } }))
-    const res = await pipelineStartOrchestrated('film-engineering', payload)
-    if (!res || res.code !== 0 || !res.data || !res.data.success || !res.data.runId) {
-      throw new Error((res && (res.message || (res.data && res.data.error))) || t('filmEngineering.auto.composeFailed'))
-    }
-    composeRunId.value = res.data.runId
-    composePercent.value = 0
-    composePhase.value = 'running'
-    if (typeof unsubscribePipeline === 'function') { try { unsubscribePipeline() } catch { /* 无害 */ } }
-    unsubscribePipeline = onPipelineUpdate((snapshot) => applyComposeSnapshot(snapshot, true))
-    startComposePolling()
-  } catch (e) {
-    fail((e && e.message) || String(e))
-  } finally {
-    busy.value = false
-  }
-}
-
-/** 合成进度轮询兜底：读 run context 取 finalPath 与进度（事件丢失也能收敛） */
-async function pollComposeRun () {
-  if (!composeRunId.value) return
-  try {
-    const res = await pipelineGetRunContext(composeRunId.value)
-    if (!res || res.code !== 0 || !res.data) return
-    applyComposeSnapshot(res.data, false)
-  } catch { /* 下一轮重试 */ }
-}
-
-function startComposePolling () {
-  stopComposePolling()
-  const interval = Number(props.pollIntervalMs) > 0 ? Number(props.pollIntervalMs) : 3000
-  composePollTimer = setInterval(() => { void pollComposeRun() }, interval)
-}
-
-function stopComposePolling () {
-  if (composePollTimer) { clearInterval(composePollTimer); composePollTimer = null }
-  if (typeof unsubscribePipeline === 'function') { try { unsubscribePipeline() } catch { /* 无害 */ } unsubscribePipeline = null }
-}
-
-async function openFinalFolder () {
-  if (!finalPath.value) return
-  try { await story2videoShowInFolder(finalPath.value) } catch (e) { fail((e && e.message) || String(e)) }
-}
-
-async function saveFinalAs () {
-  if (!finalPath.value) return
-  try { await story2videoSaveAs(finalPath.value) } catch (e) { fail((e && e.message) || String(e)) }
-}
-
-// ── ⑤ 片段编辑 ────────────────────────────────────────────────────────
-
-function openEditor (index) {
-  editingShotIndex.value = index
-}
-
-async function saveShotEdit (payload) {
-  const api = feApi()
-  if (!api || !plan.value) return { ok: false }
-  try {
-    const data = unwrap(await api.autoUpdateShot({ taskId: plan.value.taskId, shotIndex: payload.shotIndex, patch: payload.patch }))
-    await refreshStatus()
-    return { ok: true, shot: data && data.shot }
-  } catch (e) {
-    fail((e && e.message) || String(e))
-    return { ok: false, message: (e && e.message) || String(e) }
-  }
-}
-
-async function regenerateShot (index) {
-  const api = feApi()
-  if (!api || !plan.value) return { ok: false }
-  try {
-    const data = unwrap(await api.autoRegenerateShot({ taskId: plan.value.taskId, shotIndex: index, confirmed: true }))
-    if (data && data.needsReconfirm) return { ok: false, needsReconfirm: true }
-    await refreshStatus()
-    if (typeof data !== 'undefined') errorText.value = ''
-    return { ok: true, path: data && data.path }
-  } catch (e) {
-    fail((e && e.message) || String(e))
-    return { ok: false, message: (e && e.message) || String(e) }
-  }
-}
-
-function resetAll () {
-  phase.value = 'input'
-  plan.value = null
-  project.value = null
-  confirmed.value = false
-  composeRunId.value = ''
-  composePercent.value = 0
-  progress.value = { doneCount: 0, totalCount: 0, batchIndex: null, lastType: '' }
-  stopPolling()
-}
-
-onMounted(() => {
-  const api = feApi()
-  if (api && typeof api.onAutoUpdate === 'function') {
-    unsubscribeAuto = api.onAutoUpdate(applyAutoEvent)
-  }
-  // 「重新打开可续跑」：优先恢复上次的任务（同名任务在服务端即续跑），失败则安静留在输入态
-  void restoreLastTask()
-})
-
-onBeforeUnmount(() => {
-  if (typeof unsubscribeAuto === 'function') unsubscribeAuto()
-  if (typeof unsubscribePipeline === 'function') unsubscribePipeline()
-  stopPolling()
-  if (composePollTimer) { clearInterval(composePollTimer); composePollTimer = null }
-  if (fileInput && fileInput.parentNode) fileInput.parentNode.removeChild(fileInput)
-  fileInput = null
-})
+const {
+  progress, composeRunId, composePercent, composePhase, composeError, finalPath, finalUnavailable,
+  stopping, restored,
+  percent, stepIndex, stageList, shots, missingShots, canCompose, finalFileUrl, diskEstimateText, wallclockText,
+  refreshStatus, applyAutoEvent, startPolling, stopPolling, persistLastTask, readLastTask,
+  stopRun, restoreLastTask, applyComposeSnapshot, compose, pollComposeRun, startComposePolling, stopComposePolling,
+  openFinalFolder, saveFinalAs, openEditor, saveShotEdit, regenerateShot, resetAll,
+} = useFilmAutoRun({ feApi, t, props, phase, project, plan, busy, errorText, errorCode, form, editingShotIndex, fail, unwrap })
 
 defineExpose({
-  form, characterRefs, sceneRefs, plan, project, phase, progress, confirmed, busy, errorText,
-  percent, stageList, shots, missingShots, canCompose, finalPath, finalFileUrl, composeRunId,
-  composePercent, composePhase, composeError, estimatedShots, canPlan, scriptLength, scriptTooLong,
-  durationValid, errorCode, stopping, restored, diskEstimateText, wallclockText,
-  runPlan, startRun, stopRun, restoreLastTask, persistLastTask, readLastTask,
-  refreshStatus, applyAutoEvent, applyComposeSnapshot, compose,
-  pollComposeRun, openFinalFolder, saveFinalAs, saveShotEdit, regenerateShot,
-  uploadRefFile, pickRefFile, removeCharRef, removeSceneRef, resetAll, openEditor,
+  form, plan, project, phase, busy, errorText, errorCode, confirmed, overwriteExisting, editingShotIndex,
+  scriptLength, scriptTooLong, durationValid, estimatedShots, canPlan,
+  runPlan, startRun, fail, unwrap,
+  characterRefs, sceneRefs, uploadingKind, pickRefFile, uploadRefFile, readAsDataUrl, removeCharRef, removeSceneRef,
+  progress, composeRunId, composePercent, composePhase, composeError, finalPath, finalUnavailable,
+  stopping, restored, percent, stepIndex, stageList, shots, missingShots, canCompose, finalFileUrl,
+  diskEstimateText, wallclockText, refreshStatus, applyAutoEvent, startPolling, stopPolling,
+  persistLastTask, readLastTask, stopRun, restoreLastTask, applyComposeSnapshot, compose,
+  openFinalFolder, saveFinalAs, openEditor, saveShotEdit, regenerateShot, resetAll,
 })
 </script>
 
@@ -851,43 +429,4 @@ defineExpose({
     />
   </div>
 </template>
-
-<style scoped>
-.fa-panel { padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
-.fa-steps { margin-bottom: 4px; }
-.fa-card { border: 1px solid var(--el-border-color-lighter, #ebeef5); border-radius: 8px; padding: 12px 14px; }
-.fa-label { font-size: var(--font-size-sm, 13px); font-weight: 600; margin-bottom: 8px; }
-.fa-hint { margin: 0; color: var(--el-text-color-secondary, #909399); font-size: var(--font-size-xs, 12px); line-height: 1.6; }
-.fa-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: var(--font-size-xs, 12px); color: var(--el-text-color-secondary, #909399); }
-.fa-meta .is-danger, .fa-error { color: var(--el-color-danger, #f56c6c); }
-.fa-error-bar { margin: 0 0 8px; font-size: var(--font-size-sm, 13px); }
-.fa-row { display: flex; gap: 16px; flex-wrap: wrap; }
-.fa-field { min-width: 200px; }
-.fa-choices { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
-.fa-choice { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-sm, 13px); }
-.fa-chip { appearance: none; border: 1px solid var(--el-border-color, #dcdfe6); background: transparent; border-radius: 999px; padding: 2px 10px; font-size: var(--font-size-xs, 12px); cursor: pointer; margin-right: 4px; }
-.fa-chip.active { border-color: var(--el-color-primary, #5048e5); color: var(--el-color-primary, #5048e5); font-weight: 600; }
-.fa-estimate { margin: 0 0 8px; font-size: var(--font-size-sm, 13px); color: var(--el-text-color-regular, #606266); }
-.fa-advanced { border: 1px solid var(--el-border-color-lighter, #ebeef5); border-radius: 8px; padding: 0 12px; }
-.fa-ref-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.fa-ref-item { display: flex; align-items: center; gap: 8px; }
-.fa-ref-name { max-width: 180px; }
-.fa-ref-path { color: var(--el-text-color-secondary, #909399); font-size: var(--font-size-xs, 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
-.fa-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 16px; margin: 0 0 10px; }
-.fa-kv div { display: flex; gap: 6px; font-size: var(--font-size-sm, 13px); }
-.fa-kv dt { color: var(--el-text-color-secondary, #909399); min-width: 72px; }
-.fa-kv dd { margin: 0; }
-.fa-warnings ul { margin: 0; padding-left: 18px; font-size: var(--font-size-xs, 12px); line-height: 1.7; color: var(--el-color-warning, #e6a23c); }
-.fa-charmap { margin: 8px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.fa-shot-preview { list-style: none; margin: 8px 0; padding: 0; max-height: 200px; overflow: auto; font-size: var(--font-size-xs, 12px); }
-.fa-shot-preview li { display: flex; gap: 10px; padding: 2px 0; }
-.fa-shot-id { min-width: 72px; color: var(--el-text-color-secondary, #909399); }
-.fa-shot-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fa-confirm { display: flex; gap: 8px; align-items: flex-start; font-size: var(--font-size-sm, 13px); margin: 8px 0 4px; }
-.fa-shots { width: 100%; border-collapse: collapse; font-size: var(--font-size-xs, 12px); margin-top: 8px; }
-.fa-shots th, .fa-shots td { border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5); padding: 4px 6px; text-align: left; }
-.fa-shot-error { color: var(--el-color-danger, #f56c6c); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fa-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.fa-final { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
-.fa-final-video { width: 100%; max-height: 360px; border-radius: 6px; background: #000; }
-</style>
+<style scoped src="./film-auto-panel.css"></style>
