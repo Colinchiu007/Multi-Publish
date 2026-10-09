@@ -1,3 +1,20 @@
+# [未发布] docs(agents): PR 合并后收尾链补「已知假失败」判据口径，并加 busy holders 不误杀用户实例的清理规程（2026-10-10，docs-agents-merge-closure-gotchas）
+
+### 用户感知
+
+无。本次只改流程文档（`AGENTS.md`），不改任何运行行为、界面控件、显示项或提示文字；打包产物、发布链路、账号登录态口径完全不变。
+
+### 变更明细
+
+- `AGENTS.md`「PR 自动合并 → 合并后收尾清单（缺一不可）」新增第 6 条：清理 worktree 被 `busy holders` 挡住时的判读规程——按「命令行含该 worktree 绝对路径」定位持有者，再核**完整进程树**与 CPU 增量（同一 PID 间隔 6s 两次采样 `UserModeTime` 完全相同即挂死残留），确认是本会话自己中止的运行后**逐个按 PID** 终止；终止前后各测一次 `Get-Process electron` 计数，两者**必须相等**。动机是本机通常还有别的 worktree 在跑用户的应用实例，按进程名批量 kill 会直接误杀；脏清单（多为 `.ccg/reviews/<sha>.json` 孤儿）先复制到共享根同名目录留证，再 `-Force -ConfirmDirtyDiscarded`，复制前须先 `git ls-tree -r --name-only origin/main -- <路径>` 确认该文件名未被上游托管，否则会把后续 `git merge --ff-only` 变成「untracked working tree files would be overwritten」并卡住所有文档 PR。
+- `AGENTS.md` 新增小节「收尾链上的已知假失败（判据一律取产物，不取 rc）」六条，每条给出**正确判据**而非仅现象：① `gh pr merge <n> --squash --delete-branch` 在本仓恒 rc=1（gh 本地收尾要动 `main`，而 `main` 由共享根 worktree 持有）⇒ 只认 `state=MERGED` + `mergeCommit.oid`、远端分支 0 行、`git log` 恰好 1 行，不得因 rc=1 重跑合并；② `classify-docs-only.js --head=HEAD` 必须在 commit 之后取证（未提交时 `HEAD==base` ⇒ 空 diff ⇒ 假 `docs-only=false files=0`）；③ Git Bash 的 MSYS 会把 `git show origin/main:<path>` 改成 `origin\main;<path>` ⇒ 先 `export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`；④ `safe-worktree-remove.ps1` 在 `node_modules` 深路径报 `Filename too long`（`git worktree remove` rc=255）属预期路径，R6 长路径兜底 + R7 基线对账，末尾 `worktree gone : True` 即成功，不得据此改判失败、更不得手工递归删除（R0）；⑤ squash 合并后分支 tip 不是 `origin/main` 的祖先，`git merge-base --is-ancestor` 判「已合并」必然为假（`git branch -d` 同因拒绝）⇒ 正解是比树：`git diff --stat <branch-tip> <merge-SHA>` 输出为空；⑥ 共享根 `main` 滞后于 `origin/main` 时不得就地编辑 `AGENTS.md`/`.quality-gates.md`/`CHANGELOG.md` 这类上游也在改同一处的文件 ⇒ 开写前先 `git merge --ff-only origin/main`，并用 `git log HEAD..origin/main -- <目标文件>` 确认没有未吸收的上游改动。
+- 数据来源与校验口径：六条全部来自本会话 `fix-account-tab-cookie-restore`（PR #3239、回填 #3240）收尾链的实跑现场（合并产物、`safe-worktree-remove.ps1` 输出、`git diff --stat` 树等值对账、两次共享根 ff 取证），无一条为推测。第 ⑥ 条有**本条 CHANGELOG 编辑过程中当场复发**的事故支撑：先把旧条目标题行当锚点替换成自己的新块、漏把原标题放回，等于反向撤销上一条已合并的记录，且两口径 `git diff --numstat` 对账照样通过（行尾对账不是内容逆否证）——发现后立即 `git restore --source=HEAD --worktree -- CHANGELOG.md`（单文件，R2 合规）重放，重放后对账 `17 0` == `17 0`、删除数 0。
+- 流程逻辑：无新增自动化门禁（诚实记录）。这六条是「退出码语义」问题，可机械锁住的产物判据已由既有收尾清单第 1-2 条与 `check-pr-exec-record.js` 覆盖；是否把「共享根滞后即拒提交」升级为 pre-commit 拦截属人工裁决，敞口如实记在 `openspec/records/docs-agents-merge-closure-gotchas.md` 的「遗留」。
+- 交互与文案：无新增 locale 键、无新增用户可见文案；「一键检测」结论口径与登录态真源单向证据规则均未改动。
+- 详见 `openspec/records/docs-agents-merge-closure-gotchas.md`（QM-5 五步逐条取证与两条遗留）。
+
+---
+
 # [未发布] fix(account): 账号卡片开卡不再把旧快照盖回实时分区，修复「点开是登录页、检测后再开才正常」（2026-10-10，fix-account-tab-cookie-restore）
 
 ### 用户感知

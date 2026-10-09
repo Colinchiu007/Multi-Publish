@@ -102,6 +102,16 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 3. 开回填 PR，一次提交内完成：改写 `.quality-gates.md` 与 `openspec/records/<分支>.md` 的远程同步行、删除 `sync_*` 三字段、删除 ledger 登记项；
 4. 按本节判据合并回填 PR；
 5. worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
+6. 清理被 `busy holders` 挡住时：先按「命令行含该 worktree 绝对路径」定位持有者，再核**完整进程树**与 CPU 增量（同一 PID 间隔 6s 两次采样 `UserModeTime` 完全相同即挂死残留），确认是本会话自己中止的运行后**逐个按 PID** 终止；终止前后各测一次 `Get-Process electron` 计数，两者**必须相等**——本机通常还有别的 worktree 在跑用户的应用实例，按名字批量 kill 必然误杀。脏清单（多为 `.ccg/reviews/<sha>.json` 孤儿）先复制到共享根同名目录留证，再 `-Force -ConfirmDirtyDiscarded`；复制前须先 `git ls-tree -r --name-only origin/main -- <路径>` 确认该文件名未被上游托管，否则会把 `git merge --ff-only` 变成「untracked would be overwritten」并卡住后续所有文档 PR。
+
+**收尾链上的已知假失败（判据一律取产物，不取 rc）**
+
+- `gh pr merge <n> --squash --delete-branch` 在本仓**恒 rc=1**（`failed to run git: fatal: 'main' is already used by worktree at <共享根>`）：gh 的本地收尾步骤要动 `main`，而 `main` 由共享根 worktree 持有。合并成败只认上面三条产物（`state=MERGED` + `mergeCommit.oid`、远端分支 0 行、`git log` 恰好 1 行），**不得因 rc=1 重跑合并**。
+- `scripts/classify-docs-only.js --head=HEAD` 必须在 **commit 之后**取证：未提交时 `HEAD==base` ⇒ 空 diff ⇒ 返回 `docs-only=false files=0`。那是取证顺序问题，不是判定失灵——把预提交的那次判定写进 PR 正文会写成假结论。
+- 共享根下 `git show origin/main:<path>` 会被 Git Bash 的 MSYS 参数转换改成 `origin\main;<path>` ⇒ `fatal: ambiguous argument`。读主干 blob 前先 `export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`。
+- `safe-worktree-remove.ps1` 在 `node_modules` 深路径上报 `error: failed to delete ...: Filename too long`（`git worktree remove` rc=255）属**预期路径**：注册已解除，脚本的 R6 长路径兜底会直删残留目录、R7 再对账基线，末尾出现 `worktree gone : True` 即成功。**不得**据此改判失败、更不得手工递归删除（R0）。
+- squash 合并后**分支 tip 不是 `origin/main` 的祖先**，用 `git merge-base --is-ancestor <branch> origin/main` 判「已合并」必然为假（`git branch -d` 同因拒绝）。删本地分支前的正解是比**树**：`git diff --stat <branch-tip> <merge-SHA>` 输出为空 ⇒ 内容已完整进主干，此时删除才安全。
+- 共享根 `main` 滞后于 `origin/main` 时**不得**就地编辑 `AGENTS.md` / `.quality-gates.md` / `CHANGELOG.md` 这类「上游也在改同一处」的文件：分层判据只看影响面，但**滞后的工作副本会让 docs PR 反向撤销已合并的那一行**。开写前先 `git merge --ff-only origin/main`（被 untracked 挡住就移开那个文件），并用 `git log HEAD..origin/main -- <目标文件>` 确认没有未吸收的上游改动。
 
 **残留风险（不假装已闭合）**
 

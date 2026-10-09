@@ -1,4 +1,9 @@
 {
+  "本次执行记录：PR 收尾链假失败口径与共享根滞后防线（docs-agents-merge-closure-gotchas，2026-10-10）【docs-only】": {
+    "reason": "本 PR（docs-only，纯 AGENTS.md 流程文档增补）尚未合并，merge SHA 还不存在。合并后由本 PR 作者侧的回填 docs PR 收口：按 git log origin/main --grep='(#NNNN)$' 取 merge SHA 与时间、git ls-remote --heads origin docs-agents-merge-closure-gotchas 返回 0 行证远端分支已删，回填与删除本条登记必须同一次提交发生，并同次删除 openspec/records/docs-agents-merge-closure-gotchas.md 的 frontmatter 三 sync_* 字段。",
+    "status": "PENDING",
+    "line": 1
+  },
   "本次执行记录：多语言内容同步机制文档与规划（i18n-content-sync）（2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "记录",
