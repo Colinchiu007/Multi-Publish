@@ -126,7 +126,7 @@
       />
       <div v-else class="topics-list">
         <div
-          v-for="(topic, viewIndex) in filteredTopics"
+          v-for="(topic, viewIndex) in renderedTopics"
           :key="topic.id"
           class="topic-item"
           :class="{ selected: selectedIds.has(topic.id) }"
@@ -177,6 +177,12 @@
           </button>
         </div>
       </div>
+
+      <!-- M-15：截断提示 + 加载更多（榜单可能长期积累，一次全量渲染必然劣化） -->
+      <LoadMoreRow v-if="topicsTruncated" data-testid="load-more-topics"
+        :hint="t('hotTopics.shownTruncated', { shown: renderedTopics.length, total: filteredTopics.length })"
+        :button-text="t('hotTopics.loadMoreTopics')"
+        @more="topicRenderLimit += 30" />
     </div>
 
     <!-- 收藏选题 tab（独立组件减少 HotTopics.vue 行数） -->
@@ -274,6 +280,7 @@ import UiModal from '@/components/UiModal.vue'
 import HotTopicsCentralLoading from '@/components/HotTopicsCentralLoading.vue'
 import { StageProgress } from './video-creation'
 import HotTopicsFavorites from '@/components/HotTopicsFavorites.vue'
+import LoadMoreRow from '@/components/LoadMoreRow.vue'
 import { useHotTopicsFavorites } from '@/composables/useHotTopicsFavorites'
 import { useHotTopicsGenVideo } from '@/composables/useHotTopicsGenVideo'
 import {
@@ -374,6 +381,13 @@ const filteredTopics = computed(() => {
   // 分类/渠道切换后保持"分类内由热到冷"（P0）；Array.sort 稳定，缺 score 旧条目沉底且保持原序
   return list.slice().sort((a, b) => (typeof b.score === 'number' ? b.score : -1) - (typeof a.score === 'number' ? a.score : -1))
 })
+
+// M-15：渲染层截断 —— 榜单可能长期积累，一次全量渲染必然劣化。
+// 全选（selectAll/allFilteredSelected）仍基于 filteredTopics 全量集合，
+// 语义是"选中全部筛选结果"，与只渲染前 N 条不冲突。
+const topicRenderLimit = ref(30)
+const renderedTopics = computed(() => filteredTopics.value.slice(0, topicRenderLimit.value))
+const topicsTruncated = computed(() => filteredTopics.value.length > renderedTopics.value.length)
 
 /** 多源信号（P3 兼容：旧缓存无 sourceCount 时回退 mergedFrom 长度 +1） */
 function sourceCount(x) {

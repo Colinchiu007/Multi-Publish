@@ -282,6 +282,7 @@
             @open-creator="openCreatorCenter"
             />
           </div>
+          <LoadMoreRow v-if="accountsTruncated" data-testid="load-more-accounts" :hint="shownTruncatedHint" :button-text="t('accountsPage.loadMoreAccounts')" @more="loadMoreAccounts" />
         </section>
       </div>
     </main>
@@ -364,6 +365,7 @@ import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialo
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import RiskSuspendedBanner from '@/features/accounts/components/RiskSuspendedBanner.vue'
+import LoadMoreRow from '@/components/LoadMoreRow.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { accountBatchCheckLogin } from '@/api/publisher'
 import { getApi } from '@/api/electron-bridge'
@@ -646,12 +648,20 @@ const accountsBeforePlatformFilter = computed(() => {
     && matchesAssignee(account, PUBLISHER_FIELD_KEYS, publisherFilter.value)
   ))
 })
+// M-15：渲染截断 + 加载更多（计数/分组仍基于全量集合）
+const accountsRenderLimit = ref(48)
+const accountsTotalUntruncated = computed(() => {
+  const accounts = accountsBeforePlatformFilter.value
+  return platformFilter.value ? accounts.filter(a => a.platform === platformFilter.value).length : accounts.length
+})
 const visibleAccounts = computed(() => {
   const accounts = accountsBeforePlatformFilter.value
-  return platformFilter.value
-    ? accounts.filter(account => account.platform === platformFilter.value)
-    : accounts
+  const filtered = platformFilter.value ? accounts.filter(a => a.platform === platformFilter.value) : accounts
+  return filtered.slice(0, accountsRenderLimit.value)
 })
+const accountsTruncated = computed(() => accountsTotalUntruncated.value > visibleAccounts.value.length)
+const loadMoreAccounts = () => { accountsRenderLimit.value += 48 }
+const shownTruncatedHint = computed(() => t('accountsPage.shownTruncated', { shown: visibleAccounts.value.length, total: accountsTotalUntruncated.value }));
 const groupedPlatforms = computed(() => {
   const groups = new Map()
   for (const account of visibleAccounts.value) {

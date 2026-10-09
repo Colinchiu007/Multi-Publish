@@ -52,7 +52,7 @@
 
     <div v-else class="copy-library-grid" data-testid="copy-library-list">
       <article
-        v-for="entry in filteredItems"
+        v-for="entry in renderedItems"
         :key="entry.id"
         class="copy-library-card"
         :data-testid="'copy-library-item-' + entry.id"
@@ -76,6 +76,12 @@
         </div>
       </article>
     </div>
+
+    <!-- M-15：截断提示 + 加载更多（文案列表可能长期积累，一次全量渲染必然劣化） -->
+    <LoadMoreRow v-if="itemsTruncated" data-testid="load-more-copies"
+      :hint="t('copyLibrary.shownTruncated', { shown: renderedItems.length, total: filteredItems.length })"
+      :button-text="t('copyLibrary.loadMoreCopies')"
+      @more="copyRenderLimit += 30" />
   </div>
 </template>
 
@@ -85,6 +91,7 @@ import { useRouter } from 'vue-router'
 import { View } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadMoreRow from '@/components/LoadMoreRow.vue'
 import { useNotify } from '@/composables/useNotify'
 import { story2videoGetProject } from '@/api/publisher'
 import { setCopyDetailHandoff } from '@/utils/copy-detail-handoff'
@@ -116,6 +123,11 @@ const filteredItems = computed(() => {
   }
   return list
 })
+
+// M-15：渲染层截断 —— 文案列表可能长期积累，一次全量渲染必然劣化
+const copyRenderLimit = ref(30)
+const renderedItems = computed(() => filteredItems.value.slice(0, copyRenderLimit.value))
+const itemsTruncated = computed(() => filteredItems.value.length > renderedItems.value.length)
 
 /**
  * 打开文案详情（一键发布页承载，2026-10-09 PRD-COPY-LIBRARY-DETAIL-ENTRY）。
@@ -236,6 +248,11 @@ onMounted(() => { loadAll() })
 }
 .copy-library-grid {
   display: grid;
+}
+.load-more-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 4px; }
+.load-more-hint { color: #85858f; font-size: var(--font-size-sm); }
+.load-more-btn { padding: 6px 18px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; color: var(--color-text-primary); cursor: pointer; font-size: var(--font-size-sm); }
+.load-more-btn:hover { background: var(--color-bg-inset); }
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 12px;
 }
