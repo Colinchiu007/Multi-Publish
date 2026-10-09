@@ -117,6 +117,10 @@
 
 **决策**：`project.json` 增 `confirmations[]`（append-only）：每条记录 `{at, payloadHash, shotsFingerprint, planVersion}`；以最新一条为基准；刷新确认只追加，不覆盖历史。**理由**：清单式确认的可审计性依赖"某次 provider 调用对应哪次确认"可回溯；覆盖式字段会让历史自毁。
 
+**实现补充（落盘字段口径）**：`project.json` **只存 `editedAt`**（最近一次内容变更时间），不另存可被覆盖的 `confirmedAt` 字段——"最近一次确认时间"一律由 `confirmations[confirmations.length-1].at` 派生（`auto-project.js` 的 `latestConfirmation`），避免两份时间戳漂移。`needsReconfirm(project, {payloadHash})` 的三条判据（无确认记录 / 载荷哈希不一致 / `editedAt > 最新确认 at`）即 D16+D25 的机械实现。
+
+**overwrite 的轮次字段**：`createProject({overwrite:true})` 返回 `runSeq = 上一轮 + 1` 与 `supersededFrom = 上一轮`，并把上一轮的 `project.json`/`ledger.json` 归档到 `archive/<旧 runSeq>/`（`auto-project.js` 的 `archiveTaskRun`/`listTaskRuns`）——审计链跨 overwrite 仍可回溯（D27）。
+
 ## D20 taskId 签发与预算口径（第 2/3 轮 Info 采纳）
 
 **决策**：服务端默认签发 `auto-<yyyyMMddHHmmss>`，允许客户端覆盖但须过路径安全与字符校验；已存在且无显式 `overwrite` → `AUTO_TASK_EXISTS`。**同一剧本允许并存多个 taskId**（各自独立确认），**预算按 task 隔离、无全局上限**——该口径在确认卡与用户手册明示，不用"看起来更安全"的假全局闸掩盖口径不清。

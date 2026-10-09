@@ -19,14 +19,15 @@
 
 ## 2. 后端规划层（auto-plan / auto-project）
 
-- [ ] 2.1 测试先行：`auto-plan.test.js`（时长规划矩阵：T/s→N、`MAX_AUTO_SHOTS=120` 上限、K<N 只做句级拆分、K>N 只在时长规划合并、合并不丢字、非法参数）
-- [ ] 2.2 实现 `auto-plan.js`：`planAutoShots()`（时长规划 + 分场 + 模板映射，复用 `ScriptAdapter`/`splitScript`）
-- [ ] 2.3 测试先行：角色检出（显式标记/对话动词/频次/用户标注优先/空检出占位/停用词不误判）
-- [ ] 2.4 实现角色检出 + 槽位映射（`ROKO/JAXX/LULU/REIN` 降序填充）
-- [ ] 2.5 测试先行：参考图绑定（人物命中/场景轮转/≤2 张/provider 不支持→W1/越界路径拒绝）
-- [ ] 2.6 实现绑定 + 警告清单（W1–W5）
-- [ ] 2.7 测试先行：`auto-project.js`（原子写、损坏 fail-closed、字段校验、patch 合并）
-- [ ] 2.8 实现项目文件读写与校验
+- [x] 2.1 测试先行：`auto-plan.test.js`（42 条：时长规划矩阵、`MAX_AUTO_SHOTS=120` 上限、K<N 只做句级拆分、K>N 只在时长规划合并、合并不丢字、非法参数）
+- [x] 2.2 实现 `auto-plan.js`：`planAutoShots()`（时长规划 + 分场 + 模板映射，复用 `ScriptAdapter.buildTemplatePrompt`/`splitScript`）
+- [x] 2.3 测试先行：角色检出（显式标记/对话动词/频次/用户标注优先/空检出占位/停用词不误判）
+- [x] 2.4 实现角色检出 + 槽位映射（`ROKO/JAXX/LULU/REIN` 降序填充）
+- [x] 2.5 测试先行：参考图绑定（人物命中/场景轮转/≤2 张/provider 不支持→W1/越界路径拒绝）
+- [x] 2.6 实现绑定 + 警告清单（W1–W5）
+- [x] 2.7 测试先行：`auto-project.js`（14 条：原子写、TTL/consumed/归属、损坏 fail-closed、overwrite 归档、patch 校验、确认历史 append-only、needsReconfirm、计数对账）
+- [x] 2.8 实现项目文件读写与校验（含确认历史、providerCalls、归档轮次）
+- [x] 2.9 指纹与哈希（D26）：`buildShotFingerprint` / `buildPayloadHash` / `buildPlanId` 参与位单测（含 taskId/参考图指纹/provider 变更即换 key）
 
 ## 3. 后端执行层（IPC + runner）
 
