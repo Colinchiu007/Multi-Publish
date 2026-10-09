@@ -2,9 +2,6 @@
 record: docs-agents-merge-closure-gotchas
 task: 把「PR 合并后收尾链」上实测到的六类假失败与共享根滞后前提，写入 AGENTS.md 的收尾清单与新增小节
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 取证并删除本段三字段
-sync_backfill_owner: 下一个会话（本 PR 作者侧）
 ---
 
 ## 本次执行记录：PR 收尾链假失败口径与共享根滞后防线（docs-agents-merge-closure-gotchas，2026-10-10）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（本 PR 作者侧）
 | 接线棘轮 | N/A | 本 PR 未新增任何 `*.test.js` / `*.test.mjs` / `*.test.sh` / `*.test.ps1`，`check-unwired-tests.js` 的欠账清单不变（该判据按文件增删比对，无新增即无登记） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 或 `packages/rpa-engine/`，无 UI 文件、无样式、无文案改动，显示项与提示文字不变；docs-only 通道按 AGENTS.md 明确跳过 QM-1/QM-2 代码必检项/QM-4/TDD |
 | QM-6 CCG 双模型外部评审 | 未执行 | 纯流程文档变更，按 AGENTS.md「纯文档/流程变更不强制 QM-6」；本会话亦未把自审冒充双模型外部评审。评审面留给下一个读 `AGENTS.md` 的会话：新增小节的六条判据是否被改宽（这是既有「残留风险」段点名的、机械闸门挡不住的那一类） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin docs-agents-merge-closure-gotchas` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段，并在**同一次提交**内删掉 `scripts/gate-record-debt-ledger.json` 的登记项 |
+| 远程同步 | PASS | 已合并：#3241 squash 落地 `52b3d0a5c8ab2c1e8a0a60120c0292a5d144d347`（committer 2026-10-10T05:19:58+08:00）。取证：`git log origin/main --grep='(#3241)$' --format='%H|%cI'` 恰好 1 行且与 `gh pr view 3241 --json state,mergeCommit`（`MERGED` + 同一 `mergeCommit.oid`）两源一致；`git ls-remote --heads origin docs-agents-merge-closure-gotchas` 返回 0 行（远端分支已删）。本次回填同一次提交内删除本文件 frontmatter 三 `sync_*` 字段与 `scripts/gate-record-debt-ledger.json` 的登记项 |
 
 ### 遗留（不假装已闭合）
 
