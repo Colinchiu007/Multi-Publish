@@ -1,7 +1,7 @@
 <template>
   <div class="film-engineering-view">
-    <h1 class="fe-title">{{ t('filmEngineering.title') }}</h1>
-    <p class="fe-subtitle">{{ t('filmEngineering.subtitle') }}</p>
+    <h1 v-if="!embedded" class="fe-title">{{ t('filmEngineering.title') }}</h1>
+    <p v-if="!embedded" class="fe-subtitle">{{ t('filmEngineering.subtitle') }}</p>
 
     <ConfigProfileManager
       pipeline-id="film-engineering"
@@ -456,6 +456,10 @@ import { useRouter } from 'vue-router'
 import { useFilmVideoGen, FILM_MAX_VIDEO_BATCH } from '@/composables/useFilmVideoGen'
 import { story2videoShowInFolder, story2videoSaveAs } from '@/api/publisher'
 import { useFilmProduction } from '@/composables/useFilmProduction'
+
+// embedded=true 时作为 Hub 第 3 标签「工程案例」内嵌（隐藏页面级 h1/subtitle）；
+// 默认 false 时渲染与本次变更前逐字一致（既有测试与 /film-engineering/classic 直达页以此为准）。
+defineProps({ embedded: { type: Boolean, default: false } })
 
 const { t } = useI18n()
 const {

@@ -297,16 +297,19 @@ export const ROUTE_REGISTRY = Object.freeze([
     entryFrom: '/create',
   },
   {
-    // 暗路由：从 /create（CreateView.vue 选择 film-engineering 流水线）进入；主视图为短剧画布 FilmCanvasView.vue
+    // 暗路由：从 /create（CreateView.vue 选择 film-engineering 流水线）进入；
+    // 主视图为三标签 Hub（FilmEngineeringHubView.vue：自动 / 画布 / 工程案例）
     path: '/film-engineering',
     name: 'FilmEngineering',
-    view: 'FilmCanvasView.vue',
+    view: 'FilmEngineeringHubView.vue',
     navEntry: null,
     internal: true,
     entryFrom: '/create',
   },
   {
-    // 暗路由：经典三栏视图回退入口，仅从 /film-engineering 画布工具栏「回退经典页」进入
+    // 暗路由：工程案例无标签直达页（与 Hub 第 3 标签同源）；
+    // 刻意保持为非 redirect 路由——改 redirect 会减少「非 redirect 路由数」，
+    // 触碰 useTabDocumentTitle.test.js 的路由覆盖棘轮（design D24）
     path: '/film-engineering/classic',
     name: 'FilmEngineeringClassic',
     view: 'FilmEngineeringView.vue',
