@@ -50,8 +50,39 @@
 
 `quality-gate.yml` 的 `visual` job（Gate 7 步骤）与其后的 Gate 7b 步骤之间缺一条**「判定域 == 渲染来源」的接线锁**：`check-baseline-freshness.js` 能如实报告 `skipped`，但没有任何东西在问「skipped 是否应该恒为空」。同族先例是 `visual-ci.test.js` 的「pixelTests 每条用例的基线都必须被白名单放行」——那把锁上线时当场抓出一处既有缺口；本次补的是它的暗色镜像。
 
-## 4. 缺口 B：白名单缺条目 + 镜像漂移锁一处真源被冗余打破
+### 3.4 那 8 张暗档漂移的实测归因（推翻我最初的假设）
 
+我最初的假设是「#3159 漏刷暗档」。**实测把它否证了**：
+
+- `git show --name-only a43287ac7 -- apps/desktop/tests/visual-testing/base-screenshots` 列出 29 张，**这 8 张暗档全在其中**（连 `collection-dark.png` 也在）。所以不是"没刷"。
+- 逐张定位（严格逐像素相等，不用 pixelmatch 输出图）比对「main 上的基线」vs「同 sha main push run 37799089491 的暗档渲染」：
+
+| 视图 | 严格相等像素 | bbox |
+| --- | --- | --- |
+| accounts-list-dark | 42 px | (1393,418)->(1399,426) |
+| accounts-list-flag-on-dark | 42 px | (1393,418)->(1399,426)（与上一张同坐标同面积 ⇒ 同一元素） |
+| cloud-publish-dark | 113978 px (5.497%) | (232,251)->(1887,852) |
+| create-history-dark | 94 px | (806,596)->(999,604) |
+| create-result-dark | 286 px | (1040,321)->(1079,333) |
+| publish-form-dark | 26323 px (1.269%) | (256,256)->(1652,1079) |
+| publish-history-dark | 359 px | (600,479)->(624,991) |
+| viral-analysis-dark | 1622 px (0.078%) | (1368,233)->(1842,245) |
+
+  注意口径：**严格相等与 CI 报的数字不可互校**（CI 那张报 cloud-publish 11176 px / 0.539%，我这里 113978 px / 5.497%），引用时必须注明是哪一个度量。
+
+- 颜色对取证（把 bbox 内「基线色 → 渲染色」的去重表，拿到 `git show a43287ac7` 的**新增行**里逐字找）：
+  - `cloud-publish`：最大一类是 `#23232a → #232329`（20236 个像素），而 `#232329` **逐字出现在 #3159 新增的 CSS 行里**，基线侧是旧值。
+  - `accounts-list` / `accounts-list-flag-on`：`#b4b2c6 → #1a1a1e`、`#621a1e → #1a1a1e`，目标色命中新增行。
+  - `create-history`：`#23235e → #232329` 命中新增行。
+  - `viral-analysis`：`#e8e8ed ↔ #232329` 双向都命中新增行。
+
+⇒ **根因是「基线在那次 CSS 改动生效之前抓取」（陈旧采集），不是漏刷。** #3159 确实想刷暗档，但它刷出来的那批与它自己的代码不一致。
+
+### 3.5 这条归因对门禁②是加强，不是削弱
+
+「基线与自身代码不一致」这类错误，只有拿**同 sha 的渲染**去比才暴露得出来，而 PR 侧是唯一能在合入前做这件事的位置。今天 PR 侧不产暗档渲染 ⇒ 只能等 main push；而 `Visual Tests` **不是必需上下文**，红了也没人拦、没人认领 —— 本次它从 15:14 起挂了约 9 小时无人处理。开启 PR 侧暗档判定正是为了把这类错误从"事后 main 红"变成"PR 上红"。
+
+## 4. 缺口 B：白名单缺条目 + 镜像漂移锁一处真源被冗余打破
 `.quality-rhythm/**` 不在 `CI_IGNORED_PATHS` ⇒ 只改那份**文档镜像**的 PR 也判 `docs-only=false`，跑满 Desktop Shards + Coverage + Visual（实测重型 job 15 分钟量级）。AGENTS.md 的**进白名单前提锁**要求「它的校验必须先待在不会被短路的 job」—— 这一半**已由 `e32210e6a` 完成**（Gate 2b2 接进 `changes`），所以放开名单的前提已成立。
 
 但该提交同时**保留了 `static-gates` 那份旧接线**（其注释自述为刻意冗余，理由是"两处跑同一条锁只构成 docs-only PR 也拦得住"）。这个取舍在做当时是对的——彼时登记表还不认识这条锁。今天它和登记表自身的判据直接冲突：`commands` 去向要求「该门禁在整份 workflow 正文恰好出现一次」（E9），因为**两处接线就没有一处真源**，将来任何一侧被改动（例如只挪 `changes` 里的位置）另一侧会静默留着，而登记表只看得到"出现了 ≥1 次"的假象已被 `strictEqual(hits, 1)` 排除。
