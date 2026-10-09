@@ -1,0 +1,251 @@
+# 前端大文件拆分方案（2026-10，v3 外部评审修订版）
+
+> 目标：降低 `apps/desktop/src` 前端巨型单文件的维护成本与合并冲突面，给出**可逐 PR 落地、每步可回滚**的拆分路径。
+> 依据：2026-10 全量行数实测（命令见文末附录），行数以实测时点为准，引用前请重跑附录命令。
+> **v2→v3 修订说明**：v2 经外部评审（codeagent-wrapper 双通道：E1 claude 通道因后端实为 Flash 级模型空转被中止；E2 codex 返回完整结果，9 条 findings 全部经主代理复核属实）。v2 自身的 3 条 Critical 被推翻并已在 v3 修正：①「代理 methods 维持旧测试绿」不成立——测试有 **415 处 `w.vm.状态 = ` 直接赋值**，代理只覆盖方法，已补「状态桥接」机制（§2.3）；②v2 建议的 `locales/zh/<domain>.js` 结构与既有先例 `locales/<domain>/zh.js` **不同构**，check-locale-sync 成对 regex（:88）只认 `zh.js/en.js` 文件名——v3 改回先例同构结构（§3.1）；③locales 分批拆的**中间态无解**——已补「中间态装配契约」（§3.3）。审查记录见附录 B（第一轮）与附录 C（外部轮）。
+
+## 一、现状总览（行数 Top 清单，仅源码）
+
+| 行数 | 大小 | 文件 | 结构特征 |
+|---|---|---|---|
+| **5654** | 320KB | [CreateView.vue](../apps/desktop/src/views/CreateView.vue) | Options API（data :1034 / computed :1207 / watch :1790 / methods :1822-5654，methods 独占 ~3800 行是复杂度主集中区），template 880 行，10+ 功能域混杂 |
+| **3819 / 3804** | ~205KB ×2 | [locales/zh.js](../apps/desktop/src/locales/zh.js) · [en.js](../apps/desktop/src/locales/en.js) | 51 个顶层命名空间单文件平铺（zh/en 键结构经审查核实完全对称），每次加文案必改这两个文件 → **全仓最高频冲突点** |
+| **2744** | 139KB | [Collection.vue](../apps/desktop/src/views/Collection.vue) | template 660 + script ~1940 + style ~140 |
+| **1857** | 102KB | [ResultView.vue](../apps/desktop/src/views/ResultView.vue) | script ~1300 行 |
+| **1697** | 86KB | [Publish.vue](../apps/desktop/src/views/Publish.vue) | script ~960 行 |
+| **1483** | 75KB | [Accounts.vue](../apps/desktop/src/views/Accounts.vue) | script ~1130 行 |
+| **1428** | 55KB | [ModelProviders.vue](../apps/desktop/src/views/ModelProviders.vue) | |
+| **1295** | 68KB | [PublishHistory.vue](../apps/desktop/src/views/PublishHistory.vue) | |
+| **1060** | 50KB | [RewriteView.vue](../apps/desktop/src/views/RewriteView.vue) | |
+| 926 | 52KB | [ViralAnalysis.vue](../apps/desktop/src/views/ViralAnalysis.vue) | 边界线，暂缓 |
+| 744 | 54KB | [video-creation/S2vConfigPanels.vue](../apps/desktop/src/views/video-creation/S2vConfigPanels.vue) | 已是拆分产物，暂缓 |
+
+> 测试文件（CreateView.test.js 实测 6573 行）**不列入拆分对象**，但它是拆分的最大成本项而非「自然归位」：全文件 grep `w.vm.` 命中 **1392 处**——测试直接 mount(CreateView) 后读写 data、调内部 methods（如 `restoreS2VLastOptions`、`selectPipeline`）。方法搬进 composable 后 vm 上不再存在，**「迁测试」实质是按新接口重写**，7 步累计测试改写量可能超过源码搬运本身（详见 §2.3 修订红线）。
+
+**判据**：以「单次变更预期 diff 是否会被无关代码淹没」为拆分标准，而非单纯行数。CreateView 与 locales 是唯二「任何相关改动都必然翻动整个文件」的点，列为 P0。
+
+---
+
+## 二、P0-1：CreateView.vue（5654 行）拆分方案
+
+### 2.1 拆分目标结构（v2：不新建目录，进既有 `video-creation/`）
+
+> **v2 修订（审查 B-4）**：`src/views/video-creation/` 已是 CreateView 的既定部件目录（PipelineSelector / StageProgress / SceneAssetSelection / S2vConfigPanels / create-view-module-utils.js 均在其中，CreateView.vue:889 已在 import）。新拆组件**一律进 `video-creation/`**，不新建 `src/views/create/`，避免同一视图部件散居两目录、`SceneAssetConfirmDialog` 与 `SceneAssetSelection` 命名近似却路径分离。
+
+模板注释分节（:31/:306/:351/:557/:628/:718/:737）已天然画出功能域边界（经审查 A-7 核实全部存在），按域拆为 **子组件 + composable** 两层：
+
+```
+src/views/
+├── CreateView.vue                          # 壳：视图切换 + 布局 + 跨域共享状态
+└── video-creation/                         # 【既有目录，新拆部件进这里】
+    ├── PipelineLaunchPanel.vue             # 【新】流水线启动页（模板 :31-305）
+    ├── QuickRenderView.vue                 # 【新】快速渲染视图（模板 :306-350）
+    ├── PipelineHistoryPanel.vue            # 【新】历史记录视图（模板 :351-556，包壳复用现有 CreateViewHistory.vue）
+    ├── BgmLibraryDialog.vue                # 【新】BGM 素材库管理（模板 :557-627）
+    ├── PipelineConfigProfileDialogs.vue    # 【新】保存配置三弹窗（模板 :628-717）
+    ├── SceneAssetConfirmDialog.vue         # 【新】分镜素材确认（模板 :718-736，包壳既有 SceneAssetSelection）
+    ├── BatchCreatePanel.vue                # 【新】批量创作（模板 :737-末）
+    └── composables/
+        ├── usePipelineLaunch.js            # 启动/暂停/恢复/取消 + canStartPipeline 计算链
+        ├── useS2vConfig.js                 # s2vConfig + 时长估算 + 校准（voice-estimate/tts-calibration 接线，经审查 A-7 核实为真实纯函数模块）
+        ├── useBgmLibrary.js                # bgmLibrary CRUD + 通知
+        ├── useConfigProfiles.js            # configProfile CRUD
+        ├── useTtsVoices.js                 # 音色目录 + 克隆（tts-voice-catalog/clone 接线）
+        └── useBatchCreate.js               # 批量队列状态机
+```
+
+**样式归属（v2 增补，审查 B-3）**：`CreateView.vue:882 import '@/styles/create-view.css'` 为非 scoped 全局样式，且 JS 逻辑与 css 色阶类名一一对应（:1466 计数→色阶类名耦合）。短期统一约定：**css 继续由壳文件全局 import，子组件不单独 import 样式**；禁止把 css 切进子组件 scoped style——色阶类名耦合意味着改样式归属就是行为变更，违反「行为零变更」红线。长期如需切分，单列任务并附类名耦合点清单。
+
+### 2.2 拆分顺序（v2 修订：ConfigProfile 后移，第 6-7 步降级为止损复评项）
+
+| 步 | 内容 | 预估移动行数 | 风险 |
+|---|---|---|---|
+| 1 | 抽 **BGM + SceneAsset** 两个弹窗组件（实测这两段模板 0 处 s2vConfig/selectedPipeline/$route 引用，真正低耦合）+ **每个弹窗按 QM-2 浮层互斥合同登记唯一 owner**（见 §2.4） | ~700 | 中（v2 上调：owner 登记义务） |
+| 2 | 抽 `useTtsVoices` + `useBgmLibrary` 两个 composable（无模板依赖的纯逻辑） | ~600 | 低 |
+| 3 | 抽 `BatchCreatePanel` + `useBatchCreate` | ~500 | 中（队列状态与发布中任务互斥） |
+| 4 | 抽 `QuickRenderView` | ~250 | 低 |
+| 5 | 抽 `useS2vConfig` + `useConfigProfiles` + **ConfigProfile 三弹窗**（依赖 s2vConfig，必须在 useS2vConfig 之后，审查 A-4） | ~1100 | **高（v3 上调，外部 E9：s2vConfig 域 vm 触点 >800 处是全案最重域，且是状态桥接机制首个实战验证点——若 computed get/set 委托在此步被证不可行，第 6-7 步复评结论需连带重估）** |
+| 6⏸ | 抽 `PipelineLaunchPanel` + `usePipelineLaunch`（最大、耦合最深） | ~1500 | 高 — **v2 降级：第 1-5 步落地后用真实合并冲突数据复评是否执行（审查 B-5/B-7）** |
+| 7⏸ | 壳文件清理：CreateView.vue 收敛为视图切换 + provide/inject | — | **v2 降级：同上。provide/inject 是隐式契约（无类型检查、IDE 跳不出注入点），若第 1-5 步已把 CreateView 削到 ~2500 行，壳层化收益/成本比最差，可放弃（审查 B-5）** |
+
+**分阶段止损策略（v2 采纳审查 B-7 反方路线）**：
+- **里程碑 1**：locales 拆分（§三，机械低风险，解决全仓最高频冲突点，收益最确定）
+- **里程碑 2**：CreateView 第 1-2 步（弹窗 + 2 composable，削 ~1300 行）
+- **里程碑 2 完成后**：用真实合并冲突数据决定是否继续第 3-5 步；第 6-7 步默认不承诺。
+- 即：**先做 locales + 第 1-2 步 ≈ 3-4 个 PR 拿全案 ~80% 收益**。
+
+### 2.3 红线（v3 修订：方法代理 + 状态桥接两层过渡）
+
+- **测试策略（v2 正名 + v3 补状态桥接，审查 A-1≈B-2 / 外部 E1）**：CreateView.test.js 6573 行、1392 处 `w.vm.` 触点中，除方法调用外还有 **415 处 `w.vm.状态 = ` 直接赋值**（实测：`w.vm.view = "pipelines"` :143、`w.vm.quickText = ...` 等）。「只代理 methods」保不住状态触点——v3 扩写为两层过渡：
+  1. **方法代理**：壳 CreateView 对已搬走的方法保留同名代理（`this.xxx(...args) { return this.xxxComp.xxx(...args) }`），维持旧测试全绿；
+  2. **状态桥接（v3 新增，外部 E1 Critical）**：被搬走的状态在壳层用 **computed get/set 双向委托**到 composable 的 ref——`get() { return this.xxxComp.state.value }` / `set(v) { this.xxxComp.state.value = v }`。必须显式写明两条兼容契约：①**整体对象赋值**（`vm.s2vConfig = {...}`）经 setter 整体替换 ref.value；②**原地变异**（`vm.list.push(x)`）要求 getter 返回 ref 内对象本身（非 spread 副本），否则 `{...spread}` 丢失响应式。Vue 3 中 ref 放进 `data()` 不会被解包，**禁止**把 composable ref 直接挂进 data。
+  3. 新 composable/子组件**随实现同步写独立新测试**（不迁旧测试），旧测试在该域代理删除时才逐域替换；
+  4. 抽公共夹具 `create-view-test-harness.js`（electronAPI mock / route / stores 前置）；
+  5. 工期估算**按测试改写量翻倍计**（s2vConfig 域 vm 触点 >800 处，是最重域）。
+- **代理退出机制（v3 新增，外部 E7）**：代理宿主命名**禁用 `_`/`$` 前缀**（Vue 3 中走 ctx 通道、语义含糊），用无前缀实例属性或模块级 Map；每个拆分 PR 附「代理方法 → 计划删除 PR 编号」映射表，并把「代理残留数 ≤ 当前未完成步数」设为可检查指标，防止双路径无限期并存。
+- 跨域共享状态（`selectedPipeline`、`currentView`、route query 同步）留在壳文件，用 provide/inject 或 props 下发，**禁止**为省事引入全局 store。
+- 拆出的 composable 中 IPC 调用参数必须保持 `JSON.parse(JSON.stringify())` 脱壳现状（QM-2 序列化合同）。
+- **业务 composable 的 setup() 前提（v3 新增，外部 E5-③）**：拆出的 composable（useS2vConfig 等）若内部使用 `watch`/`onMounted` 等实例依赖 API，必须经组件 `setup()` 选项调用——壳文件需新增 `setup()` 入口或保持这些 composable 无实例依赖；方案执行前须逐 composable 确认其内部无生命周期/watch 依赖，或同步在壳文件引入 `setup()`。
+
+### 2.4 浮层弹窗互斥合同（v3 修订，审查 B-1 + 外部 E5/E8）
+
+CreateView 全文 0 处 `useEmbeddedViewSuspension`，`overlay-view-suspension.test.js` owner 登记表（:89-148）无任何 CreateView 弹窗。按 QM-2「应用级浮层弹窗互斥合同」：弹窗拆成独立组件即属**新增应用级模态浮层**，每个必须：
+
+1. **登记唯一、确定的 owner**（v3 修正，外部 E8：禁止 `create-batch-create-*` 这类模式匹配式命名）——一个组件内 N 个浮层登记 N 个确定 owner，如 `create-bgm-library-dialog`、`create-config-profile-save-dialog`、`create-config-profile-list-dialog`、`create-config-profile-apply-dialog`、`create-config-profile-delete-dialog`、`create-scene-asset-confirm`、`create-batch-create-queue-dialog` 等，逐个枚举；
+2. **Options API 等价写法（v3 修正，外部 E5-①）**：`useEmbeddedViewSuspension.js` 实测导出为**两个普通 async 函数** `suspendEmbeddedViewsForOverlay(owner)` / `releaseEmbeddedViewsForOverlay(owner)`（:48/:67），**不是 composable**（无 ref、无 setup 上下文依赖），可在任何实例上下文调用。CreateView 是 Options API，映射为：`watch: { dialogVisible(v) { v ? suspendEmbeddedViewsForOverlay(OWNER) : releaseEmbeddedViewsForOverlay(OWNER) } }` + `beforeUnmount()` 选项中兜底调 release——不存在「Options API 用不了」的问题；
+3. **双路径重复释放的安全性依据（v3 新增，外部 E5-②）**：允许 `watch(visible)` + `beforeUnmount` 双路径重复释放的前提——suspend 先同步登记模块级 activeOwners 再 await（快速开合竞态安全），且 release 对未知/已释放 owner **幂等返回 false**（overlay-view-suspension.test.js :262-272 已锁此行为），双路径不会重复挂起也不会计数漂移；
+4. 在 `overlay-view-suspension.test.js` 同步登记 owner 接入断言；
+5. 修改 `WebviewManager` 可见性链路时同跑 `overlay-view-suspension.test.js` + `shell-mode-6b.test.js` 全量。
+
+**这是第 1/3/5 步（所有含弹窗的步）的硬门禁，漏做即合同违规。** 第 1 步风险因此维持「中」。
+
+---
+
+## 三、里程碑 1（P0-2）：locales/zh.js · en.js（各 ~3800 行，51 命名空间）
+
+> **v2 提升为里程碑 1（审查 B-6/B-7）**：这是全方案收益/成本比最高的部分——机械低风险、解决全仓最高频冲突点、全文唯一量化收益（冲突概率降 ~96%）。
+> **v2 增补（审查 A-8）**：本拆分**并非首创**——仓内 `locales/accounts-cloud-sync/{zh,en}.js` 与 `locales/identity-diagnostics/{zh,en}.js` 已按「子目录模块 + 装配文件展开回原命名空间」模式运行且 CI 已覆盖，直接复用其装配写法与测试范式。
+
+### 3.1 方案：按先例同构结构 `locales/<domain>/{zh,en}.js`（v3 修正，外部 E2 Critical）
+
+> **v3 关键修正**：v2 提议的 `locales/zh/<domain>.js`（按语言分目录）与既有先例 `locales/accounts-cloud-sync/{zh,en}.js`（按域分目录）**不同构**——check-locale-sync.js 的成对 regex（:88 `/(^|\/)(zh|en)\.js$/`）只认文件名是 `zh.js/en.js`，按语言分目录的文件名是 `create.js` **不命中 regex**，成对检查完全失明，「无需改脚本」「单边直接红」两条断言同时失效。v3 改回先例同构结构，成对检查零改动成立。
+
+```
+src/locales/
+├── zh.js / en.js                  # 装配文件：import 各域子模块并展开合并导出
+├── create/
+│   ├── zh.js                      # 现 zh.js :319-680（行号以实测时点为准）
+│   └── en.js
+├── story2video/
+│   ├── zh.js
+│   └── en.js
+├── publish-page/  {zh,en}.js
+├── accounts-page/ {zh,en}.js
+├── collection/    {zh,en}.js
+├── …（51 个命名空间各一目录，目录名 kebab-case 与命名空间对应）
+├── accounts-cloud-sync/           # 【既有先例，已按此结构运行】
+└── identity-diagnostics/          # 【既有先例】
+```
+
+装配写法（与先例一致）：`zh.js` 顶部 `import createZh from './create/zh'`，在对应命名空间位置 `create: { ...createZh, /* 未拆出的键暂时保留原文 */ }`（中间态详见 §3.3）。
+
+### 3.2 关键约束（对齐 CI Gate 7 locale-sync）
+
+1. **成对提交铁律不变**：拆分时 zh/en 必须同 PR 完成同名文件拆分（check-locale-sync.js :86-89 已机械强制，单边直接红）。
+2. **合并语义防丢键**：`index.js` 聚合用显式展开（`export default { ...create, ...publish }`），并新增一个 locale 结构锁测试：拆分后导出的**扁平键集合必须与原单文件精确相等**（防手工搬运丢键）。**现成模板**：直接复用 `locales/accounts-cloud-sync/` 先例的装配写法与结构锁测试模式（审查 A-8）。
+3. 新增文案时开发者只改对应域的小文件 → 冲突面从「全仓共用两个文件」降为「按域隔离」。
+4. 命名空间重名键检查：聚合时若后展开的覆盖先展开的，结构锁测试必须报红。
+5. **CI 脚本零改动成立（v3 修正，外部 E2）**：v3 已改回先例同构结构 `locales/<domain>/{zh,en}.js`，成对 regex（:88）天然命中，**确认无需改脚本**。仍需验证两点（审查 A-5+B-6）：①`evalLocaleModule` 递归跟随默认相对 import **限深 4 层**——装配链深度不得超过，且**只允许默认导出形式**（脚本遇不支持形式直接抛错）；②脚本的 **key 存在性校验段（:447-448）读单文件 zh.js/en.js**——zh.js 改为装配文件后导出面不变，必须在 PR 中显式跑一次 key 校验证明仍生效。
+6. **「消费方零改动」不成立（v2 修订，审查 A-3，Critical）**：import 型消费方（i18n/index.js、pipeline-error-formatter.js 等 58 处）确实零改动，但 **4 个测试读的是文件原始文本**而非模块导出，键搬走后立即变红，**必须列入 locales PR 必改清单**：
+   - `apps/desktop/src/tab-independent-home.test.js:64`（`read('locales/zh.js')` + `toMatch(/newTabTitle/)`）
+   - `apps/desktop/src/views/Home.todo-guard.test.js:12-13`（readFileSync zh.js/en.js）
+   - `apps/desktop/src/views/selfcheck-migrate.test.js:19-20`（`read('src/locales/zh.js')`）
+   - `apps/desktop/src/views/PublishScheduleResult.test.js:43`（硬编码遍历 `['src/locales/zh.js','src/locales/en.js']`）
+   - 处置：改为 import 模块后断言键，或断言对象改为扫描聚合目录；**过渡期 zh.js 保留 re-export 全文展开也能兜住文本断言（原文本仍含全部键），但必须逐案核实断言形式**。
+
+### 3.3 拆分顺序与中间态装配契约（v3 修订，审查 A-2 + 外部 E3/E4）
+
+~~一次 PR 完成~~ → **按域分批**（zh+en ~7600 行搬运，违反 §五「单 PR ≤1500 行」红线）。
+
+**中间态装配契约（v3 新增，外部 E3 Critical）**：分批期间「部分键在子文件、部分仍在 zh.js」的双源并存必须有可行装配方案，否则结构锁第一天就红。采用 **_rest 残余文件模式**：
+- **PR1** 落地：`zh.js` 中待拆的 51 个命名空间整体移入 `zh/_rest.js`（按原结构导出一个大对象），`zh.js` 改为 `import restZh from './_rest'` + `import createZh from './create/zh'` 并 `export default { ...restZh, create: { ...restZh.create, ...createZh } }`——zh.js 从 PR1 起恒为装配文件，此后每批 PR 只是把键从 `_rest` 搬进对应域目录；
+- 备选：**index 休眠模式**——全部 51 域迁完前 zh.js 保持全文不动、域文件逐个建但暂不接线，最终 PR 一次性切换装配并删残余（优点：每步 PR 更小；缺点：最终 PR 集中风险）。执行时在 PR1 评审中二选一，默认推荐 _rest 模式（风险分散）。
+- **结构锁测试的部分迁移期比较基准（v3 新增）**：不得按「全量精确相等」字面执行——改为：①对已迁移域做**子集精确相等**（域文件键集合 == 原单文件该命名空间键集合）；②对未迁移域断言**仍完整留在 `_rest`（或 zh.js 原文）**；③全局断言「已迁移域键 + 残余键 == 原全量键」（防搬运丢键）。
+
+**PR 预算（v3 修正，外部 E4）**：统一口径为 **≤1500 行/PR**——每 PR **≤11 个命名空间**（留验证余量），共 5-6 个 PR；**首 PR 配额单独下调至 ≤8 个**（它除搬运外还携带 `_rest` 骨架 + 结构锁测试 + §3.2-6 的 4 个 raw-text 测试改写）。
+
+---
+
+## 四、P1：其余大视图（按「先抽 composable 后抽组件」统一打法）
+
+| 文件 | 行数 | 拆分建议 | 优先级理由 |
+|---|---|---|---|
+| Collection.vue | 2744 | 抽 `useCollectionData`（采集/筛选/分页逻辑）+ 采集表单与结果列表两个子组件 | script 1940 行，逻辑/视图比例最差 |
+| ResultView.vue | 1857 | 抽 `useResultData` + 导出/分享子组件 | — |
+| Publish.vue | 1697 | 已有 `usePublishFlow`（602 行）等 composable 先例，继续外移剩余表单校验与平台覆盖逻辑 | 仓内已有同款拆分范式可循 |
+| Accounts.vue | 1483 | 抽 `useAccountCrud` + 登录态卡片子组件 | — |
+| ModelProviders.vue | 1428 | 已有 `useModelProviderCrud`（558 行），继续外移 | 同上 |
+| PublishHistory.vue | 1295 | 抽 `usePublishHistory`（筛选/重试/删除） | — |
+| RewriteView.vue | 1060 | 暂缓，等前六项落地后复评 | 接近阈值 |
+
+P1 各项均为**独立任务**，无先后依赖，可按迭代容量自由摘取。
+
+---
+
+## 五、统一执行纪律（每个拆分 PR 必须满足）
+
+1. **行为零变更（v3 修正，外部 E6）**：拆分 PR 只做代码搬移 + import 重接，不顺手改任何逻辑、命名、样式（P5 explicit over clever）。样式归属按 §2.1 约定（css 留壳文件全局 import）。**但模板段抽子组件必然涉及 props/emits 重接线，不属于纯搬移**——每个抽子组件的 PR 必须先列「绑定清单」（v-model 链、嵌套对象变异点、`$refs` 依赖），对「嵌套对象直改 prop」的位置显式声明取舍（改 emit 上抛 / 传可变异代理），并在 PR 描述中声明为**受控行为重接线**（非「零变更」），同时跑 QM-4 像素回归兜底。禁止笼统宣称零变更。
+2. **测试策略（v2 修订）**：CreateView 域按 §2.3 的「代理 methods 过渡 + 新测试随实现同步写 + 公共夹具 harness」执行，**不再要求「先迁测试再迁实现」**；其余视图（P1）仍按「测试先行」执行；全量 `vitest` 必须通过。
+3. **QM-4 视觉回归**：CreateView.vue 属视图层，拆分落地后必须跑 `npm run test:visual:pixel` 确认无像素回归（脚本经审查 B-6 核实存在于 package.json:32）。
+4. **CI 契约**：`href-scheme-contract.test.js`、locale-sync（Gate 7）等全量扫描类测试不因路径变化漏扫。locales 拆分按 §3.2-5/3.2-6 清单核对（CI 脚本目录感知已确认，**无需改脚本**，但要验证聚合深度 ≤4 与 key 校验生效）。
+5. **单 PR ≤ 1500 行移动**：超过则再拆步（locales 按 §3.3 分批执行，不豁免）。
+6. **浮层合同（v2 新增）**：凡拆出模态弹窗组件，按 §2.4 完成 owner 登记 + 释放兜底 + overlay-view-suspension.test.js 断言，缺一不可。
+
+## 六、收益预估
+
+| 指标 | 现状 | 里程碑 1+2 后（v2 止损点） | 全量拆分后（若复评继续） |
+|---|---|---|---|
+| CreateView 单文件 | 5654 行 | ~4300 行（第 1-2 步） | 壳 <600 行，最大子文件 <1500 行 |
+| locales 冲突面 | 2 个文件承载全部 51 域 | **每域 1 文件，冲突概率降 ~96%** ✅ 全额拿到 | 同左 |
+| 新增文案/功能的 diff 定位 | 在 3800/5600 行中检索 | 文案直接进入域文件 | 全部进入域文件 |
+| 预估 PR 数 | — | **6-7 个**（locales 5 + CreateView 2） | 12+ 个，且含 2 个高风险 PR |
+
+**v2 结论（采纳审查 B-7）**：里程碑 1+2 即可拿全案 ~80% 收益，第 3-7 步按届时真实合并冲突数据复评，不预先承诺。
+
+---
+
+## 附录：测量命令
+
+```powershell
+Get-ChildItem -Recurse -File 'apps\desktop\src','ops-center\frontend\src' -Include *.vue,*.js,*.ts |
+  ForEach-Object { [pscustomobject]@{ Lines=(Get-Content $_.FullName | Measure-Object -Line).Lines; Path=$_.FullName } } |
+  Sort-Object Lines -Descending
+```
+（2026-10 实测；ops-center/frontend 最大文件 603 行，无需拆分。行数会随日常提交漂移，执行引用前必须重跑。）
+
+---
+
+## 附录 B：CCG 双模型对抗审查记录（2026-10，v2）
+
+**审查方式**：平台无 `codeagent-wrapper`，按质量节拍 Step ④ fallback (b) 走平台等价机制——并行派两个独立审查子代理（审查 A：正确性/边界/规格合规；审查 B：风险/遗漏/反方），各返回 JSON findings，主代理指纹去重 + 逐条裁决。两路 findings 的关键证据（vm 触点 1392 处、4 个 raw-text locale 测试、CreateView 0 处 useEmbeddedViewSuspension、check-locale-sync.js :447）均经主代理独立复核属实。
+
+**裁决总表**（15 条 findings，指纹去重后 12 项，**12 项全部接受**，0 拒绝）：
+
+| 指纹 | 来源 | 级别 | 发现摘要 | 处置落点 |
+|---|---|---|---|---|
+| test-migration | A-1≈B-2 | Critical | 测试是重写不是迁移：6573 行 / 1392 处 vm 触点，「先迁测试」鸡生蛋；方案 :22 与 :68 曾自相矛盾 | §2.3 代理 methods 过渡 + harness 夹具；§一删除「自然归位」表述 |
+| pr-size | A-2 | Critical | locales 单 PR ~7600 行违反方案自身 1500 行红线 | §3.3 改 5 PR 分批 |
+| zero-change | A-3 | Critical | 「消费方零改动」被 4 个 readFileSync 文本断言测试证伪 | §3.2-6 必改清单 |
+| overlay-owner | B-1 | Critical | 拆弹窗即撞浮层互斥合同，owner 登记义务方案零提及 | §2.4 新增节 + §五-6 门禁 |
+| profile-coupling | A-4 | Warning | ConfigProfile 弹窗与 s2vConfig 深度穿插，非「耦合最浅」 | §2.2 移至第 5 步 |
+| style-ownership | B-3 | Warning | create-view.css 全局样式归属与 :1466 类名耦合未提 | §2.1 样式归属约定 |
+| dir-boundary | B-4 | Warning | 新目录 create/ 与既有 video-creation/ 边界重叠 | §2.1 一律进 video-creation/ |
+| ci-locale | A-5+B-6 | Warning | CI 脚本已目录感知（担忧过时）；但 :447 key 校验读单文件是要害 | §3.2-5 验证两点 |
+| data-drift | A-6 | Warning | 行数漂移（CreateView 实测 5654 非 5586，test 6573 非 6008） | §一更新数字 + 附录注明重跑 |
+| readability | B-5 | Warning | 第 6-7 步 provide/inject 隐式耦合收益/成本比最差 | §2.2 降级为止损复评项 |
+| precedent | A-8 | Info | locales 已有 2 个拆分先例可复用装配/测试范式 | §3 引用先例 |
+| counter | B-7 | Info | 反方路线：locales + 第 1-2 步拿 80% 收益 | §2.2 分阶段止损 + §六 |
+
+**审查核实通过项**（无争议，审查 A-7/B-6）：Options API 结构及 methods 块位置、7 个模板分节注释、51 命名空间 zh/en 完全对称、`@/story2video/*` 纯函数模块真实存在、BGM/批量两段模板低耦合实测成立、`test:visual:pixel` 脚本存在、vite/vitest `@` alias 一致。
+
+---
+
+## 附录 C：外部评审记录（2026-10，v3）
+
+**审查方式**：质量节拍 Step ④ CCG 通道 (a)——`codeagent-wrapper` 并行双外部后端。E1（claude 通道）因后端实为 DeepSeek-V4-Flash 级模型、20+ 分钟在低价值核查上空转，经用户确认中止；E2（codex）返回完整结果（86,981 tokens 全仓核查）。E2 的 3 条 Critical 证据均经主代理独立复核属实：**415 处** `w.vm.状态 = ` 直接赋值（test.js）、check-locale-sync.js :88 成对 regex `/(^|\/)(zh|en)\.js$/` 只认 `zh.js/en.js` 文件名、useEmbeddedViewSuspension.js :48/:67 导出为普通 async 函数（非 composable）。
+
+**裁决总表**（E2 共 9 条 findings，**9 条全部接受**，0 拒绝）：
+
+| ID | 级别 | 发现摘要 | 处置落点 |
+|---|---|---|---|
+| E1 | Critical | 「代理 methods 维持旧测试绿」不成立——415 处状态直接赋值需「状态桥接」（computed get/set 双向委托 ref，整体赋值 vs 原地变异两种契约） | §2.3 扩写两层过渡 |
+| E2 | Critical | v2 的 `locales/zh/<domain>.js` 与先例 `locales/<domain>/zh.js` 不同构，成对 regex 失明，「无需改脚本」失效 | §3.1 改回先例同构结构 |
+| E3 | Critical | locales 分批拆中间态无解（双源并存，结构锁第一天即红） | §3.3 补 _rest/index 休眠中间态装配契约 + 部分迁移期比较基准 |
+| E4 | Warning | §3.3 PR 预算（≤12 域/1600 行）与 §五-5（≤1500 行）自相矛盾，首 PR 必超限 | §3.3 统一 ≤1500 行/≤11 域，首 PR ≤8 域 |
+| E5 | Warning | useEmbeddedViewSuspension 是普通函数非 composable，Options API 映射、竞态幂等依据、业务 composable setup() 前提未写 | §2.4-②③④ + §2.3 末条 |
+| E6 | Warning | 模板抽子组件被定性「纯搬移」，props/emits 重接线与「行为零变更」红线内在冲突 | §五-1 受控行为重接线声明 |
+| E7 | Info | 代理宿主 `_xxxComp` 前缀走 ctx 通道语义含糊，代理删除无时间门禁 | §2.3 命名规则 + 删除映射表 |
+| E8 | Info | owner 建议含通配符 `create-batch-create-*`，与「owner 唯一」合同冲突 | §2.4-① 逐个枚举确定名 |
+| E9 | Info | 第 5 步风险标「中」偏低（s2vConfig >800 触点最重域 + 状态桥接首战） | §2.2 第 5 步上调「高」 |
+
+**外部评审揭示的 v2 自伤模式**：v2 在修 v1 的 4 条 Critical 时，因未核实底层事实（ref 响应式语义、CI regex、装配中间态），新引入了 3 条 Critical——印证「防再犯锁必须做变异反证」的仓内纪律：方案文本本身的每一条断言都需要源码级证据。

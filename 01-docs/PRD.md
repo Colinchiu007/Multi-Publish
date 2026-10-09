@@ -19260,3 +19260,53 @@ safeTop     = blockBottom + fs*0.85
 | 同义/近义主题打架 | 「特斯拉」同属 tech 与 car | 加权打分取最大；同分取词典顺序（确定性优先于「更对」） |
 | sharp 原生模块 CI 首载超时 | 测试红 | 沿用现有做法：IPC 合同测试用依赖注入替身；真实渲染交给 `local-cover-generator.test.js`（已有 180s 预热） |
 | 兜底封面被用户误认为 AI 生图 | 预期落差 | `data.source` + 差异化提示文案，如实告知 |
+
+---
+
+## 附录：locales 结构拆分（2026-10-09，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 里程碑 1）
+
+> 背景：`apps/desktop/src/locales/zh.js` / `en.js` 原为各 ~3800 行单文件、51 个顶层命名空间平铺，是全仓最高频合并冲突点（任何文案新增必改这两个文件）。本批次将其按域拆分为「装配文件 + 51 个域子模块」，冲突面从「全仓共用两文件」降为「按域隔离」。
+
+### 结构（与既有先例 `accounts-cloud-sync/{zh,en}.js` 同构）
+
+```
+apps/desktop/src/locales/
+├── zh.js / en.js                  # 装配文件：51 条 import + 51 个命名空间原位展开（zh.js 3819→290 行）
+├── <domain>/zh.js + en.js         # 51 个域各一目录（kebab-case：publishPage → publish-page/）
+├── accounts-cloud-sync/           # 既有先例（本批次模式的来源）
+└── identity-diagnostics/          # 既有先例
+```
+
+### 数据校验
+
+- **键零变更**：51 个命名空间的全部键名、键值、嵌套结构与拆出前逐字节一致（装配文件原位展开，vue-i18n 消费面无感知）。
+- **结构锁测试** `src/locales/structure-lock.test.js`（4 条断言，防搬运丢键/改键/重复展开）：① 已迁移域子模块键集合 == 装配文件中该命名空间键集合（zh/en 双侧、子集精确相等）；② zh/en 子模块键互相对称；③ 装配文件顶层命名空间防重复展开（后展开覆盖先展开即红）；④ `_rest` 残余文件（如启用）必须导出对象。
+- **迁移脚本** `scripts/migrate-locale-namespace.cjs`（一次性工具）：机械抽取 + 装配改写 + zh/en 键数对账；内置两道 fail-closed —— 嵌套展开检测（含 `...xxxZh` 跨域引用的域中止迁移走人工通道）、顶层键数 <5 告警（巨型对象域口径失真提示人工确认）。
+- **Gate 7（CI `check-locale-sync.js`）**：① 成对校验 —— 按域目录结构（文件名恒为 `zh.js`/`en.js`）天然命中成对 regex（:88），单边变更直接红；② key 存在性校验 —— 1478 个使用中的 key 全部通过（装配文件导出面不变）。
+
+### 流程（5 个 PR 分批，每 PR ≤1500 行移动）
+
+PR1 骨架 + 首批 8 小域（signer/tabs/common/loginGate/providerCrud/publishDrafts/nav/tabBar）→ PR2 memberCenter+collection → PR3 create（双巨对象域）+story2video+pipelines/dashboard/promptEval/home → PR4 publishPage+accountsPage → PR5 剩余 39 域收官。
+
+### 功能逻辑与交互逻辑
+
+- **装配语义**：`zh.js` 顶部 `import xxxZh from './<domain>/zh'`，对应命名空间位置写 `ns: { ...xxxZh },`——与先例 `accounts-cloud-sync` 完全一致。域内嵌套展开（`memberCenter` 含 `...identityDiagnosticsZh`、`accountsPage` 含 `...accountsCloudSyncZh`）在子模块内补跨域 import 保持装配语义。
+- **新增文案流程变化**：开发者新增文案时**只改对应域目录的 `zh.js` + `en.js`**（成对），不再触碰装配文件；命名空间归属判断不变（按功能域）。
+- **raw-text 测试改造**：4 个原本 `readFileSync('locales/zh.js')` 做文本断言的测试改为模块导入断言（`tab-independent-home.test.js` / `Home.todo-guard.test.js` / `selfcheck-migrate.test.js` / `PublishScheduleResult.test.js`），防后续批次键迁出后文本断言变红。
+- **显示项与提示文字**：零变更（键值未动）；i18n 纪律不变——zh/en 成对提交、渲染端非 locales 文件禁止新增中文字面量（CI 基线扫描）。
+
+### 实施实测坑（已固化进迁移脚本/结构锁）
+
+1. memberCenter 域内含 `...identityDiagnosticsZh` 嵌套展开，直接搬运丢 import → Gate 7 `evalLocaleModule` 解析失败（已 fail-closed + 人工补 import）。
+2. `story2video` 在 zh.js 有**两处定义**（顶层独立命名空间 + create 域内嵌套子对象），迁移首跑误把嵌套内容抽成独立域（已回滚重迁 + 结构锁核对）。
+3. 大批量迁移（30 域一次）中途半成品混入导致 fail-closed 误报，改按 8+23+补漏分批、每批后跑 keys 校验。
+
+### 验收
+
+| # | 判据 | 结果 |
+|---|------|------|
+| L1 | 51 命名空间全部迁出，zh/en 装配文件收敛为纯装配 | ✅ zh.js 290 行 |
+| L2 | 结构锁 4/4 绿 | ✅ |
+| L3 | Gate 7 成对校验 + key 存在性（1478 key）PASS | ✅ |
+| L4 | locales + 4 改造测试 + i18n 消费方抽样全绿 | ✅ 66 测 |
+| L5 | 键名/键值零变更（结构锁 ①② + Gate 7 key 校验双重保证） | ✅ |
