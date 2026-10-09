@@ -100,13 +100,109 @@ async def draft_box_count(page, sel: str, *, probe_cap: int) -> int | None:
 
     读不到节点、或节点文本不含计数，一律返回 None：草稿箱基线未知时调用方不得凭"看着
     像 0"报成功。逐元素判可见同 visible_texts，避开 SPA 常驻隐藏模板。
+    括号兼容全角与空格：取证到的文本是半角 `草稿箱(1)`，但这是显示格式而非协议，
+    平台改一个括号就应当只是"少一条证据"，不该把判据的可用性押在字符形状上。
     """
     texts = await visible_texts(page, sel, limit=1, probe_cap=probe_cap)
     for text in texts:
-        m = re.search(r"草稿箱\((\d+)\)", text or "")
+        m = re.search(r"草稿箱\s*[（(]\s*(\d+)\s*[）)]", text or "")
         if m:
             return int(m.group(1))
     return None
+
+
+async def await_draft_box_count(
+    page, sel: str, *, timeout_s: float, interval_s: float, probe_cap: int
+) -> int | None:
+    """轮询等「草稿箱(N)」计数节点挂载，返回读到的计数；时限内等不到 → None 并留痕。
+
+    单次读在这条轨上是**已知复发缺陷**（§4e 上传控件、§4k 编辑器就绪都是同一类）：
+    创作者中心是 SPA，`domcontentloaded` 时草稿面板常常还没挂载，一次读拿到 None 就会
+    把唯一可用确认判据**静默关掉**。这里用条件轮询（命中即返回，无固定 sleep），并且
+    等不到时打一条告警——判据不可用必须成为可查的线索，不是又一次静默失效。
+    """
+    holder: dict[str, int] = {}
+
+    async def probe() -> bool:
+        n = await draft_box_count(page, sel, probe_cap=probe_cap)
+        if n is None:
+            return False
+        holder["count"] = n
+        return True
+
+    if not await wait_until(probe, timeout_s=timeout_s, interval_s=interval_s):
+        logger.warning(
+            f"[小红书] 草稿箱计数节点在 {timeout_s}s 内未挂载或文本不含计数: {sel}"
+            "——草稿确认退到标题回查，不排除判据本身不可用"
+        )
+    return holder.get("count")
+
+
+async def await_draft_box_increment(
+    page, sel: str, *, baseline: int, timeout_s: float, interval_s: float, probe_cap: int
+) -> tuple[bool, int | None]:
+    """轮询等计数相对基线增长，返回 (是否确认, 最后读到的值)。
+
+    自动保存落库有延迟：刚点完/刚传完就单次读，会把"还在写"读成"没写"，成功的草稿被
+    报成 XHS_UNCONFIRMED。等待条件必须是**增量本身**而不是"节点出现了"——节点早就在，
+    值没变依然不能确认。
+    """
+    last: dict[str, int | None] = {"count": None}
+
+    async def probe() -> bool:
+        n = await draft_box_count(page, sel, probe_cap=probe_cap)
+        last["count"] = n
+        return n is not None and n > baseline
+
+    hit = await wait_until(probe, timeout_s=timeout_s, interval_s=interval_s)
+    return hit, last["count"]
+
+
+async def draft_title_present(page, sel: str, title: str) -> bool:
+    """草稿箱条目标题匹配——**未经活体取证**的次级兜底。
+
+    它可以命中来确认，不能因它不命中就判失败：真正的失败条件是"所有正面信号都没拿到"，
+    由调用方归一成 XHS_UNCONFIRMED，而不是在这里替平台猜选择器。
+    """
+    if not title:
+        return False
+    items = page.locator(sel)
+    count = await items.count()
+    for i in range(count):
+        txt = await items.nth(i).inner_text()
+        if title[:12] and title[:12] in (txt or ""):
+            return True
+    return False
+
+
+async def recheck_draft_box(
+    page, title: str, baseline, *, box_url: str, counter_sel: str, item_sel: str,
+    timeout_s: float, interval_s: float, probe_cap: int
+) -> bool:
+    """重载草稿箱页复核：主判据是计数相对基线增长，标题匹配只兜底。
+
+    图文草稿由平台自动保存，「草稿箱(N)」+1 是活体取证到的唯一可见正证据（2026-10-08）。
+    两个读取都必须等待（见 await_draft_box_count / await_draft_box_increment 的成因），
+    基线为 None 时增量判据**不可用**，只能退到未取证的标题匹配——此时结论仍可能是
+    "成功但报未确认"，宁可如此，也不得凭缺席的信号报成功。
+    """
+    try:
+        await page.goto(box_url, wait_until="domcontentloaded")
+        if baseline is None:
+            logger.info("[小红书] 无草稿箱基线（节点未挂载或文本不含计数），只能退到标题回查")
+            return await draft_title_present(page, item_sel, title)
+        hit, now = await await_draft_box_increment(
+            page, counter_sel, baseline=baseline, timeout_s=timeout_s,
+            interval_s=interval_s, probe_cap=probe_cap,
+        )
+        if hit:
+            logger.info(f"[小红书] 草稿箱计数 {baseline} → {now}，确认已写入")
+            return True
+        logger.info(f"[小红书] 草稿箱计数 {baseline} → {now} 未增长，退到标题回查")
+        return await draft_title_present(page, item_sel, title)
+    except Exception as e:
+        logger.debug(f"草稿箱回查失败: {e}")
+        return False
 
 
 async def risk_present(
