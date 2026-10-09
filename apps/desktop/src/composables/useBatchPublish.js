@@ -22,6 +22,7 @@ import {
 } from '@/api/publisher'
 import {
   buildPublishTargets,
+  normalizeAccountIds,
   normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
@@ -251,8 +252,16 @@ export function useBatchPublish(options) {
     showTemplatePicker.value = false
   }
 
-  function addArticle() {
-    articles.value.push({
+  /**
+   * 批量条目工厂——**默认字段面的唯一真源**。
+   *
+   * `addArticle`（手动加一条）与 `seedArticlesFromDrafts`（热门选题批量交接）必须
+   * 共用同一份默认字段面：各写一份时，新增字段必然只改一处，表现为「装载进来的条目
+   * 少字段」，而缺字段要到 payload 构造期才暴露（P2-7 的 `cover_*` 正是这么漏的：
+   * 有读点、无写点，恒为空）。
+   */
+  function createArticleItem() {
+    return {
       _key: freshKey(),
       title: '',
       content: '',
@@ -278,7 +287,76 @@ export function useBatchPublish(options) {
       // 因此差异化内容与可见性档位必须逐条目持有，不得共享同一对象引用。
       platformOverrides: {},
       visibilitySemantic: '',
+    }
+  }
+
+  function addArticle() {
+    articles.value.push(createArticleItem())
+  }
+
+  /**
+   * 用草稿批量装载条目 —— 热门选题「改写完成 → 去发布」的批量交接。
+   *
+   * 只认「有 id 且是对象」的草稿：热门选题批量改写的产物就是 5 条这样的草稿，
+   * 缺 id 的条目无法回溯（用户要能回到草稿箱找到它），一律跳过而不是塞空条目——
+   * 塞空条目会让批量区出现「标题正文全空」的卡片，用户无法判断是装载失败还是内容为空。
+   *
+   * 就地替换 `articles`（多次交接以最后一次为准），返回实际装载条数：
+   * **0 表示一条都没装载**，调用方不得据此进入空批量态（必须如实提示并留在原地）。
+   *
+   * @param {unknown} draftList 草稿对象数组（来自 draftList IPC）
+   * @returns {number} 实际装载条数
+   */
+  function seedArticlesFromDrafts(draftList) {
+    const items = (Array.isArray(draftList) ? draftList : []).filter(draft => (
+      draft && typeof draft === 'object' && typeof draft.id === 'string' && draft.id.trim()
+    ))
+    if (items.length === 0) return 0
+    articles.value = items.map(draft => {
+      const item = createArticleItem()
+      item.title = typeof draft.title === 'string' ? draft.title : ''
+      item.content = typeof draft.content === 'string' ? draft.content : ''
+      // 标签/话题走共享归一（兼容逗号分隔字符串与 { name } 对象），与单篇同一口径
+      item.tags = normalizePublishStringList(draft.tags)
+      item.tagsText = item.tags.join(',')
+      item.topics = normalizePublishStringList(draft.topics)
+      item.topicsText = item.topics.join(',')
+      return item
     })
+    return items.length
+  }
+
+  /**
+   * 把一组发布目标应用到**全部**条目（批量工具条「应用到全部条目」）。
+   *
+   * 为什么存在：批量模式下逐条目勾选是 O(条目 × 平台) 次点击——5 条选题 × 8 平台
+   * 就是 40 次勾选，而「多选题目的一次性分发」恰恰是热门选题批量改写的使用场景。
+   *
+   * 为什么账号必须一起写：`validatePublishTargets` 对「选了平台但没选账号」直接判
+   * 无效（`请为<平台>选择至少一个账号`），所以「只勾平台、不写账号」的批量应用等于
+   * 让整批提交必失败。无可用账号的平台由调用方过滤后再传入；这里对没有账号映射的
+   * 平台**刻意不写空数组**，保持 `accounts[platform]` 键缺失，让校验文案如实指向该平台。
+   *
+   * @param {{ platforms?: unknown, accounts?: Record<string, unknown> }} targets
+   * @returns {number} 被应用的条目数（0 = 未应用，调用方不得报「已应用」）
+   */
+  function applyTargetsToAll(targets) {
+    const platformIds = Array.isArray(targets && targets.platforms)
+      ? [...new Set(targets.platforms.filter(p => typeof p === 'string' && p.trim()))]
+      : []
+    if (platformIds.length === 0 || articles.value.length === 0) return 0
+    const accountMap = targets && targets.accounts && typeof targets.accounts === 'object'
+      ? targets.accounts
+      : {}
+    for (const item of articles.value) {
+      item.platforms = platformIds.slice()
+      item.accounts = {}
+      for (const platform of platformIds) {
+        const ids = normalizeAccountIds(accountMap[platform])
+        if (ids.length > 0) item.accounts[platform] = ids
+      }
+    }
+    return articles.value.length
   }
 
   /**
@@ -487,6 +565,8 @@ export function useBatchPublish(options) {
     batchFail,
     totalPlatformTasks,
     addArticle,
+    seedArticlesFromDrafts,
+    applyTargetsToAll,
     removeArticle,
     duplicateArticle,
     handleBatchPublish,

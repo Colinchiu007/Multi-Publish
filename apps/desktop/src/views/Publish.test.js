@@ -603,6 +603,117 @@ describe("PublishView", () => {
   });
 
 
+  // ─── 热门选题批量交接（hot-topics-publish-handoff，2026-10-09）─────────────
+  // 入口：热门选题页批量改写完成 →「去发布」带 ?drafts=<id,id,...>。
+  // 修复前该跳转不带任何草稿参数（push('/publish')），而发布页只在 route.query.draft
+  // 存在时 loadDraft ⇒ 表单恒为空，5 条草稿要用户手工逐条装载；
+  // 与发布去向弹窗承诺的「改写内容将自动填入文案输入框」不符。
+  it("?drafts= 批量交接：装载全部草稿为批量条目并预置可发布平台", async () => {
+    await router.push('/?tab=publish&drafts=d1,d2,d3')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: 'd1', title: '选题一', content: '正文一' },
+        { id: 'd2', title: '选题二', content: '正文二' },
+        { id: 'd3', title: '选题三', content: '正文三' },
+      ],
+    })
+    const w = await createWrapper()
+    await flushPromises()
+
+    expect(w.vm.batchMode).toBe(true)
+    expect(w.vm.articles).toHaveLength(3)
+    expect(w.vm.articles.map(a => a.title)).toEqual(['选题一', '选题二', '选题三'])
+    expect(w.vm.articles.map(a => a.content)).toEqual(['正文一', '正文二', '正文三'])
+    // 预置平台只含有账号的平台（mock 平台目录 wechat_mp/zhihu，仅 wechat_mp 有账号），
+    // 且账号必须一并写入——validatePublishTargets 对「选了平台没选账号」直接判无效
+    expect(w.vm.articles[0].platforms).toContain('wechat_mp')
+    expect(w.vm.articles[0].accounts).toEqual({ wechat_mp: ['acc1'] })
+    expect(w.find('[data-testid="batch-targets-toolbar"]').exists()).toBe(true)
+  });
+
+  it("?drafts= 部分草稿已删除：只装载存在的条目，不整批失败", async () => {
+    await router.push('/?tab=publish&drafts=d1,gone')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [{ id: 'd1', title: '仍在的选题', content: '正文' }],
+    })
+    const w = await createWrapper()
+    await flushPromises()
+
+    expect(w.vm.batchMode).toBe(true)
+    expect(w.vm.articles).toHaveLength(1)
+    expect(w.vm.articles[0].title).toBe('仍在的选题')
+  });
+
+  it("?drafts= 草稿全不存在：不进入空批量态（如实提示，不渲染空卡片）", async () => {
+    await router.push('/?tab=publish&drafts=gone1,gone2')
+    window.electronAPI.draftList.mockResolvedValue({ code: 0, data: [] })
+    const w = await createWrapper()
+    await flushPromises()
+
+    expect(w.vm.batchMode).toBe(false)
+    expect(w.vm.articles).toHaveLength(0)
+  });
+
+  it("同一批交接 id 重复激活不覆盖用户编辑（keep-alive 幂等键）", async () => {
+    await router.push('/?tab=publish&drafts=d1,d2')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: 'd1', title: '原始标题一', content: '正文一' },
+        { id: 'd2', title: '原始标题二', content: '正文二' },
+      ],
+    })
+    const w = await createWrapper()
+    await flushPromises()
+    expect(w.vm.articles).toHaveLength(2)
+
+    // 用户编辑后再激活（onActivated 每次进入都会调）：同一批 id 必须只装载一次
+    w.vm.articles[0].title = '用户改过的标题'
+    const reloaded = await w.vm.applyDraftHandoff(['d1', 'd2'])
+    await flushPromises()
+
+    expect(reloaded).toBe(0)
+    expect(w.vm.articles[0].title).toBe('用户改过的标题')
+  });
+
+  it("parseHandoffDraftIds 去空白、去重、忽略非法值", async () => {
+    const w = await createWrapper()
+    expect(w.vm.parseHandoffDraftIds(' a , b ,,a ')).toEqual(['a', 'b'])
+    expect(w.vm.parseHandoffDraftIds('')).toEqual([])
+    expect(w.vm.parseHandoffDraftIds(undefined)).toEqual([])
+    expect(w.vm.parseHandoffDraftIds(null)).toEqual([])
+  });
+
+  it("批量设置发布目标：应用到全部条目（含各平台默认账号）", async () => {
+    await router.push('/?tab=publish&drafts=d1,d2')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: 'd1', title: 'A', content: 'a' },
+        { id: 'd2', title: 'B', content: 'b' },
+      ],
+    })
+    const w = await createWrapper()
+    await flushPromises()
+
+    w.vm.articles[0].platforms = []
+    w.vm.articles[0].accounts = {}
+    w.vm.batchTargetPlatforms = ['wechat_mp']
+    await nextTick()
+    w.vm.applyBatchTargetsToAll()
+    await nextTick()
+
+    for (const item of w.vm.articles) {
+      expect(item.platforms).toEqual(['wechat_mp'])
+      expect(item.accounts).toEqual({ wechat_mp: ['acc1'] })
+    }
+    // 账号缺失的平台不得写入空数组（否则校验文案指向错误原因）
+    expect(w.vm.articles[0].accounts.zhihu).toBeUndefined()
+  });
+
+
 describe("PublishView — extra coverage", () => {
   beforeEach(() => {
     i18n.global.locale.value = "zh";

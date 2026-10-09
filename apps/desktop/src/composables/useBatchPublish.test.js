@@ -1393,4 +1393,90 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
     expect(sent.cover_url).toBe('')
     expect(effective).toBeNull()
   })
+
+  // ─── 热门选题批量交接（hot-topics-publish-handoff，2026-10-09）─────────────
+  describe('seedArticlesFromDrafts — 草稿批量装载', () => {
+    it('装载标题/正文/标签并返回条数', () => {
+      const r = useBatchPublish({ article, licenseStore })
+      const seeded = r.seedArticlesFromDrafts([
+        { id: 'd1', title: '选题一', content: '正文一', tags: ['标签A', '标签B'] },
+        { id: 'd2', title: '选题二', content: '正文二' },
+      ])
+      expect(seeded).toBe(2)
+      expect(r.articles.value).toHaveLength(2)
+      expect(r.articles.value[0].title).toBe('选题一')
+      expect(r.articles.value[0].content).toBe('正文一')
+      expect(r.articles.value[0].tags).toEqual(['标签A', '标签B'])
+      expect(r.articles.value[0].tagsText).toBe('标签A,标签B')
+      // 无标签草稿不得写入 undefined（payload 依赖数组口径）
+      expect(r.articles.value[1].tags).toEqual([])
+      expect(r.articles.value[1].tagsText).toBe('')
+    })
+
+    it('忽略无 id 的条目：无 id 无法回溯到草稿箱，塞空卡片用户无法判断是装载失败还是内容为空', () => {
+      const r = useBatchPublish({ article, licenseStore })
+      const seeded = r.seedArticlesFromDrafts([
+        { title: '无 id', content: 'x' },
+        { id: '   ', title: '空白 id', content: 'x' },
+        null,
+        { id: 'd9', title: '有效', content: 'y' },
+      ])
+      expect(seeded).toBe(1)
+      expect(r.articles.value).toHaveLength(1)
+      expect(r.articles.value[0].title).toBe('有效')
+    })
+
+    it('非数组/空数组 → 返回 0 且不动现有条目（调用方据此避免空批量态）', () => {
+      const r = useBatchPublish({ article, licenseStore })
+      r.addArticle()
+      r.articles.value[0].title = '用户已编辑'
+      expect(r.seedArticlesFromDrafts(null)).toBe(0)
+      expect(r.seedArticlesFromDrafts('d1,d2')).toBe(0)
+      expect(r.seedArticlesFromDrafts([])).toBe(0)
+      expect(r.articles.value).toHaveLength(1)
+      expect(r.articles.value[0].title).toBe('用户已编辑')
+    })
+
+    it('字段面与 addArticle 同键集（防止默认字段面两处漂移）', () => {
+      const seeded = useBatchPublish({ article, licenseStore })
+      seeded.seedArticlesFromDrafts([{ id: 'd1', title: 't', content: 'c' }])
+      const manual = useBatchPublish({ article, licenseStore })
+      manual.addArticle()
+      expect(Object.keys(seeded.articles.value[0]).sort()).toEqual(Object.keys(manual.articles.value[0]).sort())
+    })
+  })
+
+  describe('applyTargetsToAll — 批量设置发布目标', () => {
+    it('平台与账号一起写入全部条目（只写平台会让 validatePublishTargets 判无效）', () => {
+      const r = useBatchPublish({ article, licenseStore })
+      r.seedArticlesFromDrafts([{ id: 'd1', title: 'a', content: 'a' }, { id: 'd2', title: 'b', content: 'b' }])
+      const applied = r.applyTargetsToAll({ platforms: ['wechat_mp', 'zhihu'], accounts: { wechat_mp: ['acc1'] } })
+      expect(applied).toBe(2)
+      expect(r.articles.value[0].platforms).toEqual(['wechat_mp', 'zhihu'])
+      expect(r.articles.value[0].accounts).toEqual({ wechat_mp: ['acc1'] })
+      expect(r.articles.value[1].accounts).toEqual({ wechat_mp: ['acc1'] })
+      // 无账号映射的平台保持键缺失：让校验文案如实指向该平台，而不是「已选账号但为空」
+      expect(r.articles.value[0].accounts.zhihu).toBeUndefined()
+      // 账号目标进得了提交口径（targets 数量 = 有账号平台 1 + 无账号平台 1）
+      expect(r.totalPlatformTasks.value).toBe(4)
+    })
+
+    it('空平台或空条目 → 返回 0（调用方不得报「已应用」）', () => {
+      const r = useBatchPublish({ article, licenseStore })
+      expect(r.applyTargetsToAll({ platforms: ['wechat_mp'] })).toBe(0)
+      r.seedArticlesFromDrafts([{ id: 'd1', title: 'a', content: 'a' }])
+      expect(r.applyTargetsToAll({ platforms: [] })).toBe(0)
+      expect(r.applyTargetsToAll(null)).toBe(0)
+      expect(r.articles.value[0].platforms).toEqual([])
+    })
+
+    it('重复应用覆盖旧选择（不残留上一次的平台/账号）', () => {
+      const r = useBatchPublish({ article, licenseStore })
+      r.seedArticlesFromDrafts([{ id: 'd1', title: 'a', content: 'a' }])
+      r.applyTargetsToAll({ platforms: ['wechat_mp'], accounts: { wechat_mp: ['acc1'] } })
+      r.applyTargetsToAll({ platforms: ['zhihu'], accounts: { zhihu: ['z1'] } })
+      expect(r.articles.value[0].platforms).toEqual(['zhihu'])
+      expect(r.articles.value[0].accounts).toEqual({ zhihu: ['z1'] })
+    })
+  })
 })

@@ -266,6 +266,71 @@ describe('HotTopics.vue', () => {
     el.remove()
   })
 
+  // ─── 热门选题批量交接：去发布必须带上全部草稿（hot-topics-publish-handoff）───
+  // 修复前 goToDestination 走 router.push('/publish')，不带任何草稿参数，发布页表单恒空。
+  async function runArticleBatchAndGetGoPublish(attached) {
+    const publishBtn = attached.findAll('.batch-actions button').find(b => b.text().includes('publishBtn'))
+    await publishBtn.trigger('click')
+    const articleBtn = document.body.querySelector('[data-testid="publish-dest-article"]')
+    articleBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    return attached.findAll('button').find(b => b.text().includes('toPublish'))
+  }
+
+  function mountAttached() {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    return { el, attached: mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    }) }
+  }
+
+  it('多条选题改写完成后「去发布」带 ?drafts= 全部草稿 id', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '改写结果' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    const { el, attached } = mountAttached()
+    await flushPromises()
+    attached.vm.selectedIds = new Set(mockTopics.map(x => x.id))
+    await attached.vm.$nextTick()
+
+    const goPublish = await runArticleBatchAndGetGoPublish(attached)
+    pushSpy.mockClear()
+    await goPublish.trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledTimes(1)
+    const target = pushSpy.mock.calls[0][0]
+    expect(target.path).toBe('/publish')
+    expect(String(target.query.drafts).split(',')).toHaveLength(3)
+    expect(target.query.draft).toBeUndefined()
+    attached.unmount()
+    el.remove()
+  })
+
+  it('单条选题改写完成后「去发布」带 ?draft= 单篇参数（保持既有语义）', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '改写结果' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    const { el, attached } = mountAttached()
+    await flushPromises()
+    attached.vm.selectedIds = new Set([mockTopics[0].id])
+    await attached.vm.$nextTick()
+
+    const goPublish = await runArticleBatchAndGetGoPublish(attached)
+    pushSpy.mockClear()
+    await goPublish.trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledTimes(1)
+    const target = pushSpy.mock.calls[0][0]
+    expect(target.path).toBe('/publish')
+    expect(typeof target.query.draft).toBe('string')
+    expect(target.query.draft.length).toBeGreaterThan(0)
+    expect(target.query.drafts).toBeUndefined()
+    attached.unmount()
+    el.remove()
+  })
+
   // ─── Bug 回归：改写完成后进度区不消失，完成提示与去发布按钮可见 ───
   // E2E 2026-09-11 发现：publishing=false 时 v-if 切回批量条，
   // 「改写完成，已生成 n 条草稿」和「去发布」按钮一闪而过用户看不到。
