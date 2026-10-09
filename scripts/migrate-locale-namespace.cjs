@@ -66,6 +66,12 @@ for (const ns of namespaces) {
     const ext = extractNamespace(src, ns)
     if (!ext) { console.error(`FAIL: ${lang}.js 找不到命名空间 ${ns}`); process.exit(1) }
     const keyCount = countTopKeys(ext.body)
+    // 嵌套展开检测（PR2 实测坑：memberCenter 域内含 ...identityDiagnosticsZh，直接搬运会丢 import → Gate 7 解析失败）
+    const nestedSpreads = [...ext.body.matchAll(/\.\.\.(\w+)/g)].map((m) => m[1])
+    if (nestedSpreads.length > 0) {
+      console.error(`FAIL: ${ns} (${lang}) 含嵌套展开 ${nestedSpreads.join(',')}，迁移脚本不处理跨域引用——请先手工补 import 或调整迁移批次`)
+      process.exit(1)
+    }
     // 写域子模块
     fs.mkdirSync(outDir, { recursive: true })
     const moduleSrc = `/**\n * ${ns} 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）\n * 从 locales/${lang}.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。\n */\nexport default {${ext.body}}\n`
