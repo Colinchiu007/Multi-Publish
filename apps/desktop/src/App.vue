@@ -396,13 +396,16 @@ onMounted(() => {
 
   // 定时派发失败 → 全局错误 toast（App 级监听提升，2026-10-09）。
   // preload 未暴露该能力（老版本兼容）时静默跳过，绝不影响壳层挂载。
+  // fallback 边界（Gate 7 × 评审 MINOR 的交集定案）：渲染端 .vue 禁止新增
+  // 中文字面量（locale CJK 基线扫描），所以 fallback 不能用中文硬编码；而
+  // t(同 key) 死循环兜底零价值（缺 key 时返回 key 本身）。定案：fallback 用
+  // 「平台名 + 原因」拼接的跨语言安全串——两个字段都来自平台原始报文，任何
+  // locale 下都可读，且不含会被 CJK 基线拦截的新增字面量。
   if (api && typeof api.onSchedulerDispatchFailed === 'function') {
     unsubscribeDispatchFailed = api.onSchedulerDispatchFailed((failure) => {
       const { platform = '', reason = '' } = failure || {}
       notifyError('appShell.scheduleDispatchFailed', {
-        // fallback 必须是可读硬编码串：i18n 缺 key 时 t(同 key) 返回 key 本身，
-        // 与主路径产物相同、兜底零价值（评审 MINOR）。
-        fallback: '定时发布未能发出：' + platform + ' ' + reason + '。详情见「发布记录」。',
+        fallback: (platform + ' ' + reason).trim(),
         params: { platform, reason },
       })
     })
