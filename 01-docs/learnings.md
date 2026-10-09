@@ -16855,6 +16855,35 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
 - **回填 PR 的销账范围靠人肉列举必然漏（pitfall）**：#3164 批量回填 #3076/#3091/#3151 时，只回填了「当时记得的」记录；`openspec/records/fix-xhs-api-chain-contract.md` 等 **5 份**已合并 PR 的记录仍挂着 `sync_*` 三字段 + 正文 `PENDING`。之后 #3179 才补齐。**机械判据**：开回填 PR 前必须跑 `Select-String -Path openspec\records\*.md -Pattern '^sync_status:'`（或等价 grep），结果非空就是还有漏项，零命中才允许提交。人肉「想一遍还有谁没销账」不可靠，5/5 全漏就是实证。
 - **前置真源先取 `origin/main` 再数 PENDING（pattern）**：销账动作要同时改 `.quality-gates.md`、`openspec/records/*.md`、`gate-record-debt-ledger.json` 三处；批量回填前先 `git fetch` 并以 `origin/main` 的记录文件为清单源，本地滞后的工作区会给出假的「无漏项」结论。
 - **worktree 里重跑 `git rebase origin/main` 对已合并分支必然冲突（pitfall）**：PR squash 合并后，原分支的提交在 origin/main 上已有「同内容不同 SHA」的对应物，rebase 会把每个提交都判成冲突（AA）。分支已合并的 worktree 同步，正确做法是丢弃本地分支、从 origin/main 重建（`git branch -m <old> <old>-merged` 留档 → `git checkout -b <new> origin/main`），不要 rebase。
+
+## 「参考产品会真实发布」不是事实而是假设：改架构前必须先读它的代码（hot-topics-publish-handoff 设计反转，2026-10-10）
+
+- **事故形状（设计层，非代码 bug）**：用户要求「小红书不得真实发布，只存平台草稿箱」，我据此把 `ROUTE_TABLE.xiaohongshu` 从 `rpa_vm` 改成新增的 API 草稿轨（`xhs_draft`），并把理由写成「RPA 轨会点『发布』按钮」。**这个前提是错的**：`_publish_xiaohongshu` 自 2026-09-29 起对图文就强制 `draftOnly: true`（2026-10-07 还修过它的假成功），RPA 图文**从不点发布**。真正的失败来自我新引入的 API 轨（note 步 406），等于把一条已能用的轨换成了不能用的轨。
+- **判据（可复用）**：把「某实现会做 X」当作改造理由之前，**必须在代码里找到那个 X 的落点**（此处应读 `_publish_generic` 的 `draftOnly` 分支与 `_publish_xiaohongshu` 的配置注入）。路由表里的 `mode` 名（`rpa_vm`）只说明「谁来执行」，**不说明「执行到哪一步」**——把前者当后者是本轮错误的根。
+- **修正模式（pattern）**：约束的落点应选**最靠近副作用**的那一层。本例中「不得点发布」的正确落点不是路由表（换轨会把整条链路一起换掉），而是 RPA 轨内部：图文继续 `draftOnly`、视频改为 fail-closed（此前视频仍走点发布链路，才是真正违反约束的缺口）。副产物：`rpa-view-platforms.js` 在点名还账清单内（零增长），把拒绝语义抽成独立模块 `xiaohongshu-draft-guard.js`，轨内只留 1 行调用。
+- **诚实的收尾**：设计反转必须写进 PRD/记录/PR，并说明「第一版为什么错」，否则后来者会照抄被推翻的结论。
+
+## 外包签名服务是平台 API 轨的隐形前置：仓内 spec 早已裁决，本次逆向独立复现（2026-10-10）
+
+- **现象**：小红书 API 草稿链 `permit`（GET）与 `ros-upload`（PUT）**都通**，只有需要 `x-s` 签名的 `note` 步恒 **406**（`edith` 域；`creator` 域同路径 **404** ⇒ 端点确在 edith）。签名基址 A/B（绝对 URL vs 路径）**两种都 406**，说明不是基准串写错这么简单。
+- **参考实现怎么做的（读它 7.9MB 主进程 bundle 得到）**：它把签名**外包**给自建服务——`POST {服务}/Sign/GetSign`，body `{url:"", cookie: JSON.stringify([cookie头, encodeURIComponent(bodyJson)]), signType:"browser", signCommand:"newxiaohongshu"}`；响应 `signature` 是字符串化 JSON，含 `X-s`/`X-t`/**`X-S-Common`**，并且**可能返回刷新后的 `a1`**，调用方把它回填进 cookie（`a1=<旧>` → `a1old=<旧>; a1=<新>`）。提交 note 时它传 `Authorization: ''`（空串），仅靠 cookie + 签名服务下发的三头。
+- **对照结论**：本仓用**本地 XYW 算法 + 硬编码 `x-s-common` 模板**（webBuild 等固定值）且不接收刷新 `a1` ⇒ 环境指纹与平台当前校验不符，406 是必然。**同一条链的前两步不需要签名，所以它们能通**——「只有签名步失败」本身就是「签名环境不匹配」的高置信指纹。
+- **与既有裁决的关系（关键，避免重复造轮子）**：`openspec/specs/api-publish-xiaohongshu-chain/spec.md` 早在 2026-09-26 就定案：小红书 API 链「整体止步、不实现」，理由写明「`x-s`/`x-t` 生成依赖外包签名服务（**运行时禁止远程求签通道**）」，重启须以「全链逐字切片 + 签名页抽取 spike + 拦截法比对」为前置。本次逆向**独立复现了这条技术依据**。教训：**动手重造平台签名前，先 `grep openspec/specs` 看有没有已定案的止步裁决**——本轮差一点就为一个 spec 明令禁止的方向写了第二条实现。
+- **既有偏离要如实登记**：`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`（2026-10-07 `xhs-draft-publish` 落地）与该「不实现」裁决并存。本 PR 不删（保留为诊断通道），但确认它**不在任何路由上**。
+
+## keep-both 冲突消解只适用于 append-only 文件：结构化文件会「自我损坏」（2026-10-10）
+
+- **两次真实损坏**：(1) `apps/desktop/src/locales/*.js` —— main 把内联大对象**重构**成 `locales/publish-page/{zh,en}.js` 模块，keep-both 会把「旧的整段内联」与「新的 import 形态」同时留下（语法/语义双错）；(2) `.quality-gates.md` —— 同一个记录标题在两侧都出现，keep-both 后变成**重复条目**，被 `check-gate-record-debt.js` 判红。
+- **正确策略（按文件类型分派）**：append-only 顶部追加型（CHANGELOG 的条目、`.quality-gates.md` 的**不同**记录）⇒ keep-both 且本 PR 侧在前；**同一条目的重复** ⇒ 只保留带正文的那一份，逐字节切除另一份；**JS/JSON/被重构过的结构化文件** ⇒ 取 main 侧结构，再把本 PR 的**语义增量**（新增 key）补进新位置。
+- **对账判据**：消解后必须跑三类检查——① `grep` 冲突标记；② 目标门禁（本例 `check-gate-record-debt.js` 打红重复标题正是它抓到的）；③ 用例/构建（locale 结构错会在启动时炸，静态门禁抓不到）。
+- **配套教训**：locale 被拆分后，`check-locale-sync --keys` 仍能守住「使用中的 key 必须存在于 zh/en」——它按 key 存在性判，不关心文件结构，所以它是这次重构后**唯一可靠**的回归网；拆文件类重构后必须跑它。
+
+## CDP 注入的 File 在 Electron 没有 OS 路径：`setInputFiles` 不能替代真实文件选择器（2026-10-10）
+
+- **现象**：用 Playwright `setInputFiles()` 给 el-upload 的 `input[type=file]` 喂本地 PNG，`change` 事件触发、`ok:true`，但**条目状态里 `cover_path` 恒为空**——渲染层拿不到路径，因为 CDP `DOM.setFileInputFiles` 注入的 `File` 在 Electron 里经 `webUtils.getPathForFile()` 解析不出磁盘路径（`File.path` 自 Electron 32 起已移除）。
+- **两种可行驱动**：① 走组件暴露的 setter（本例 `setBatchArticleCover(article, {path, name})`）——与 UI 同一写入点，驱动的仍是产品代码；② 让被测应用**真实打开文件选择器**（真机人工/自动化 OS 对话框）。
+- **登记要求**：用 setter 驱动时必须在记录里写明「为何不是真实文件选择器」（否则后来者会以为这条 E2E 覆盖了原生路径解析），并把「原生路径解析」交给既有单测（本例 2026-10-07 的 `cover upload refuses a filename when native path resolution fails`）。
+
 ## 降级/占位产物不得跨模块当成功产物消费——ffmpeg 占位图冒充 AI 封面致快手图文中文全 tofu（fix-kuaishou-tuwen-tofu，2026-10-09）
 
 - **事故**：用户经应用发布的快手图文，图片上中文在快手创作者中心全部显示为空心方块，仅 ASCII 数字可读。取证 `D:\Temp\story2video\assets\default\img_9400.png`（纯深蓝底 `#1a1a2e` + 居中白字，中文全方块、标题里「1」「20」正常）与日志 `cover:generate-ai ok :: path=... 耗时=112ms`——112ms 不可能是真实生图。
@@ -16872,3 +16901,4 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
   - 同一记录的不同状态 ⇒ **必须重建**，禁止并集。`.quality-gates.md` 顶部记录、`CHANGELOG.md` 未发布段、ledger 同名键属此类。
 - **正确顺序（重建）**：① `git show origin/main:<file>` 取 main 的**整份内容**为底（不是取自己的）；② 只把自己的新增块插回正确位置（`.quality-gates.md`/`CHANGELOG.md` 插到最顶，ledger 插到最后一个键之后并补逗号）；③ 逐行保留 main 那一行原本的结尾，禁止统一回写行尾（本仓这类文件 `i/lf w/crlf`，统一改写会把整文件变成 diff）；④ 提交前用 `git diff --numstat origin/main -- <file>` 断言**删除数为 0**（纯插入），并 grep 关键点确认 main 的回填证据（如 `已合并 #NNNN`）仍在。
 - **配套**：判据不是「冲突解完了」而是「相对 origin/main 是否纯插入 + main 的证据行是否还在」；对「删除数>0」的置顶文件冲突一律重做。**`Auto-merging` 同样不构成证据**——git 自动合并的文件也可能改动 main 的证据行，所以未冲突文件也要跑同一次删除数对账（本次 `01-docs/PRD.md` 之外，`.quality-gates.md` 17/0、`CHANGELOG.md` 14/0、ledger 2/1 全部逐个实测）。另注：ledger 的 `line` 字段是信息性的、不被 `check-gate-record-debt.js` 校验，重建时不必逐字对齐行号，但键必须与记录标题逐字相同。
+
