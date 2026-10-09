@@ -1,92 +1,23 @@
 import accountsCloudSyncEn from './accounts-cloud-sync/en'
 import identityDiagnosticsEn from './identity-diagnostics/en'
+import signerEn from './signer/en'
+import tabsEn from './tabs/en'
+import commonEn from './common/en'
+import loginGateEn from './login-gate/en'
+import providerCrudEn from './provider-crud/en'
+import publishDraftsEn from './publish-drafts/en'
+import navEn from './nav/en'
+import tabBarEn from './tab-bar/en'
 
 export default {
-  signer: {
-    pageNotReady: 'Signer service not ready. Please retry later or sign in to the account again.',
-    loginExpired: 'This account session has expired. Please sign in again and retry.',
-    degraded: 'Signer service is temporarily degraded; some publishes may fail. Please wait for self-healing or retry.',
-  },
-  tabs: {
-    newTabTitle: 'New Tab',
-    newTabAria: 'Open a new tab',
-    brandTitle: 'Social Media Manager',
-    productionBoard: 'Production Board',
-    contactSheet: 'Scene Review',
-    replayTimeline: 'Production Replay',
-    filmEngineering: 'Film Engineering',
-  },
-  common: {
-    save: 'Save',
-    cancel: 'Cancel',
-    delete: 'Delete',
-    edit: 'Edit',
-    add: 'Add',
-    confirm: 'Confirm',
-    refresh: 'Refresh',
-    loading: 'Loading...',
-    success: 'Success',
-    error: 'Error',
-    close: 'Close',
-    backToTop: 'Back to top',
-    pipelineBackgroundToast: 'To check this task, open History in Video Creation',
-    pageLoadFailed: 'Failed to load page',
-    pageLoadFailedMessage: 'Page resources failed to load. Please retry or refresh the app.',
-  },
-  loginGate: {
-    defaultMessage: 'This feature requires login. Sign in now?',
-    disabledMessage: 'Identity service is not configured, cannot sign in. Please configure the identity service in the main process and retry.',
-    title: 'Sign In Required',
-    confirmButton: 'Sign In Now',
-    cancelButton: 'Not Now',
-    loginIncomplete: 'Sign-in incomplete, operation cancelled',
-  },
-  providerCrud: {
-    loadFailed: 'Failed to load',
-    updateSuccess: 'Updated successfully',
-    createSuccess: 'Created successfully',
-    saveFailed: 'Failed to save',
-    deleted: 'Deleted',
-    deleteFailed: 'Failed to delete',
-    connectionFailed: 'Connection failed',
-    userKeySaved: 'User key saved',
-    saveUserKeyFailed: 'Failed to save user key',
-  },
-  publishDrafts: {
-    loadFailed: 'Failed to load drafts',
-    emptyTitleContent: 'Title and content cannot both be empty',
-    saveFailed: 'Failed to save draft',
-    saved: 'Draft saved',
-    notFound: 'Draft not found or already deleted',
-    loaded: 'Draft loaded',
-    deleteFailed: 'Failed to delete draft',
-    deleted: 'Draft deleted',
-    scheduleConflictTitle: 'Scheduled publish vs. draft',
-    scheduleConflictMessage: 'A scheduled publish time is set ({time}). A draft is a local snapshot and will NOT publish automatically at that time — scheduling only takes effect when you click "Quick Publish". Clear the schedule before saving?',
-    scheduleConflictClear: 'Clear schedule & save',
-    scheduleConflictKeep: 'Keep schedule & save',
-    staleScheduleCleared: 'The scheduled publish time in this draft ({time}) has already passed and was cleared; set it again before publishing',
-  },
-  nav: {
-    home: 'Home',
-    searchPlaceholder: 'Search or enter a URL',
-    accounts: 'Accounts',
-    publish: 'Publish',
-    history: 'History',
-    settings: 'Settings',
-    saveAccount: 'Save Account',
-    savingAccount: 'Saving...',
-    saveAccountPulseHint: 'Signed in — remember to save the account',
-  },
-  tabBar: {
-    unsavedBadge: 'Login not saved',
-    closeUnsavedTitle: 'Close unsaved login',
-    closeUnsavedMessage: 'The login credentials for this account are not saved yet. Closing now will lose this login. Save before closing?',
-    closeUnsavedSaveAndClose: 'Save & close',
-    closeUnsavedDiscard: 'Close anyway',
-    closeUnsavedCancel: 'Cancel',
-    closeUnsavedDiscardedWarn: 'Closed without saving',
-  },
+  signer: { ...signerEn },
+  tabs: { ...tabsEn },
+  common: { ...commonEn },
+  loginGate: { ...loginGateEn },
+  providerCrud: { ...providerCrudEn },
+  publishDrafts: { ...publishDraftsEn },
+  nav: { ...navEn },
+  tabBar: { ...tabBarEn },
   sidebar: {
     clientStatusUnknown: 'Client status unknown',
     brandLogoAlt: 'Multi-Publish',

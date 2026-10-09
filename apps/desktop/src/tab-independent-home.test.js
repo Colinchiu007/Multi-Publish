@@ -61,16 +61,11 @@ describe('TabBar "+"按钮 i18n 契约', () => {
 })
 
 describe('locales 成对（Gate 7 前置自检）', () => {
-  const zh = read('locales/zh.js')
-  const en = read('locales/en.js')
-
-  it('zh/en 均含 tabs.newTabTitle', () => {
-    expect(zh).toMatch(/newTabTitle/)
-    expect(en).toMatch(/newTabTitle/)
-  })
-
-  it('zh 文案为「新标签页」，en 文案为 New Tab', () => {
-    expect(zh).toMatch(/newTabTitle:\s*'新标签页'/)
-    expect(en).toMatch(/newTabTitle:\s*'(New Tab|new tab)'/i)
+  // locales 结构拆分后改为模块导入断言（替代 readFileSync 文本扫描，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 §3.2-6）
+  it('zh/en 均含 tabs.newTabTitle 且文案正确', async () => {
+    const zh = (await import('./locales/zh.js')).default
+    const en = (await import('./locales/en.js')).default
+    expect(zh.tabs.newTabTitle).toBe('新标签页')
+    expect(en.tabs.newTabTitle).toMatch(/new tab/i)
   })
 })

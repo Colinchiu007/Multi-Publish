@@ -1,92 +1,23 @@
 import accountsCloudSyncZh from './accounts-cloud-sync/zh'
 import identityDiagnosticsZh from './identity-diagnostics/zh'
+import signerZh from './signer/zh'
+import tabsZh from './tabs/zh'
+import commonZh from './common/zh'
+import loginGateZh from './login-gate/zh'
+import providerCrudZh from './provider-crud/zh'
+import publishDraftsZh from './publish-drafts/zh'
+import navZh from './nav/zh'
+import tabBarZh from './tab-bar/zh'
 
 export default {
-  signer: {
-    pageNotReady: '签名服务未就绪，请稍后重试或重新登录对应账号',
-    loginExpired: '该账号登录已失效，请重新登录后再试',
-    degraded: '签名服务暂时降级，部分发布可能失败，请稍候自动恢复或重试',
-  },
-  tabs: {
-    newTabTitle: '新标签页',
-    newTabAria: '新建标签页',
-    brandTitle: '社媒管家',
-    productionBoard: '素材看板',
-    contactSheet: '场景审批',
-    replayTimeline: '生产回放',
-    filmEngineering: '影视工程',
-  },
-  common: {
-    save: '保存',
-    cancel: '取消',
-    delete: '删除',
-    edit: '编辑',
-    add: '添加',
-    confirm: '确认',
-    refresh: '刷新',
-    loading: '加载中...',
-    success: '成功',
-    error: '错误',
-    close: '关闭',
-    backToTop: '回到顶部',
-    pipelineBackgroundToast: '如果想查看该任务，请进入视频创作的历史记录',
-    pageLoadFailed: '页面加载失败',
-    pageLoadFailedMessage: '页面资源仍未加载成功，请重试或刷新应用。',
-  },
-  loginGate: {
-    defaultMessage: '该功能需要登录后使用，是否立即登录？',
-    disabledMessage: '当前身份服务未配置，无法登录。请在主进程配置身份服务后重试。',
-    title: '需要登录',
-    confirmButton: '立即登录',
-    cancelButton: '暂不',
-    loginIncomplete: '登录未完成，操作已取消',
-  },
-  providerCrud: {
-    loadFailed: '加载失败',
-    updateSuccess: '更新成功',
-    createSuccess: '创建成功',
-    saveFailed: '保存失败',
-    deleted: '已删除',
-    deleteFailed: '删除失败',
-    connectionFailed: '连接失败',
-    userKeySaved: '用户 Key 已保存',
-    saveUserKeyFailed: '保存用户 Key 失败',
-  },
-  publishDrafts: {
-    loadFailed: '草稿读取失败',
-    emptyTitleContent: '标题和内容不能都为空',
-    saveFailed: '草稿保存失败',
-    saved: '草稿已保存',
-    notFound: '草稿不存在或已被删除',
-    loaded: '已加载草稿',
-    deleteFailed: '草稿删除失败',
-    deleted: '草稿已删除',
-    scheduleConflictTitle: '定时发布与草稿',
-    scheduleConflictMessage: '已设置定时发布时间（{time}）。草稿是本地快照，不会在定时时间自动发布——定时只在点击「一键发布」时进入调度队列。保存前清除定时时间？',
-    scheduleConflictClear: '清除定时并保存',
-    scheduleConflictKeep: '保留定时保存',
-    staleScheduleCleared: '草稿中的定时发布时间（{time}）已过期，已清除；发布前请重新设置',
-  },
-  nav: {
-    home: '首页',
-    searchPlaceholder: '搜索或输入网址',
-    accounts: '账号管理',
-    publish: '发布内容',
-    history: '发布历史',
-    settings: '设置',
-    saveAccount: '保存账号',
-    savingAccount: '保存中...',
-    saveAccountPulseHint: '登录完成，记得保存账号',
-  },
-  tabBar: {
-    unsavedBadge: '登录未保存',
-    closeUnsavedTitle: '关闭未保存的登录',
-    closeUnsavedMessage: '该账号登录凭证尚未保存，直接关闭将丢失本次登录。是否保存后关闭？',
-    closeUnsavedSaveAndClose: '保存并关闭',
-    closeUnsavedDiscard: '直接关闭',
-    closeUnsavedCancel: '取消',
-    closeUnsavedDiscardedWarn: '未保存，已关闭该登录标签',
-  },
+  signer: { ...signerZh },
+  tabs: { ...tabsZh },
+  common: { ...commonZh },
+  loginGate: { ...loginGateZh },
+  providerCrud: { ...providerCrudZh },
+  publishDrafts: { ...publishDraftsZh },
+  nav: { ...navZh },
+  tabBar: { ...tabBarZh },
   sidebar: {
     clientStatusUnknown: '客户端状态未知',
     brandLogoAlt: 'Multi-Publish',
