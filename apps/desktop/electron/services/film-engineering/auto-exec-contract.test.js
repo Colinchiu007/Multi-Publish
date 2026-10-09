@@ -132,3 +132,51 @@ describe('FilmEngineeringService.listTemplateShots（真实随包 kit 委托）'
     expect(svc.listTemplateShots(3).length).toBeLessThanOrEqual(3)
   })
 })
+
+describe('production-driver.shouldStop（停止批间生效，未开始的批保持 pending）', () => {
+  it('第 1 批跑完后请求停止 → 只跑 1 批，其余 pending 且台账落盘（可续跑）', async () => {
+    const dir = tmpDir()
+    const ran = []
+    const doneBatches = new Set()
+    let stop = false
+    const r = await runProduction({
+      taskId: 'auto-1',
+      shotIds: Array.from({ length: 25 }, (_x, i) => 's' + i), // 3 批：10 / 10 / 5
+      ledgerDir: dir,
+      batchSize: 10,
+      runIdFor: (taskId, batchIndex) => 'auto/' + taskId + '/b' + batchIndex,
+      probe: (runId, count) => ({
+        missing: doneBatches.has(runId) ? [] : Array.from({ length: count }, (_x, i) => i),
+      }),
+      shouldStop: () => stop,
+      runBatch: async (batch) => {
+        ran.push(batch.batchIndex)
+        doneBatches.add(batch.runId)
+        stop = true // 第 1 批完成后用户点了停止
+      },
+      emit: () => {},
+    })
+    expect(ran).toEqual([0])
+    expect(r.stopped).toBe(true)
+    expect(r.ledger.batches.map((b) => b.status)).toEqual(['done', 'pending', 'pending'])
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'ledger.json'), 'utf8'))
+    expect(onDisk.batches[1].status).toBe('pending')
+    expect(onDisk.batches[2].status).toBe('pending')
+  })
+
+  it('shouldStop 抛错不阻断执行（fail-open，避免一个坏钩子停掉整条流水线）', async () => {
+    const dir = tmpDir()
+    const ran = []
+    const r = await runProduction({
+      taskId: 'auto-2',
+      shotIds: ['s0'],
+      ledgerDir: dir,
+      probe: () => ({ missing: [0] }),
+      shouldStop: () => { throw new Error('boom') },
+      runBatch: async (batch) => { ran.push(batch.batchIndex) },
+      emit: () => {},
+    })
+    expect(ran).toEqual([0])
+    expect(r.stopped).toBe(false)
+  })
+})

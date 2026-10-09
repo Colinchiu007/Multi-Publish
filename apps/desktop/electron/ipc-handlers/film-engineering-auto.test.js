@@ -214,11 +214,34 @@ describe('自动模式 IPC · auto-start', () => {
     expect(stored.ok).toBe(true)
     expect(stored.project.confirmations).toHaveLength(1)
     expect(stored.project.shots[0].prompt).toContain('ACTION TIMING')
-    // 计划已消费 → 二次启动同 planId 直接过期
+    // 计划已被首次启动消费（防重放的刻意设计），但**续跑不依赖计划**：
+    // 同名任务 + 同 planId 走续跑分支（内容真源是项目文件），不会因计划消费而失败。
     const again = await ipcMain._get('film-engineering:auto-start')(trustedEvent(), {
       planId: planned.data.planId, taskId: 'auto-t1', confirmed: true,
     })
-    expect(again.errorCode).toBe('AUTO_PLAN_EXPIRED')
+    expect(again.code).toBe(0)
+    expect(again.data.started).toBe(true)
+    expect(again.data.resumed).toBe(true)
+    expect(deps._testRunProduction).toHaveBeenCalledTimes(2)
+
+    // 续跑**不再需要计划**：只给 taskId 也能续（面板「重新打开继续」走的正是这条路径）
+    const bare = await ipcMain._get('film-engineering:auto-start')(trustedEvent(), {
+      taskId: 'auto-t1', confirmed: true,
+    })
+    expect(bare.data.started).toBe(true)
+    expect(bare.data.resumed).toBe(true)
+
+    // 另一份计划 + 未显式覆盖 → 明确拒绝（不静默覆盖既有任务与产物）
+    const conflict = await ipcMain._get('film-engineering:auto-start')(trustedEvent(), {
+      planId: 'plan-from-elsewhere', taskId: 'auto-t1', confirmed: true,
+    })
+    expect(conflict.errorCode).toBe('AUTO_PLAN_MISMATCH')
+
+    // 已被消费的计划换到另一个 taskId → 仍是过期（consumed 先于归属判定）
+    const strayPlan = await ipcMain._get('film-engineering:auto-start')(trustedEvent(), {
+      planId: planned.data.planId, taskId: 'auto-other', confirmed: true,
+    })
+    expect(strayPlan.errorCode).toBe('AUTO_PLAN_EXPIRED')
   })
 
   it('计划内参考图越出受控媒体根 → 拒绝启动（纵深防御，零调用）', async () => {
@@ -344,5 +367,56 @@ describe('自动模式 IPC · 编辑 / 重生成 / 收口', () => {
     const r = await ipcMain._get('film-engineering:auto-compose')(trustedEvent(), { taskId: 'auto-t1' })
     expect(r.code).not.toBe(0)
     expect(r.errorCode).toBe('AUTO_MANIFEST_INCOMPLETE')
+  })
+})
+
+describe('自动模式 IPC · 停止（批间生效）', () => {
+  it('运行中置停止标志 → driver 的 shouldStop() 变 true，且结束后清理（幂等）', async () => {
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    const deps = makeDeps({
+      _testRunProduction: vi.fn(async () => {
+        await gate
+        return {
+          ok: false, stopped: true,
+          ledger: { batches: [{ batchIndex: 0, runId: 'auto/x/b0', shotIds: [], shots: [], status: 'pending' }] },
+          renderManifest: null, manifestError: null, failedBatches: [],
+        }
+      }),
+    })
+    const ipcMain = createMockIpcMain()
+    registerAutoHandlers(ipcMain, deps)
+    const planned = await planOnce(ipcMain, trustedEvent(), { taskId: 'auto-stop-1' })
+    const running = ipcMain._get('film-engineering:auto-start')(trustedEvent(), {
+      planId: planned.data.planId, taskId: 'auto-stop-1', confirmed: true,
+    })
+    await new Promise((r) => setTimeout(r, 10))
+
+    // 未停止时 shouldStop() 为 false（否则每批都会被误判为停止）
+    const driverOpts = deps._testRunProduction.mock.calls[0][0]
+    expect(driverOpts.shouldStop()).toBe(false)
+
+    const stop = await ipcMain._get('film-engineering:auto-stop')(trustedEvent(), { taskId: 'auto-stop-1' })
+    expect(stop.code).toBe(0)
+    expect(stop.data.stopping).toBe(true)
+    expect(driverOpts.shouldStop()).toBe(true)
+
+    release()
+    const done = await running
+    expect(done.data.stopped).toBe(true)
+    expect(done.data.ok).toBe(false)
+
+    // 任务结束后标志被清理：再次请求停止 → 明确回报「未在运行」
+    const idle = await ipcMain._get('film-engineering:auto-stop')(trustedEvent(), { taskId: 'auto-stop-1' })
+    expect(idle.data.stopping).toBe(false)
+    expect(idle.data.running).toBe(false)
+  })
+
+  it('停止通道拒绝非法 taskId', async () => {
+    const ipcMain = createMockIpcMain()
+    registerAutoHandlers(ipcMain, makeDeps())
+    const r = await ipcMain._get('film-engineering:auto-stop')(trustedEvent(), { taskId: 'a/b' })
+    expect(r.code).not.toBe(0)
+    expect(r.errorCode).toBe('AUTO_BAD_PARAM')
   })
 })

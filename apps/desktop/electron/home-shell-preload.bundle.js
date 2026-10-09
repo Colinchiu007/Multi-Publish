@@ -1047,6 +1047,7 @@ var require_film_engineering = __commonJS({
           // ── 自动模式 ──────────────────────────────────────────────────────
           autoPlan: (payload) => ipcRendererRef.invoke("film-engineering:auto-plan", payload),
           autoStart: (payload) => ipcRendererRef.invoke("film-engineering:auto-start", payload),
+          autoStop: (payload) => ipcRendererRef.invoke("film-engineering:auto-stop", payload),
           autoStatus: (payload) => ipcRendererRef.invoke("film-engineering:auto-status", payload),
           autoUpdateShot: (payload) => ipcRendererRef.invoke("film-engineering:auto-update-shot", payload),
           autoRegenerateShot: (payload) => ipcRendererRef.invoke("film-engineering:auto-regenerate-shot", payload),

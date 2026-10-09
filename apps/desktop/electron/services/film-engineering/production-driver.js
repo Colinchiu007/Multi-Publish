@@ -164,7 +164,7 @@ async function runProduction (opts) {
     taskId, shotIds, ledgerDir, runBatch, probe,
     emit = () => {}, now = Date.now,
     mediaRoot = getFilmMediaRoot(), batchSize = PRODUCTION_BATCH_SIZE,
-    runOnlyBatch = null, runIdFor,
+    runOnlyBatch = null, runIdFor, shouldStop,
   } = opts || {}
   if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
     throw new Error('production-driver: taskId 必须为非空且路径安全的字符串')
@@ -207,10 +207,22 @@ async function runProduction (opts) {
   }
 
   const failedBatches = []
+  let stopped = false
   for (const p of plan) {
     const batch = ledger.batches[p.batchIndex]
     // D9 逐批确认语义：runOnlyBatch 只执行指定批，其余待跑批保持 pending 不执行
     if (runOnlyBatch !== null && runOnlyBatch !== undefined && p.batchIndex !== runOnlyBatch && p.needRun) continue
+    // 停止（批间生效）：只看**开始一批之前**的标志，已开始的批必然跑完；
+    // 未开始的批保持 pending（不写 failed），因此停下来的任务天然可续跑。
+    if (typeof shouldStop === 'function' && p.needRun) {
+      let stop = false
+      try { stop = shouldStop() === true } catch { stop = false }
+      if (stop) {
+        stopped = true
+        emit({ type: 'production:stopped', doneCount, totalCount, batchIndex: p.batchIndex })
+        break
+      }
+    }
     if (!p.needRun) {
       // 磁盘复核通过：台账态归一为 done（含上次崩溃在写盘前的场景）
       if (batch.status !== 'done') {
@@ -264,9 +276,10 @@ async function runProduction (opts) {
 
   const manifest = buildRenderManifest(ledger, { mediaRoot, probe })
   const ok = failedBatches.length === 0 && manifest.ok
-  emit({ type: 'production:complete', ok, doneCount, totalCount, failedBatchCount: failedBatches.length })
+  emit({ type: 'production:complete', ok, stopped, doneCount, totalCount, failedBatchCount: failedBatches.length })
   return {
     ok,
+    stopped,
     ledger,
     renderManifest: manifest.ok ? manifest : null,
     manifestError: manifest.ok ? null : manifest.error,

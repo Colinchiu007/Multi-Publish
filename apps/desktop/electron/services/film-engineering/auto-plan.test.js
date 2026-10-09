@@ -414,4 +414,20 @@ describe('auto-plan · 主入口 planAutoShots', () => {
     const b = planAutoShots(baseArgs)
     expect(buildShotFingerprint(a.shots)).toBe(buildShotFingerprint(b.shots))
   })
+
+  it('整篇只有场景标题行 → 空文案分镜给出 W7（不阻断，但必须可见）', () => {
+    // 单行 'INT.' 会被 splitScript 当成标题行，产出一段 text:''——该镜提示词不含用户文案，
+    // 而确认卡只显示字数，用户看不出差异，故规划层必须显式提示。
+    const r = planAutoShots({ ...baseArgs, script: 'INT.' })
+    const w7 = r.warnings.find((w) => w.code === 'W7')
+    expect(w7).toBeTruthy()
+    expect(w7.message).toContain('#1')
+    // 仍照常产出分镜（非阻断）
+    expect(r.shots.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('正常剧本不产生 W7', () => {
+    const r = planAutoShots(baseArgs)
+    expect(r.warnings.map((w) => w.code)).not.toContain('W7')
+  })
 })

@@ -45,6 +45,8 @@ const { resolveFilmVideoProvider, FILM_ASPECTS, FILM_DURATIONS } = require('../s
 
 /** 单飞注册表（D28）：同一时刻只允许一个自动模式任务在跑 */
 const runningAutoTasks = new Set()
+/** 停止标志注册表：批间生效；只对正在运行的任务有效（停止后即成为可续跑状态） */
+const stoppingAutoTasks = new Set()
 
 const PROMPT_PREVIEW_LENGTH = 200
 
@@ -232,51 +234,61 @@ function registerAutoHandlers (ipcMain, deps) {
     const params = payload || {}
     const pre = providerOrError()
     if (pre.error) return pre.error
-    const planRes = readPlan({ home, planId: params.planId, taskId: params.taskId })
-    if (!planRes.ok) return validationFail(planRes.errorCode, planRes.message)
-    const plan = planRes.plan
-    const taskId = plan.taskId
-    // 纵深防御（评审 i6）：计划虽由服务端生成且不可变，但它是磁盘文件——
-    // 启动前对每一条 refPaths 重校验受控媒体根，越界即 fail-closed（不静默丢弃后继续跑）。
-    const badRefs = (Array.isArray(plan.shots) ? plan.shots : [])
-      .flatMap((s) => (Array.isArray(s && s.refPaths) ? s.refPaths : []))
-      .filter((p) => typeof p !== 'string' || !isWithinRoot(mediaRoot, p))
-    if (badRefs.length > 0) {
-      return validationFail('AUTO_BAD_PARAM',
-        '计划内含越出受控媒体根的参考图路径（' + badRefs.length + ' 条），已拒绝启动；请重新生成预览')
-    }
-    const payloadHash = buildPayloadHash({
-      shots: plan.shots, aspect: plan.aspect, seconds: plan.seconds, providerId: plan.providerId,
-    })
+    const taskIdRes = resolveTaskId(params.taskId)
+    if (!taskIdRes.ok) return validationFail(taskIdRes.errorCode, taskIdRes.message)
+    const taskId = taskIdRes.taskId
 
-    // 续跑判定（D5）：同 taskId + 同 planId 视为续跑；否则需显式 overwrite（D4）
+    // 续跑 vs 新建（评审 i2 修正后的真实语义）：
+    //   计划在**首次启动时就被消费**（这是刻意的——防重放），因此续跑**不能**再依赖计划；
+    //   续跑的内容真源是项目文件本身（prompts/refPaths/seconds 都在里面），
+    //   磁盘上已有的镜由 driver 的 probe 复核后跳过，剩下的继续跑。
     const existing = readProject({ home, taskId })
     let project = null
     let resumed = false
+    let planUsed = null
     if (existing.ok) {
-      const samePlanPlan = existing.project.planId === plan.planId
-      if (!samePlanPlan && params.overwrite !== true) {
-        return validationFail('AUTO_TASK_EXISTS', '同名任务已存在且不是同一份计划；如需覆盖请显式确认（旧一轮将归档保留）')
-      }
-      if (samePlanPlan && params.overwrite !== true) {
+      const samePlan = !params.planId || existing.project.planId === params.planId
+      if (samePlan && params.overwrite !== true) {
         project = existing.project
         resumed = true
+      } else if (params.overwrite === true) {
+        const planRes = readPlan({ home, planId: params.planId, taskId })
+        if (!planRes.ok) return validationFail(planRes.errorCode, planRes.message)
+        planUsed = planRes.plan
+        project = createProject({ plan: planUsed, taskId, home, overwrite: true })
       } else {
-        project = createProject({ plan, taskId, home, overwrite: true })
+        return validationFail('AUTO_PLAN_MISMATCH',
+          '同名任务来自另一份计划；如需覆盖请显式确认（旧一轮将归档保留）')
       }
     } else {
-      project = createProject({ plan, taskId, home })
+      const planRes = readPlan({ home, planId: params.planId, taskId })
+      if (!planRes.ok) return validationFail(planRes.errorCode, planRes.message)
+      planUsed = planRes.plan
+      project = createProject({ plan: planUsed, taskId, home })
     }
     if (!project || project.errorCode) {
       return validationFail((project && project.errorCode) || 'AUTO_START_FAILED', (project && project.message) || '无法创建任务')
     }
+
+    // 纵深防御（评审 i6）：计划/项目虽由服务端生成，但它们都是磁盘文件——
+    // 启动前对每一条 refPaths 重校验受控媒体根，越界即 fail-closed（不静默丢弃后继续跑）。
+    const badRefs = (Array.isArray(project.shots) ? project.shots : [])
+      .flatMap((s) => (Array.isArray(s && s.refPaths) ? s.refPaths : []))
+      .filter((p) => typeof p !== 'string' || !isWithinRoot(mediaRoot, p))
+    if (badRefs.length > 0) {
+      return validationFail('AUTO_BAD_PARAM',
+        '任务内含越出受控媒体根的参考图路径（' + badRefs.length + ' 条），已拒绝启动；请重新生成预览')
+    }
+    const payloadHash = buildPayloadHash({
+      shots: project.shots, aspect: project.aspect, seconds: project.seconds, providerId: project.providerId,
+    })
 
     // 确认门槛（D25）：无确认 / 载荷哈希变化 / 编辑晚于确认 → 必须重新确认
     const needs = needsReconfirm(project, { payloadHash })
     if (needs && params.confirmed !== true) {
       return {
         code: 0,
-        data: { started: false, needsReconfirm: true, taskId, planId: plan.planId, payloadHash, resumed },
+        data: { started: false, needsReconfirm: true, taskId, planId: project.planId, payloadHash, resumed },
       }
     }
     if (needs) {
@@ -294,8 +306,9 @@ function registerAutoHandlers (ipcMain, deps) {
 
     const writeNow = () => { try { writeProject({ home, project }) } catch { /* 持久化失败不改变执行结果 */ } }
     writeNow()
-    markPlanConsumed({ home, planId: plan.planId })
+    if (planUsed) markPlanConsumed({ home, planId: planUsed.planId })
     runningAutoTasks.add(taskId)
+    stoppingAutoTasks.delete(taskId)
     try {
       const shotIds = project.shots.map((s) => s.shotId)
       const r = await driver({
@@ -306,6 +319,8 @@ function registerAutoHandlers (ipcMain, deps) {
         runIdFor: (t, batchIndex) => autoRunIdFor(t, batchIndex),
         probe,
         runOnlyBatch: null,
+        // 停止（批间生效）：已开始的批跑完，未开始的批保持 pending；已完成的镜不会被重做
+        shouldStop: () => stoppingAutoTasks.has(taskId),
         emit: (evt) => {
           try {
             if (event && event.sender && typeof event.sender.send === 'function') {
@@ -325,20 +340,22 @@ function registerAutoHandlers (ipcMain, deps) {
         }),
       })
       writeNow()
+      const ledgerDone = r && r.ledger ? countDone(r.ledger) : 0
       return {
         code: 0,
         data: {
           started: true,
           resumed,
+          stopped: Boolean(r && r.stopped),
           taskId,
-          planId: plan.planId,
+          planId: project.planId,
           ok: Boolean(r && r.ok),
-          doneCount: (r && r.ledger ? countDone(r.ledger) : 0),
+          doneCount: ledgerDone,
           totalCount: shotIds.length,
           failedBatches: (r && r.failedBatches) || [],
           renderManifest: r && r.renderManifest ? r.renderManifest.entries : null,
           manifestError: (r && r.manifestError) || null,
-          counters: reconcileCounters(project, { doneCount: countDone(r && r.ledger), totalCount: shotIds.length }),
+          counters: reconcileCounters(project, { doneCount: ledgerDone, totalCount: shotIds.length }),
         },
       }
     } catch (e) {
@@ -350,7 +367,22 @@ function registerAutoHandlers (ipcMain, deps) {
         : fail(EC.REQUEST_ERROR, 'AUTO_START_FAILED', message)
     } finally {
       runningAutoTasks.delete(taskId)
+      stoppingAutoTasks.delete(taskId)
     }
+  }))
+
+  // ── 停止（批间生效）────────────────────────────────────────────────────
+  // 语义：只对**正在运行**的任务置停止标志；已开始的批跑完，未开始的批保持 pending。
+  // 已经完成的镜不会被重做（续跑靠磁盘复核），因此停止后再启动就是「断点续跑」。
+  ipcMain.handle('film-engineering:auto-stop', withSenderCheck((_e, payload) => {
+    const params = payload || {}
+    const id = resolveTaskId(params.taskId)
+    if (!id.ok) return validationFail(id.errorCode, id.message)
+    if (!runningAutoTasks.has(id.taskId)) {
+      return { code: 0, data: { ok: true, stopping: false, running: false } }
+    }
+    stoppingAutoTasks.add(id.taskId)
+    return { code: 0, data: { ok: true, stopping: true, running: true } }
   }))
 
   // ── 只读状态 ───────────────────────────────────────────────────────────
@@ -459,9 +491,9 @@ function registerAutoHandlers (ipcMain, deps) {
 
   return {
     registered: [
-      'film-engineering:auto-plan', 'film-engineering:auto-start', 'film-engineering:auto-status',
-      'film-engineering:auto-update-shot', 'film-engineering:auto-regenerate-shot',
-      'film-engineering:auto-compose',
+      'film-engineering:auto-plan', 'film-engineering:auto-start', 'film-engineering:auto-stop',
+      'film-engineering:auto-status', 'film-engineering:auto-update-shot',
+      'film-engineering:auto-regenerate-shot', 'film-engineering:auto-compose',
     ],
     event: 'film-engineering:auto-update',
   }
@@ -480,6 +512,7 @@ function countDone (ledger) {
 module.exports = registerAutoHandlers
 module.exports.registerAutoHandlers = registerAutoHandlers
 module.exports.runningAutoTasks = runningAutoTasks
+module.exports.stoppingAutoTasks = stoppingAutoTasks
 module.exports.nowStamp = nowStamp
 module.exports.MAX_AUTO_SHOTS = MAX_AUTO_SHOTS
 module.exports.DRIVER_BATCH_SIZE = DRIVER_BATCH_SIZE

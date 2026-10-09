@@ -245,7 +245,7 @@ function detectCharacters (opts) {
     .sort((a, b) => (b.count - a.count) || (a.order - b.order))
     .map(({ name, count, source }) => ({ name, count, source }))
   const warnings = characters.length === 0
-    ? [{ code: 'W4', message: '未检出角色，分镜将以占位角色名生成；可在人物参考图中标注角色名以提升一致性' }]
+    ? [{ code: 'W4', message: '未检出角色，分镜将沿用模板自带的角色标识；可在人物参考图中填写角色名以提升人物一致性' }]
     : []
   return { characters, warnings }
 }
@@ -395,6 +395,9 @@ function planAutoShots (input) {
   const targetCount = planShotCount(o.targetDurationSec, o.seconds, { maxShots })
 
   const baseBeats = splitAutoBeats(o.script)
+  // 理论不可达的 fail-closed 兜底（代码审查结论）：`validateAutoInputs` 已先拦下空白剧本（AUTO_SCRIPT_EMPTY），
+  // 而 `splitScript` 对任何非空白输入都至少产出一段（连「只有标题行」也会补一段 text:''）。
+  // 保留此分支作为「将来改了 splitScript 语义」的兜底，不删——但不要为它编造可达用例。
   if (baseBeats.length === 0) return { ok: false, errorCode: 'AUTO_NO_BEATS', message: '剧本无法分场（请用空行分隔场景）' }
   const expanded = expandBeatsToCount(baseBeats, targetCount)
   const beats = mergeBeatsToCount(expanded, targetCount)
@@ -428,6 +431,10 @@ function planAutoShots (input) {
   const plannedDurationSec = shots.length * Number(o.seconds)
   const wallclock = shots.length * WALLCLOCK_SECONDS_PER_SHOT
   const shotsWithReferences = shots.filter((s) => s.refPaths.length > 0).length
+  // 空文案分镜（代码审查发现）：整篇只写一行场景标题（如单独一行 `INT.`）时，`splitScript` 会产出一段
+  // `text:''`；这类镜的提示词里没有一点用户文案，而确认卡只显示「提示词字数」，用户看不出差异。
+  // 因此显式给 W7 提示（不阻断——用户可能就是想要一张模板空镜）。
+  const emptyBeatIndexes = beats.filter((b) => !String(b.text || '').trim()).map((b) => b.index)
   const warnings = [
     ...buildReferenceWarnings({ providerId: o.providerId, shotsWithReferences }),
     ...(shots.length > PRODUCTION_BATCH_SIZE
@@ -437,6 +444,13 @@ function planAutoShots (input) {
       ? [{ code: 'W3', message: '实际时长约 ' + plannedDurationSec + ' 秒，与目标 ' + Number(o.targetDurationSec) + ' 秒存在差异（单镜 ' + Number(o.seconds) + ' 秒 × ' + shots.length + ' 镜）' }]
       : []),
     ...detected.warnings,
+    ...(emptyBeatIndexes.length > 0
+      ? [{
+          code: 'W7',
+          message: '有 ' + emptyBeatIndexes.length + ' 个分镜没有解析到文案（剧本里可能只写了场景标题行），这些镜将沿用模板原文：'
+            + emptyBeatIndexes.slice(0, 5).map((i) => '#' + i).join(', '),
+        }]
+      : []),
     ...(wallclock > WALLCLOCK_WARN_SECONDS
       ? [{ code: 'W5', message: '墙钟预估约 ' + (wallclock / 3600).toFixed(1) + ' 小时，建议缩短时长或分批推进（支持停止与断点续跑）' }]
       : []),
