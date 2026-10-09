@@ -1,3 +1,41 @@
+# [未发布] feat(film-engineering): 影视工程三标签重组 + 「自动」模式（2026-10-09，film-auto-mode）
+
+## 背景
+
+影视工程页原先只有一个视图（节点式画布）。用户提出两件事：①把画布降为第 2 个标签，把画布之前的页面放到第 3 个标签「工程案例」；②新增第 1 个标签「自动」，目标「越简单越好」——输入一段文案、可选人物/场景参考图、设定横竖屏与大概时长，其余全部由程序完成生成与合成，且**必须把这条流水线已有的技术积累全部用上**，生成后还要能单独修改某个片段。
+
+两条容易走偏的路，这次都明确避开了：一是新做一套「简化版生成」把底层积累绕过去；二是把自动模式塞进 pipeline 六阶段里，与 checkpoint 语义纠缠。
+
+## 改动
+
+**三标签 Hub**：新增 `FilmEngineeringHubView.vue`（自动 / 画布 / 工程案例），`?tab=` 双向绑定 + 懒挂载（切回不丢状态）+ ARIA tablist 键盘导航。`/film-engineering` 指向 Hub，`/film-engineering/classic` **刻意保持非 redirect 路由**——改 redirect 会减少「非 redirect 路由数」，触碰 `useTabDocumentTitle.test.js` 的覆盖棘轮。两个既有视图各加一个 `embedded` prop（默认 `false` 时渲染逐字不变），内嵌时隐藏品牌块/页面级标题。
+
+**自动模式（后端四层）**：
+- `auto-plan.js`（纯函数、零 IO）：时长规划 `N = clamp(round(T/s), 1, 120)`；分场复用剧本套用引擎语义；镜数不足**只拆**（按句末标点、不丢字、不造空镜）、超出**只并**（相邻合并、顺序拼接）；角色检出（用户标注 > 显式标记 > 对话动词 > 频次，带停用词守卫）；槽位映射 `ROKO/JAXX/LULU/REIN`；参考绑定（人物按命中、场景按场景轮转共享、单镜 ≤2 张、受控根纵深防御）；提示词复用 `buildTemplatePrompt` 套用 kit 模板块结构。
+- `auto-project.js`（落盘层）：计划文件（TTL 24h + consumed 标记 + 归属校验）、项目文件（内容真源）、镜头编辑校验（先校验后应用）、**append-only 确认历史**、`providerCalls` 派发前自增与对账、`overwrite` 时旧一轮归档到 `archive/<runSeq>/`。
+- `auto-runner.js`（执行层）：批执行器**从项目文件取提示词**（这样片段编辑才真的生效，与全量出片从 kit 查询的做法不同）；单镜重生成走「临时目录生成 → ffprobe 校验 → rename 原子覆盖」，校验失败**不破坏既有产物**。
+- `film-engineering-auto.js`（IPC 层）：6 条通道 + 1 条事件。`auto-start` **只收** `{planId, taskId, confirmed, overwrite}`——分镜与参考图路径一律由服务端读自己落盘的计划重建，并在启动前对每一条 `refPaths` 重校验受控媒体根（计划文件被篡改即拒绝启动）。
+
+**自动模式（前端）**：`FilmAutoPanel.vue`（状态机 `input → preview → running → done`）+ `FilmAutoSegmentEditor.vue`（提示词逐字符编辑 / 时长 / 预览 / 恢复原文 / 块结构黄提示）。进度流程直接复用故事讲述流水线的 `StageProgress.vue`（为跨流水线复用给它加了 `testidPrefix`，默认值保持既有行为不变）；收口合成复用既有 `pipelineStartOrchestrated('film-engineering', { initialContext: { renderManifest } })`，与全量出片**同一条**引擎路径。
+
+**为复用而做的最小改动**：`production-driver.js` 加可选 `runIdFor`（默认 `prod-<taskId>-b<N>` 不变）让自动模式产物落 `auto/<taskId>/b<N>/`；`shot-library.js` 加 `listAllShots`（跨场景模板）与 `film-engineering-service.js` 的 `listTemplateShots` 门面；preload 加 6 方法 + 1 订阅并重建 bundle（计数 17→24）；`license-access-control.js` 登记为 public。
+
+## 三条不变量（改动时最该被保护的东西）
+
+1. **确认前零 provider 调用**：规划阶段不产生任何模型调用；未勾选确认不调 `auto-start`；编辑（`editedAt` 晚于最新确认）会让 `auto-start` 与 `auto-regenerate-shot` 都先要求重新确认。
+2. **提示词逐字符直送**：不接任何润色/优化器，片段编辑后的文本原样提交（对照既有 `video-gen.test.js` 的 `CONTRACT VIOLATION` 锁）。
+3. **磁盘为真**：`project.json` 的状态字段只是投影，产物是否存在以磁盘复核为准；收口合成要求台账与磁盘**双判据**同时成立。
+
+## 验证
+
+新增 145 条用例：`auto-plan`(42) / `auto-project`(14) / `auto-exec-contract`(9) / `auto-runner`(13) / `film-engineering-auto`(18) / 面板(19) / 片段编辑器(9) / 前端工具(8) / Hub(9) / StageProgress 前缀(4)。回归：影视工程服务目录 21 文件 263 用例全过、preload 与既有影视工程 IPC 447 全过、路由注册表 PASS、文案成对 PASS（1562 key，无新增硬编码）。
+
+实现期由测试暴露并修掉两处真问题：①`AUTO_TOO_MANY_SHOTS` 上限分支用 clamp 后的值判断，永远不可达（等于把防线写成死码）；②收口条件原为「全部完成」，使部分失败的任务永远停在运行态，片段编辑与收口入口都到不了——改为「不再运行 且 每镜都有结论（完成或失败）」。
+
+## 已知缺口
+
+停止按钮（批间生效）、端到端集成测试（plan → start → 台账 → manifest → 真实 ffmpeg 出 `final.mp4`）、QM-1 打包验证与 CDP 真机长文剧本 E2E、三处补充用例。均已登记在 `openspec/changes/film-auto-mode/tasks.md` 与 PRD §14.7，不装已闭合。
+
 # [未发布] docs(investigate): 发布限制频率机制严格性与必要性调查报告（2026-10-10，publish-frequency-strictness-report）
 
 ### 用户感知

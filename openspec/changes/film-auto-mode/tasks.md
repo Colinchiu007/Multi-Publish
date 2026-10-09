@@ -72,10 +72,10 @@
 
 ## 6. 文档
 
-- [ ] 6.0 `openspec validate film-auto-mode --strict` 通过（change 五件套结构合法）
-- [ ] 6.1 `01-docs/PRD-FILM-AUTO-MODE-2026-10-09.md` 按评审意见定稿（字段级规格/校验/文案/错误码/交互/显示项）
-- [ ] 6.2 用户手册增补：`01-docs/USER-MANUAL-FILM-ENGINEERING-AUTO-2026-10-09.md`（自动模式操作 + 三标签 + 片段编辑 + 排障）
-- [ ] 6.3 `CHANGELOG.md` 条目
+- [x] 6.0 `openspec validate film-auto-mode --strict` 通过（change 五件套结构合法）—— 实测 `Change 'film-auto-mode' is valid`
+- [x] 6.1 `01-docs/PRD-FILM-AUTO-MODE-2026-10-09.md` 按评审意见定稿：升级为 v3，新增 **§14 实现定稿（as-built）**——文件清单（新增 10 / 最小改动 12）、IPC 契约表（6 通道 + 1 事件的入参/返回/错误码全集）、落盘物形状与真源优先级、验证证据表、**8 项落地口径调整**（含实现期新增的 2 条）、显示项与 locale key 对照表、已知缺口 G1–G6、明确不做清单
+- [ ] 6.2 用户手册增补：`01-docs/USER-MANUAL-FILM-ENGINEERING-AUTO-2026-10-09.md`（自动模式操作 + 三标签 + 片段编辑 + 排障）——编撰中
+- [x] 6.3 `CHANGELOG.md` 条目：背景 / 改动（三标签 + 后端四层 + 前端 + 最小改动清单）/ 三条不变量 / 验证 / 已知缺口
 - [ ] 6.4 `openspec/specs/film-engineering/spec.md` 归档同步（archive 时）
 
 ## 7. 验证

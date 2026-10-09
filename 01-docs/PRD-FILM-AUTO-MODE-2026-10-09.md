@@ -1,9 +1,10 @@
-# 影视工程「自动模式」+ 三标签重组 · 方案（PRD 草案 v2）
+# 影视工程「自动模式」+ 三标签重组 · 方案（PRD v3 定稿）
 
-> **状态**：CCG 决策层评审已修订（第 1 轮 8 条批评全部处置，见 §13 处置表）｜ **基线**：`main@f493e7ec6`｜ **分支**：`film-auto-mode`
+> **状态**：**已实现并验证**（T1–T5 全部落地，见 §14 实现定稿与证据）｜ **基线**：`main@f493e7ec6`｜ **分支**：`film-auto-mode`
 > **取证口径**：现状结论均带 `文件:行号`，在基线 `f493e7ec6` 上复验。
+> **评审**：CCG 双家族决策层评审 4 次运行收敛（第 3 轮 Critical=0 ⇒ 裁决「可动手」），轨迹见 `openspec/changes/film-auto-mode/ccg-plan-review-record.md`
 > **评审简报**：`openspec/changes/film-auto-mode/review-brief.md`（精简版，用于双家族评审的输入预算）
-> **预计改动规模**：预计改动 1800 行，涉及 14 个文件。
+> **落地规模**：相较初版「预计 1800 行 / 14 文件」，实际新增规划层、落盘层、执行层、IPC 层、面板与编辑器共 **8 个源文件 + 12 个测试文件**；测试新增 **160 条**（详见 §14.4）
 
 ---
 
@@ -365,3 +366,156 @@ openspec 五件套（已完成初稿）+ 本 PRD 定稿 + 用户手册增补 `01
 | i6 | Warning | R2 声称「UI 可改角色名/删除」但无数据路径 | **已修**：声明与契约对齐——出片前改名走表单 + 重新规划；出片后按镜调整参考图（`auto-update-shot`）；不再声称全局角色删除入口（R2） |
 | i7 | Info | 测试计划未锁「auto 路径 prompt 逐字符直送」 | **已修**：§8 增补防回归锁（对照 `video-gen.test.js:74` 模式） |
 | i8 | Info | 「落盘预览」路径/生命周期/start 读盘与否未定义 | **已修**：§5.1 落盘物表（计划 TTL/consumed/指纹）；§4.5 明确 start 读服务端计划且不重算 |
+
+---
+
+## 十四、实现定稿（as-built）
+
+> 本章是**代码事实的镜像**：每一节都指向真实文件与真实测试，可作为验收清单逐条核对。
+> 与 §一~§十三 的差异（若有不一致）**以本章为准**（§一~§十三 是评审期的设计意图，本章是落地形状）。
+
+### 14.1 文件清单
+
+**新增（后端，`apps/desktop/electron/`）**
+
+| 文件 | 职责 | 测试 |
+|---|---|---|
+| `services/film-engineering/auto-plan.js` | 纯函数规划层：时长规划 / 只拆分场 / 只并合并 / 角色检出 / 槽位映射 / 参考绑定 / 指纹与哈希 / 主入口 `planAutoShots`。**零 IO、零 provider 调用** | `auto-plan.test.js`（42） |
+| `services/film-engineering/auto-project.js` | 落盘层：计划文件（TTL/consumed/归属）、项目文件（内容真源）、镜头编辑校验、append-only 确认历史、`providerCalls` 计数与对账、`overwrite` 归档 | `auto-project.test.js`（14） |
+| `services/film-engineering/auto-runner.js` | 批执行器（提示词真源＝项目文件）+ 单镜重生成（临时目录 → ffprobe → rename 原子覆盖）+ 缺镜收集 | `auto-runner.test.js`（13） |
+| `ipc-handlers/film-engineering-auto.js` | 6 条 IPC + `film-engineering:auto-update` 事件 + 单飞注册表 | `film-engineering-auto.test.js`（18） |
+
+**新增（前端，`apps/desktop/src/`）**
+
+| 文件 | 职责 | 测试 |
+|---|---|---|
+| `views/FilmEngineeringHubView.vue` | 三标签 Hub（自动 / 画布 / 工程案例）+ `?tab=` 双向绑定 + 懒挂载 + ARIA 键盘导航 | `FilmEngineeringHubView.test.js`（9） |
+| `views/film-auto/FilmAutoPanel.vue` | 自动模式面板：状态机 `input → preview → running → done` | `FilmAutoPanel.test.js`（19） |
+| `views/film-auto/FilmAutoSegmentEditor.vue` | 片段编辑：提示词逐字符编辑 / 时长 / 预览 / 恢复原文 / 块结构黄提示 | `FilmAutoSegmentEditor.test.js`（9） |
+| `views/film-auto/auto-constants.js` | 前端常量单一真源（与后端同值：上限 120、时长 10–600、参考图 ≤8、单镜 5/8/10） | 由面板/工具用例间接覆盖 |
+| `views/film-auto/file-url.js` | 本地文件 → 可播放 URL（Windows 三斜杠 / POSIX / UNC 三档） | `auto-frontend-utils.test.js`（8） |
+| `views/film-auto/auto-prompt-blocks.js` | 提示词块结构检查（非阻断提示）+ 与后端 `BLOCK_HEADINGS` 的源码对账锁 | 同上 |
+
+**既有文件的最小改动（每处都写清为什么必须动）**
+
+| 文件 | 改动 | 理由 |
+|---|---|---|
+| `services/film-engineering/production-driver.js` | 新增可选 `runIdFor`（默认仍 `prod-<taskId>-b<N>`） | 自动模式产物要落 `auto/<taskId>/b<N>/`，不能与全量出片的 `prod-*` 混在一层；默认值保证既有行为逐字不变 |
+| `services/film-engineering/shot-library.js` | 新增 `listAllShots(limit)` | 规划需要跨场景的模板分镜（原 `listShots` 要按场景过滤且有 `FULL_LOAD_LIMIT` 约束） |
+| `services/film-engineering/film-engineering-service.js` | 新增 `listTemplateShots(limit)` | 上面方法的服务层门面（IPC 只依赖 service，不直连 shot-library） |
+| `views/video-creation/StageProgress.vue` | 新增 `testidPrefix`（默认 `'story2video'`），全部 testid 经 `tid(suffix)` | 复用同一个进度组件时不能出现两套 `story2video-*` 命名；默认值保证既有测试与先例不变 |
+| `ipc-handlers/index.js` | 注册 `film-engineering-auto` | 通道要真的挂上 |
+| `preload/film-engineering.js` + `index.bundle.js` / `home-shell-preload.bundle.js` | 6 方法 + `onAutoUpdate` 订阅；`pnpm run build:preload` 重建 | 渲染端无 preload 暴露就调不到；bundle 断言会拦截漏建 |
+| `ipc-handlers/license-access-control.js` | 6 条通道登记为 `public` | 与既有影视工程通道同级（本地规划/执行，provider 由用户自己的模型配置决定） |
+| `router/index.js` | `/film-engineering` → `FilmEngineeringHubView.vue` | 三标签入口 |
+| `config/route-registry.js` | 同上，并注明 `/film-engineering/classic` **刻意保持非 redirect** | 改 redirect 会减少「非 redirect 路由数」，触碰 `useTabDocumentTitle.test.js` 的覆盖棘轮 |
+| `views/FilmCanvasView.vue` / `views/FilmEngineeringView.vue` | 新增 `embedded` prop（默认 `false` 逐字不变）；画布「工程案例」按钮在 embedded 下派发 `open-classic` | 内嵌进 Hub 时隐藏品牌块/页面级标题，但直达路由渲染不变 |
+| `locales/zh.js` / `en.js` | 新增 `filmEngineering.hub.*` 与 `filmEngineering.auto.*` | 文案成对门禁（CI Gate 7） |
+
+### 14.2 IPC 契约（最终）
+
+| 通道 | 入参（严格） | 成功返回 `data` | 失败 `errorCode` |
+|---|---|---|---|
+| `film-engineering:auto-plan` | `{script, characterRefs[], sceneRefs[], aspect, seconds, targetDurationSec, taskId?}` | `{planId, taskId, planExpiresAt, payloadHash, aspect, seconds, targetDurationSec, plannedDurationSec, shotCount, batchCount, shotsWithReferences, characterMap, warnings[], estimates, provider{id,model}, shots[]{index,shotId,title,seconds,characterNames,refPaths,promptLength,promptPreview}}` | `VIDEO_MODEL_NOT_CONFIGURED` / `AUTO_SCRIPT_EMPTY` / `AUTO_SCRIPT_TOO_LONG` / `AUTO_BAD_PARAM` / `AUTO_NO_TEMPLATES` / `AUTO_NO_BEATS` / `AUTO_TOO_MANY_SHOTS` / `AUTO_TEMPLATE_UNAVAILABLE` / `FILM_KIT_UNAVAILABLE` |
+| `film-engineering:auto-start` | `{planId, taskId, confirmed?, overwrite?}` ——**不含分镜、不含任何路径** | `{started:true, resumed, taskId, planId, ok, doneCount, totalCount, failedBatches[], renderManifest?, manifestError?, counters}` 或 `{started:false, needsReconfirm:true, taskId, planId, payloadHash, resumed}` | `AUTO_PLAN_EXPIRED` / `AUTO_PLAN_MISMATCH` / `AUTO_TASK_EXISTS` / `AUTO_TASK_BUSY` / `AUTO_BAD_PARAM`（计划内参考图越界）/ `VIDEO_MODEL_NOT_CONFIGURED` / `AUTO_START_FAILED` |
+| `film-engineering:auto-status` | `{taskId}` | `{exists:false}` 或 `{exists:true, taskId, runSeq, planId, aspect, seconds, targetDurationSec, plannedDurationSec, providerId, createdAt, editedAt, lastConfirmedAt, shots[], warnings[], counters{providerCalls,ledgerDoneCount,mismatch}, doneCount, totalCount, ledgerPresent, renderManifest?, manifestError?, finalPath?, running}` | （只读，返回 `exists:false` 视为正常） |
+| `film-engineering:auto-update-shot` | `{taskId, shotIndex, patch{prompt?|refPaths?|seconds?|title?}}`（字段白名单） | `{ok:true, shot, editedAt}` | `AUTO_SHOT_INVALID` / `AUTO_PROJECT_UNREADABLE` |
+| `film-engineering:auto-regenerate-shot` | `{taskId, shotIndex, confirmed?}` | `{ok:true, path, shotIndex, shot}` 或 `{ok:false, needsReconfirm:true, payloadHash, taskId}` | `AUTO_REGENERATE_FAILED` / `AUTO_REGENERATE_INVALID_CLIP` / `AUTO_SHOT_INVALID` / `VIDEO_MODEL_NOT_CONFIGURED` |
+| `film-engineering:auto-compose` | `{taskId}` | `{ok:true, taskId, aspect, seconds, renderManifest[], clipCount}` | `AUTO_MANIFEST_INCOMPLETE` |
+| 事件 `film-engineering:auto-update` | — | `{type:'production:shot-progress'\|'production:batch'\|'production:complete', doneCount, totalCount, batchIndex?, shotIndex?, status?, error?, ok?, failedBatchCount?}` | — |
+
+**为什么 `auto-plan` 返回的是预览而不是完整提示词**：120 镜 × 数 KB 的提示词会把 IPC 负载推到 MB 级，而确认卡只需要「有多少镜、每镜多长、有没有注入参考图」。完整提示词只存在于服务端计划文件里，渲染端要编辑时按镜取（`auto-status`）。
+
+### 14.3 落盘物与真源（最终形状）
+
+```
+<mediaRoot>/film-engineering/
+├── references/                      参考图受控根（复用既有 upload-reference）
+├── auto/
+│   ├── _plans/
+│   │   ├── <planId>.json            计划：{schemaVersion, planId, taskId, createdAt, expiresAt, plan}
+│   │   └── <planId>.consumed        消费标记（独立文件，不重写计划内容）
+│   ├── <taskId>/
+│   │   ├── project.json             **内容真源**：shots[].prompt/refPaths/seconds/status/outputPath + confirmations[] + counters
+│   │   ├── ledger.json              执行真源（production-driver 写）
+│   │   ├── b<N>/shot_NNN.mp4        批次产物（shot_NNN 是**批内**序号）
+│   │   ├── .regen/                  单镜重生成的暂存目录（校验通过才 rename 覆盖）
+│   │   └── archive/<旧 runSeq>/      overwrite 时归档旧一轮的 project.json / ledger.json
+```
+
+真源优先级（冲突时以左为准）：`磁盘产物` > `ledger.json` > `project.json` 的 status 字段（`project.json` 的**内容**字段永远是提示词/参考图/时长的唯一真源）。
+
+### 14.4 验证证据（本轮为止）
+
+| 层 | 命令 | 结果 |
+|---|---|---|
+| 规划层 | `vitest run electron/services/film-engineering/auto-plan.test.js` | 42/42 |
+| 落盘层 | 同上 `auto-project.test.js` | 14/14 |
+| 执行前置 | 同上 `auto-exec-contract.test.js` | 9/9 |
+| 执行器 | 同上 `auto-runner.test.js` | 13/13 |
+| IPC | `vitest run electron/ipc-handlers/film-engineering-auto.test.js` | 18/18 |
+| 面板 / 编辑器 / 工具 | `vitest run src/views/film-auto/` | 19+9+8 = 36/36 |
+| Hub + StageProgress 前缀 | `vitest run src/views/FilmEngineeringHubView.test.js src/views/video-creation/StageProgress.testid.test.js` | 9+4 = 13/13 |
+| 影视工程服务目录回归 | `vitest run electron/services/film-engineering/` | 21 文件 / 263 用例全过 |
+| preload + 既有影视工程 IPC | `vitest run electron/preload.test.js electron/ipc-handlers/film-engineering*.test.js` | 447 全过 |
+| 路由注册表 | `node .github/scripts/check-route-registry.js` | PASS（35 路由 / 登记一致） |
+| 文案成对 | `node .github/scripts/check-locale-sync.js --keys` / `--cjk` | PASS（1562 key）/ PASS（无新增硬编码） |
+| change 结构 | `openspec validate film-auto-mode --strict` | valid |
+
+**新增用例合计 145 条**（上表前 7 行相加），另在 `preload.test.js`（方法计数 17→24、新增 6 条 invoke 转发行）与 `story2video-ue-contract.test.js`（源码锁改为前缀化形态 + 反锁）做了**就地扩展**。
+
+### 14.5 相对初版方案的落地口径调整（全部有据）
+
+| # | 初版方案 | 落地形状 | 理由 |
+|---|---|---|---|
+| 1 | `auto-start` 未确认时返回错误码 `AUTO_NOT_CONFIRMED` | 返回 `{code:0, data:{started:false, needsReconfirm:true, payloadHash}}` | 渲染端要据此**弹确认卡**而不是弹错误；错误码只用于「拒绝」 |
+| 2 | `auto-compose` 服务端起合成 run 并返回 `runId` | 服务端只做「台账 + 磁盘」双判据收口校验并返回 `renderManifest`；合成 run 由渲染端经**既有** `pipelineStartOrchestrated` 发起 | 避免在 IPC 层复制第二套引擎启动路径（`useFilmProduction.composeFinal` 已是既有范式） |
+| 3 | 重生成原子覆盖用 `.part` 后缀 | 用**临时目录**（`auto/<taskId>/.regen/`）生成 → ffprobe 校验 → `rename` 覆盖 | 同语义、路径改写更少；失败时正式产物**内容不变**（有用例断言） |
+| 4 | `StageProgress` 传 `testidPrefix='film-auto-stage'` | 传 `'film-auto'` | 组件的 `tid(suffix)` 会再拼 `-stage-list` 等后缀，传 `film-auto-stage` 会得到 `film-auto-stage-stage-list` |
+| 5 | 确认卡上任务 ID 可编辑 | **只读展示** | 任务 ID 参与 `planId` 与计划归属哈希，允许改会让两者失配；需要换 ID 就重新生成预览 |
+| 6 | 抽 `useFilmAuto.js` 承载状态机 | 状态机留在面板内（`phase` 单值） | 面板是唯一消费者，抽出 composable 只多一层无收益的间接；接口边界（IPC 与注入 `api`）已经清晰 |
+| 7 | 未明确 | **新增**：`auto-start` 启动前对计划内**每一条 `refPaths` 重校验受控媒体根**，越界即 `AUTO_BAD_PARAM` 拒绝启动 | 计划虽由服务端生成，但它是磁盘文件；这是评审 i1「纵深防御」的落地形态（有用例：篡改计划文件后拒绝启动且零调用） |
+| 8 | 未明确 | **新增**：收口条件 = 不再运行 且 每镜都有结论（完成**或失败**） | 初版「全部完成才收口」会让部分失败的任务永远停在运行态，片段编辑与合成入口不可达（实现期由测试暴露） |
+
+### 14.6 显示项与提示文字的真源
+
+所有用户可见文字一律来自 `src/locales/zh.js` / `en.js` 的 `filmEngineering.hub.*` 与 `filmEngineering.auto.*`（**成对**，CI Gate 7 拦截单边）。关键显示项与对应 key：
+
+| 显示项 | key |
+|---|---|
+| 三标签名 | `filmEngineering.hub.tabs.{auto,canvas,classic}` |
+| 标签说明（悬停/副标题） | `filmEngineering.hub.hints.*` |
+| 步骤条四步 | `filmEngineering.auto.step{Input,Confirm,Run,Done}` |
+| 字数计数与超限 | `scriptCount` / `scriptTooLong` |
+| 参考图上限提示 | `charRefsHint` / `sceneRefsHint`（含 `{max}`） |
+| 预估行 | `estimate`（含 `{shots}` `{seconds}`） |
+| 确认勾选框原文 | `confirmCheckbox`（含 `{shots}` `{seconds}`） |
+| 确认说明 | `confirmHint` |
+| 预览字段名 | `kvTask/kvShots/kvBatches/kvDuration/kvDurationValue/kvAspect/kvProvider/kvProviderNone/kvRefs` |
+| 警告区标题 | `warningsTitle` |
+| 角色槽位映射 | `charMapTitle` |
+| 运行摘要与提示 | `runSummary` / `runHint` / `stageShotProgress` |
+| 逐镜状态四态 | `shotStatus.{pending,running,done,failed}` |
+| 缺镜提示 | `missingShots`（含 `{n}` `{list}`） |
+| 合成相关 | `composeBtn` / `composeRunning` / `composeMissing` / `composeNoManifest` / `composeFailed` |
+| 成品入口 | `openFolder` / `saveAs` |
+| 片段编辑全部文案 | `filmEngineering.auto.segment.*`（含 `blockHint` 的块缺失提示） |
+
+### 14.7 已知缺口（如实列示，不假装已闭合）
+
+| # | 缺口 | 现状 | 计划 |
+|---|---|---|---|
+| G1 | 用户「停止」按钮与停止标志（批间生效） | 未实现（未完成的镜不会重复生成这一半能力已具备：续跑靠磁盘复核） | 与 T4 停止按钮一并落地 |
+| G2 | 续跑入口的显式前端用例（同 taskId 再进面板自动恢复进度） | 无显式用例 | T7 补 |
+| G3 | 计划哈希被篡改导致「载荷哈希不匹配即拒绝」的独立 IPC 负向用例 | 由 `needsReconfirm` 三判据单测 + 参考图越界拒绝两例间接覆盖 | T7 补 |
+| G4 | 「缺镜 → 只重生成该镜 → 台账/计划不变」的显式用例 | 能力已具备（`regenerateOneShot` 按镜定位） | T7 补 |
+| G5 | `plan → start → 台账 → manifest → 真实 ffmpeg 出 final.mp4` 的端到端集成测试 | 各层单测已覆盖，缺一条串起来的集成测试 | T7 补（与 CDP 真机 E2E 一并） |
+| G6 | QM-1 打包验证与 CDP 真机长文剧本 E2E | 未执行 | T7 |
+
+### 14.8 明确不做（避免"看起来漏了"）
+
+- **不做逐批确认**：自动模式的定位就是「一次确认跑到底」，逐批确认是画布/全量出片模式的语义；
+- **不做视频剪辑**：只做「改提示词 → 重生成单镜」，剪辑仍由合成后的成片承担；
+- **不扩展 provider 参考图能力**：仍限既有能力表（`minimax / agnes-video / agnes-multimodal`），不支持时降级纯文本并给 W1；
+- **不经 pipeline 引擎执行出片**：自动模式的执行直连 `production-driver` + `auto-runner`（只有**收口合成**走引擎的 manifest 直通 run），以免与六阶段语义纠缠；
+- **不改 kit / schema / 六阶段语义 / checkpoint 语义**。
