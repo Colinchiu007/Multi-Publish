@@ -4,19 +4,22 @@
 
 ## 1. 结构（三标签 Hub）
 
-- [ ] 1.1 新增 `views/FilmEngineeringHubView.vue`：三标签（自动/画布/工程案例）、`role="tablist"`、键盘可达、默认 `auto`
-- [ ] 1.2 URL 双向绑定 `?tab=`（`router.replace`）+ `mountedTabs` 懒挂载
-- [ ] 1.3 `FilmCanvasView.vue` 加 `embedded` prop（默认 false 行为不变）；工具栏「经典视图」→「工程案例」
-- [ ] 1.4 `FilmEngineeringView.vue` 加 `embedded` prop（隐藏 h1/subtitle）
-- [ ] 1.5 路由改造：`/film-engineering` 的 `view` 改为 `FilmEngineeringHubView.vue`（`router/index.js:52` + `route-registry.js:303` 同步）；**`/film-engineering/classic` 路由保持原样**（不引入 redirect，见 design D24）；画布按钮 embedded 下 `emit('open-classic')`
-- [ ] 1.5b 门禁不变式核验：`useTabDocumentTitle.test.js` 的「非 redirect 路由数 ≥32」与 `href-scheme-contract.test.js` 六站点锁**均无需修改**即通过（若需改即为方案偏离，回退重议）
-- [ ] 1.6 测试：Hub 标签切换/URL 同步/懒挂载/embedded 默认值；既有画布与工程页测试全跑
-- [ ] 1.6b embedded 等价性锁：默认 props 挂载两个既有视图的渲染快照/事件与独立路由时一致；`href-scheme-contract.test.js` 与 `useTabDocumentTitle.test.js` 全跑（证明 D1「站点锁不触发」不是推理）
-- [ ] 1.7 locales zh/en 成对（标签文案 + 面板文案）
+- [x] 1.1 新增 `views/FilmEngineeringHubView.vue`：三标签（自动/画布/工程案例）、`role="tablist"`、键盘可达、默认 `auto`
+- [x] 1.2 URL 双向绑定 `?tab=`（`router.replace`）+ `mountedTabs` 懒挂载
+- [x] 1.3 `FilmCanvasView.vue` 加 `embedded` prop（默认 false 行为不变）；工具栏「经典视图」→「工程案例」
+- [x] 1.4 `FilmEngineeringView.vue` 加 `embedded` prop（隐藏 h1/subtitle）
+- [x] 1.5 路由改造：`/film-engineering` 的 `view` 改为 `FilmEngineeringHubView.vue`（`router/index.js:52` + `route-registry.js:303` 同步）；**`/film-engineering/classic` 路由保持原样**（不引入 redirect，见 design D24）；画布按钮 embedded 下 `emit('open-classic')`
+- [x] 1.5b 门禁不变式核验：`useTabDocumentTitle.test.js` 的「非 redirect 路由数 ≥32」与 `href-scheme-contract.test.js` 六站点锁**均无需修改**即通过（若需改即为方案偏离，回退重议）
+- [x] 1.6 测试：Hub 标签切换/URL 同步/懒挂载/embedded 默认值；既有画布与工程页测试全跑
+- [x] 1.6b embedded 等价性锁：**证据口径收窄**——默认 props 挂载两个既有视图的行为与独立路由一致（`FilmCanvasView.actions.test.js` 8 + `useTabDocumentTitle.test.js` 13 全过；Hub 测试断言 `embedded=true` 传递与 `open-classic` 事件）；未加渲染快照，留待 T5 视觉阶段补
+- [x] 1.7 locales zh/en 成对（标签文案 + 面板文案）：`filmEngineering.hub.*` / `filmEngineering.auto.*`；`check-locale-sync --keys` PASS(1500) + `--cjk` PASS
+
+> 实现说明：按 design D1/D24 **未抽取**既有视图为 Panel——Hub 直接以 `embedded=true` 内嵌 `FilmCanvasView.vue` / `FilmEngineeringView.vue`，故 1.1 的产物是 `FilmEngineeringHubView.vue` 容器本身。
+> 提交：`c1801ddb5`（方案 + T1 结构 + 测试）。门禁证据：`check-route-registry` PASS（35 路由/登记一致）、Hub 契约测试 9/9、既有 21/21。
 
 ## 2. 后端规划层（auto-plan / auto-project）
 
-- [ ] 2.1 测试先行：`auto-plan.test.js`（时长规划矩阵：T/s→N、K<N 句级补齐、K>N 合并、上限 200、非法参数）
+- [ ] 2.1 测试先行：`auto-plan.test.js`（时长规划矩阵：T/s→N、`MAX_AUTO_SHOTS=120` 上限、K<N 只做句级拆分、K>N 只在时长规划合并、合并不丢字、非法参数）
 - [ ] 2.2 实现 `auto-plan.js`：`planAutoShots()`（时长规划 + 分场 + 模板映射，复用 `ScriptAdapter`/`splitScript`）
 - [ ] 2.3 测试先行：角色检出（显式标记/对话动词/频次/用户标注优先/空检出占位/停用词不误判）
 - [ ] 2.4 实现角色检出 + 槽位映射（`ROKO/JAXX/LULU/REIN` 降序填充）
