@@ -33,6 +33,12 @@ const PRO_FEATURES = [
 
 const TRIAL_DAYS = 7
 
+// S1（2026-10-09）：本地激活码格式守卫——与服务端兑换码格式对齐
+// （packages/api-publish-engine/src/auth/subscription-service.js 的 REDEEM_CODE_PATTERN：
+//   4-4-4 段、大写字母+数字、字母表无易混淆 0/O/1/I/L；允许有/无连字符，便于测试与
+//   payment-manager 构造的键通过格式层）。这不是「码有效」的证明——真实核销在服务端。
+const LICENSE_KEY_PATTERN = /^[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}$/
+
 function getDataPath(dataPath) {
   return dataPath || path.join(app.getPath("userData"), "license.json")
 }
@@ -174,13 +180,19 @@ class LicenseManager {
     // 一律返回 true，并写入 type=pro + expiresAt=null（永不过期）+ 8 项 PRO_FEATURES。
     // 叠加 #3064 保留的正式包激活码入口 ⇒ 任意非空字符串即可获得永久 Pro。
     //
-    // 最小止血：空串/纯空白不得视为有效 key。
-    // **这不是完整修复**——客户端校验本质可绕过（改一行代码即可）。
-    // 根因是本地 license 存在一条不经服务端核销的授权路径，而服务端的
-    // `POST /api/v1/redeem` 已经带 `durationDays` 与事务化到期结算。
-    // 正式包是否改为一律走服务端核销，见本次 PR 的说明与执行记录。
+    // 最小止血（第 1 步，#3085）：正式包在 IPC 层拒收本地激活码（license.js:47），
+    // 开发构建保留本路径。
+    // 最小止血（第 2 步，2026-10-09 S1）：开发构建里本方法仍可达，故补**格式守卫**——
+    // 只接受服务端 `subscription-service.js` REDEEM_CODE_PATTERN 同款格式
+    // （4-4-4 段，大写字母+数字，无易混淆 0/O/1/I/L，可带连字符）。垃圾字符串
+    // 一律拒绝且不写库。格式通过 ≠ 码有效：真实核销仍必须走服务端 /api/v1/redeem，
+    // 客户端校验本质可绕过，本守卫只封「手滑/瞎猜都能激活」的面。
     const key = String(licenseKey).trim()
     if (!key) return false
+    if (!LICENSE_KEY_PATTERN.test(key)) {
+      log.warn("LicenseManager", "Activate rejected: key does not match redemption code format")
+      return false
+    }
     this._data.type = "pro"
     this._data.licenseKey = key
     this._data.activatedAt = new Date().toISOString()

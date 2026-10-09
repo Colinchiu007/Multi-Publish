@@ -125,8 +125,10 @@ describe('notify 日志注入防护（端到端落盘）', () => {
     })
     const content = await readSingleLog()
     expect(content).not.toContain(secret)
-    // redact 合同：保留前缀 4 位字符后接 ***（sk-ABCD***）
-    expect(content).toContain('sk-ABCD***')
+    // S6（2026-10-09）后键级脱敏优先：`token` 进入 quoted 键值集合，
+    // "token":"sk-…" 整值打码（token":"***），sk- 前缀保留规则不再有机会命中
+    // ——泄露面更小。前缀保留合同由无敏感键名的 sk- 串用例覆盖（见 logger.test.js）。
+    expect(content).toContain('"token":"***"')
     expect(content).not.toContain('sk-ABCDE')
   })
 

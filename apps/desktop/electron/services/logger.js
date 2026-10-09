@@ -93,12 +93,15 @@ function ensureLogPath() {
 }
 
 // 敏感信息脱敏（对齐 api-publish-engine log-redact：Bearer / quoted+unquoted 键值 / sk- / 通用 JWT）
+// S6 修复（2026-10-09）：补裸 token（无 access_/refresh_ 前缀）/ sid / session / pwd 键值，
+// 以及中国大陆手机号——账号昵称/备注里带手机号时不再原样进日志。
 const SECRET_PATTERNS = [
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ***'],
-  [/(["']?(?:api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie)["']?\s*[:=]\s*["'])[^"'\s,}]+/gi, '$1***'],
-  [/\b(api[_-]?key|access_token|refresh_token|password|secret|cookie)\s*=\s*[^&\s,;"']+/gi, '$1=***'],
+  [/(["']?(?:api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie|token|sid|session|pwd)["']?\s*[:=]\s*["'])[^"'\s,}]+/gi, '$1***'],
+  [/\b(api[_-]?key|access_token|refresh_token|password|secret|cookie|token|sid|session|pwd)\s*=\s*[^&\s,;"']+/gi, '$1=***'],
   [/\b(sk-[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/g, '$1***'],
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b/g, 'eyJ***'],
+  [/\b(?:1[3-9]\d)\d{8}\b/g, '***'],
 ]
 
 function redact(value) {

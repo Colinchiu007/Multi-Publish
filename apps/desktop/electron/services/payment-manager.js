@@ -135,8 +135,15 @@ PaymentManager.prototype.completePayment = function(orderId, txnId) {
   try {
     const LicenseManager = require('./license-manager')
     const lm = LicenseManager.getInstance()
-    lm.activate('PAY-' + order.plan.toUpperCase() + '-' + order.id)
-    log.info('PaymentManager', 'License activated for order: ' + order.id)
+    // S1（2026-10-09）：license-manager.activate 现在只接受服务端兑换码格式（4-4-4），
+    // 订单号（UUID）不再符合格式 → activate 返回 false 且不写授权。
+    // 订单状态照常流转；真实授权改由服务端核销（/api/v1/redeem）承担。
+    const activated = lm.activate('PAY-' + order.plan.toUpperCase() + '-' + order.id)
+    if (activated) {
+      log.info('PaymentManager', 'License activated for order: ' + order.id)
+    } else {
+      log.info('PaymentManager', 'Order paid; license activation deferred to server-side redemption (order: ' + order.id + ')')
+    }
   } catch(e) {
     log.error('PaymentManager', 'Failed to activate license: ' + e.message)
   }

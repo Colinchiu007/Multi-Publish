@@ -37,11 +37,13 @@ const composeMonitor = read('deploy/logto/docker-compose.monitoring.yml')
 
 // 5 组脱敏模式的稳定字面量标记（与 3 处实现中的正则字面量一致）。
 // 用 String.fromCharCode(92) 构造反斜杠，规避字符串字面量转义被工具链吞掉的歧义。
+// S6（2026-10-09）：键值集合扩至 token/sid/session/pwd（LOGGING-CONTRACT.md §3.1 同步），
+// marker 随合同更新；新增手机号模式 ⑥ 由 MARKER_MOBILE 单独锁（避免三处数字区间写法差异误报）。
 const BS = String.fromCharCode(92)
 const PATTERN_MARKERS = [
   'Bearer' + BS + 's+',
-  'api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie',
-  BS + 'b(api[_-]?key|access_token|refresh_token|password|secret|cookie)' + BS + 's*=' + BS + 's*',
+  'api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie|token|sid|session|pwd',
+  BS + 'b(api[_-]?key|access_token|refresh_token|password|secret|cookie|token|sid|session|pwd)' + BS + 's*=' + BS + 's*',
   'sk-[A-Za-z0-9_-]{4}',
   'eyJ[A-Za-z0-9_-]{8,}'
 ]

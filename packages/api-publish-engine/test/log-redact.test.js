@@ -34,6 +34,18 @@ t('redacts generic JWT', function() {
 t('no false positive on plain text', function() {
   eq(redactText('hello world ok'), 'hello world ok')
 })
+t('redacts bare token key (no access_/refresh_ prefix)', function() {
+  eq(redactText('token=raw-token-value'), 'token=***')
+  eq(redactText('"token":"raw-token-value"'), '"token":"***"')
+})
+t('redacts sid / session / pwd keys', function() {
+  eq(redactText('sid=sid-99887766'), 'sid=***')
+  eq(redactText('"session":"sess-secret"'), '"session":"***"')
+  eq(redactText('pwd: "plain-pass"'), 'pwd: "***"')
+})
+t('redacts CN mobile number', function() {
+  eq(redactText('user phone 13812345678 ok'), 'user phone *** ok')
+})
 t('null safe', function() {
   eq(redactText(null), '')
 })

@@ -59,6 +59,26 @@ describe('logger 服务', () => {
     expect(content).toContain('apiKey":"***')
   })
 
+  it('敏感信息脱敏：裸 token/sid/session/pwd 键与手机号不落盘原文', async () => {
+    // S6 修复（2026-10-09）：SECRET_PATTERNS 原覆盖 cookie/access_token/api_key/Bearer/sk-/JWT，
+    // 但裸 `token`（无 access_/refresh_ 前缀）、`sid` / `session` / `pwd` 漏网，且无手机号正则。
+    logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024 })
+    logger.info('Test', 'token=raw-token-value sid=sid-99887766', {
+      session: 'sess-secret-abcdef',
+      pwd: 'plain-pass-1234',
+      phone: '13812345678',
+    })
+    await logger.flush()
+
+    const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+    expect(content).not.toContain('raw-token-value')
+    expect(content).not.toContain('sid-99887766')
+    expect(content).not.toContain('sess-secret-abcdef')
+    expect(content).not.toContain('plain-pass-1234')
+    expect(content).not.toContain('13812345678')
+    expect(content).toContain('phone":"***')
+  })
+
   it('meta 以 JSON 形式落盘并截断超长内容', async () => {
     logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024 })
     logger.info('Test', 'with meta', { stage: 'split', count: 5 })
