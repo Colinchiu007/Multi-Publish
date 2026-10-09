@@ -58,7 +58,8 @@
 - [x] 4.1 状态机：`input → preview → running → done`（**实现口径**：状态机落在面板内而非单独 `useFilmAuto.js`——面板是唯一消费者，抽出 composable 只会多一层无收益的间接；事件优先 + 3s 轮询兜底 + taskId 归属（`autoStatus({taskId})`）已具备）
 - [x] 4.2 `FilmAutoPanel.vue`：5 项输入 + 校验 + 实时预估行 + 计划确认卡（含警告/预估/批次/Provider/角色映射/逐镜预览）。**实现口径**：任务 ID 在确认卡上**只读展示**（由服务端在 auto-plan 时生成或按传入值派生，并参与 planId 归属哈希）——允许改 ID 会让 planId 与归属失配，需要时可重新规划
 - [x] 4.3 进度区：`StageProgress` 复用（**testidPrefix='film-auto'**，产出 `film-auto-stage-list` 等；原计划写 'film-auto-stage' 会拼成 `film-auto-stage-stage-list`，故按组件 `tid(suffix)` 语义取 'film-auto'）+ 已完成/总数 + 逐镜状态表
-- [ ] 4.4 完成态：`final.mp4` 预览 + 打开文件夹/另存为（复用 `story2videoShowInFolder` / `story2videoSaveAs`）——**未实现**：合成 run 由 pipeline 引擎执行，成品路径需从 pipeline run context 取回后回填（留待 T5 收尾）
+- [x] 4.4 完成态：`final.mp4` 预览 + 打开文件夹/另存为（复用 `story2videoShowInFolder` / `story2videoSaveAs`）。**实现**：成品路径取自合成 run context 的 `render.finalPath`（`pipelineGetRunContext` 轮询 + `onPipelineUpdate` 推送，推送路径带 **runId 守卫**防陈旧事件覆盖）；本地 URL 由 `file-url.js:toFileUrl` 统一拼装（Windows 三斜杠 / POSIX / UNC 三档，有用例）
+- [x] 4.6 收敛语义修正（本轮测试暴露的真 bug）：收口条件由「全部完成」改为「**不再运行 且 每镜都有结论（完成或失败）**」——原写法下部分失败的任务永远停在运行态，片段编辑与收口入口都不可达，「生成后可修改片段」的闭环断掉；现有「部分失败也算收敛」用例锁定
 - [x] 4.5 前端单测（14 条）：表单校验、确认前不发 start、**负载只含 {planId,taskId,confirmed,overwrite}**、needsReconfirm 回确认卡、IPC 失败回显、事件推进进度、收口复用既有 pipeline 通道、编辑/重生成负载、参考图上限、卸载取消订阅。**缺口**：续跑入口（同 taskId 再进面板自动恢复进度）无显式用例
 
 ## 5. 片段编辑
@@ -66,8 +67,8 @@
 - [x] 5.1 片段编辑入口 + 编辑区：逐镜列表在面板内（序号/状态/失败原因/操作），点击进入 `FilmAutoSegmentEditor.vue`（提示词/时长/预览/恢复原文）。**实现口径**：列表不重复实现两份，编辑器只做单镜深编辑
 - [x] 5.2 编辑保存（`auto-update-shot`）+ `changed` 脏标记 + 「恢复原文」+ 保存后关闭并由 `auto-status` 刷新
 - [x] 5.3 三动作接线：单镜重生成（`auto-regenerate-shot`，显式 `confirmed:true`）、失败重试（同通道，按镜号）、重新合成（`auto-compose` → 既有 pipeline 通道）
-- [ ] 5.4 块结构检查提示（缺 GEO/AUDIO 块时黄提示、不阻断）——**未实现**
-- [ ] 5.5 前端单测：编辑-保存-重生成链路已有（面板级），**缺口**：①「缺失镜时合成按钮禁用 + 缺失序号展示」（当前为点击后由 `auto-compose` 返回 `AUTO_MANIFEST_INCOMPLETE` 并回显错误）②`FilmAutoSegmentEditor` 组件自身的独立用例
+- [x] 5.4 块结构检查提示（缺 GEO/AUDIO 等块时黄提示、**不阻断保存**）：`auto-prompt-blocks.js` 的 `checkPromptBlocks`（块标题须**独占一行**才算，避免正文偶然提及误判）+ 与后端 `shot-library.js:BLOCK_HEADINGS` 的**源码文本对账锁**防双份清单漂移
+- [x] 5.5 前端单测：编辑-保存-重生成链路（面板级）+ `FilmAutoSegmentEditor` 独立用例 9 条（草稿/脏标记/必填与超长拒绝/只提交变化字段/重生成独立事件/块提示/预览 URL/null 片段不崩）+ 缺镜前置拦截 4 条（**改为**「缺镜时禁用收口并直接列出缺失镜号」，比点击后才报错更早、更明确）
 
 ## 6. 文档
 

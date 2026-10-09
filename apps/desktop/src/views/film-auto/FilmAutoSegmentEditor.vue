@@ -16,6 +16,8 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MAX_AUTO_SHOT_PROMPT_LENGTH, AUTO_SHOT_SECONDS } from './auto-constants'
+import { toFileUrl } from './file-url'
+import { checkPromptBlocks } from './auto-prompt-blocks'
 
 const props = defineProps({
   /** 待编辑片段（auto-status 投影里的 shot；null 表示未选中） */
@@ -36,11 +38,9 @@ const changed = computed(() => draftPrompt.value !== originalPrompt.value || Num
 const promptLength = computed(() => String(draftPrompt.value || '').length)
 const promptTooLong = computed(() => promptLength.value > MAX_AUTO_SHOT_PROMPT_LENGTH)
 const outputPath = computed(() => (props.shot && props.shot.outputPath) || '')
-const fileUrl = computed(() => {
-  if (!outputPath.value) return ''
-  const normalized = String(outputPath.value).replace(/\\/g, '/')
-  return normalized.startsWith('/') ? 'file://' + normalized : 'file:///' + normalized
-})
+const fileUrl = computed(() => toFileUrl(outputPath.value))
+/** 块结构提示（非阻断）：缺 GEO/AUDIO 等块时黄提示，仍允许保存——用户可能有意精简 */
+const blockCheck = computed(() => checkPromptBlocks(draftPrompt.value))
 
 watch(() => props.shot, (s) => {
   draftPrompt.value = s && typeof s.prompt === 'string' ? s.prompt : ''
@@ -87,7 +87,10 @@ async function regenerate () {
   setTimeout(() => { regenerating.value = false }, 0)
 }
 
-defineExpose({ draftPrompt, draftSeconds, changed, promptLength, promptTooLong, fileUrl, save, regenerate, restoreOriginal })
+defineExpose({
+  draftPrompt, draftSeconds, changed, promptLength, promptTooLong, fileUrl, blockCheck,
+  save, regenerate, restoreOriginal,
+})
 </script>
 
 <template>
@@ -106,6 +109,9 @@ defineExpose({ draftPrompt, draftSeconds, changed, promptLength, promptTooLong, 
           <span :class="{ 'is-danger': promptTooLong }" data-testid="fa-segment-count">{{ t('filmEngineering.auto.segment.promptCount', { n: promptLength, max: MAX_AUTO_SHOT_PROMPT_LENGTH }) }}</span>
           <el-button size="small" link :disabled="!changed" data-testid="fa-segment-restore" @click="restoreOriginal">{{ t('filmEngineering.auto.segment.restore') }}</el-button>
         </div>
+        <p v-if="!blockCheck.ok" class="fae-warn" data-testid="fa-segment-block-hint">
+          {{ t('filmEngineering.auto.segment.blockHint', { blocks: blockCheck.missing.join(' / ') }) }}
+        </p>
         <div class="fae-label">{{ t('filmEngineering.auto.segment.secondsLabel') }}</div>
         <el-select v-model="draftSeconds" size="small" data-testid="fa-segment-seconds">
           <el-option v-for="s in AUTO_SHOT_SECONDS" :key="s" :label="t('filmEngineering.auto.shotSecondsN', { n: s })" :value="s" />
@@ -141,6 +147,7 @@ defineExpose({ draftPrompt, draftSeconds, changed, promptLength, promptTooLong, 
 .fae-meta { display: flex; justify-content: space-between; align-items: center; font-size: var(--font-size-xs, 12px); color: var(--el-text-color-secondary, #909399); margin: 4px 0; }
 .fae-meta .is-danger, .fae-error { color: var(--el-color-danger, #f56c6c); }
 .fae-hint { margin: 6px 0 0; color: var(--el-text-color-secondary, #909399); font-size: var(--font-size-xs, 12px); line-height: 1.6; }
+.fae-warn { margin: 6px 0 0; color: var(--el-color-warning, #e6a23c); font-size: var(--font-size-xs, 12px); line-height: 1.6; }
 .fae-actions { display: flex; gap: 8px; margin-top: 10px; }
 .fae-video { width: 100%; max-height: 260px; border-radius: 6px; background: #000; }
 </style>

@@ -22,9 +22,15 @@ vi.mock('element-plus', () => ({
 
 const pipelineStartOrchestrated = vi.fn(async () => ({ code: 0, data: { success: true, runId: 'run-compose-1' } }))
 const onPipelineUpdate = vi.fn(() => () => {})
+const pipelineGetRunContext = vi.fn(async () => ({ code: 0, data: { runId: 'run-compose-1', status: 'running', context: {} } }))
+const story2videoShowInFolder = vi.fn(async () => ({ code: 0 }))
+const story2videoSaveAs = vi.fn(async () => ({ code: 0 }))
 vi.mock('@/api/publisher', () => ({
   pipelineStartOrchestrated: (...args) => pipelineStartOrchestrated(...args),
+  pipelineGetRunContext: (...args) => pipelineGetRunContext(...args),
   onPipelineUpdate: (...args) => onPipelineUpdate(...args),
+  story2videoShowInFolder: (...args) => story2videoShowInFolder(...args),
+  story2videoSaveAs: (...args) => story2videoSaveAs(...args),
 }))
 
 import FilmAutoPanel from './FilmAutoPanel.vue'
@@ -312,5 +318,121 @@ describe('FilmAutoPanel · 片段编辑与参考图', () => {
     expect(api.onAutoUpdate).toHaveBeenCalledTimes(1)
     w.unmount()
     expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('FilmAutoPanel · 缺镜与成品回填（T4.4 / 5.5）', () => {
+  async function mountDone (api) {
+    const w = mountPanel(api)
+    w.vm.form.script = '第1场\n剧情'
+    await w.vm.runPlan()
+    w.vm.confirmed = true
+    await w.vm.startRun()
+    await flushPromises()
+    return w
+  }
+
+  it('部分失败也算收敛到完成态（否则片段编辑与收口入口不可达）', async () => {
+    const api = makeApi({
+      autoStart: vi.fn(async () => ({ code: 0, data: { started: true, doneCount: 1, totalCount: 2, renderManifest: null } })),
+      autoStatus: vi.fn(async () => ({
+        code: 0,
+        data: {
+          exists: true,
+          taskId: 'auto-1',
+          running: false,
+          doneCount: 1,
+          totalCount: 2,
+          manifestError: '批次生成后磁盘缺 1 镜',
+          shots: [
+            { index: 0, shotId: 'auto-000', prompt: 'P0', seconds: 5, status: 'done', outputPath: 'C:\\x\\0.mp4', error: null },
+            { index: 1, shotId: 'auto-001', prompt: 'P1', seconds: 5, status: 'failed', outputPath: null, error: '超时' },
+          ],
+        },
+      })),
+    })
+    const w = await mountDone(api)
+    expect(w.vm.phase).toBe('done')
+    expect(w.vm.missingShots).toHaveLength(1)
+    expect(w.vm.canCompose).toBe(false)
+    const el = w.find('[data-testid="fa-missing-shots"]')
+    expect(el.exists()).toBe(true)
+    expect(el.text()).toContain('auto-001')
+    w.unmount()
+  })
+
+  it('缺镜时收口合成被前置拦下（零 IPC 调用）', async () => {
+    const api = makeApi({
+      autoStatus: vi.fn(async () => ({
+        code: 0,
+        data: {
+          exists: true, taskId: 'auto-1', running: false, doneCount: 1, totalCount: 2, manifestError: null,
+          shots: [
+            { index: 0, shotId: 'auto-000', prompt: 'P0', seconds: 5, status: 'done', outputPath: 'x', error: null },
+            { index: 1, shotId: 'auto-001', prompt: 'P1', seconds: 5, status: 'failed', outputPath: null, error: 'boom' },
+          ],
+        },
+      })),
+    })
+    const w = await mountDone(api)
+    await w.vm.compose()
+    await flushPromises()
+    expect(api.autoCompose).not.toHaveBeenCalled()
+    expect(pipelineStartOrchestrated).not.toHaveBeenCalled()
+    expect(w.vm.errorText).toBeTruthy()
+    w.unmount()
+  })
+
+  it('合成推送回填 finalPath → 预览 + 打开文件夹/另存为；陈旧 runId 事件被守卫忽略', async () => {
+    const api = makeApi()
+    const w = await mountDone(api)
+    await w.vm.compose()
+    await flushPromises()
+    expect(w.vm.composePhase).toBe('running')
+
+    w.vm.applyComposeSnapshot({ runId: 'stale-run', status: 'completed', context: { render: { finalPath: 'C:\\x\\WRONG.mp4' } } }, true)
+    expect(w.vm.finalPath).toBe('')
+
+    const finalPath = 'C:\\tmp\\film-engineering\\auto\\auto-1\\final.mp4'
+    w.vm.applyComposeSnapshot({ runId: 'run-compose-1', status: 'completed', progress: 100, context: { render: { finalPath } } }, true)
+    await flushPromises()
+    expect(w.vm.composePhase).toBe('done')
+    expect(w.vm.finalFileUrl).toBe('file:///C:/tmp/film-engineering/auto/auto-1/final.mp4')
+    expect(w.find('[data-testid="fa-final-video"]').exists()).toBe(true)
+    await w.vm.openFinalFolder()
+    await w.vm.saveFinalAs()
+    expect(story2videoShowInFolder).toHaveBeenCalledWith(finalPath)
+    expect(story2videoSaveAs).toHaveBeenCalledWith(finalPath)
+    w.unmount()
+  })
+
+  it('轮询兜底：pipelineGetRunContext 亦能取回成品路径（事件丢失可收敛）', async () => {
+    const api = makeApi()
+    const w = await mountDone(api)
+    await w.vm.compose()
+    await flushPromises()
+    pipelineGetRunContext.mockResolvedValueOnce({
+      code: 0,
+      data: { runId: 'run-compose-1', status: 'completed', progress: 100, context: { render: { finalPath: '/tmp/final.mp4' } } },
+    })
+    await w.vm.pollComposeRun()
+    await flushPromises()
+    expect(w.vm.finalPath).toBe('/tmp/final.mp4')
+    expect(w.vm.composePercent).toBe(100)
+    expect(w.vm.composePhase).toBe('done')
+    w.unmount()
+  })
+
+  it('合成失败 → 回显错误且不产生成品路径', async () => {
+    const api = makeApi()
+    const w = await mountDone(api)
+    await w.vm.compose()
+    await flushPromises()
+    w.vm.applyComposeSnapshot({ runId: 'run-compose-1', status: 'failed', error: { message: 'ffmpeg 失败' } }, true)
+    await flushPromises()
+    expect(w.vm.composePhase).toBe('failed')
+    expect(w.vm.composeError).toContain('ffmpeg 失败')
+    expect(w.vm.finalFileUrl).toBe('')
+    w.unmount()
   })
 })

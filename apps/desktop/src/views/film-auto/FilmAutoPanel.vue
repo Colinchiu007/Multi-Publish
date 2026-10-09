@@ -27,8 +27,12 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import StageProgress from '@/views/video-creation/StageProgress.vue'
-import { pipelineStartOrchestrated, onPipelineUpdate } from '@/api/publisher'
+import {
+  pipelineStartOrchestrated, pipelineGetRunContext, onPipelineUpdate,
+  story2videoShowInFolder, story2videoSaveAs,
+} from '@/api/publisher'
 import FilmAutoSegmentEditor from './FilmAutoSegmentEditor.vue'
+import { toFileUrl } from './file-url'
 import {
   MAX_AUTO_SCRIPT_LENGTH, MAX_AUTO_REFS, MIN_AUTO_DURATION_SEC, MAX_AUTO_DURATION_SEC,
   AUTO_ASPECTS, AUTO_SHOT_SECONDS,
@@ -81,6 +85,9 @@ const overwriteExisting = ref(false)
 const editingShotIndex = ref(null)
 const composeRunId = ref('')
 const composePercent = ref(0)
+const composePhase = ref('')       // '' | 'running' | 'done' | 'failed'
+const composeError = ref('')
+const finalPath = ref('')
 const finalUnavailable = ref('')
 
 let unsubscribeAuto = null
@@ -128,6 +135,10 @@ const stageList = computed(() => {
 })
 
 const shots = computed(() => (project.value && Array.isArray(project.value.shots) ? project.value.shots : []))
+/** 未完成的镜：缺镜时先禁用收口合成并列出序号，而不是等用户点了才报错（成本/体验双考虑） */
+const missingShots = computed(() => shots.value.filter((s) => s.status !== 'done'))
+const canCompose = computed(() => phase.value === 'done' && missingShots.value.length === 0 && !busy.value)
+const finalFileUrl = computed(() => toFileUrl(finalPath.value))
 
 function fail (message) {
   errorText.value = message || t('filmEngineering.auto.genericError')
@@ -291,9 +302,18 @@ async function refreshStatus () {
       batchIndex: progress.value.batchIndex,
       lastType: progress.value.lastType,
     }
+    const total = Number(data.totalCount) || 0
+    const done = Number(data.doneCount) || 0
+    const shotsNow = Array.isArray(data.shots) ? data.shots : []
+    const failed = shotsNow.filter((s) => s.status === 'failed').length
     if (data.running) {
       phase.value = 'running'
-    } else if (Number(data.doneCount) >= Number(data.totalCount) && Number(data.totalCount) > 0) {
+      return
+    }
+    // 收口条件：**不再运行**且每一镜都有结论（完成或失败）。
+    // 早期写法只认「全部完成」，导致部分失败的任务永远停在运行态、连片段编辑与收口入口都到不了——
+    // 失败镜必须能被看见并单镜重生成，这才是「生成后可对某个片段修改调整」的完整闭环。
+    if (total > 0 && (done + failed) >= total) {
       finalUnavailable.value = data.manifestError || ''
       phase.value = 'done'
       stopPolling()
@@ -327,11 +347,38 @@ function stopPolling () {
 
 // ── ④ 收口合成（与全量出片同一条引擎路径）──────────────────────────────
 
+/** 合成 run 快照：推送路径带 runId 守卫（防陈旧事件覆盖新 run），轮询路径由调用方比对 */
+function applyComposeSnapshot (snapshot, fromPush) {
+  if (!snapshot || typeof snapshot !== 'object') return
+  if (fromPush && snapshot.runId !== composeRunId.value) return
+  const statusObj = snapshot.status && typeof snapshot.status === 'object' ? snapshot.status : null
+  const runStatus = statusObj ? statusObj.status : snapshot.status
+  const context = snapshot.context && typeof snapshot.context === 'object' ? snapshot.context : null
+  if (context && context.render && typeof context.render === 'object' && context.render.finalPath) {
+    finalPath.value = String(context.render.finalPath)
+  }
+  const p = Number(snapshot.progress)
+  if (Number.isFinite(p)) composePercent.value = Math.max(0, Math.min(100, Math.round(p)))
+  if (runStatus === 'completed') {
+    composePhase.value = 'done'
+    composePercent.value = 100
+    stopComposePolling()
+    return
+  }
+  if (runStatus === 'failed') {
+    composePhase.value = 'failed'
+    composeError.value = (snapshot.error && (snapshot.error.message || snapshot.error.error)) || t('filmEngineering.auto.composeFailed')
+    stopComposePolling()
+  }
+}
+
 async function compose () {
   const api = feApi()
   if (!api || !plan.value) return
+  if (missingShots.value.length > 0) return fail(t('filmEngineering.auto.composeMissing', { shots: missingShots.value.length }))
   busy.value = true
   errorText.value = ''
+  composeError.value = ''
   try {
     const data = unwrap(await api.autoCompose({ taskId: plan.value.taskId }))
     const manifest = data && data.renderManifest
@@ -343,10 +390,9 @@ async function compose () {
     }
     composeRunId.value = res.data.runId
     composePercent.value = 0
-    unsubscribePipeline = onPipelineUpdate((snapshot) => {
-      const p = snapshot && snapshot.progress
-      if (typeof p === 'number') composePercent.value = Math.max(0, Math.min(100, Math.round(p)))
-    })
+    composePhase.value = 'running'
+    if (typeof unsubscribePipeline === 'function') { try { unsubscribePipeline() } catch { /* 无害 */ } }
+    unsubscribePipeline = onPipelineUpdate((snapshot) => applyComposeSnapshot(snapshot, true))
     startComposePolling()
   } catch (e) {
     fail((e && e.message) || String(e))
@@ -355,19 +401,35 @@ async function compose () {
   }
 }
 
-async function pollCompose () {
-  const api = feApi()
-  if (!api || !plan.value) return
+/** 合成进度轮询兜底：读 run context 取 finalPath 与进度（事件丢失也能收敛） */
+async function pollComposeRun () {
+  if (!composeRunId.value) return
   try {
-    const data = unwrap(await api.autoStatus({ taskId: plan.value.taskId }))
-    if (data) project.value = data
-  } catch { /* 忽略 */ }
+    const res = await pipelineGetRunContext(composeRunId.value)
+    if (!res || res.code !== 0 || !res.data) return
+    applyComposeSnapshot(res.data, false)
+  } catch { /* 下一轮重试 */ }
 }
 
 function startComposePolling () {
-  if (composePollTimer) clearInterval(composePollTimer)
+  stopComposePolling()
   const interval = Number(props.pollIntervalMs) > 0 ? Number(props.pollIntervalMs) : 3000
-  composePollTimer = setInterval(() => { void pollCompose() }, interval)
+  composePollTimer = setInterval(() => { void pollComposeRun() }, interval)
+}
+
+function stopComposePolling () {
+  if (composePollTimer) { clearInterval(composePollTimer); composePollTimer = null }
+  if (typeof unsubscribePipeline === 'function') { try { unsubscribePipeline() } catch { /* 无害 */ } unsubscribePipeline = null }
+}
+
+async function openFinalFolder () {
+  if (!finalPath.value) return
+  try { await story2videoShowInFolder(finalPath.value) } catch (e) { fail((e && e.message) || String(e)) }
+}
+
+async function saveFinalAs () {
+  if (!finalPath.value) return
+  try { await story2videoSaveAs(finalPath.value) } catch (e) { fail((e && e.message) || String(e)) }
 }
 
 // ── ⑤ 片段编辑 ────────────────────────────────────────────────────────
@@ -433,8 +495,10 @@ onBeforeUnmount(() => {
 
 defineExpose({
   form, characterRefs, sceneRefs, plan, project, phase, progress, confirmed, busy, errorText,
-  percent, stageList, shots, estimatedShots, canPlan, scriptLength, scriptTooLong, durationValid,
-  runPlan, startRun, refreshStatus, applyAutoEvent, compose, saveShotEdit, regenerateShot,
+  percent, stageList, shots, missingShots, canCompose, finalPath, finalFileUrl, composeRunId,
+  composePercent, composePhase, composeError, estimatedShots, canPlan, scriptLength, scriptTooLong,
+  durationValid, runPlan, startRun, refreshStatus, applyAutoEvent, applyComposeSnapshot, compose,
+  pollComposeRun, openFinalFolder, saveFinalAs, saveShotEdit, regenerateShot,
   uploadRefFile, pickRefFile, removeCharRef, removeSceneRef, resetAll, openEditor,
 })
 </script>
@@ -619,13 +683,27 @@ defineExpose({
       </table>
     </section>
 
-    <section v-if="phase === 'done'" class="fa-card fa-actions">
+    <section v-if="phase === 'done'" class="fa-card" data-testid="fa-done">
       <p v-if="finalUnavailable" class="fa-error" data-testid="fa-manifest-error">{{ finalUnavailable }}</p>
-      <el-button type="primary" size="small" :loading="busy" data-testid="fa-compose" @click="compose">
-        {{ t('filmEngineering.auto.composeBtn') }}
-      </el-button>
-      <span v-if="composeRunId" class="fa-hint" data-testid="fa-compose-run">{{ t('filmEngineering.auto.composeRunning', { runId: composeRunId, percent: composePercent }) }}</span>
-      <el-button size="small" data-testid="fa-reset" @click="resetAll">{{ t('filmEngineering.auto.resetBtn') }}</el-button>
+      <p v-if="missingShots.length" class="fa-error" data-testid="fa-missing-shots">
+        {{ t('filmEngineering.auto.missingShots', { n: missingShots.length, list: missingShots.map((s) => s.shotId).join(', ') }) }}
+      </p>
+      <div class="fa-actions">
+        <el-button type="primary" size="small" :loading="busy" :disabled="!canCompose" data-testid="fa-compose" @click="compose">
+          {{ t('filmEngineering.auto.composeBtn') }}
+        </el-button>
+        <span v-if="composeRunId" class="fa-hint" data-testid="fa-compose-run">{{ t('filmEngineering.auto.composeRunning', { runId: composeRunId, percent: composePercent }) }}</span>
+        <el-button size="small" data-testid="fa-reset" @click="resetAll">{{ t('filmEngineering.auto.resetBtn') }}</el-button>
+      </div>
+      <p v-if="composeError" class="fa-error" data-testid="fa-compose-error">{{ composeError }}</p>
+      <!-- 成片预览与落盘入口：复用故事讲述流水线的 reveal/save 合同（主进程 sender 校验 + 路径越界防护） -->
+      <div v-if="finalFileUrl" class="fa-final" data-testid="fa-final">
+        <video class="fa-final-video" :src="finalFileUrl" controls data-testid="fa-final-video"></video>
+        <div class="fa-actions">
+          <el-button size="small" data-testid="fa-final-folder" @click="openFinalFolder">{{ t('filmEngineering.auto.openFolder') }}</el-button>
+          <el-button size="small" data-testid="fa-final-saveas" @click="saveFinalAs">{{ t('filmEngineering.auto.saveAs') }}</el-button>
+        </div>
+      </div>
     </section>
 
     <FilmAutoSegmentEditor
@@ -675,4 +753,6 @@ defineExpose({
 .fa-shots th, .fa-shots td { border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5); padding: 4px 6px; text-align: left; }
 .fa-shot-error { color: var(--el-color-danger, #f56c6c); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fa-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fa-final { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.fa-final-video { width: 100%; max-height: 360px; border-radius: 6px; background: #000; }
 </style>
