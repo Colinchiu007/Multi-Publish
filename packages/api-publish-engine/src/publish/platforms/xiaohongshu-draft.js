@@ -176,13 +176,24 @@ class XiaohongshuDraftChain {
   /** Step 3：提交笔记（draft=true ⇒ 存创作者中心草稿箱） */
   async submitNote (body, opts) {
     const { cookie, authorization } = opts
-    const fullUri = `${EDITH_ORIGIN}${NOTE_PATH}`
-    // 签名覆盖完整 URL —— 与平台侧一致（signer-local 的 fullUri 语义）
+    // note 端点宿主：真机实测 2026-10-10 —— creator 域 `/web_api/sns/v2/note` 返回 **404**（该端点
+    // 不在 creator 域），edith 域同名端点存在但本账号返回 **406**（签名/风控未过）。故默认取
+    // **edith**（唯一存在的端点），creator 仅作为 A/B 对照保留。
+    // 取值优先级：调用方显式 noteOrigin > env MP_XHS_NOTE_HOST=creator（A/B）> 默认 edith。
+    const noteOrigin = opts.noteOrigin
+      || (process.env.MP_XHS_NOTE_HOST === 'creator' ? CREATOR_ORIGIN : EDITH_ORIGIN)
+    const fullUri = `${noteOrigin}${NOTE_PATH}`
+    // 签名基址：XYW 的 x1 = md5("url=" + uri)。参考实现传的是**路径（含 query）**，
+    // 本仓原先传绝对 URL。真机 2026-10-10 实测：**两种形态都返回 406**（未证实哪种正确），
+    // 故按参考实现口径默认走路径，并保留 MP_XHS_SIGN_URI=absolute 回退位以便后续对照。
+    const signUri = process.env.MP_XHS_SIGN_URI === 'absolute'
+      ? fullUri
+      : (() => { try { const u = new URL(fullUri); return u.pathname + u.search } catch (_e) { return fullUri } })()
     // 签名器契约兼容：装配签名器（signer-assembly）返回裸字符串（XYW_ x-s），
     // 也有实现返回完整头集合。字符串形态下补齐 x-t / x-s-common / traceid——
     // 406 的根因之一是请求缺 x-s-common（真机 2026-10-09：permit+upload 已通，note 406）。
     const signResult = await this.sign({
-      fullUri,
+      fullUri: signUri,
       cookie,
       method: 'POST',
       payload: body,
@@ -192,7 +203,7 @@ class XiaohongshuDraftChain {
       signHeaders = signResult
     } else {
       const { buildXiaohongshuSignHeaders } = require('../../signer-local')
-      signHeaders = buildXiaohongshuSignHeaders({ fullUri, cookies: cookie })
+      signHeaders = buildXiaohongshuSignHeaders({ fullUri: signUri, cookies: cookie })
       signHeaders['x-s'] = String(signResult)
     }
     const headers = {
@@ -272,7 +283,7 @@ class XiaohongshuDraftChain {
       body.tag_list = tags.map(t => ({ name: String(t), type: 0 }))
     }
 
-    const submitted = await this.submitNote(body, { cookie, authorization })
+    const submitted = await this.submitNote(body, { cookie, authorization, noteOrigin: input && input.noteOrigin })
     return {
       success: true,
       platform: 'xiaohongshu',

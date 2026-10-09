@@ -18,6 +18,20 @@ export default {
     batchSubtitle: '批量编辑多篇文章，各平台独立发布',
     singleSubtitle: '编辑内容并发布到多个平台',
     batchMode: '批量模式',
+    // 热门选题批量交接 + 批量设置发布目标（hot-topics-publish-handoff，2026-10-09）
+    handoff: {
+      loaded: '已装载 {count} 条热门选题草稿',
+      partial: '已装载 {loaded}/{total} 条草稿（其余草稿已被删除）',
+      none: '所选草稿已不存在，请回到「热门选题」重新生成',
+    },
+    batchTargets: {
+      title: '批量设置发布目标',
+      hint: '勾选平台后应用到全部条目，账号取各平台默认账号',
+      applyAll: '应用到全部条目',
+      applyAllHint: '逐条仍可单独调整',
+      applied: '已应用到 {count} 个条目',
+    },
+    xhsDraftOnlyHint: '小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布',
     scheduled: '定时',
     copy: '复制',
     template: '模板',

@@ -23,6 +23,9 @@ const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/ric
 const { extractInlineTopicNames } = require('@multi-publish/api-publish-engine/src/content-formatter')
 const { getConfigPath } = require('./config-resolver')
 const { buildApiTaskData } = require('./api-task-data')
+// 小红书「仅存草稿箱」轨（2026-10-09 用户硬约束：小红书不得真实发布）
+// 小红书硬约束的落地不在路由表（见 ROUTE_TABLE 上方注释）：API 草稿轨真机 406 不可用，
+// 故不在此 require 草稿发布器；约束由 RPA 轨的 draftOnly + 视频 fail-closed 保证。
 // P1-5 语义级可见性：语义档位（public/friends/private）→ 平台字段值的单一真源在注册表层。
 const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publish-capabilities')
 
@@ -36,12 +39,19 @@ const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publi
 // 前置 fail-closed 见 resolvePlatformArticle 内的 VIDEO_ONLY_API_PLATFORMS 检查。
 const VIDEO_ONLY_API_PLATFORMS = new Set(['bilibili'])
 
+// 2026-10-09/10 用户硬约束：小红书**不得真实发布**（平台风控严格），内容只进平台草稿箱。
+// 落地位置在 **RPA 轨内部**而不是路由表：`rpa-view-platforms._publish_xiaohongshu` 对图文
+// 强制 `draftOnly: true`（只填内容 + 等平台自动存草稿，绝不点「发布」），对视频 fail-closed
+// 拒绝执行。原因（真机实测 2026-10-10）：曾尝试把 xiaohongshu 路由到 API 草稿轨（xhs_draft），
+// permit/ros-upload 均通过，但 note 端点恒 **406**（creator 域 404 ⇒ 端点确在 edith 域）；
+// 该账号只有创作者域会话、缺主站 `web_session`，签名/风控过不去，故 API 轨不具备可用条件。
+// 路由表保持 rpa_vm：硬约束由轨内 draftOnly + 视频 fail-closed 保证（有回归锁钉住）。
 const ROUTE_TABLE = {
   wechat_mp:    { mode: 'rpa_vm', timeout: 120000 },
   zhihu:        { mode: 'rpa_vm', timeout: 120000 },
   weibo:        { mode: 'rpa_vm', timeout: 120000 },
   douyin:       { mode: 'rpa_vm', timeout: 300000 },
-  xiaohongshu:  { mode: 'rpa_vm', timeout: 120000 },
+  xiaohongshu:  { mode: 'rpa_vm', timeout: 180000 },
   tencent_video:{ mode: 'rpa_vm', timeout: 300000 },
   kuaishou:     { mode: 'rpa_vm', timeout: 300000 },
   toutiao:      { mode: 'rpa_vm', timeout: 120000 },
@@ -774,5 +784,4 @@ class PublisherRouter {
 }
 
 module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask, resolvePlatformArticle, buildPublishArticle }
-
 

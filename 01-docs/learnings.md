@@ -1,3 +1,35 @@
+## 跨页交接缺参数是「静默空表单」：跳转载荷必须被断言，不能只断言写了草稿（hot-topics-publish-handoff，2026-10-09）
+
+- **事故形状**：热门选题页「一键发布 → 直接发图文」把 5 条选题改写成功（进度区如实显示「改写完成，已生成 5 条草稿」），点「去发布」后发布页表单**恒为空**（标题 0 字、正文 0/10000 字、8 个输入框全空）。根因是两处各自「看起来都对」的实现组合：发送端 `router.push('/publish')` 不带草稿参数，接收端只在 `route.query.draft` 存在时才 `loadDraft`。两边都没有 bug，链路却是断的。
+- **为什么既有测试抓不到**：发送端用例只断言 `aiRewrite`/`draftSave` 被调用（写了草稿 = 通过），**从不看 `router.push` 的载荷**；接收端用例只覆盖 `?draft=` 单篇形态，没有「多条交接」用例；E2E 验收的是「发布成功数」而不是「表单是否装载正确」（发布能成功是因为人工补了装载）。三层全盲。
+- **判据**：任何「A 页产生 → B 页消费」的跨页链路，测试必须**直接断言跳转载荷**（`expect(pushSpy).toHaveBeenCalledWith({ path, query: {...} })`），并同时覆盖「单条 / 多条 / 空集合」三种形态。只断言「上游把数据写进了存储」等于没测链路。
+- **修复取向**：把载荷放进 URL（`?drafts=id,id,...`）而不是 Pinia store —— URL 自带一次性语义、可刷新可回溯、测试直接 push 路由即可构造现场；store 传一次性载荷需要额外的清理时机，keep-alive 下极易读到陈旧值。
+
+## keep-alive 场景的装载幂等键要选「本批 id 串」，布尔值必然两难（hot-topics-publish-handoff，2026-10-09）
+
+- 发布页被 `<keep-alive :include="['Publish']">` 缓存，`onActivated` **每次激活**都触发预填逻辑。用布尔「是否装载过」会二选一踩坑：记 `true` 后新一轮交接不再装载（用户看不到新内容）；每次激活重置则切走再回来会把编辑回滚成原文（**静默丢编辑**）。
+- 正解：幂等键 = **本次已装载的 id 串**。同批短路返回、异批重新装载。配套一条：**全部未命中时不写幂等键**，否则「草稿被删/换 profile」后同一批 id 会永久装载不了；不记账的代价只是再查一次草稿列表。
+
+## 批量分发「只勾平台不写账号」= 整批提交必失败（hot-topics-publish-handoff，2026-10-09）
+
+- `validatePublishTargets` 对每个 target 强制要求 `accountId` 非空（文案「请为<平台>选择至少一个账号」）。因此任何「批量设置平台」的便捷入口，若只写 `platforms` 不写 `accounts`，**便捷按钮本身就是个陷阱**——点完看着勾上了，提交时整批报错。
+- 规则：批量目标应用必须由调用方构造 `{ platforms, accounts }`（账号取 `getDefaultAccount`），且**无账号的平台不要写空数组**（保持键缺失），让校验文案如实指向该平台；工具条的选项本身也应只列「有账号的平台」，不给用户勾一个必然失败的选项。
+- 反向收益：把「5 条 × 8 平台 = 40 次逐条勾选」压成 1 次表达，与参考产品「用户一次表达意图、引擎负责编排」的取向一致（该产品名与目录名按品牌残留红线不入库）。
+
+## 编辑工具用「上一条记录的标题行」当 old_string 会吞掉那条标题——已连续犯两次（2026-10-09）
+
+- **事故**：往 `CHANGELOG.md` 与 `.quality-gates.md` 顶部插入新记录时，`old_string` 取了**已存在记录的标题行**，而 `new_string` 只写了新记录正文、**忘了把原标题行原样带回去** ⇒ 上一条记录的标题被静默删除（正文还在，成了无标题孤儿）。两次都是同一形态。
+- **正解**：`new_string` 必须**以 `old_string` 原文结尾**（即「插入」写成「原文 + 新增」），或改用只含前一行分隔符（如 `---`）的锚点。改完必须回读该区域，确认上一条标题仍在（本次靠 `Select-String '^# \[未发布\]'` 数标题行数与上一版一致才发现）。
+- **为何这类错误值得记**：它不会报错、不会让测试变红，只会让一个 append-only 历史文件悄悄少一行；而 rebase 冲突恰好又落在这些文件上，二次编辑会放大损伤。
+
+## 40 任务的批量发布会被频控按设计节流——别把「未全部成功」误判成缺陷（hot-topics-publish-handoff，2026-10-09）
+
+- 5 篇内容 × 8 个平台账号 = 40 个任务提交后，回执是「已接受 40 个发布任务」，但进度面板大部分行显示**「等待间隔 · 等待 29/59 分钟后重试（本账号间隔）」**：`publish-frequency-policy` 每账号最小间隔 30 分钟（抖音/小红书/快手/B站/视频号）或 60 分钟（微信公众号/知乎/百家号/头条），防平台风控。
+- **判据**：观察这类 E2E 时先看**任务是否被受理**与**是否处于既定等待**，再看成功数。首条成功后其余进入等待属预期；同账号 5 篇内容需 5 × 30–60 分钟才能发完。
+- **纪律**：不要为了「跑完好看」把 `MP_PUBLISH_MIN_INTERVAL_MS` 调成 1 分钟去打真实账号——默认值的存在理由就是账号安全，测试性放宽会真实影响用户账号。
+
+
+
 ## 「放宽判据」的新设计先跑既有负控用例——v1 形状退役被 `B×2→B×1` 击穿（retire-changelog-dedup-auth，2026-10-08）
 
 - **事故**：为解 CHANGELOG 授权死锁，v1 设计「删授权文件 + 纯形状退役（base 多副本 + head 单份即放行）」。自认防滥用推演完备，**先实现后跑测试**——结果被两条既有用例精确击穿：`真仓库四档` 与 `核心不变量` 用 `B×2→B×1` 的 fixture 断言「副本删一份必须红」，形状判据把它们放行（30 例中 2 红）。
@@ -16823,6 +16855,35 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
 - **回填 PR 的销账范围靠人肉列举必然漏（pitfall）**：#3164 批量回填 #3076/#3091/#3151 时，只回填了「当时记得的」记录；`openspec/records/fix-xhs-api-chain-contract.md` 等 **5 份**已合并 PR 的记录仍挂着 `sync_*` 三字段 + 正文 `PENDING`。之后 #3179 才补齐。**机械判据**：开回填 PR 前必须跑 `Select-String -Path openspec\records\*.md -Pattern '^sync_status:'`（或等价 grep），结果非空就是还有漏项，零命中才允许提交。人肉「想一遍还有谁没销账」不可靠，5/5 全漏就是实证。
 - **前置真源先取 `origin/main` 再数 PENDING（pattern）**：销账动作要同时改 `.quality-gates.md`、`openspec/records/*.md`、`gate-record-debt-ledger.json` 三处；批量回填前先 `git fetch` 并以 `origin/main` 的记录文件为清单源，本地滞后的工作区会给出假的「无漏项」结论。
 - **worktree 里重跑 `git rebase origin/main` 对已合并分支必然冲突（pitfall）**：PR squash 合并后，原分支的提交在 origin/main 上已有「同内容不同 SHA」的对应物，rebase 会把每个提交都判成冲突（AA）。分支已合并的 worktree 同步，正确做法是丢弃本地分支、从 origin/main 重建（`git branch -m <old> <old>-merged` 留档 → `git checkout -b <new> origin/main`），不要 rebase。
+
+## 「参考产品会真实发布」不是事实而是假设：改架构前必须先读它的代码（hot-topics-publish-handoff 设计反转，2026-10-10）
+
+- **事故形状（设计层，非代码 bug）**：用户要求「小红书不得真实发布，只存平台草稿箱」，我据此把 `ROUTE_TABLE.xiaohongshu` 从 `rpa_vm` 改成新增的 API 草稿轨（`xhs_draft`），并把理由写成「RPA 轨会点『发布』按钮」。**这个前提是错的**：`_publish_xiaohongshu` 自 2026-09-29 起对图文就强制 `draftOnly: true`（2026-10-07 还修过它的假成功），RPA 图文**从不点发布**。真正的失败来自我新引入的 API 轨（note 步 406），等于把一条已能用的轨换成了不能用的轨。
+- **判据（可复用）**：把「某实现会做 X」当作改造理由之前，**必须在代码里找到那个 X 的落点**（此处应读 `_publish_generic` 的 `draftOnly` 分支与 `_publish_xiaohongshu` 的配置注入）。路由表里的 `mode` 名（`rpa_vm`）只说明「谁来执行」，**不说明「执行到哪一步」**——把前者当后者是本轮错误的根。
+- **修正模式（pattern）**：约束的落点应选**最靠近副作用**的那一层。本例中「不得点发布」的正确落点不是路由表（换轨会把整条链路一起换掉），而是 RPA 轨内部：图文继续 `draftOnly`、视频改为 fail-closed（此前视频仍走点发布链路，才是真正违反约束的缺口）。副产物：`rpa-view-platforms.js` 在点名还账清单内（零增长），把拒绝语义抽成独立模块 `xiaohongshu-draft-guard.js`，轨内只留 1 行调用。
+- **诚实的收尾**：设计反转必须写进 PRD/记录/PR，并说明「第一版为什么错」，否则后来者会照抄被推翻的结论。
+
+## 外包签名服务是平台 API 轨的隐形前置：仓内 spec 早已裁决，本次逆向独立复现（2026-10-10）
+
+- **现象**：小红书 API 草稿链 `permit`（GET）与 `ros-upload`（PUT）**都通**，只有需要 `x-s` 签名的 `note` 步恒 **406**（`edith` 域；`creator` 域同路径 **404** ⇒ 端点确在 edith）。签名基址 A/B（绝对 URL vs 路径）**两种都 406**，说明不是基准串写错这么简单。
+- **参考实现怎么做的（读它 7.9MB 主进程 bundle 得到）**：它把签名**外包**给自建服务——`POST {服务}/Sign/GetSign`，body `{url:"", cookie: JSON.stringify([cookie头, encodeURIComponent(bodyJson)]), signType:"browser", signCommand:"newxiaohongshu"}`；响应 `signature` 是字符串化 JSON，含 `X-s`/`X-t`/**`X-S-Common`**，并且**可能返回刷新后的 `a1`**，调用方把它回填进 cookie（`a1=<旧>` → `a1old=<旧>; a1=<新>`）。提交 note 时它传 `Authorization: ''`（空串），仅靠 cookie + 签名服务下发的三头。
+- **对照结论**：本仓用**本地 XYW 算法 + 硬编码 `x-s-common` 模板**（webBuild 等固定值）且不接收刷新 `a1` ⇒ 环境指纹与平台当前校验不符，406 是必然。**同一条链的前两步不需要签名，所以它们能通**——「只有签名步失败」本身就是「签名环境不匹配」的高置信指纹。
+- **与既有裁决的关系（关键，避免重复造轮子）**：`openspec/specs/api-publish-xiaohongshu-chain/spec.md` 早在 2026-09-26 就定案：小红书 API 链「整体止步、不实现」，理由写明「`x-s`/`x-t` 生成依赖外包签名服务（**运行时禁止远程求签通道**）」，重启须以「全链逐字切片 + 签名页抽取 spike + 拦截法比对」为前置。本次逆向**独立复现了这条技术依据**。教训：**动手重造平台签名前，先 `grep openspec/specs` 看有没有已定案的止步裁决**——本轮差一点就为一个 spec 明令禁止的方向写了第二条实现。
+- **既有偏离要如实登记**：`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`（2026-10-07 `xhs-draft-publish` 落地）与该「不实现」裁决并存。本 PR 不删（保留为诊断通道），但确认它**不在任何路由上**。
+
+## keep-both 冲突消解只适用于 append-only 文件：结构化文件会「自我损坏」（2026-10-10）
+
+- **两次真实损坏**：(1) `apps/desktop/src/locales/*.js` —— main 把内联大对象**重构**成 `locales/publish-page/{zh,en}.js` 模块，keep-both 会把「旧的整段内联」与「新的 import 形态」同时留下（语法/语义双错）；(2) `.quality-gates.md` —— 同一个记录标题在两侧都出现，keep-both 后变成**重复条目**，被 `check-gate-record-debt.js` 判红。
+- **正确策略（按文件类型分派）**：append-only 顶部追加型（CHANGELOG 的条目、`.quality-gates.md` 的**不同**记录）⇒ keep-both 且本 PR 侧在前；**同一条目的重复** ⇒ 只保留带正文的那一份，逐字节切除另一份；**JS/JSON/被重构过的结构化文件** ⇒ 取 main 侧结构，再把本 PR 的**语义增量**（新增 key）补进新位置。
+- **对账判据**：消解后必须跑三类检查——① `grep` 冲突标记；② 目标门禁（本例 `check-gate-record-debt.js` 打红重复标题正是它抓到的）；③ 用例/构建（locale 结构错会在启动时炸，静态门禁抓不到）。
+- **配套教训**：locale 被拆分后，`check-locale-sync --keys` 仍能守住「使用中的 key 必须存在于 zh/en」——它按 key 存在性判，不关心文件结构，所以它是这次重构后**唯一可靠**的回归网；拆文件类重构后必须跑它。
+
+## CDP 注入的 File 在 Electron 没有 OS 路径：`setInputFiles` 不能替代真实文件选择器（2026-10-10）
+
+- **现象**：用 Playwright `setInputFiles()` 给 el-upload 的 `input[type=file]` 喂本地 PNG，`change` 事件触发、`ok:true`，但**条目状态里 `cover_path` 恒为空**——渲染层拿不到路径，因为 CDP `DOM.setFileInputFiles` 注入的 `File` 在 Electron 里经 `webUtils.getPathForFile()` 解析不出磁盘路径（`File.path` 自 Electron 32 起已移除）。
+- **两种可行驱动**：① 走组件暴露的 setter（本例 `setBatchArticleCover(article, {path, name})`）——与 UI 同一写入点，驱动的仍是产品代码；② 让被测应用**真实打开文件选择器**（真机人工/自动化 OS 对话框）。
+- **登记要求**：用 setter 驱动时必须在记录里写明「为何不是真实文件选择器」（否则后来者会以为这条 E2E 覆盖了原生路径解析），并把「原生路径解析」交给既有单测（本例 2026-10-07 的 `cover upload refuses a filename when native path resolution fails`）。
+
 ## 降级/占位产物不得跨模块当成功产物消费——ffmpeg 占位图冒充 AI 封面致快手图文中文全 tofu（fix-kuaishou-tuwen-tofu，2026-10-09）
 
 - **事故**：用户经应用发布的快手图文，图片上中文在快手创作者中心全部显示为空心方块，仅 ASCII 数字可读。取证 `D:\Temp\story2video\assets\default\img_9400.png`（纯深蓝底 `#1a1a2e` + 居中白字，中文全方块、标题里「1」「20」正常）与日志 `cover:generate-ai ok :: path=... 耗时=112ms`——112ms 不可能是真实生图。
@@ -16840,3 +16901,4 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
   - 同一记录的不同状态 ⇒ **必须重建**，禁止并集。`.quality-gates.md` 顶部记录、`CHANGELOG.md` 未发布段、ledger 同名键属此类。
 - **正确顺序（重建）**：① `git show origin/main:<file>` 取 main 的**整份内容**为底（不是取自己的）；② 只把自己的新增块插回正确位置（`.quality-gates.md`/`CHANGELOG.md` 插到最顶，ledger 插到最后一个键之后并补逗号）；③ 逐行保留 main 那一行原本的结尾，禁止统一回写行尾（本仓这类文件 `i/lf w/crlf`，统一改写会把整文件变成 diff）；④ 提交前用 `git diff --numstat origin/main -- <file>` 断言**删除数为 0**（纯插入），并 grep 关键点确认 main 的回填证据（如 `已合并 #NNNN`）仍在。
 - **配套**：判据不是「冲突解完了」而是「相对 origin/main 是否纯插入 + main 的证据行是否还在」；对「删除数>0」的置顶文件冲突一律重做。**`Auto-merging` 同样不构成证据**——git 自动合并的文件也可能改动 main 的证据行，所以未冲突文件也要跑同一次删除数对账（本次 `01-docs/PRD.md` 之外，`.quality-gates.md` 17/0、`CHANGELOG.md` 14/0、ledger 2/1 全部逐个实测）。另注：ledger 的 `line` 字段是信息性的、不被 `check-gate-record-debt.js` 校验，重建时不必逐字对齐行号，但键必须与记录标题逐字相同。
+

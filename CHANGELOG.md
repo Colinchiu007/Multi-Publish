@@ -1,3 +1,36 @@
+# [未发布] fix(hot-topics): 改写完成后「去发布」批量交接全部草稿，并提供批量发布目标一次分发（2026-10-09，hot-topics-publish-handoff）
+
+### 用户感知
+
+此前在热门选题页勾选 5 条选题、选「直接发图文」、等 5 条改写全部成功（进度区如实显示「改写完成，已生成 5 条草稿」）之后，点「去发布」看到的是**空白表单**：标题 0 字、正文 0/10000 字。原因是跳转不带任何草稿参数（`router.push('/publish')`），而发布页只在地址里有草稿 id 时才装载——弹窗承诺的「改写内容将自动填入文案输入框」并不成立，用户只能自己进草稿箱逐条点「加载」（5 条 = 5 次）。
+
+现在：点「去发布」后发布页直接进入**批量模式**，5 条草稿一次性装载（标题＝选题、正文＝改写结果），并预置好全部有账号的平台与各平台默认账号；底部主按钮如实显示任务数（5 篇 × 8 平台 = 40 个任务）。另新增「批量设置发布目标」工具条，改完平台勾选点「应用到全部条目」即可一次分发到所有条目（此前需要 5 条 × 8 平台 = 40 次逐条勾选）。
+
+### 变更明细
+
+- `HotTopics.vue`：`goToDestination()` 图文去向按成功条目数带参——多条走 `?drafts=<id,id,...>`，单条保留 `?draft=<id>`（单篇语义零回归）；只交接 `success && draftId` 的条目。
+- `Publish.vue`：新增 `?drafts=` 交接接收端（`parseHandoffDraftIds` 解析去重限量 50 / `applyDraftHandoff` 装载）；触发点覆盖 `onMounted`、`onActivated`（keep-alive）与 `watch(route.query.drafts)`；`?drafts=` 与 `?draft=` 同时出现时批量为准。
+- `Publish.vue`：幂等键为「本批已装载的 id 串」——同一批 id 重复激活不重建条目（不覆盖用户编辑），换一批才重新装载；全部未命中时提示且**不记账**，便于用户回选题页重生成后再交接。
+- `Publish.vue`：批量区新增「批量设置发布目标」工具条（只列有账号的平台 + 应用到全部条目 + 逐条仍可调整）。
+- `useBatchPublish.js`：抽出 `createArticleItem()` 作为条目默认字段面**唯一真源**（`addArticle` 与装载共用，防「新增字段只改一处 ⇒ 装载条目缺字段」重演）；新增 `seedArticlesFromDrafts`（过滤无 id 条目、标签/话题走共享归一、返回实际装载数）与 `applyTargetsToAll`（平台 + 默认账号一次写入，无账号平台不写空数组）。
+- `locales/{zh,en}.js`：`publishPage.handoff.*`（3 条）与 `publishPage.batchTargets.*`（5 条）成对文案。
+- 回归锁：`HotTopics.test.js` 2 例（多条/单条去向参数）、`Publish.test.js` 6 例（装载、部分缺失、全缺失、keep-alive 幂等、id 解析、工具条应用）、`useBatchPublish.test.js` 7 例（字段面、非法条目、空入参、键集一致、账号写入、空输入返回 0、重复应用覆盖）。
+- 变异反证三处全部捕获：M1 HotTopics 去向参数 → 1 红；M2 Publish 交接分支禁用 → 4 红；M3 目标不写账号 → 2 红。
+- 文档：`01-docs/PRD-HOT-TOPICS-PUBLISH-HANDOFF-2026-10-09.md`（含数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字、参考产品对照、验收标准、遗留）；`openspec/changes/hot-topics-publish-handoff/`；见 `openspec/records/hot-topics-publish-handoff.md`。
+
+### 追加：小红书仅存平台草稿箱（硬约束，2026-10-09 提出 / 10-10 落点修正）
+
+用户明确要求「小红书不要真实发布（风控严格），只把内容放进平台草稿箱，之后由我用 App 扫码/确认再发布」。
+
+- **落点在 RPA 轨内部，不在路由表**（第一版把它路由到新增 `xhs_draft` API 草稿轨的设计已被真机实测推翻，见下）：
+  - 图文：`_publish_xiaohongshu` 强制 `draftOnly: true` —— 只填标题/正文/标签并等待平台自动存草稿，**绝不点「发布」**；内容未写入时 fail-closed（`PUBLISH_DRAFT_CONTENT_NOT_FILLED`），不报假成功。
+  - 视频：新增 **fail-closed 拒绝执行**（`XHS_VIDEO_DRAFT_UNSUPPORTED`）——此前视频轨仍走「点发布」链路，与硬约束直接冲突；拒绝而非静默降级，避免把「其实没发出去」伪装成成功。
+- **API 草稿轨实测不可用（保留为诊断通道，不路由）**：`xiaohongshu:probe-draft-chain` 实跑 —— permit（GET）与 ros-upload（PUT）**均通过**，note 步 `creator.xiaohongshu.com/web_api/sns/v2/note` **404**、`edith.xiaohongshu.com/web_api/sns/v2/note` **406**（`{code:-1}`）；该账号只有创作者域会话、缺主站 `web_session`，签名/风控过不去。故删除 `xiaohongshu-draft-publisher.js` 与其路由分支，链实现与探针保留，支持 `noteOrigin` 做端点 A/B。
+- 结果语义：草稿成功携带 `draft: true`；下游据此**不建审核回查**、**不把草稿当已公开作品登记回采**（草稿在平台内容列表里查不到）。
+- 界面提示（zh/en 成对）：单篇在发布目标下方、批量按条目分别提示「小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布」。
+- 回归锁：图文必带 `draftOnly`（摘掉即红）、视频 fail-closed 且 generic 零调用、草稿不建回查、内容未写入不报成功（既有 7 例）；另加「用到 Ui* 基础组件的 SFC 必须自行导入」结构锁（E2E 现场发现新组件漏 `import UiInput` 会让输入框整体失效，而单测夹具的全局注册会掩盖它）。
+- 详见 PRD §13 与 `openspec/records/hot-topics-publish-handoff.md`。
+
 # [未发布] fix(publish): 快手图文封面 tofu 乱码修复——ffmpeg 占位图不再冒充 AI 封面（2026-10-09，fix-kuaishou-tuwen-tofu）
 
 ### 用户感知
@@ -9,6 +42,8 @@
 - `cover:generate-ai` handler 新增占位图判定：`result.data.degraded === true` 视为 AI 生成失败，走 `fallbackLocalCover('ai-generate-degraded-placeholder')` 本地兜底；日志明确记「AI 生图返回的是 ffmpeg 占位图（无真实生图 provider），拒绝作为封面」。
 - 回归锁：`publish.test.js` 新增 degraded 第三态用例（修复前红灯复现 tofu 路径，修复后 37/37 绿）。
 - 根因链与逃逸分析详见 `01-docs/PRD-KUAISHOU-TUWEN-TOFU-2026-10-09.md`。
+
+
 
 ---
 
@@ -43,6 +78,7 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 
 `--partial` 仍在，因为该 job 确实产不出 3 张基线的渲染（`CI 无渲染 3 张`）；`KNOWN_DYNAMIC` 保持为空（`calendar-dark` / `keyword-monitor-dark` 由采集层钉住的时钟决定，本次重建后仍是 0 px）。
 
+
 # [未发布] fix(ci-gate): `.quality-rhythm/**` 进 docs-only 白名单，镜像漂移锁收成一处真源（2026-10-09，ci-quality-rhythm-whitelist）
 
 ## 背景
@@ -70,6 +106,7 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 决策层跨家族对抗评审判 `DUAL` 但**没跑成**：`adversarial-review-loop/scripts/model-call.js:11` 把 `DEFAULT_WRAPPER` 写死为他人机器的用户名路径（`C:/Users/邱领/...`），且 `ccg-deep-review.js` 三处直取该常量、无 env/config 覆盖入口 ⇒ `ENOENT`。本机正解路径实测存在。未擅改用户全局技能源码，QM-6 改走既有替代通道（直调 opencode 双轴、绑定提交 SHA），决策层降级为自审 + 三条变异，缺口留在此处不写成"已评审"。
 
 暗色基线在 PR 侧结构性不可判（门禁②）另 PR 推进；其前置条件经实测已破坏 —— main tip `a43287ac7` 的 Visual Tests 红在 `Baseline freshness gate`，8 张暗档漂移待归因。
+
 
 # [未发布] fix(publish): 头条定时发布排期上限按平台取证收窄 30→7 天，发布页提示同步显示真实上限（2026-10-08，schedule-horizon-cap）
 

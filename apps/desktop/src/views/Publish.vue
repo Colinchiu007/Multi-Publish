@@ -72,89 +72,43 @@
     <!-- 批量模式：文章列表 -->
     <template v-if="batchMode">
       <div class="cohere-content batch-articles">
-        <div v-for="(a, idx) in articles" :key="a._key" class="cohere-card cohere-card-static">
-          <!-- 文章编号 + 删除 -->
-          <div class="article-card-row">
-            <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
-            <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ {{ t('publishPage.scheduled') }}</span>
-            <div class="flex-spacer"></div>
-            <UiButton :data-testid="`batch-copy-${idx}`" variant="ghost" size="sm" @click="duplicateArticle(idx)" :title="t('publishPage.copy')"><el-icon><CopyDocument /></el-icon></UiButton>
-            <UiButton :data-testid="`batch-delete-${idx}`" variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" :title="t('publishPage.delete')" class="coral-text">✕</UiButton>
-          </div>
-
-          <!-- 文章编辑 -->
-          <div class="cohere-form">
-            <div class="cohere-form-item">
-              <div class="title-row">
-                <label class="cohere-form-label no-margin-bottom">{{ t('publishPage.title') }}</label>
-                <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = true; templateTargetIdx = idx">
-                  <el-icon><EditPen /></el-icon> {{ t('publishPage.template') }}
-                </button>
-              </div>
-              <UiInput v-model="a.title" :placeholder="t('publishPage.titlePlaceholder')" />
-            </div>
-            <div class="cohere-form-item">
-              <label class="cohere-form-label">{{ t('publishPage.content') }}</label>
-              <UiInput type="textarea" v-model="a.content" :placeholder="t('publishPage.contentPlaceholder')" :rows="5" />
-            </div>
-            <div class="cohere-form-item batch-metadata-grid">
-              <div>
-                <label class="cohere-form-label">{{ t('publishPage.tags') }}</label>
-                <UiInput :model-value="a.tagsText" @update:model-value="value => setBatchTagsText(a, value)" :placeholder="t('publishPage.tagsPlaceholder')" />
-              </div>
-              <div>
-                <label class="cohere-form-label">{{ t('publishPage.topics') }}</label>
-                <UiInput :model-value="a.topicsText" @update:model-value="value => setBatchTopicsText(a, value)" :placeholder="t('publishPage.topicsPlaceholder')" />
-              </div>
-              <div>
-                <label class="cohere-form-label">{{ t('publishPage.mentions') }}</label>
-                <UiInput v-model="a.mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
-              </div>
-            </div>
-            <!-- P2-7 批量条目扩展字段面：封面 / 无标题提示 / 支持度徽标 / 可见性 / 平台差异化。
-                 写入一律经 useBatchPublish 的 setter，让「UI 写点」与「payload 构造点」同侧，
-                 被同一条键集 parity 回归锁覆盖（修复前 cover_* 只有读点、没有写点，恒为空）。 -->
-            <BatchArticleFields
-              :article="a"
-              :index="idx"
-              :platform-catalog="platforms"
-              @update:cover="descriptor => setBatchArticleCover(a, descriptor)"
-              @update:cover-url="value => setBatchArticleCoverUrl(a, value)"
-              @update:visibility="value => setBatchArticleVisibility(a, value)"
-              @update:overrides="next => setBatchArticleOverrides(a, next)"
-              @clear-cover="clearBatchArticleCover(a)"
-              @open-preview="openBatchCoverPreview"
-            />
-            <div class="cohere-form-item">
-              <label class="cohere-form-label">{{ t('publishPage.publishTarget') }}</label>
-              <div class="batch-platform-targets">
-                <label v-for="p in platforms" :key="p.id" class="batch-platform-option">
-                  <input type="checkbox" :value="p.id" v-model="a.platforms" class="coral-check" />
-                  {{ p.label }}
-                </label>
-                <template v-for="p in platforms" :key="p.id + '-accounts'">
-                  <div v-if="a.platforms.includes(p.id) && getAccounts(p.id).length > 0" class="batch-account-targets">
-                    <span class="batch-account-label">{{ p.label }}{{ t('publishPage.accountSuffix') }}</span>
-                    <label v-for="account in getAccounts(p.id)" :key="account.id" class="batch-account-option">
-                      <input
-                        type="checkbox"
-                        :checked="isBatchAccountSelected(a, p.id, account.id)"
-                        @change="toggleBatchAccount(a, p.id, account.id)"
-                      />
-                      <span>{{ resolveAccountDisplayName(account, { platformLabel: p.label }) }}</span>
-                    </label>
-                  </div>
-                </template>
-              </div>
-            </div>
-            <div class="cohere-form-item">
-              <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
-              <UiInput type="datetime-local" v-model="a.publishTime" class="input-max-260" />
-              <span class="publish-time-hint">{{ fieldSurface.hintTextFor(a.platforms) }}</span>
-              <p v-if="scheduleCapabilityHint(a.platforms)" class="no-title-hint" data-testid="batch-schedule-capability">{{ scheduleCapabilityHint(a.platforms) }}</p>
-            </div>
-          </div>
-        </div>
+        <!-- 批量设置发布目标工具条（组件化：本视图在零增长容差清单内） -->
+        <BatchTargetsToolbar
+          v-model="batchTargetPlatforms"
+          :platform-options="handoffPlatformOptions"
+          :article-count="articles.length"
+          @apply-all="applyBatchTargetsToAll"
+        />
+        <BatchArticleCard
+          v-for="(a, idx) in articles"
+          :key="a._key"
+          :article="a"
+          :index="idx"
+          :platform-catalog="platforms"
+          :can-delete="articles.length > 1"
+          :get-accounts="getAccounts"
+          :is-account-selected="(pid, aid) => isBatchAccountSelected(a, pid, aid)"
+          :resolve-account-name="(account, platformLabel) => resolveAccountDisplayName(account, { platformLabel })"
+          :schedule-hint="fieldSurface.hintTextFor(a.platforms)"
+          :schedule-capability-hint="scheduleCapabilityHint(a.platforms)"
+          @duplicate="duplicateArticle(idx)"
+          @remove="removeArticle(idx)"
+          @open-template="showTemplatePicker = true; templateTargetIdx = idx"
+          @update:title="value => { a.title = value }"
+          @update:content="value => { a.content = value }"
+          @update:mentions-text="value => { a.mentionsText = value }"
+          @update:publish-time="value => { a.publishTime = value }"
+          @update:tags-text="value => setBatchTagsText(a, value)"
+          @update:topics-text="value => setBatchTopicsText(a, value)"
+          @update:cover="descriptor => setBatchArticleCover(a, descriptor)"
+          @update:cover-url="value => setBatchArticleCoverUrl(a, value)"
+          @update:visibility="value => setBatchArticleVisibility(a, value)"
+          @update:overrides="next => setBatchArticleOverrides(a, next)"
+          @clear-cover="clearBatchArticleCover(a)"
+          @open-preview="openBatchCoverPreview"
+          @toggle-platform="platformId => toggleBatchPlatform(a, platformId)"
+          @toggle-account="(pid, aid) => toggleBatchAccount(a, pid, aid)"
+        />
 
         <!-- 模板面板 -->
         <div v-if="showTemplatePicker && templateTargetIdx >= 0" class="stack-gap">
@@ -580,6 +534,10 @@
                 :account-groups="groupPickerItems"
                 @apply-group="applyGroupById"
               />
+              <!-- 小红书仅存草稿（用户硬约束）：必须在勾选后当场说清，避免用户以为已经公开发布 -->
+              <p v-if="selectedPlatforms.includes('xiaohongshu')" class="no-title-hint" data-testid="xhs-draft-only-hint">
+                {{ t('publishPage.xhsDraftOnlyHint') }}
+              </p>
               <div class="publish-action-controls" data-testid="publish-action-controls">
                 <div class="cohere-divider"></div>
                 <UiButton variant="secondary" class="side-button-block" data-testid="publish-save-draft" :disabled="publishing" @click="onSaveDraft">{{ t('publishPage.saveDraft') }}</UiButton>
@@ -749,7 +707,7 @@ import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
 import { useRiskStore } from '@/stores/risk'
 import { useAccountStore } from '@/stores/accounts'
-import { Close, CopyDocument, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { Close, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
@@ -770,6 +728,9 @@ import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishGroupTargets } from '@/composables/usePublishGroupTargets'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
+import { useHotTopicsDraftHandoff } from '@/composables/useHotTopicsDraftHandoff'
+import BatchTargetsToolbar from '@/features/publish/components/BatchTargetsToolbar.vue'
+import BatchArticleCard from '@/features/publish/components/BatchArticleCard.vue'
 import CopyDetailBanner from '@/features/publish/components/CopyDetailBanner.vue'
 import { useCopyDetailMode } from '@/composables/useCopyDetailMode'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
@@ -780,7 +741,6 @@ import {
 import { normalizeUploadFile, resolveUploadFilePath } from '@/features/publish/publish-upload-file'
 import { usePublishFieldSurface } from '@/features/publish/usePublishFieldSurface'
 import { appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
-import BatchArticleFields from '@/features/publish/components/BatchArticleFields.vue'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishVisibilitySelect from '@/features/publish/components/PublishVisibilitySelect.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
@@ -1326,12 +1286,15 @@ const {
   applyTemplate,
   checkBatchAccess,
   toggleBatchAccount,
+  toggleBatchPlatform,
   isBatchAccountSelected,
   setBatchArticleCover,
   setBatchArticleCoverUrl,
   clearBatchArticleCover,
   setBatchArticleVisibility,
   setBatchArticleOverrides,
+  seedArticlesFromDrafts,
+  applyTargetsToAll,
 } = useBatchPublish({ article, licenseStore, isAccountAvailable })
 
 watch(publishTab, async value => {
@@ -1409,6 +1372,17 @@ function applyHistoryVideoQuery () {
   article.cover_file = null
 }
 
+// ── 热门选题批量交接（?drafts=id,id,...）──
+// 状态机（解析/装载/幂等/预置目标）在 useHotTopicsDraftHandoff；本视图只保留触发点与提示。
+const handoff = useHotTopicsDraftHandoff({
+  route, drafts, loadDrafts, seedArticlesFromDrafts, applyTargetsToAll, batchMode,
+  accountStore, platforms, getAccounts, getDefaultAccount, loadAccounts, notifySuccess, notifyWarning,
+})
+const {
+  handoffAppliedKey, batchTargetPlatforms, handoffPlatformOptions,
+  applyBatchTargetsToAll, applyDraftHandoff, handoffIdsFromQuery, parseHandoffDraftIds,
+} = handoff
+
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
   applyCopyDetailHandoff() // 置顶：不依赖前置异步步骤
@@ -1424,6 +1398,13 @@ onMounted(async () => {
   }
   await loadPrecheckPreference()
   applyHistoryVideoQuery()
+  // 热门选题批量交接优先：这批 id 是「刚改写完的 N 条」，必须整体进批量区；
+  // 单篇 ?draft= 只在没有批量交接时生效（两个参数同时出现时以批量为准）。
+  const handoffIds = handoffIdsFromQuery()
+  if (handoffIds.length > 0) {
+    await applyDraftHandoff(handoffIds)
+    return
+  }
   const draftId = route.query.draft
   if (!draftId) return
 
@@ -1439,6 +1420,10 @@ onMounted(async () => {
 onActivated(() => {
   applyHistoryVideoQuery()
   applyCopyDetailHandoff()
+  // keep-alive 下 onMounted 不会再跑：热门选题交接必须挂在每次激活上。
+  // applyDraftHandoff 自带「同一批 id 只装载一次」的幂等键，重复激活不会重置用户编辑。
+  const handoffIds = handoffIdsFromQuery()
+  if (handoffIds.length > 0) applyDraftHandoff(handoffIds)
 })
 
 // 暴露给测试（w.vm.xxx）和外部组件
@@ -1523,6 +1508,9 @@ defineExpose({
   openCoverCrop,
   onCoverCropSuccess,
   onCoverCropError,
+  // 热门选题批量交接（hot-topics-publish-handoff）暴露面
+  handoffAppliedKey, batchTargetPlatforms, handoffPlatformOptions, applyBatchTargetsToAll,
+  applyDraftHandoff, parseHandoffDraftIds,
 })
 </script>
 

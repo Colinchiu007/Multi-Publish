@@ -18,6 +18,20 @@ export default {
     batchSubtitle: 'Batch edit multiple articles and publish to each platform independently',
     singleSubtitle: 'Compose content and publish to multiple platforms',
     batchMode: 'Batch Mode',
+    // Hot-topics draft handoff + batch publish targets (hot-topics-publish-handoff, 2026-10-09)
+    handoff: {
+      loaded: 'Loaded {count} hot-topic drafts',
+      partial: 'Loaded {loaded}/{total} drafts (the rest were deleted)',
+      none: 'The selected drafts no longer exist. Generate again from Hot Topics.',
+    },
+    batchTargets: {
+      title: 'Batch publish targets',
+      hint: 'Tick platforms and apply to all entries; each platform uses its default account',
+      applyAll: 'Apply to all entries',
+      applyAllHint: 'Each entry can still be adjusted individually',
+      applied: 'Applied to {count} entries',
+    },
+    xhsDraftOnlyHint: 'Xiaohongshu saves to the platform draft box only (not published). Confirm in the mobile app to publish.',
     scheduled: 'Scheduled',
     copy: 'Copy',
     template: 'Template',

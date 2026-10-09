@@ -196,6 +196,9 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
         tags: Array.isArray(article.tags) ? article.tags : [],
         cookie,
         authorization,
+        // 调试通道专用：A/B 对照 note 端点宿主（'creator' | 'edith'），生产路由不传该字段
+        noteOrigin: arg && arg.noteHost === 'edith' ? 'https://edith.xiaohongshu.com'
+          : (arg && arg.noteHost === 'creator' ? 'https://creator.xiaohongshu.com' : undefined),
       })
       ipcLog('info', 'xiaohongshu:probe-draft-chain', 'ok', `accountId=${accountId} draft=${draft}`)
       return {

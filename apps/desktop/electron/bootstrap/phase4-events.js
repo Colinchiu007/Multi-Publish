@@ -112,7 +112,11 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }, ownerSubject)
     try {
       const postId = task.result?.postId || task.result?.id
-      if (postId) {
+      // 草稿结果（小红书硬约束 2026-10-09，落地于 RPA 轨 draftOnly）：草稿不是已公开作品，
+      // 平台内容列表里查不到 ⇒ 建监控任务只会得到恒定的「查无此作品」重试。
+      // 因此草稿结果不建审核回查；历史行仍记 success（内容已确认写入平台草稿箱）。
+      const isDraftResult = task.result?.draft === true
+      if (postId && !isDraftResult) {
         // P0-1 第二切片：先解析凭证（任务自带→auth 分区只读补齐）再决定是否回查。
         // 凭证拿不到就**不建监控任务**——旧形态传 `article.cookies`（全仓从未写入）导致
         // 每次发布都发 12 次必然失败的请求后再 timeout。异步门不阻塞发布主流程；
@@ -141,8 +145,11 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     try {
       if (store && typeof store.addTrackedContent === 'function') {
         const result = task.result || {}
-        const postId = result.postId || result.publishId || ''
-        const url = safeHttpUrl(result.url) || ''
+        // 草稿（小红书）没有公开作品锚点：草稿 ID 不是可回采的作品 ID，
+        // 强行登记 pending 会让回采器反复去平台找一篇「永远不会公开」的作品。
+        const isDraftResult = result.draft === true
+        const postId = isDraftResult ? '' : (result.postId || result.publishId || '')
+        const url = isDraftResult ? '' : (safeHttpUrl(result.url) || '')
         const hasAnchor = Boolean(postId || url)
         store.addTrackedContent({
           platform: task.platform,

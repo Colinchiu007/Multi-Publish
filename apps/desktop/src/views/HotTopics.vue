@@ -663,7 +663,19 @@ function goToDestination() {
     const last = okItems[okItems.length - 1]
     router.push({ path: '/create', query: { draft: last.draftId } })
   } else {
-    router.push('/publish')
+    // 图文去向必须把**全部**成功草稿交给发布页：
+    // 单条 → ?draft=<id>（单篇编辑器，保持既有语义）；
+    // 多条 → ?drafts=<id,id,...>（发布页批量装载）。
+    // 修复前这里 push('/publish') 不带任何草稿参数，而 Publish.vue 只在
+    // route.query.draft 存在时才 loadDraft —— 结果是「改写完成 → 去发布」后
+    // 表单恒为空，用户必须自己进草稿箱逐条加载（5 条选题 = 5 次手工装载），
+    // 与弹窗承诺的「改写内容将自动填入文案输入框」不符。
+    const draftIds = okItems.map(x => x.draftId)
+    if (draftIds.length === 1) {
+      router.push({ path: '/publish', query: { draft: draftIds[0] } })
+    } else {
+      router.push({ path: '/publish', query: { drafts: draftIds.join(',') } })
+    }
   }
 }
 
