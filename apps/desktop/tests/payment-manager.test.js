@@ -77,6 +77,15 @@ describe('PaymentManager', function() {
     expect(updated.completedAt).toBeDefined()
   })
 
+  test('completePayment uses service-format license key (S1 联动)', function() {
+    // S1 修复后 license-manager.activate 只接受服务端兑换码格式（4-4-4）。
+    // 本地订单号是 UUID，不符合该格式 → activate 必须返回 false，
+    // 但 completePayment 本身不因此失败（订单状态照常流转，授权走服务端）。
+    var order = pm.createOrder('pro', { method: 'alipay' })
+    expect(pm.completePayment(order.id, 'txn_fmt')).toBe(true)
+    expect(pm.getOrder(order.id).status).toBe('paid')
+  })
+
   test('completePayment returns false for unknown order', function() {
     expect(pm.completePayment('nonexistent', 'txn')).toBe(false)
   })

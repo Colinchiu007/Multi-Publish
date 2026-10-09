@@ -305,7 +305,10 @@ class ModelProviderManager {
         providerRunContext.openIfQuota(providerId, result.error && typeof result.error === 'object' ? result.error : result)
       }
       const latency_ms = Date.now() - startTime
-      this._writeLog(provider, method, 'success', latency_ms, null)
+      this._writeLog(provider, method, 'success', latency_ms, null, {
+        params,
+        result,
+      })
       // 慢响应检测：超过类别阈值 → 记为模型服务异常（供前端提示 + 日志定位）
       if (providerAnomalyBus.isSlow(provider.category, latency_ms)) {
         providerAnomalyBus.report({
@@ -351,17 +354,35 @@ class ModelProviderManager {
    * @param {string} status - 'success' | 'error'
    * @param {number} latencyMs - 延迟毫秒
    * @param {string|null} errorMessage - 错误消息
+   * @param {{params?: object, result?: object}} [context] - S4（2026-10-09）：成功路径
+   *   透传请求参数与 adapter 响应，用于提取 tokens/model/cost——G3/S4 断点修复，
+   *   让 model_provider_logs 的 tokens_in/tokens_out/cost 从恒 NULL 变为有数据，
+   *   这是官方算力成本归集（usage-reporter → ops-center model_usage_daily）的地基。
    * @private
    */
-  _writeLog (provider, action, status, latencyMs, errorMessage) {
+  _writeLog (provider, action, status, latencyMs, errorMessage, context) {
     if (!this._store || typeof this._store.addProviderLog !== 'function') return
     try {
+      const params = context && typeof context === 'object' ? context.params : null
+      const result = context && typeof context === 'object' ? context.result : null
+      // S4：model 名取请求侧（params.model），usage 取响应侧（OpenAI 兼容口径
+      // prompt_tokens/completion_tokens；部分供应商用 input_tokens/output_tokens）。
+      // cost：响应自带 cost 字段时透传（官方代理场景），BYOK 直连场景留 NULL——
+      // 单价换算属 ModelPriceCard 后续立项，这里不做本地估算避免伪数据。
+      const usage = result && typeof result === 'object' && result.usage && typeof result.usage === 'object' ? result.usage : null
+      const tokensIn = usage ? (Number(usage.prompt_tokens ?? usage.input_tokens) || null) : null
+      const tokensOut = usage ? (Number(usage.completion_tokens ?? usage.output_tokens) || null) : null
+      const cost = result && typeof result === 'object' && result.cost != null ? (Number(result.cost) || null) : null
       this._store.addProviderLog({
         provider_id: provider.id,
         category: provider.category || 'unknown',
+        model: params && typeof params.model === 'string' && params.model ? params.model : null,
         action,
         status,
         latency_ms: latencyMs,
+        tokens_in: tokensIn != null ? Math.round(tokensIn) : null,
+        tokens_out: tokensOut != null ? Math.round(tokensOut) : null,
+        cost: cost != null ? cost : null,
         error_message: errorMessage,
       })
     } catch (_) {

@@ -37,7 +37,8 @@ describe('license-manager .bak 恢复', () => {
 
   it('save 生成主文件 + .bak 备份', () => {
     const m = makeManager(dataPath)
-    m.activate('PRO-KEY-12345')
+    // S1（2026-10-09）：activate 只接受服务端兑换码格式（4-4-4，字母表无 O/I/0/1）
+    m.activate('SAVE-KEYX-2345')
     m.save()
 
     expect(fs.existsSync(dataPath)).toBe(true)
@@ -48,7 +49,7 @@ describe('license-manager .bak 恢复', () => {
 
   it('主文件损坏时从 .bak 恢复 Pro 许可', () => {
     const m = makeManager(dataPath)
-    m.activate('PRO-KEY-67890')
+    m.activate('PQRS-TUVW-3456')
     m.save()
     expect(m.isPro()).toBe(true)
 
@@ -60,12 +61,12 @@ describe('license-manager .bak 恢复', () => {
     m2.load()
     expect(m2.isPro()).toBe(true)
     expect(m2._data.type).toBe('pro')
-    expect(m2._data.licenseKey).toBe('PRO-KEY-67890')
+    expect(m2._data.licenseKey).toBe('PQRS-TUVW-3456')
   })
 
   it('主文件和 .bak 都损坏时降级为 free', () => {
     const m = makeManager(dataPath)
-    m.activate('PRO-KEY-WILL-LOSE')
+    m.activate('TEST-KEY2-3456')
     m.save()
 
     // 损坏主文件和备份
@@ -80,7 +81,7 @@ describe('license-manager .bak 恢复', () => {
 
   it('无 .bak 时主文件损坏降级为 free', () => {
     const m = makeManager(dataPath)
-    m.activate('PRO-NO-BAK')
+    m.activate('NOBA-KKEY-2345')
     m.save()
     // 删除 .bak
     fs.unlinkSync(dataPath + '.bak')
@@ -94,7 +95,7 @@ describe('license-manager .bak 恢复', () => {
 
   it('原子写：save 不残留 .tmp', () => {
     const m = makeManager(dataPath)
-    m.activate('PRO-ATOMIC')
+    m.activate('ATOM-ICKY-2345')
     m.save()
     m.save() // 二次 save
     expect(fs.existsSync(dataPath + '.tmp')).toBe(false)
