@@ -352,7 +352,7 @@
 ### 9.3 验证范围（消费者并集）
 
 改动模块 `tab-lifecycle.js` / `utils.js` / `constants.js` / `account-session-restore.js` / `account-manager.js`
-的全部 `.test.js` 消费者并集全跑，加上 `vitest run electron` 全量；
+的全部 `.test.js` 消费者并集全跑——rebase 到 `8f89058fa` 后实测 **27 个 vitest 文件 550 passed**（rc=0，66.40s；域含本 PR 拆出的 `webview-manager-partition-restore.test.js` 8 例与 `webview-manager.test.js` 85 例，逐文件点名见 `.quality-gates.md` 本条记录）；**本地 `vitest run electron` 全量未跑完即主动中止**（同机并发 vitest 会把 `PARTITION_COOKIE_RESTORE_TIMEOUT_MS = 2500` 的时序敏感用例拖进误红，属于「以噪声换覆盖」的坏交易），全量证据一律以本 PR 的 CI（`QG Desktop Shards 1/2·2/2` / `electron-tests`）为准，**不得写成"本地已全跑"**；
 QM-1 打包（`electron-builder --win --dir`）后在 `app.asar` 内验证新增文件与 require 链，并做启动存活复测。
 
 ---
