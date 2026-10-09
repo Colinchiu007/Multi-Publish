@@ -1,0 +1,110 @@
+[
+  {
+    "view": "home",
+    "route": "/",
+    "sampled": 55,
+    "lowContrast": []
+  },
+  {
+    "view": "accounts",
+    "route": "/accounts",
+    "sampled": 48,
+    "lowContrast": []
+  },
+  {
+    "view": "publish",
+    "route": "/publish",
+    "sampled": 71,
+    "lowContrast": []
+  },
+  {
+    "view": "publish-history",
+    "route": "/publish/history",
+    "sampled": 43,
+    "lowContrast": []
+  },
+  {
+    "view": "create",
+    "route": "/create",
+    "sampled": 36,
+    "lowContrast": []
+  },
+  {
+    "view": "model-providers",
+    "route": "/model-providers",
+    "sampled": 57,
+    "lowContrast": []
+  },
+  {
+    "view": "first-run",
+    "route": "/first-run",
+    "sampled": 13,
+    "lowContrast": []
+  },
+  {
+    "view": "dashboard",
+    "route": "/dashboard",
+    "sampled": 39,
+    "lowContrast": []
+  },
+  {
+    "view": "calendar",
+    "route": "/calendar",
+    "sampled": 84,
+    "lowContrast": []
+  },
+  {
+    "view": "cloud-publish",
+    "route": "/cloud-publish",
+    "sampled": 41,
+    "lowContrast": []
+  },
+  {
+    "view": "viral-analysis",
+    "route": "/viral-analysis",
+    "sampled": 50,
+    "lowContrast": []
+  },
+  {
+    "view": "intelligence",
+    "route": "/intelligence",
+    "sampled": 43,
+    "lowContrast": []
+  },
+  {
+    "view": "collection",
+    "route": "/collection",
+    "sampled": 63,
+    "lowContrast": []
+  },
+  {
+    "view": "hot-topics",
+    "route": "/hot-topics",
+    "sampled": 73,
+    "lowContrast": []
+  },
+  {
+    "view": "copy-library",
+    "route": "/copy-library",
+    "sampled": 37,
+    "lowContrast": []
+  },
+  {
+    "view": "keywords",
+    "route": "/keywords",
+    "sampled": 35,
+    "lowContrast": []
+  },
+  {
+    "view": "comments",
+    "route": "/comments",
+    "sampled": 32,
+    "lowContrast": []
+  },
+  {
+    "view": "member-center",
+    "route": "/member-center",
+    "sampled": 31,
+    "lowContrast": []
+  }
+]

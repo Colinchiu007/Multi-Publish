@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    }
+  ],
+  "critiqueFingerprint": "ac21bd21ebe4c811",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "暗色 --coral 全局 #ff8866→#c2410c，只验证了「白字压底」场景；若任何元素以 --coral 作前景文字/图标，#c2410c 在暗画布 #1a1a1e 上仅约 3.35:1，新跌破 AA 4.5:1；「无退化 exit=0」只覆盖探针样本，未覆盖未采样的消费点。",
+      "highRiskDomains": [],
+      "prosecution": "全局 --coral #ff8866→#c2410c 后，~80 处以 --coral 作前景文字/图标的消费点（coral-text/src-warn/error 提示等）在暗画布上从 7.41:1 跌到 3.35:1，跌破 AA 4.5:1；contrast-audit 静态探针未采样这些点。",
+      "defense": "本批审计 19→0 且无退化 exit=0；白字压底场景确实达标 5.18:1。",
+      "verdict": "upheld",
+      "rationale": "grep 全 src 证实 --coral 前景消费 ~80 处，全局改深必然引入前景退化。已修正：还原 --coral 主档 #ff8866（前景 7.41:1 达标），三个白字压底元素（publish-mode-tab.active/cal-day-num/banner-btn）在 tokens.css 集中区做局部底色覆盖 #c2410c（5.18:1）。复审审计确认 0 保持。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "仅桥接 --el-*-light-9 与 --el-fill-color-blank 主档，EP 派生档（light-3/5/7/8、--el-fill-color-light/lighter）仍为浅色默认，暗色下按钮悬停/下拉选中等交互态可能仍亮底；contrast-audit 为静态探针，测不到交互态。",
+      "highRiskDomains": [],
+      "prosecution": "仅桥接 light-9/popper/fill-blank，EP 派生档 light-3/5/7/8 等仍为浅色默认，按钮悬停/下拉选中等交互态暗色下可能亮底；静态探针测不到交互态。",
+      "defense": "primary 系 light-3/5/7/8 已在 ep-theme L12-16 映射（此前批次完成）；semantic 系 light-3/5/7/8 消费点主要是按钮 hover 底——语义按钮 hover 底走 --el-color-*-light-9（已桥接）而非 light-3/5（那是 hover 强调底，EP 自身语义不同档）。",
+      "verdict": "dismissed",
+      "rationale": "primary 系派生档此前已映射（本批 diff 上下文可见）；semantic 系按钮 hover 底实际消费的是 light-9 档（已桥接，5.53:1）。残留的 light-3/5/7/8 semantic 消费点未在 19 处审计样本中出现，属 EP 内部默认值未污染场景；真实交互态回归由 QG Visual/gui-test 覆盖。记录为后续 EP 升级核验项（注释已写）。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "QM-6 双家族 CCG 与远程同步两关门禁以 PENDING 随 PR 合并进 main，评审提交后才跑，门禁未被强制；「同一次提交销账」与 squash 合并后不可改写冲突，实际需第二个 docs 回填 PR（历史 #3209/#3210 同款）而计划未写明。",
+      "highRiskDomains": [],
+      "prosecution": "QM-6 与远程同步以 PENDING 随 PR 合并，「同一次提交销账」与 squash 后不可改写冲突，实际需第二个 docs 回填 PR，计划未写明。",
+      "defense": "这正是本仓既定双阶段流程：主 PR 携带 PENDING + 台账登记（fail-closed），合并后由回填 PR（#3209/#3210 先例）同一次提交完成改写+销账——回填与销账仍保证「同一次提交」，只是载体是回填 PR。门禁 check-gate-record-debt 的登记机制保证了没有 PENDING 会静默丢失。",
+      "verdict": "dismissed",
+      "rationale": "PENDING 随主 PR 合并是该机制的**设计行为**（台账 fail-closed 兜底），非门禁被绕过；回填 PR 两阶段在 agent-automerge-rule 收尾清单中有明文（第 3-4 条），历史先例 #3209/#3210 已验证。计划文档确未写明回填 PR 环节——已在执行记录「复盘：已闭合」外补记此说明。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "Dashboard 用硬编码 #a5a0ff 覆盖章节标题，未走 token，且偏离本批「dark 规则集中迁 tokens.css 视图级集中区」的统一模式（HomeGreeting 用 var），日后改色需多处同步。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "Dashboard 章节标题覆盖用硬编码 #a5a0ff 未走 token，偏离本批集中区模式。",
+      "defense": "#a5a0ff 恰是 --color-sidebar-accent 的暗色值，视觉等价；scoped 内覆盖组件自有元素，注入顺序无反超风险。",
+      "verdict": "upheld",
+      "rationale": "硬编码与 token 双源是维护陷阱（改色需多处同步）。已修正：改写为 var(--color-sidebar-accent)（值同 #a5a0ff，零视觉变化）。"
+    }
+  ]
+}
