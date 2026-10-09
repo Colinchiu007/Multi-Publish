@@ -1,10 +1,7 @@
 ---
 record: pr-dark-baseline-gate
-task: 让暗色基线在 PR 侧可判（QG Visual 补产暗档渲染）并归零 main 上 8 张暗档漂移
+task: 让暗色基线在 PR 侧可判（QG Visual 补产暗档渲染）并归零 main 上 19 张暗档漂移（最初判为 8 张，复查时已扩散）
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list --repo Colinchiu007/Multi-Publish --head pr-dark-baseline-gate --json number,state,headRefOid` 回读取入，不得凭印象；合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：暗档在 PR 侧可判 + 19 张暗档漂移归零（pr-dark-baseline-gate，2026-10-09）
@@ -111,10 +108,23 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 
 **reuse 前提的口径修正（不得沿用 #3113 那条粗判据）**：#3113 里我写的"复用别的 run 产物要证 `git diff --name-only <run-head>..<我的 head>` 命中 `apps/` 为 0"在**本 PR 上不可满足也无需满足**——基线 PNG 本身就在 `apps/` 下且正是本次要改的对象。正确的判据是**「渲染输入不变」**：本 PR 对 `apps/desktop/src/**` 零改动，改的只有基线工件与 workflow。而且本 PR 没有"复用"：产物取自**我自己的 head** 的 dispatch run，因此自证链是闭环的（同 sha 渲染 vs 同 sha 基线）。
 
-### 门禁②的端到端证据（本 PR 就是第一次）
+### 门禁②的端到端证据（本 PR 就是第一次，已实跑）
 
-合并后 `QG Visual` 的 Gate 7 会跑暗档像素套、Gate 7b 因此在**判定域内**看到 19 张暗档。判据不写在本 PR 里靠断言，而是看本 PR 自己那次 `QG Visual` 的现场：`[GATE-7] suite exits: pixel=… views=… views-supplement=… dark=…` 一行出现，且 Gate 7b 的 skipped 名单不再包含暗档。
+判据不写在本 PR 里靠断言，而是看本 PR 自己那次 `QG Visual` 的现场。取证的 run 是**本 PR head `bba400fb6` 自己的** `quality-gate.yml` run `37948835371` / job `QG Visual` id `113883853017`（completed / success）；日志经 `gh api repos/<owner>/<repo>/actions/jobs/113883853017/logs --allow-escape-sequences` 原样取回后剥 ANSI，四条判据各自的现场如下：
+
+| 判据 | 现场（行号为剥 ANSI 后清洗产物内的行序） |
+| --- | --- |
+| 暗档像素套真的在 PR 侧跑 | `:780 $ cross-env THEME=dark node tests/visual-testing/scripts/run-pixel-tests.js` + `:782 主题: dark（读 <view>-dark.png 基线）`；`:784-820` 逐个 `[dark] <view>`，脚本数得 `dark_view_count=19` |
+| 19 张暗档全部被判且通过 | `:834 像素结果[dark]: 19/19 通过，0 失败` |
+| Gate 7 四套退出码成行 | `:835 [GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0` —— 本 PR 新增的 `dark=` 字段出现在**实际输出**里，不只是脚本正文 |
+| Gate 7b 判定域含暗档 | `基线新鲜度[partial：只判本次有渲染的那些]：检查 41 张 / 违规 0 张 / 登记内动态漂移 0 张 / CI 无渲染 3 张 / 本次跳过 3 张` + `✅ 全部 38 张有渲染的基线逐像素等于本次 CI 渲染`；未判定名单只有 `analytics-overview.png` / `login-form.png` / `settings-general.png`，脚本断言 `dark_in_skipped=false` ⇒ **不含任何 `*-dark.png`** |
+
+对照改前：main push 连续四次红（`aecb75ab3` 02:52 / `15fd49c0d` 07:24 / `8b3d3e91f` 09:42 / `07550cf37` 14:08），均为 `检查 41 张 / 违规 19 张` 且 19 张全是 `*-dark.png`；而 PR 侧改前 Gate 7b 只能把暗档记进 skipped（PR 侧从未产暗档渲染，判据不存在）。本 PR 后**同一分母 41 张**下违规归零，且归零的依据是**判定发生了**，不是判定被跳过。
+
+**合并后 main 的第一次 push 是终局证据**：Visual Tests run `37954471616` / job `visual-test` id `113901352944`，head `8a64e3d1e`，completed / success，日志现场 `像素结果[dark]: 19/19 通过，0 失败` + `基线新鲜度：检查 41 张 / 违规 0 张 / 登记内动态漂移 0 张 / CI 无渲染 3 张 / 本次跳过 0 张` + `✅ 全部 38 张有渲染的基线逐像素等于本次 CI 渲染`。`gh run list --workflow visual-test.yml --limit 8` 的 conclusion 列现场：`8a64e3d1e`=success，其前四个 push 全 failure ⇒ 「暗色改动合并后基线静默失效、main 连红直到有人重建」这条链路在本 PR 处闭合。
+
+**残留（不得写成已证）**：Gate 7b 的 **round2** 暗档重采在本 run **没有被运行时执行过**。round1 干净即 `exit 0`（`quality-gate.yml:1275-1282`），round2 只在 round1 报违规时作为 flake 甄别路径才可达；因此 `[GATE-7B] round2 suite exits: … dark=` 这行在清洗日志里只出现在脚本正文（`:1081`），没有对应输出。它目前的保障**只有结构锁**（`.github/scripts/workflow-contract.test.js` 断言两处 step 正文都含 `pnpm.cmd run test:visual:pixel:dark` 且 `partialCount >= 2`），运行时现场要等**下一次 round1 报违规的 run** 才会产生。这与「注册 ≠ 注入 ≠ 生效」是同一族：接线在，触发条件没到。
 
 | 门禁 | 结果 |
 | --- | --- |
-| 远程同步 | PENDING（本条自己的欠账） |
+| 远程同步 | PASS（PR #3221 已 squash 合并，main `8a64e3d1e4110f1d8d7b5b8790ad797babe70840` @ 2026-10-09T23:48:27+08:00；合并那一刻判据重取：`mergeable=MERGEABLE` / `mergeStateStatus=CLEAN` / 20 checks 中 pending=0 fail=0，10 个 required 上下文（ruleset 6 ∪ classic 4）逐个 pass） |
