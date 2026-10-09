@@ -31,4 +31,4 @@
 
 - [x] 6.1 `.quality-gates.md` 执行记录 + CHANGELOG 条目 + 行尾对账（numstat 两口径一致）
 - [x] 6.2 提交（pre-commit 分支守卫自动声明）、推分支、开 PR、CI 全绿
-- [ ] 6.3 合并后第一个纯文档 PR 实证 skipped required check 语义（mergeStateStatus 不 BLOCK）。远程同步行已回填（PR #2581 squash 合并 `a48820a0`，2026-09-28T15:15:35Z，远端分支已删，runner 留痕见 `.quality-gates.md`）；skipped 实证留给下一个自然纯文档 PR，届时勾选本项
+- [x] 6.3 合并后第一个纯文档 PR 实证 skipped required check 语义（mergeStateStatus 不 BLOCK）。远程同步行已回填（PR #2581 squash 合并 `a48820a0`，2026-09-28T15:15:35Z，远端分支已删，runner 留痕见 `.quality-gates.md`）；skipped 实证留给下一个自然纯文档 PR，届时勾选本项。**已实证（2026-10-08，两次独立样本）**：#3135（`spec-mirror-gate-archive`）与 #3143（`freq-interval-calibration`）均为 `docs-only=true` 的纯文档 PR，`gh pr checks` 各 **8 pass / 11 skipping / 0 fail / 0 pending**，且被 skip 的 11 条里含 required 并集内的 `QG Static`、`QG Unit Tests`、`QG Coverage`、`build`、`electron-tests`、`release`（required 真源＝ruleset `23749994` 的 6 条 ∪ classic protection 的 4 条，须按 id 取）。两个 PR 均 `mergeable=MERGEABLE` 并 squash 合并成功（#3143 merge `b80429bf0`）⇒ **skipped 满足 required check，job 级 `if:` 短路不会阻断合并**，与本 change 设计里"skipped 满足 required check"的假设一致（`gh pr view --json mergeable` 对已合并 PR 回 `UNKNOWN`，属合并后状态而非阻断证据）。
