@@ -417,7 +417,8 @@ openspec 五件套（已完成初稿）+ 本 PRD 定稿 + 用户手册增补 `01
 | 通道 | 入参（严格） | 成功返回 `data` | 失败 `errorCode` |
 |---|---|---|---|
 | `film-engineering:auto-plan` | `{script, characterRefs[], sceneRefs[], aspect, seconds, targetDurationSec, taskId?}` | `{planId, taskId, planExpiresAt, payloadHash, aspect, seconds, targetDurationSec, plannedDurationSec, shotCount, batchCount, shotsWithReferences, characterMap, warnings[], estimates, provider{id,model}, shots[]{index,shotId,title,seconds,characterNames,refPaths,promptLength,promptPreview}}` | `VIDEO_MODEL_NOT_CONFIGURED` / `AUTO_SCRIPT_EMPTY` / `AUTO_SCRIPT_TOO_LONG` / `AUTO_BAD_PARAM` / `AUTO_NO_TEMPLATES` / `AUTO_NO_BEATS` / `AUTO_TOO_MANY_SHOTS` / `AUTO_TEMPLATE_UNAVAILABLE` / `FILM_KIT_UNAVAILABLE` |
-| `film-engineering:auto-start` | `{planId, taskId, confirmed?, overwrite?}` ——**不含分镜、不含任何路径** | `{started:true, resumed, taskId, planId, ok, doneCount, totalCount, failedBatches[], renderManifest?, manifestError?, counters}` 或 `{started:false, needsReconfirm:true, taskId, planId, payloadHash, resumed}` | `AUTO_PLAN_EXPIRED` / `AUTO_PLAN_MISMATCH` / `AUTO_TASK_EXISTS` / `AUTO_TASK_BUSY` / `AUTO_BAD_PARAM`（计划内参考图越界）/ `VIDEO_MODEL_NOT_CONFIGURED` / `AUTO_START_FAILED` |
+| `film-engineering:auto-start` | `{taskId, planId?, confirmed?, overwrite?}` ——**不含分镜、不含任何路径**；`planId` 仅「新建」时需要，**续跑只传 `taskId`** | `{started:true, resumed, stopped, taskId, planId, ok, doneCount, totalCount, failedBatches[], renderManifest?, manifestError?, counters}` 或 `{started:false, needsReconfirm:true, taskId, planId, payloadHash, resumed}` | `AUTO_PLAN_EXPIRED` / `AUTO_PLAN_MISMATCH` / `AUTO_BAD_PARAM`（参考图越界）/ `AUTO_TASK_BUSY` / `VIDEO_MODEL_NOT_CONFIGURED` / `AUTO_START_FAILED` |
+| `film-engineering:auto-stop` | `{taskId}` | `{ok:true, stopping:boolean, running:boolean}`——只对**正在运行**的任务置停止标志；**批间生效**（当前批跑完即止，未开始的批保持 `pending`，故停下即可续跑） | `AUTO_BAD_PARAM` |
 | `film-engineering:auto-status` | `{taskId}` | `{exists:false}` 或 `{exists:true, taskId, runSeq, planId, aspect, seconds, targetDurationSec, plannedDurationSec, providerId, createdAt, editedAt, lastConfirmedAt, shots[], warnings[], counters{providerCalls,ledgerDoneCount,mismatch}, doneCount, totalCount, ledgerPresent, renderManifest?, manifestError?, finalPath?, running}` | （只读，返回 `exists:false` 视为正常） |
 | `film-engineering:auto-update-shot` | `{taskId, shotIndex, patch{prompt?|refPaths?|seconds?|title?}}`（字段白名单） | `{ok:true, shot, editedAt}` | `AUTO_SHOT_INVALID` / `AUTO_PROJECT_UNREADABLE` |
 | `film-engineering:auto-regenerate-shot` | `{taskId, shotIndex, confirmed?}` | `{ok:true, path, shotIndex, shot}` 或 `{ok:false, needsReconfirm:true, payloadHash, taskId}` | `AUTO_REGENERATE_FAILED` / `AUTO_REGENERATE_INVALID_CLIP` / `AUTO_SHOT_INVALID` / `VIDEO_MODEL_NOT_CONFIGURED` |
@@ -462,7 +463,9 @@ openspec 五件套（已完成初稿）+ 本 PRD 定稿 + 用户手册增补 `01
 | 文案成对 | `node .github/scripts/check-locale-sync.js --keys` / `--cjk` | PASS（1562 key）/ PASS（无新增硬编码） |
 | change 结构 | `openspec validate film-auto-mode --strict` | valid |
 
-**新增用例合计 145 条**（上表前 7 行相加），另在 `preload.test.js`（方法计数 17→24、新增 6 条 invoke 转发行）与 `story2video-ue-contract.test.js`（源码锁改为前缀化形态 + 反锁）做了**就地扩展**。
+**新增用例合计 156 条**（截至本轮：`auto-plan` 44 / `auto-project` 14 / `auto-exec-contract` 11 / `auto-runner` 13 / `film-engineering-auto` 20 / 面板 24 / 片段编辑器 9 / 前端工具 8 / Hub 9 / `StageProgress` 前缀 4），另在 `preload.test.js`（方法计数 17→**25**、逐条 invoke 转发行）与 `story2video-ue-contract.test.js`（源码锁改为前缀化形态 + 反锁）做了**就地扩展**。
+
+> **审查倒查记录（重要）**：用户手册撰写时对本实现做了逐行核对，倒查出 **8 处文档/代码不一致**，其中 2 处是真缺陷（续跑不可达 A2、停止缺失 A1），另 6 处为文案/边界/未渲染项。全部已在 §14.5 的第 9–13 条与下方缺口表中处置或明确记录。**这条经验值得固化为纪律：用户手册不是"照着设计写一遍"，而是一次独立的、以代码为真的核对**——它比同源评审更容易发现"文案承诺了界面没有的能力"。
 
 ### 14.5 相对初版方案的落地口径调整（全部有据）
 
@@ -476,6 +479,11 @@ openspec 五件套（已完成初稿）+ 本 PRD 定稿 + 用户手册增补 `01
 | 6 | 抽 `useFilmAuto.js` 承载状态机 | 状态机留在面板内（`phase` 单值） | 面板是唯一消费者，抽出 composable 只多一层无收益的间接；接口边界（IPC 与注入 `api`）已经清晰 |
 | 7 | 未明确 | **新增**：`auto-start` 启动前对计划内**每一条 `refPaths` 重校验受控媒体根**，越界即 `AUTO_BAD_PARAM` 拒绝启动 | 计划虽由服务端生成，但它是磁盘文件；这是评审 i1「纵深防御」的落地形态（有用例：篡改计划文件后拒绝启动且零调用） |
 | 8 | 未明确 | **新增**：收口条件 = 不再运行 且 每镜都有结论（完成**或失败**） | 初版「全部完成才收口」会让部分失败的任务永远停在运行态，片段编辑与合成入口不可达（实现期由测试暴露） |
+| 9 | 「续跑 = 同 taskId + 同 planId，再调 `auto-start`」 | **续跑不再依赖计划**：同名任务存在即走续跑分支，内容真源改为**项目文件**；`planId` 仅在新建时需要 | **原设计有致命缺陷**：计划在首次启动即被标记 `consumed`（防重放），而续跑仍要求 `readPlan` ⇒ 任何真实中断后都无法续跑（用户手册核对时发现）。修法顺应「内容真源是 project.json」这条既有不变量 |
+| 10 | 未实现 | **新增**：停止能力——`production-driver` 可选 `shouldStop`（批间生效）+ `film-engineering:auto-stop` 通道 + 面板按钮 | 文案承诺「中途可停止」而界面没有停止按钮（用户手册核对时发现）。批间停止让「未开始的批保持 `pending`」，因此停下即断点续跑；`shouldStop` 抛错按 fail-open 处理 |
+| 11 | 未明确 | **新增**：确认卡渲染「预计占用磁盘 / 预计耗时」（服务端早已返回 `estimates`） | 花大钱之前应能看到硬盘与时间代价；此前只有 `W5` 间接提示 |
+| 12 | 未明确 | **新增**：W7 警告——有分镜未解析到文案（整篇只写一行场景标题时的 `text:''`） | 这类镜的提示词不含用户文案，而确认卡只显示字数，用户看不出差异 |
+| 13 | 未明确 | **修正**：W4 文案由「以占位角色名生成」改为「沿用模板自带的角色标识」 | 实现事实：`buildTemplatePrompt` 在 `characterMap` 为空时保持模板原文，并不生成占位名 |
 
 ### 14.6 显示项与提示文字的真源
 
@@ -505,8 +513,8 @@ openspec 五件套（已完成初稿）+ 本 PRD 定稿 + 用户手册增补 `01
 
 | # | 缺口 | 现状 | 计划 |
 |---|---|---|---|
-| G1 | 用户「停止」按钮与停止标志（批间生效） | 未实现（未完成的镜不会重复生成这一半能力已具备：续跑靠磁盘复核） | 与 T4 停止按钮一并落地 |
-| G2 | 续跑入口的显式前端用例（同 taskId 再进面板自动恢复进度） | 无显式用例 | T7 补 |
+| ~~G1~~ | ~~用户「停止」按钮与停止标志~~ | **已闭合**：`production-driver.shouldStop`（批间生效、fail-open）+ `film-engineering:auto-stop` 通道 + 面板 `fa-stop` 按钮 | — |
+| ~~G2~~ | ~~续跑入口的显式用例~~ | **已闭合**：IPC 侧「只给 taskId 也能续」+ 面板侧「重新打开自动恢复上次任务」两例 | — |
 | G3 | 计划哈希被篡改导致「载荷哈希不匹配即拒绝」的独立 IPC 负向用例 | 由 `needsReconfirm` 三判据单测 + 参考图越界拒绝两例间接覆盖 | T7 补 |
 | G4 | 「缺镜 → 只重生成该镜 → 台账/计划不变」的显式用例 | 能力已具备（`regenerateOneShot` 按镜定位） | T7 补 |
 | G5 | `plan → start → 台账 → manifest → 真实 ffmpeg 出 final.mp4` 的端到端集成测试 | 各层单测已覆盖，缺一条串起来的集成测试 | T7 补（与 CDP 真机 E2E 一并） |

@@ -321,6 +321,116 @@ describe('FilmAutoPanel · 片段编辑与参考图', () => {
   })
 })
 
+describe('FilmAutoPanel · 停止 / 续跑入口 / 覆盖 / 预估（对照手册核对的修复）', () => {
+  async function mountRunning (api) {
+    const w = mountPanel(api)
+    w.vm.form.script = '第1场\n剧情'
+    await w.vm.runPlan()
+    w.vm.confirmed = true
+    await w.vm.startRun()
+    await flushPromises()
+    return w
+  }
+
+  it('停止按钮：running 态调用 auto-stop 并给出「已请求停止」反馈', async () => {
+    const api = makeApi({
+      autoStart: vi.fn(async () => ({ code: 0, data: { started: true, doneCount: 0, totalCount: 12, renderManifest: null } })),
+      autoStatus: vi.fn(async () => ({ code: 0, data: { exists: true, taskId: 'auto-1', running: true, doneCount: 0, totalCount: 12, shots: [], manifestError: null } })),
+      autoStop: vi.fn(async () => ({ code: 0, data: { ok: true, stopping: true, running: true } })),
+    })
+    const w = await mountRunning(api)
+    expect(w.vm.phase).toBe('running')
+    expect(w.find('[data-testid="fa-stop"]').exists()).toBe(true)
+    const r = await w.vm.stopRun()
+    expect(r).toEqual({ ok: true, stopping: true })
+    expect(api.autoStop).toHaveBeenCalledWith({ taskId: 'auto-1' })
+    await flushPromises()
+    expect(w.vm.stopping).toBe(true)
+    expect(w.find('[data-testid="fa-stopping-hint"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('停止后回到确认卡且勾选保持（载荷未变，可直接「继续」续跑）', async () => {
+    const api = makeApi({
+      autoStart: vi.fn(async () => ({ code: 0, data: { started: true, stopped: true, doneCount: 4, totalCount: 12, renderManifest: null } })),
+      autoStatus: vi.fn(async () => ({ code: 0, data: { exists: true, taskId: 'auto-1', running: false, doneCount: 4, totalCount: 12, shots: [], manifestError: null } })),
+    })
+    const w = await mountRunning(api)
+    expect(w.vm.phase).toBe('preview')
+    expect(w.vm.confirmed).toBe(true)
+    expect(w.vm.stopping).toBe(false)
+    w.unmount()
+  })
+
+  it('重新打开面板：恢复上次任务（同名任务即续跑），并写入任务 ID 供下次恢复', async () => {
+    const api = makeApi({
+      api: undefined,
+      autoStatus: vi.fn(async () => ({
+        code: 0,
+        data: {
+          exists: true, taskId: 'auto-1', planId: 'plan-abc', aspect: '16x9', seconds: 5,
+          targetDurationSec: 60, plannedDurationSec: 60, providerId: 'minimax',
+          running: false, doneCount: 3, totalCount: 12, manifestError: null,
+          shots: [{ index: 0, shotId: 'auto-000', prompt: 'P0', seconds: 5, status: 'done', outputPath: 'x', error: null }],
+        },
+      })),
+    })
+    // 模拟上次任务的记忆
+    const storage = new Map()
+    globalThis.localStorage = {
+      getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => storage.set(k, String(v)),
+    }
+    storage.set('film-auto:last-task-id', 'auto-1')
+    const w = mountPanel(api)
+    await flushPromises()
+    expect(api.autoStatus).toHaveBeenCalledWith({ taskId: 'auto-1' })
+    expect(w.vm.restored).toBe(true)
+    expect(w.vm.plan.taskId).toBe('auto-1')
+    expect(w.vm.phase).toBe('preview') // 3/12 未收敛 → 回确认卡，可继续
+    // 真正开始时记住任务 ID
+    w.vm.confirmed = true
+    await w.vm.startRun()
+    expect(storage.get('film-auto:last-task-id')).toBe('auto-1')
+    delete globalThis.localStorage
+    w.unmount()
+  })
+
+  it('同名任务冲突 → 勾选覆盖后 auto-start 带 overwrite:true', async () => {
+    const api = makeApi({
+      autoStart: vi.fn(async () => ({ code: -2, errorCode: 'AUTO_TASK_EXISTS', message: '同名任务已存在' })),
+    })
+    const w = mountPanel(api)
+    w.vm.form.script = '第1场\n剧情'
+    await w.vm.runPlan()
+    w.vm.confirmed = true
+    await w.vm.startRun()
+    await flushPromises()
+    expect(w.vm.errorCode).toBe('AUTO_TASK_EXISTS')
+    expect(w.find('[data-testid="fa-overwrite-box"]').exists()).toBe(true)
+
+    api.autoStart.mockResolvedValueOnce({ code: 0, data: { started: true, doneCount: 12, totalCount: 12, renderManifest: [{ shotId: 'x' }] } })
+    w.vm.overwriteExisting = true
+    await w.vm.startRun()
+    await flushPromises()
+    expect(api.autoStart).toHaveBeenLastCalledWith(expect.objectContaining({ overwrite: true }))
+    w.unmount()
+  })
+
+  it('确认卡展示磁盘与墙钟预估（服务端已返回，此前未渲染）', async () => {
+    const api = makeApi()
+    const w = mountPanel(api)
+    w.vm.form.script = '第1场\n剧情'
+    await w.vm.runPlan()
+    await flushPromises()
+    // 夹具：estimates.diskEstimateBytes=1、wallclockEstimateSeconds=3600
+    expect(w.find('[data-testid="fa-kv-disk"]').exists()).toBe(true)
+    expect(w.find('[data-testid="fa-kv-wallclock"]').text()).toContain('h')
+    expect(w.vm.wallclockText).toBe('1.0 h')
+    w.unmount()
+  })
+})
+
 describe('FilmAutoPanel · 缺镜与成品回填（T4.4 / 5.5）', () => {
   async function mountDone (api) {
     const w = mountPanel(api)

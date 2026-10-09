@@ -43,7 +43,8 @@
 - [x] 3.7d `providerCalls` 派发前自增 + `reconcileCounters` 对账（单测）；载荷哈希不一致触发重新确认已有用例。**缺口**：计划哈希被篡改导致「载荷哈希不匹配即拒绝」的独立 IPC 负向用例留待 T7 收口（现由 `needsReconfirm` + 参考图越界拒绝两例间接覆盖）
 - [x] 3.7e 校验时机：全部输入域校验在 `auto-plan`（越界即拒不落盘）；`auto-start` 复查归属/taskId/**计划内 refPaths 受控根**（纵深防御，篡改计划即 `AUTO_BAD_PARAM` 拒绝启动，有用例）
 - [x] 3.8 实现 `film-engineering:auto-compose`。**实现口径调整（D31）**：服务端做「台账 + 磁盘」双判据的收口清单校验并返回 `renderManifest`，合成 run 仍由渲染端经既有 `pipelineStartOrchestrated` 发起——避免在 IPC 层复制第二套引擎启动路径
-- [x] 3.9 事件 `film-engineering:auto-update`（复用 driver 的 `EVENT_MERGE_MS` 节流，负载只带计数）；**缺口**：用户「停止」标志（批间生效）未实现，与 T4 的停止按钮一并落地
+- [x] 3.9 事件 `film-engineering:auto-update`（复用 driver 的 `EVENT_MERGE_MS` 节流，负载只带计数）；**停止已实现**（审查倒查驱动）：`production-driver.shouldStop` 批间生效（未开始的批保持 pending ⇒ 停下即可续跑；钩子抛错 fail-open）+ `film-engineering:auto-stop` 通道（只对运行中任务置标志，结束后幂等清理）+ 面板 `fa-stop` 按钮
+- [x] 3.13 **续跑语义修正（审查倒查发现的致命缺陷）**：计划在首次启动即被消费（防重放），而原续跑路径仍要求 `readPlan` ⇒ 任何真实中断后都无法续跑。修法：续跑不再依赖计划——同名任务存在即走续跑分支，内容真源为**项目文件**；`planId` 仅新建时需要；不一致且未显式 `overwrite` → `AUTO_PLAN_MISMATCH`
 - [x] 3.9b 计划归属校验：`planId = 'plan-' + sha256(taskId|scriptHash|refsFingerprint|aspect|seconds|targetDurationSec|providerId).slice(0,16)`、计划内记录 taskId、`AUTO_PLAN_MISMATCH` / `AUTO_PLAN_EXPIRED` / `AUTO_TASK_EXISTS` 负向用例齐备（含计划被消费后二次启动）
 - [x] 3.9c 续跑成本再确认：`editedAt`（内容变更时间）+ 最新确认 `at` 的时间戳规则 + 「编辑后续跑必须先重新确认」用例（`needsReconfirm` 三判据单测 + IPC 用例）
 - [x] 3.9d 重生成原子覆盖：临时目录生成 → `probeClip`（ffmpeg/ffprobe）校验 → `rename` 覆盖；**校验失败不得破坏既有产物**（用例断言旧文件内容不变）；半写文件不被磁盘复核判为完成由 driver 的 probe 兜底
@@ -69,6 +70,7 @@
 - [x] 5.3 三动作接线：单镜重生成（`auto-regenerate-shot`，显式 `confirmed:true`）、失败重试（同通道，按镜号）、重新合成（`auto-compose` → 既有 pipeline 通道）
 - [x] 5.4 块结构检查提示（缺 GEO/AUDIO 等块时黄提示、**不阻断保存**）：`auto-prompt-blocks.js` 的 `checkPromptBlocks`（块标题须**独占一行**才算，避免正文偶然提及误判）+ 与后端 `shot-library.js:BLOCK_HEADINGS` 的**源码文本对账锁**防双份清单漂移
 - [x] 5.5 前端单测：编辑-保存-重生成链路（面板级）+ `FilmAutoSegmentEditor` 独立用例 9 条（草稿/脏标记/必填与超长拒绝/只提交变化字段/重生成独立事件/块提示/预览 URL/null 片段不崩）+ 缺镜前置拦截 4 条（**改为**「缺镜时禁用收口并直接列出缺失镜号」，比点击后才报错更早、更明确）
+- [x] 5.6 **审查倒查驱动的界面闭环**（用户手册核对发现"文案承诺了界面没有的能力"）：停止按钮（`fa-stop`）+ 重新打开自动恢复上次任务（`film-auto:last-task-id` + `auto-status`，未收敛回确认卡）+ 同名任务冲突时的「覆盖」勾选框（`fa-overwrite-box`，勾选后带 `overwrite:true`）+ 确认卡渲染「预计占用磁盘 / 预计耗时」（服务端早已返回 `estimates` 却未展示）+ 停止后回确认卡且勾选保持（载荷未变，可直接继续
 
 ## 6. 文档
 

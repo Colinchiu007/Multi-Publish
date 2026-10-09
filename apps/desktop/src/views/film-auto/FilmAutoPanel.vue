@@ -89,6 +89,15 @@ const composePhase = ref('')       // '' | 'running' | 'done' | 'failed'
 const composeError = ref('')
 const finalPath = ref('')
 const finalUnavailable = ref('')
+/** 最近一次失败的错误码（面板据此给出可解除的处置入口，如同名任务的「覆盖」勾选） */
+const errorCode = ref('')
+/** 已请求停止（批间生效，等当前批跑完） */
+const stopping = ref(false)
+/** 本会话是从「上次的任务」恢复而来（而非刚规划）——决定确认卡是否展示 */
+const restored = ref(false)
+
+/** 记住最近一次任务的 ID：这是「重新打开可续跑」在界面上的落点（服务端续跑靠同名任务） */
+const LAST_TASK_KEY = 'film-auto:last-task-id'
 
 let unsubscribeAuto = null
 let unsubscribePipeline = null
@@ -139,8 +148,23 @@ const shots = computed(() => (project.value && Array.isArray(project.value.shots
 const missingShots = computed(() => shots.value.filter((s) => s.status !== 'done'))
 const canCompose = computed(() => phase.value === 'done' && missingShots.value.length === 0 && !busy.value)
 const finalFileUrl = computed(() => toFileUrl(finalPath.value))
+/** 预估磁盘占用（服务端已返回，此前未在确认卡上展示——用户应当在花钱前看到硬盘代价） */
+const diskEstimateText = computed(() => {
+  const bytes = Number(plan.value && plan.value.estimates && plan.value.estimates.diskEstimateBytes) || 0
+  if (bytes <= 0) return ''
+  const gib = bytes / (1024 * 1024 * 1024)
+  return gib >= 1 ? gib.toFixed(1) + ' GB' : Math.max(1, Math.round(bytes / (1024 * 1024))) + ' MB'
+})
+/** 预估墙钟（按每镜 300s 的既有口径，与 IPC 的 production-plan 同源） */
+const wallclockText = computed(() => {
+  const sec = Number(plan.value && plan.value.estimates && plan.value.estimates.wallclockEstimateSeconds) || 0
+  if (sec <= 0) return ''
+  const hours = sec / 3600
+  return hours >= 1 ? hours.toFixed(1) + ' h' : Math.max(1, Math.round(sec / 60)) + ' min'
+})
 
-function fail (message) {
+function fail (message, code) {
+  errorCode.value = code || ''
   errorText.value = message || t('filmEngineering.auto.genericError')
   ElMessage.error(errorText.value)
 }
@@ -272,8 +296,16 @@ async function startRun () {
       phase.value = 'preview'
       return
     }
+    // 记住任务 ID：这是「重新打开可续跑」的界面落点
+    persistLastTask(plan.value.taskId)
+    stopping.value = false
     progress.value = { doneCount: Number(data.doneCount) || 0, totalCount: Number(data.totalCount) || progress.value.totalCount, batchIndex: null, lastType: '' }
-    if (data && Array.isArray(data.renderManifest) && data.renderManifest.length > 0) {
+    if (data && data.stopped) {
+      // 用户中途停止：批间生效，未跑的批保持待跑。已确认过的载荷没有变化（needsReconfirm=false），
+      // 因此这里把勾选还原为已确认状态，让「继续生成」一键可点即可续跑。
+      confirmed.value = true
+      phase.value = 'preview'
+    } else if (data && Array.isArray(data.renderManifest) && data.renderManifest.length > 0) {
       phase.value = 'done'
     } else {
       phase.value = 'running'
@@ -281,7 +313,7 @@ async function startRun () {
     }
     await refreshStatus()
   } catch (e) {
-    fail((e && e.message) || String(e))
+    fail((e && e.message) || String(e), e && e.errorCode)
   } finally {
     busy.value = false
   }
@@ -343,6 +375,88 @@ function startPolling () {
 
 function stopPolling () {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+// ── 停止与「重新打开继续」──────────────────────────────────────────────
+
+/** 记住/读取最近任务 ID：这是「重新打开可续跑」在界面上的落点（服务端续跑靠同名任务） */
+function persistLastTask (taskId) {
+  try {
+    if (typeof localStorage !== 'undefined' && taskId) localStorage.setItem(LAST_TASK_KEY, String(taskId))
+  } catch { /* 隐私模式/无 localStorage：不影响主流程 */ }
+}
+
+function readLastTask () {
+  try {
+    if (typeof localStorage === 'undefined') return ''
+    return String(localStorage.getItem(LAST_TASK_KEY) || '')
+  } catch { return '' }
+}
+
+/**
+ * 请求停止（**批间生效**）：当前批跑完即止，未开始的批保持待跑 ⇒ 停下后天然可续跑。
+ * 服务端只对正在运行的任务置标志；界面立刻回「已请求停止」，真实停点由后续状态同步确认。
+ */
+async function stopRun () {
+  const api = feApi()
+  if (!api || !plan.value) return { ok: false }
+  try {
+    const data = unwrap(await api.autoStop({ taskId: plan.value.taskId }))
+    const stoppingNow = Boolean(data && data.stopping)
+    stopping.value = stoppingNow
+    if (stoppingNow) ElMessage.warning(t('filmEngineering.auto.stopRequested'))
+    return { ok: true, stopping: stoppingNow }
+  } catch (e) {
+    fail((e && e.message) || String(e), e && e.errorCode)
+    return { ok: false }
+  }
+}
+
+/**
+ * 恢复上次任务（「重新打开可续跑」）：同名任务在服务端就是续跑。
+ * 关键：**不依赖计划**——计划在首次启动时已被消费（防重放），续跑的信息全部来自项目投影与磁盘复核。
+ */
+async function restoreLastTask (taskId) {
+  const api = feApi()
+  const id = String(taskId || readLastTask() || '')
+  if (!api || !id) return false
+  try {
+    const data = unwrap(await api.autoStatus({ taskId: id }))
+    if (!data || !data.exists) return false
+    project.value = data
+    plan.value = {
+      planId: data.planId,
+      taskId: data.taskId,
+      aspect: data.aspect,
+      seconds: data.seconds,
+      targetDurationSec: data.targetDurationSec,
+      plannedDurationSec: data.plannedDurationSec,
+      shotCount: data.totalCount,
+      batchCount: Math.max(1, Math.ceil((Number(data.totalCount) || 0) / 10)),
+      provider: { id: data.providerId, model: '' },
+      warnings: [],
+      shots: [],
+      estimates: null,
+    }
+    progress.value = {
+      doneCount: Number(data.doneCount) || 0,
+      totalCount: Number(data.totalCount) || 0,
+      batchIndex: null,
+      lastType: '',
+    }
+    restored.value = true
+    errorText.value = ''
+    if (data.running) {
+      phase.value = 'running'
+      startPolling()
+    } else {
+      const failed = (data.shots || []).filter((s) => s.status === 'failed').length
+      const total = Number(data.totalCount) || 0
+      const done = Number(data.doneCount) || 0
+      phase.value = total > 0 && (done + failed) >= total ? 'done' : 'preview'
+    }
+    return true
+  } catch { return false }
 }
 
 // ── ④ 收口合成（与全量出片同一条引擎路径）──────────────────────────────
@@ -482,6 +596,8 @@ onMounted(() => {
   if (api && typeof api.onAutoUpdate === 'function') {
     unsubscribeAuto = api.onAutoUpdate(applyAutoEvent)
   }
+  // 「重新打开可续跑」：优先恢复上次的任务（同名任务在服务端即续跑），失败则安静留在输入态
+  void restoreLastTask()
 })
 
 onBeforeUnmount(() => {
@@ -497,7 +613,9 @@ defineExpose({
   form, characterRefs, sceneRefs, plan, project, phase, progress, confirmed, busy, errorText,
   percent, stageList, shots, missingShots, canCompose, finalPath, finalFileUrl, composeRunId,
   composePercent, composePhase, composeError, estimatedShots, canPlan, scriptLength, scriptTooLong,
-  durationValid, runPlan, startRun, refreshStatus, applyAutoEvent, applyComposeSnapshot, compose,
+  durationValid, errorCode, stopping, restored, diskEstimateText, wallclockText,
+  runPlan, startRun, stopRun, restoreLastTask, persistLastTask, readLastTask,
+  refreshStatus, applyAutoEvent, applyComposeSnapshot, compose,
   pollComposeRun, openFinalFolder, saveFinalAs, saveShotEdit, regenerateShot,
   uploadRefFile, pickRefFile, removeCharRef, removeSceneRef, resetAll, openEditor,
 })
@@ -617,6 +735,8 @@ defineExpose({
         <div><dt>{{ t('filmEngineering.auto.kvAspect') }}</dt><dd>{{ plan.aspect === '9x16' ? t('filmEngineering.auto.aspect916') : t('filmEngineering.auto.aspect169') }}</dd></div>
         <div><dt>{{ t('filmEngineering.auto.kvProvider') }}</dt><dd>{{ plan.provider && plan.provider.id ? plan.provider.id : t('filmEngineering.auto.kvProviderNone') }}</dd></div>
         <div><dt>{{ t('filmEngineering.auto.kvRefs') }}</dt><dd>{{ plan.shotsWithReferences }}</dd></div>
+        <div v-if="diskEstimateText"><dt>{{ t('filmEngineering.auto.kvDisk') }}</dt><dd data-testid="fa-kv-disk">{{ diskEstimateText }}</dd></div>
+        <div v-if="wallclockText"><dt>{{ t('filmEngineering.auto.kvWallclock') }}</dt><dd data-testid="fa-kv-wallclock">{{ wallclockText }}</dd></div>
       </dl>
 
       <div v-if="plan.warnings && plan.warnings.length" class="fa-warnings" data-testid="fa-warnings">
@@ -640,6 +760,15 @@ defineExpose({
         </li>
       </ul>
 
+      <!-- 同名任务冲突：服务端返回 AUTO_TASK_EXISTS 后给出可解除的显式入口（旧一轮会被归档保留） -->
+      <div v-if="errorCode === 'AUTO_TASK_EXISTS'" class="fa-overwrite" data-testid="fa-overwrite-box">
+        <label class="fa-confirm">
+          <input v-model="overwriteExisting" type="checkbox" data-testid="fa-overwrite-check" />
+          <span>{{ t('filmEngineering.auto.overwriteLabel', { taskId: plan.taskId }) }}</span>
+        </label>
+        <p class="fa-hint">{{ t('filmEngineering.auto.overwriteHint') }}</p>
+      </div>
+
       <label class="fa-confirm">
         <input v-model="confirmed" type="checkbox" data-testid="fa-confirm-check" />
         <span>{{ t('filmEngineering.auto.confirmCheckbox', { shots: plan.shotCount, seconds: plan.plannedDurationSec }) }}</span>
@@ -658,6 +787,12 @@ defineExpose({
         :summary="t('filmEngineering.auto.runSummary', { done: progress.doneCount, total: progress.totalCount })"
         testid-prefix="film-auto"
       />
+      <div v-if="phase === 'running'" class="fa-actions">
+        <el-button size="small" :loading="stopping" :disabled="stopping" data-testid="fa-stop" @click="stopRun">
+          {{ stopping ? t('filmEngineering.auto.stopping') : t('filmEngineering.auto.stopBtn') }}
+        </el-button>
+        <span v-if="stopping" class="fa-hint" data-testid="fa-stopping-hint">{{ t('filmEngineering.auto.stopRequested') }}</span>
+      </div>
       <p class="fa-hint" data-testid="fa-run-hint">{{ t('filmEngineering.auto.runHint') }}</p>
 
       <table v-if="shots.length" class="fa-shots" data-testid="fa-shots">
