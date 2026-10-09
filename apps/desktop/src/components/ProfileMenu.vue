@@ -639,4 +639,7 @@ function handleUpgrade() {
 [data-theme='dark'] .mp-profile:hover {
   background: rgba(44, 44, 52, .9);
 }
+[data-theme='dark'] .mp-profile-copy strong {
+  color: var(--color-text-primary);
+}
 </style>
