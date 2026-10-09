@@ -87,3 +87,12 @@ async function handleLoginClick() {
   outline: none;
 }
 </style>
+
+<style>
+/* 深色模式覆盖（P4E 2026-10-09，全局块）：问候语 #25252b 硬编码深灰，
+ * 暗色画布 #1a1a1e 上 1.14:1 几乎不可见（contrast-audit home 1 处命中）。
+ * 副标题 #8b8e9a 同理。必须放非 scoped（data-theme 挂 <html>，P4C 实证），
+ * html 前缀抬特异性（P4D 实证）。 */
+html[data-theme='dark'] .home-greeting h2 { color: var(--color-text-primary); }
+html[data-theme='dark'] .home-greeting p { color: var(--color-text-secondary); }
+</style>

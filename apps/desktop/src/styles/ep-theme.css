@@ -22,6 +22,26 @@
   --el-color-danger: var(--color-danger);
   --el-color-error: var(--color-danger);
   --el-color-info: var(--color-text-secondary);
+  /* 语义色 light-9 浅底桥接（P4E 2026-10-09）：el-message/el-alert 的底色读
+   * --el-color-{error,danger,warning,success}-light-9，此前未映射 → 暗色下
+   * 弹层仍是 EP 默认亮奶油底（#fef0f0 系），配 tokens 提亮字 2.49:1。
+   * 亮色指向 --color-*-soft（值与 EP 默认一致，零亮色回归）；
+   * 暗色由 tokens.css [data-theme=dark] 的同槽覆盖接管（同色相深底）。 */
+  --el-color-error-light-9: var(--color-danger-soft);
+  --el-color-danger-light-9: var(--color-danger-soft);
+  --el-color-warning-light-9: var(--color-warning-soft);
+  --el-color-success-light-9: var(--color-success-soft);
+  --el-color-info-light-9: var(--color-info-soft);
+  /* 弹层（popper）底色桥接（P4E 2026-10-09）：el-select-dropdown 等弹层挂
+   * body，底色读 --el-popper-bg-color-light（EP 默认 #fff），此前未映射 →
+   * 暗色下 accounts/hot-topics 下拉仍是纯白面板（option 2.48:1 命中）。
+   * 亮色指向 --color-bg-card（= #fff 同值，零亮色回归）；暗色跟随深面板。 */
+  --el-popper-bg-color-light: var(--color-bg-card);
+  /* 表单控件底色桥接（P4E 2026-10-09）：--el-fill-color-blank 是 el-input/
+   * el-select 收起态等 55 个消费点的底色（EP 默认 #fff），此前未映射 →
+   * 暗色下 hot-topics 渠道选择器仍是纯白底（2.07:1 命中）。
+   * 亮色 = #fff 同值零回归；暗色跟随 bg-card 深面板。 */
+  --el-fill-color-blank: var(--color-bg-card);
 
   /* 文本色桥接 */
   --el-text-color-primary: var(--color-text-primary);

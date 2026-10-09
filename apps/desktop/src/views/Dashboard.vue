@@ -384,6 +384,15 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   box-shadow: none;
 }
 
+/* 深色模式覆盖（P4E 2026-10-09）：--deep-purple #1e1b4b 在 :global(:root)
+ * 只定义了亮色值，暗色画布 #1a1a1e 上章节标题 1.09:1 不可读（contrast-audit
+ * dashboard 1 处命中）。改用暗色提亮变体（同紫色相）。
+ * 注意：--deep-purple 声明在 :global(:root)，若在此重声明变量需同作用域；
+ * 直接覆盖消费元素颜色更稳（scoped 内对组件元素生效，不受注入顺序反超）。 */
+[data-theme='dark'] .dash-section-header {
+  color: var(--color-sidebar-accent);
+}
+
 .stat-card::before {
   content: '';
   position: absolute;

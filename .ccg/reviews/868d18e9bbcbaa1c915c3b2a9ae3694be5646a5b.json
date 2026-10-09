@@ -1,0 +1,24 @@
+{
+  "sha": "868d18e9bbcbaa1c915c3b2a9ae3694be5646a5b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "P4E batch-level DUAL by decider (394>200 lines); batch dual-family review completed with adjudication (i1/i4 upheld-fixed, i2/i3 dismissed). This file records the batch decision for the squashed PR commit.",
+  "stats": {
+    "changedLines": 40,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "decidedAt": "2026-10-09T11:31:53.700Z",
+  "decidedBy": "ccg-review-decider + adjudication-merged",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_adjudicated",
+    "performedBy": "self-play(opencode proposer + claude critic, adjudicated)",
+    "findings": null,
+    "adjudication": ".adversarial/ccg-deep-95063141/adjudication.json",
+    "verdicts": "i1 upheld(fixed) / i2 dismissed / i3 dismissed / i4 upheld(fixed)"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "sha": "bd70c5fa8e156c5e3dcabe32148e61c6185e946e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "decider DUAL (sensitive-content hits + first commit 210>200 lines); amended commit carries same diff",
+  "stats": {
+    "changedLines": 165,
+    "fileCount": 10,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "sensitiveContentHits": 2
+  },
+  "decidedAt": "2026-10-09T10:55:37.037Z",
+  "decidedBy": "ccg-review-decider (pre-commit)",
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "at": "2026-10-09T11:05:59.057Z"
+  }
+}

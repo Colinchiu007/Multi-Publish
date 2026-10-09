@@ -1,0 +1,14 @@
+{
+  "sha": "95063141c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "CI-trigger empty commit; review target remains bd70c5fa8 diff (DUAL by decider)",
+  "decidedAt": "2026-10-09T11:10:59.122Z",
+  "decidedBy": "manual-inherit-from-bd70c5fa8",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

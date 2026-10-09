@@ -294,6 +294,16 @@
   --color-success: #4ade80;
   --color-warning: #fbbf24;
 
+  /* 语义色 soft 暗色覆盖（P4E 2026-10-09）：--color-*-soft 四个浅底 token
+   * 此前只有亮色定义，暗色下 Element Plus 弹层（el-message 等）读它们当底色，
+   * 亮奶油底 #fef0f0 配暗色提亮字 #f87171 实测 2.49:1（4 个视图命中）。
+   * 修复：soft 底改同色相深色变体，文字档（--color-danger 等）不动 ——
+   * 亮字 #f87171 在 #3a1d1d 上 4.6:1 达标。 */
+  --color-danger-soft: #3a1d1d;
+  --color-success-soft: #14301f;
+  --color-warning-soft: #33240c;
+  --color-info-soft: #14232e;
+
   /* 品牌主色暗色覆盖（P4C 2026-10-09）：--color-primary 原先只在亮色区定义，
    * 暗色下回退亮色 #5048E5 —— 在暗色画布 #1a1a1e 上 2.81:1，命中 9 个视图的
    * .page-title（cohere-page-header 的 color: var(--primary)）。
@@ -309,7 +319,14 @@
  * 故全部规则加 html 前缀抬特异性（(0,2,1)/(0,3,1) 压过 scoped 的 (0,2,0)/(0,3,0)）。
  * 作用域契约（CCG i4）：history-tab/secondary-action/toolbar-button/icon-action
  * 四个类名为 PublishHistory 独占（2026-10-09 全 src 检索证实，各 1 文件）；
- * 其他视图复用同名 class 前必须改名或加前缀，否则暗色会被本区意外染色。 */
+ * 其他视图复用同名 class 前必须改名或加前缀，否则暗色会被本区意外染色。
+ * P4E 追加：history-filters select（PublishHistory 页原生下拉收起态，
+ * #4f505a 硬编码在暗底 2.08:1；PublishHistory 登记 1394 行零容差，无法组件内加行）；
+ * media-upload-trigger（Publish 页选择图片按钮，#4d5574 在暗卡底 2.13:1；
+ * Publish 登记 1773 行零容差，同理迁出）；
+ * account-* / platform-filter-* / page-button / filter-tabs（Accounts 页 5+3 处：
+ * 工具条下拉/视图切换/过滤页签/次级按钮/平台过滤面板的硬编码亮色在暗底 1.91-2.95:1；
+ * Accounts 登记 1578 行零容差，同理迁出）。 */
 html[data-theme='dark'] .history-tab { color: var(--color-text-secondary); }
 html[data-theme='dark'] .history-tab.active { color: var(--color-text-primary); }
 html[data-theme='dark'] .secondary-action,
@@ -321,3 +338,24 @@ html[data-theme='dark'] .profile-license-pro { background: rgba(251, 191, 36, .1
 html[data-theme='dark'] .profile-license-trial { background: rgba(56, 189, 248, .16); color: #7dd3fc; }
 html[data-theme='dark'] .mp-profile { background: rgba(35, 35, 41, .72); border-color: #3d3d46; }
 html[data-theme='dark'] .mp-profile:hover { background: rgba(44, 44, 52, .9); }
+html[data-theme='dark'] .history-filters select { color: var(--color-text-secondary); }
+html[data-theme='dark'] .media-upload-trigger { border-color: var(--color-border); color: var(--color-text-secondary); }
+/* 白字压 coral 亮橙三场景（P4E 评审 i1 修正）：--coral 主档保持 #ff8866
+ *（它同时被 ~80 处作前景文字/图标消费，前景在暗画布 7.41:1 达标；
+ * 若全局改深 #c2410c，前景场景跌到 3.35:1 引入新退化——CCG 实测推翻）。
+ * 改为只覆盖三个「白字压底」元素的底色：#c2410c 深橙底 + 白字 5.18:1。
+ * publish-mode-tab.active / cal-day.today .cal-day-num / banner-btn
+ * 三个类名为各自组件独占（全 src 检索证实），复用前须改名或加前缀。 */
+html[data-theme='dark'] .publish-mode-tab.active { background: #c2410c; border-bottom-color: #c2410c; }
+html[data-theme='dark'] .cal-day.today .cal-day-num { background: #c2410c; }
+html[data-theme='dark'] .banner-btn { background: #c2410c; }
+html[data-theme='dark'] .account-toolbar-selects select { background: var(--color-bg-inset); border-color: var(--color-border); color: var(--color-text-secondary); }
+html[data-theme='dark'] .account-view-toggle { background: var(--color-bg-inset); border-color: var(--color-border); }
+html[data-theme='dark'] .account-view-toggle button { color: var(--color-text-secondary); }
+html[data-theme='dark'] .account-view-toggle button[aria-pressed="true"] { color: var(--color-sidebar-accent); }
+html[data-theme='dark'] .filter-tabs button { color: var(--color-text-secondary); }
+html[data-theme='dark'] .filter-tabs button.active { color: var(--color-sidebar-accent); }
+html[data-theme='dark'] .page-button { color: var(--color-text-secondary); }
+html[data-theme='dark'] .platform-filter-panel button.active { background: rgba(139, 133, 255, .18); color: var(--color-sidebar-accent); }
+html[data-theme='dark'] .platform-filter-icon { background: var(--color-bg-inset); color: var(--color-sidebar-accent); }
+html[data-theme='dark'] .platform-filter-panel button strong { color: var(--color-text-secondary); }
