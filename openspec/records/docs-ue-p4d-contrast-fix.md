@@ -2,9 +2,6 @@
 record: docs-ue-p4d-contrast-fix
 task: P4D 深色可读性第三批——ProfileMenu 未登录「登录」标题（18 视图同源）+ PublishHistory 单视图 20 处，36→19；dark 覆盖收编 tokens.css 并以 html 前缀解决级联落败
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: PR #3207 尚未合并，merge SHA 待合并后取证
-sync_backfill_owner: 本会话（ue-p4d-contrast-fix 作者）
 ---
 
 ## 本次执行记录：P4D 深色可读性第三批（docs-ue-p4d-contrast-fix，2026-10-09）
@@ -20,8 +17,8 @@ sync_backfill_owner: 本会话（ue-p4d-contrast-fix 作者）
 | 行尾对账 | PASS | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（M4 A0 D0） |
 | 测试接线 | PASS | tokens.slots.test.js 等样式契约 + PublishHistory.test.js 共 **116/116 绿**（vitest，本机实测）；contrast-audit.js 已接线 quality-gate.yml Gate 7c |
 | QM-1 打包 / QM-4 视觉 | N/A | 未动 electron/ 主进程与打包配置；视觉对比以 contrast-audit 实测数据为准（36→19） |
-| QM-6 CCG 双模型外部评审 | PASS | scripts/ccg-review.ps1（Deep 模式）双家族执行，记录在 `.ccg/reviews/`；评审发现见下节 |
-| 远程同步 | PENDING | 合并后取证 `git log origin/main --grep='(#3207)$' --format=%H|%cI` 得 merge SHA，`git ls-remote --heads origin ue-p4d-contrast-fix` 应返回 0 行；随后删除上方 sync_* 三字段 |
+| QM-6 CCG 双模型外部评审 | PASS | 双家族已执行（proposer=opencode + critic=claude 跨家族，PowerShell 统一入口），出口为自扮演裁决档（置信 0.6），4 条发现（1C+3W）全部裁决：i1 文档重复 upheld 已修、i2 声明时序 upheld 已改如实、i3 台账重录 dismissed、i4 作用域 upheld 已补契约；裁决见 `.adversarial/ccg-deep-8c68453e/adjudication.json` |
+| 远程同步 | PASS | PR #3207 已 squash 合并，merge SHA `15fd49c0d57bfb3696b3e17fa669ed097f221824`（2026-10-09T15:24:36+08:00），取证 `git log origin/main --grep='(#3207)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin ue-p4d-contrast-fix` 返回 0 行，证远端分支已删；sync_* 三字段已删 |
 
 ### 复盘：已闭合
 - 级联落败（tokens 先注入被 scoped 反超）→ html 前缀修正，实测回归 19 无退化
