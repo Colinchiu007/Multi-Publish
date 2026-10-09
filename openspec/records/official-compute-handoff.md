@@ -17,7 +17,7 @@ sync_backfill_owner: 下一个会话（合并后回填）
 | 修复 + 回归保护（QM-5 ④） | N/A | 未触运行面 |
 | 防止再次发生（QM-5 ⑤） | ✅ | 文档 §7 固化了 8 个「已中过/易再中」的坑，含 PR #3066 与 `overrides` 两例同型陷阱；§7 自检段固化中文 U+FFFD 编码陷阱；§7 末固化引用纪律（本仓已出现至少 4 处引用漂移） |
 | docs-only 判定 | ✅ | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`，files=1 |
-| 编码完整性 | ✅ | U+FFFD 全文 1 处，**是 §7 自检段故意引用的示例行**（说明该陷阱时用），非损坏；另 1 处真实损坏已在提交前 grep 捕获并修复 |
+| 编码完整性 | ✅ | ⚠️ **首版曾因此门禁变红**：`check-text-encoding-integrity` 按字节扫 U+FFFD 码位，**不区分「故意举例」与「意外损坏」**——本文件 §7 为说明该陷阱把该字符原样写进正文，被判「基线外新增损坏」，`QG Changes` + `Gate Result` 双红。改为文字描述后 `check-text-encoding-integrity.test.js` 5/5 通过。另有一处真实损坏在提交前 grep 捕获。**教训已写进 §7。** |
 | 品牌残留 | ✅ | `node scripts/check-no-brand-residue.js` → PASS（7428 tracked 文件）。文档刻意以「参考产品」代替竞品名 |
 | max-lines | ✅ | 「无新增超大文件，挂账清单与现实一致」 |
 | debt-budget | ✅ | 「所有债务指标在基线内」 |
