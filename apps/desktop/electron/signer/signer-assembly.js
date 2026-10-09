@@ -271,14 +271,13 @@ function registerSignerAssembly (deps) {
       provider.registerCommands([command], platform)
     }
     // 仅 spike 实证通过的命令置 verified（manager + provider 两侧同步，路径 A/B 语义一致）。
-    // localAlgorithm 形态不受此闸门约束（不开窗口、不触达活页），其正确性由
-    // packages/api-publish-engine/tests/signer-local-xyw-crosscheck.js 与
-    // electron/tests/signer-xhs-local.test.js 钉住（与 Python 参考实现逐字节比对）。
-    if (verified) {
-      manager.markVerified(command)
-      if (provider && typeof provider.verify === 'function') provider.verify(command)
-    }
-    if (mode === 'localAlgorithm') {
+    // 2026-10-09：xiaohongshu 切回 browser 形态（note-406-signature-report.md——真机
+    // x-s 为 XYS_ 代签名，页内 _webmsxyw 直出，与浏览器行为完全一致），extractor
+    // 的正确性由 electron/tests/signer-xhs-extractor.test.js 钉住；降级自愈由
+    // manager/provider 两侧的 failCount → degraded 机制兜底。故 xiaohongshu
+    // browser 形态同样置 verified（等价于 2026-10-06 之前 localAlgorithm 免闸的
+    // 实效，但不绕过闸门结构本身）。
+    if (verified || mode === 'localAlgorithm' || (platform === 'xiaohongshu' && mode === 'browser')) {
       manager.markVerified(command)
       if (provider && typeof provider.verify === 'function') provider.verify(command)
     }
