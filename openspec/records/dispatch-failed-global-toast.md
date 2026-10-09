@@ -1,6 +1,4 @@
 ---
-sync_reason: 远程同步 PENDING——PR 开启中；合并后状态列改写 PASS + merge SHA，并同一次提交删除 gate-record-debt-ledger.json 登记项（回填与销账必须同一次发生）
-sync_backfill_owner: agent（PR 合并后回填）
 ---
 
 # 定时派发失败的全局提示（dispatch-toast-global-listener，2026-10-09）
@@ -65,9 +63,10 @@ hint 文案「失败原因会记录在发布记录中」本质是在承认「我
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS |
 |--------|---------|
-| 回填约定 | 合并后本行状态列改写 `PASS` + merge SHA，并同一次提交删除 `scripts/gate-record-debt-ledger.json` 登记项（回填与销账必须同一次发生） |
+| 合并取证 | PR #3233 已 squash 合并。merge SHA `1781a06b8d62ca5850ba66ae2ebaf6dc64af03e6`，合并时间 `2026-10-10T03:13:36+08:00`（取证：`git log origin/main --grep='(#3233)$' --format=%H\|%cI` 唯一命中）。`git ls-remote --heads origin dispatch-toast-global-listener` 返回 0 行，证远端分支已删 |
+| 销账 | 本 PR 同一次提交删除 `scripts/gate-record-debt-ledger.json` 登记项「本次执行记录：定时派发失败的全局提示（dispatch-toast-global-listener，2026-10-09）」并删除 frontmatter `sync_*` 字段（回填与销账同一次发生） |
 
 ## 验证
 
