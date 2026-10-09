@@ -1390,19 +1390,4 @@ onMounted(loadRecords)
 .record-detail-content { grid-column: 1 / -1; }
 .record-detail-state { padding: 44px 24px; color: #68708b; text-align: center; }
 @media (max-width: 640px) { .record-detail-grid { grid-template-columns: 1fr; } .record-detail-content { grid-column: auto; } .record-title-row { align-items: flex-start; flex-direction: column; } }
-
-/* 深色模式覆盖（P4D 2026-10-09）：三处硬编码亮色在暗色下不可读
- * （contrast-audit 本视图命中 20 处：history-tab 1.96:1 / option 2.08:1 /
- *  secondary-action 1.96:1 及表格文字）。只覆盖硬编码项，token 引用不动。 */
-[data-theme='dark'] .history-tab {
-  color: var(--color-text-secondary);
-}
-[data-theme='dark'] .history-tab.active {
-  color: var(--color-text-primary);
-}
-[data-theme='dark'] .secondary-action,
-[data-theme='dark'] .toolbar-button,
-[data-theme='dark'] .icon-action {
-  color: var(--color-text-primary);
-}
 </style>
