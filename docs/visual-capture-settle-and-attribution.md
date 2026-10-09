@@ -466,3 +466,25 @@ Gate 7b 因此拿不到 `collection-dark-current.png`，`--partial` 模式把它
 真正的自证是**跨 run 确定性**：在本 PR head 上 `gh workflow run visual-test.yml --ref <branch>`，
 由那次 run 自己的新鲜度门禁判「新基线 vs 同一次 CI 渲染 = 0 px」。现场数字回填在
 `openspec/records/visual-baseline-collection-dark.md`。
+
+## 10. 「新增一个暗档视图」要同步哪几处（给下一个维护者的清单，2026-10-09）
+
+> 由来：#3221 的 QM-6 前端轴指出，本文件此前只有**归因方法论**，没有任何一处写"要动哪几处"；
+> 于是"预防措施"指向一个不含步骤的章节 = 等于没写。本节补的就是那份清单。
+
+暗档通道由 `run-pixel-tests.js` 的 `THEME=dark` 驱动，渲染与基线的命名口径是
+`test-runner.js:553` 的 `` `${testName}${themeSuffix}-current.png` `` 与 `` `${testName}${themeSuffix}.png` ``。
+所以**新增/改名一个暗档视图，必须同时满足下面四条**，缺一条就有静默盲区：
+
+| # | 要动的地方 | 缺了会怎样 | 谁在守 |
+| --- | --- | --- | --- |
+| 1 | `scripts/run-pixel-tests.js` 的 `pixelTests` 注册表（视图 + 路由 + 主题） | 暗档套件根本不拍它 | `visual-ci.test.js`（基线必须被 `base-screenshots/.gitignore` 白名单放行） |
+| 2 | `base-screenshots/<view>-dark.png` 基线，且**只能取自同一次 CI 渲染** | 该视图暗档无从比对；或拿本地图当基线 → CI 判定时以 3%+ 亚像素噪声常年红 | QM-4 第 7 条 + `scripts/check-baseline-freshness.js` |
+| 3 | 若它含实时值（时间戳/日期高亮/问候语）：**在采集层钉时钟**，不要登记进 `KNOWN_DYNAMIC` | 每次 run 都漂，把"会变"偷换成"变多少都行" | `check-baseline-freshness.test.js` 的「`KNOWN_DYNAMIC` 必须为空」 |
+| 4 | 若它只在 views 套件里出现（`test:visual` / `--single`）：`views/*.visual.test.js` 的清单**也要**登记 | Gate 7b 的 `findRender` 优先取 views 的 `<name>.png`，缺位时它会回落到像素套图——两域对同一视图是两张确定但互不相同的图（见 §9） | `visual-ci.test.js` 的四套注册表聚合锁 |
+
+PR 侧是否真的在判暗档，看现场不看注释：`QG Visual` 日志里必须出现
+`[GATE-7] suite exits: pixel=… views=… views-supplement=… dark=…`，
+且 Gate 7b 的 `skipped` 点名名单里**不应**再出现 `<view>-dark.png`。这两条由
+`.github/scripts/workflow-contract.test.js` 的结构锁钉住（暗档采集必须同时接在
+Gate 7 与 Gate 7b round2 两处，`--partial` 不得被摘）。

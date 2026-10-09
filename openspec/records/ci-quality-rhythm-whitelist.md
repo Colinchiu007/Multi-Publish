@@ -2,9 +2,6 @@
 record: ci-quality-rhythm-whitelist
 task: 把 .quality-rhythm/** 纳入 docs-only 白名单，并按对账表收掉镜像漂移锁的第二处接线
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list --repo Colinchiu007/Multi-Publish --head ci-quality-rhythm-whitelist --json number,state,headRefOid` 回读取入，不得凭印象；合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：`.quality-rhythm/**` 进白名单 + 镜像锁收一处真源（ci-quality-rhythm-whitelist，2026-10-09）
@@ -62,7 +59,7 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 | 测试接线棘轮 | `node --test scripts/check-unwired-tests.test.js` + `node scripts/check-unwired-tests.js` | 30 pass / 0 fail；OK 全部已接线 |
 | 品牌残留（硬红线） | `node scripts/check-no-brand-residue.js` | PASS（7378 tracked 文件） |
 | 行尾两口径对账 | `git diff --numstat` vs `--ignore-cr-at-eol --numstat` | 逐文件相等 |
-| 远程同步 | PENDING（本条自己的欠账） | — |
+| 远程同步 | PASS（PR #3188 已 squash 合并，main `9d2618058292377b9620095639694d2f6f5ff316` @ 2026-10-09T22:59:13+08:00） | 取证 `git log origin/main --grep='(#3188)$' --format=%H|%cI` 恰 1 行 + `git ls-remote --heads origin ci-quality-rhythm-whitelist` 返回 0 行；本记录未登记 ledger，无登记项可删 |
 
 ### QM-6 替代通道结果（后端轴，逐字读自该模型自己的 stdout）
 
