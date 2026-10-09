@@ -93,6 +93,26 @@ function sanitizeMessage (raw) {
   return s.slice(0, 200)
 }
 
+/**
+ * 链内结构化诊断（XiaohongshuDraftError.detail）白名单过滤。
+ * detail 由链侧构造，只含键名数组 / 业务码 / 布尔旗标，不含响应值——但探针侧
+ * 仍按「不信任上游」原则再过滤一遍：只放行已知安全键，数组元素截断 + 定长。
+ */
+function pickChainDetail (err) {
+  const d = err && err.detail
+  if (!d || typeof d !== 'object') return null
+  const out = {}
+  if (d.bizCode !== undefined && d.bizCode !== null) out.bizCode = d.bizCode
+  if (typeof d.bizMsg === 'string') out.bizMsg = sanitizeMessage(d.bizMsg)
+  for (const key of ['topKeys', 'dataKeys']) {
+    if (Array.isArray(d[key])) {
+      out[key] = d[key].filter((k) => typeof k === 'string').slice(0, 30).map((k) => k.slice(0, 64))
+    }
+  }
+  if (typeof d.successFlag === 'boolean') out.successFlag = d.successFlag
+  return Object.keys(out).length ? out : null
+}
+
 function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipcMain }) {
   const { AccountManager } = deps
 
@@ -210,6 +230,8 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
           errorCode: err.code || '',
           // 平台业务响应（白名单字段）—— 判断端点是否仍然有效的核心证据
           platformResponse: safePayload,
+          // 链内结构化诊断（XiaohongshuDraftError.detail）：键名/业务码级别，不含响应值
+          chainDetail: pickChainDetail(err),
           // 失败发生在哪个端点 —— 定位 404 到底是 permit / ros-upload / note 的关键
           failedEndpoint: extractFailedEndpoint(err),
           httpStatus: (err.response && err.response.status) || undefined,
