@@ -21,6 +21,14 @@ const AUTO_SAVE_DEBOUNCE_MS = 1500
 // did-finish-load 补注入路径（fail-open）：导航不得被 CDP 无限期阻塞。
 const LS_INJECTION_TIMEOUT_MS = 2500
 
+// 「读分区 → 补缺注入」这条链被门控在首个导航之前，因此必须与 LS 注入同享超时护栏
+// （同一 2026-09-24 事故族：账号分区的会话命令可永久挂起且从不返回）。区别在降级
+// 方向：超时后**放行导航**（绝不改走全量注入），注入本身不在超时点被取消、由挂起的链在后台
+// 自行收敛——分区本身就是实时会话态，回退全量注入既可能同样挂死，也可能把陈旧快照盖回新鲜
+// 分区（正是本路径要消除的方向错误）。
+// 排障可用 MP_COOKIE_RESTORE_TIMEOUT_MS 覆盖（非法值回落本默认并出声告警）。
+const PARTITION_COOKIE_RESTORE_TIMEOUT_MS = 2500
+
 // 固定首页标签 ID（对齐参考产品：第 1 个标签永远是应用主页，不可关闭，不占用真实 WebContentsView）
 const HOME_TAB_ID = 'home'
 
@@ -38,6 +46,7 @@ module.exports = {
   SAFE_IDENTIFIER,
   AUTO_SAVE_DEBOUNCE_MS,
   LS_INJECTION_TIMEOUT_MS,
+  PARTITION_COOKIE_RESTORE_TIMEOUT_MS,
   HOME_TAB_ID,
   AUTH_TAB_ID,
   HOME_SHELL_PARAM

@@ -84,6 +84,23 @@ function getAccountPartitionCookies (platform, accountId) {
   return sessionRestore.getAccountPartitionCookies(platform, accountId, { isSafePathSegment })
 }
 
+/**
+ * 凭证成功落盘后把账号分区对齐到新快照（旁路，见 account-session-restore 的
+ * seedAccountPartitionCookies 注释：不开这一步，重新登录的新 Cookie 会被账号分区里
+ * 「未过期但已吊销」的同键旧值挡在「分区优先、快照仅补缺」的恢复逻辑之外）。
+ * 一律不 await：账号分区的会话命令可永久挂起，登录结果不得被它拖住；失败只出声。
+ */
+function syncAccountPartitionWithCredential (platform, accountId, cookies) {
+  try {
+    const pending = sessionRestore.seedAccountPartitionCookies(platform, accountId, cookies, { isSafePathSegment })
+    if (pending && typeof pending.catch === 'function') {
+      pending.catch(e => log.warn('AccountManager', 'account partition sync rejected ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e))))
+    }
+  } catch (e) {
+    log.warn('AccountManager', 'account partition sync threw ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e)))
+  }
+}
+
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
 /**
@@ -334,6 +351,7 @@ async function saveCapturedAccount (platform, captured, options = {}) {
     throw new Error('加密凭证保存失败，账号创建已回滚')
   }
   log.info('AccountManager', `Saved credential store for account ${accountId}`)
+  syncAccountPartitionWithCredential(platform, accountId, cookies)
   // 凭证已成功落盘 = 一次成功的主动登录，必须固化 status=active + last_validated，否则后端
   // create_account 的默认 unverified 会让新账号显示「未确认」直到手动再检测（与
   // updateCapturedAccount 同一契约；顺序不可颠倒，见上一条回滚分支）。
@@ -1020,6 +1038,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
     throw new Error('加密凭证更新失败')
   }
   log.info('AccountManager', 'Updated credential store for account ' + accountId)
+  syncAccountPartitionWithCredential(platform, accountId, cookies)
 
   // 更新后端公开元数据（PATCH）。凭证已成功落盘 = 一次成功的主动重新登录，
   // 必须同步回写 status=active + last_validated，否则「已登录并保存的账号仍显示

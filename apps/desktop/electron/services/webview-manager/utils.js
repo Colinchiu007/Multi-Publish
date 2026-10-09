@@ -1,7 +1,10 @@
 // @ts-check
 /**
  * WebviewManager 工具函数
- * 纯函数，无状态，从 webview-manager.js 提取
+ * 从 webview-manager.js 提取。多数为纯函数；例外是 `_injectLocalStorageAtDocumentStart`
+ * （走 CDP）与 `_partitionRestoreTimeoutMs` / `_gateRestoreWithTimeout`（读环境变量、起定时器）——
+ * 归入本模块的口径是「不持有实例状态、只依赖入参与常量」，不是「无副作用」。
+ * 两个恢复护栏放在这里而不是 tab-lifecycle.js，是因为后者已贴近逐文件 500 行上限。
  */
 const { app } = require('electron')
 const path = require('path')
@@ -10,7 +13,7 @@ const os = require('os')
 const { pathToFileURL } = require('url')
 const { config, getUrl } = require('../../config/app-config')
 const { HOME_SHELL_PARAM } = require('./constants')
-const { LS_INJECTION_TIMEOUT_MS } = require('./constants')
+const { LS_INJECTION_TIMEOUT_MS, PARTITION_COOKIE_RESTORE_TIMEOUT_MS } = require('./constants')
 
 function _getUserDataDir () {
   try { return app.getPath('userData') } catch (e) { return path.join(os.homedir(), '.multi-publish') }
@@ -97,7 +100,7 @@ function normalizeElectronCookie (cookie, fallbackUrl) {
     var sameSite = normalized.sameSite.toLowerCase()
     normalized.sameSite = sameSite === 'none' ? 'no_restriction' :
       sameSite === 'strict' ? 'strict' :
-        sameSite === 'lax' ? 'lax' : 'unspecified'
+        sameSite === 'lax' ? 'lax' : sameSite === 'no_restriction' ? 'no_restriction' : 'unspecified'
   }
   return normalized
 }
@@ -163,6 +166,55 @@ function _parseHashRoute (url) {
   return route
 }
 
+// 门控首个导航的凭证恢复时限（每次调用现读，便于排障时不改代码临时收紧/放宽）。
+// 非法值回落默认并出声——静默吞掉配置错误会让下一次「导航不发生」又变成无痕迹故障。
+function _partitionRestoreTimeoutMs () {
+  const log = require('../logger')
+  var raw = process.env.MP_COOKIE_RESTORE_TIMEOUT_MS
+  if (raw === undefined || String(raw).trim() === '') return PARTITION_COOKIE_RESTORE_TIMEOUT_MS
+  var parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    log.warn('WebviewManager', 'invalid MP_COOKIE_RESTORE_TIMEOUT_MS=' + raw + ', fallback to ' + PARTITION_COOKIE_RESTORE_TIMEOUT_MS)
+    return PARTITION_COOKIE_RESTORE_TIMEOUT_MS
+  }
+  return parsed
+}
+
+/**
+ * 给「门控首个导航」的恢复链套上硬超时与永不 reject 的出口。
+ * 超时/失败一律 resolve（放行导航）：注入留在后台自行结束，绝不阻塞窗口显示。
+ * @param {Promise} chain
+ * @param {string} label 平台:账号 ID，仅用于日志定位
+ */
+function _gateRestoreWithTimeout (chain, label) {
+  const log = require('../logger')
+  var timeoutMs = _partitionRestoreTimeoutMs()
+  return new Promise(function (resolve) {
+    var settled = false
+    var settle = function (fn) {
+      if (settled) return
+      settled = true
+      fn()
+    }
+    var timer = setTimeout(function () {
+      settle(function () {
+        log.warn('WebviewManager', 'credential restore gate timed out after ' + timeoutMs + 'ms, navigation not blocked: ' + label)
+        resolve()
+      })
+    }, timeoutMs)
+    if (timer && typeof timer.unref === 'function') timer.unref()
+    Promise.resolve(chain).then(function () {
+      settle(function () { clearTimeout(timer); resolve() })
+    }, function (e) {
+      settle(function () {
+        clearTimeout(timer)
+        log.warn('WebviewManager', 'credential restore gate failed, navigation not blocked: ' + label + ' err=' + ((e && e.message) || 'unknown'))
+        resolve()
+      })
+    })
+  })
+}
+
 module.exports = {
   _getUserDataDir,
   _injectLocalStorageAtDocumentStart,
@@ -170,5 +222,7 @@ module.exports = {
   _homeShellUrl,
   _homeShellPreloadPath,
   _urlHasHomeShellParam,
-  _parseHashRoute
+  _parseHashRoute,
+  _partitionRestoreTimeoutMs,
+  _gateRestoreWithTimeout
 }

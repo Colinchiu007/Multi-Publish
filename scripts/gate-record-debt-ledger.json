@@ -34,5 +34,10 @@
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
     "line": 4479
+  },
+  "本次执行记录：账号卡片开卡凭证恢复方向修正（fix-account-tab-cookie-restore，2026-10-10）": {
+    "reason": "本 PR 尚未合并，merge SHA 还不存在；记录与 ledger 登记在同一次提交，回填须等合并后取 git log/ls-remote 实证。回填者＝下一个会话（或本会话合并后的回填 PR）：回填时在同一次提交内删除本条，并删除 openspec/records/fix-account-tab-cookie-restore.md 的 sync_* 三字段。",
+    "status": "PENDING",
+    "line": 106
   }
 }

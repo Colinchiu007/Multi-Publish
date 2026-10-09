@@ -122,10 +122,111 @@ function mergeCookies (primary, extra) {
   return merged
 }
 
+/**
+ * 快照 Cookie → `session.cookies.set` 载荷。
+ * 只补 `url`（Electron 用它定位宿主域）并把 Playwright 形态的 `sameSite` 归一，
+ * 口径与 webview-manager/utils.js 的 `normalizeElectronCookie` 一致；没有复用它
+ * 是因为该模块在 require 期就依赖 `app`/`config`，主进程服务层之外（本模块被
+ * publishers 消费）引入会连带拖入窗口与配置单例。
+ * 唯一有意的差异：`no_restriction` 在此**原样保留**。Electron 的 `cookies.get` 本来
+ * 就返回这套词表，把它降级成 `unspecified` 会剥掉跨站会话 Cookie 必需的 SameSite=None
+ * （normalizeElectronCookie 现有实现会这样降级，已记为 遗留，不在本修复里改动共享路径）。
+ * @returns {object|null} 无 name 或无 domain 的记录不投喂（Electron 会静默落到 localhost）
+ */
+function _partitionCookiePayload (cookie) {
+  if (!cookie || typeof cookie.name !== 'string' || !cookie.name) return null
+  const rawDomain = String(cookie.domain || '')
+  const host = rawDomain.replace(/^\.+/, '')
+  if (!host) return null
+  const sameSite = String(cookie.sameSite || '').toLowerCase()
+  return {
+    url: (cookie.secure === false ? 'http' : 'https') + '://' + host + '/',
+    name: cookie.name,
+    value: typeof cookie.value === 'string' ? cookie.value : (cookie.value == null ? '' : String(cookie.value)),
+    domain: rawDomain,
+    path: typeof cookie.path === 'string' && cookie.path ? cookie.path : '/',
+    secure: cookie.secure !== false,
+    httpOnly: Boolean(cookie.httpOnly),
+    expirationDate: Number.isFinite(Number(cookie.expirationDate)) ? Number(cookie.expirationDate) : undefined,
+    sameSite: sameSite === 'none' || sameSite === 'no_restriction' ? 'no_restriction'
+      : sameSite === 'strict' ? 'strict'
+        : sameSite === 'lax' ? 'lax' : 'unspecified',
+  }
+}
+
+/**
+ * 把「刚成功落盘的凭证」对齐进账号分区（`persist:account-{id}`）里该平台域的记录。
+ *
+ * 为什么必须有这一步（2026-10-09，fix-account-tab-cookie-restore）：开卡恢复已改成
+ * 「分区优先、快照仅补缺」——分区里同 `name@domain` 的值不被快照覆盖。这对「快照恒旧」
+ * 是对的，但**重新登录走的是独立 `persist:auth-*` 分区**，`updateCapturedAccount` 只写
+ * 加密库与登录态真源、从不触碰账号分区。于是分区里那条「还没过期、但已被平台吊销」的旧
+ * Cookie 会同键挡掉刚拿到的新快照，用户重新登录后开卡仍停在登录页——比原 Bug 更糟。
+ * 逐 Cookie 比新鲜度在文档 API 上不成立（`electron.d.ts` 的 `interface Cookie` 只有
+ * domain/expirationDate/hostOnly/httpOnly/name/path/sameSite/secure/session/value，
+ * **没有 creationTime/lastAccessTime**，读它等于恒 undefined 的死探针），所以只能在
+ * 「快照唯一保证是最新证据」的落盘时刻把分区对齐。
+ *
+ * 语义边界：① 只覆盖 `isPlatformCookieDomain` 命中的记录（与读侧、凭证落盘侧同口径），
+ * 平台域之外一律不碰；② 调用点**不得 await**（会话命令可永久挂起，见 constants 里
+ * LS_INJECTION_TIMEOUT_MS 的事故注释），本函数自身不 reject；③ 日志只记计数与 Cookie
+ * 名，禁止记 value。
+ *
+ * @param {string} platform
+ * @param {string} accountId
+ * @param {Array} cookies 已落盘的快照 Cookie（未经平台域过滤也可，函数内部再判一次）
+ * @param {{isSafePathSegment: Function}} [deps]
+ * @returns {Promise<{seeded:number, skipped:number}>}
+ */
+async function seedAccountPartitionCookies (platform, accountId, cookies, deps = {}) {
+  const result = { seeded: 0, skipped: 0 }
+  const isSafePathSegment = deps.isSafePathSegment
+  if (!Array.isArray(cookies) || cookies.length === 0) return result
+  if (typeof isSafePathSegment !== 'function' || !accountId || !isSafePathSegment(accountId)) return result
+  const ses = _electronSession()
+  if (!ses) {
+    log.warn('AccountManager', 'seedAccountPartitionCookies: electron session unavailable, partition left as-is ' + platform + ':' + accountId)
+    return result
+  }
+  let viewSession = null
+  try {
+    viewSession = ses.fromPartition('persist:account-' + accountId)
+  } catch (e) {
+    log.warn('AccountManager', 'seedAccountPartitionCookies: partition open failed ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e)))
+    return result
+  }
+  if (!viewSession || !viewSession.cookies || typeof viewSession.cookies.set !== 'function') {
+    log.warn('AccountManager', 'seedAccountPartitionCookies: cookies.set unavailable ' + platform + ':' + accountId)
+    return result
+  }
+  const targets = []
+  for (const cookie of cookies) {
+    if (typeof isPlatformCookieDomain !== 'function' || !isPlatformCookieDomain(platform, cookie && cookie.domain)) { result.skipped++; continue }
+    const payload = _partitionCookiePayload(cookie)
+    if (!payload) { result.skipped++; continue }
+    targets.push(payload)
+  }
+  if (targets.length === 0) {
+    log.info('AccountManager', 'seeded account partition ' + platform + ':' + accountId + ' seeded=0 skipped=' + result.skipped)
+    return result
+  }
+  const settled = await Promise.all(targets.map(payload => Promise.resolve()
+    .then(() => viewSession.cookies.set(payload))
+    .then(() => true, (e) => {
+      log.warn('AccountManager', 'seed partition cookie failed name=' + payload.name + ' err=' + (e && e.message ? e.message : String(e)))
+      return false
+    })))
+  result.seeded = settled.filter(Boolean).length
+  log.info('AccountManager', 'seeded account partition ' + platform + ':' + accountId +
+    ' seeded=' + result.seeded + ' failed=' + (targets.length - result.seeded) + ' skipped=' + result.skipped)
+  return result
+}
+
 module.exports = {
   restoreCookies,
   restoreLocalStorage,
   buildLocalStorageRestoreScript,
   getAccountPartitionCookies,
   mergeCookies,
+  seedAccountPartitionCookies,
 }

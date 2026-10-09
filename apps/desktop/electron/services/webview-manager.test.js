@@ -454,6 +454,8 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
 
     expect(tabId).toBeTruthy()
     expect(credentialLoadMock).toHaveBeenCalledWith('account-1', expect.any(String))
+    // 2026-10-09：恢复改为「先读分区再补缺注入」（异步链），set 落在微任务内，须等一拍再断言
+    await new Promise(resolve => setTimeout(resolve, 0))
     const created = partitions[partitions.length - 1]
     expect(created.partition).toBe('persist:account-account-1')
     expect(created.cookies.setCalls).toEqual([{ url: 'https://www.zhihu.com', name: 'session', value: 'abc' }])
@@ -475,6 +477,8 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     wm.createNewTabPage({ url: 'https://baijiahao.baidu.com/', platform: 'baijiahao', accountId: 'baijia-1' })
 
     expect(credentialLoadMock).not.toHaveBeenCalled()
+    // 2026-10-09：set 现在位于「读分区 → 补缺注入」异步链内，等一拍
+    await new Promise(resolve => setTimeout(resolve, 0))
     expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([
       { url: 'https://baijiahao.baidu.com/', domain: '.baijiahao.baidu.com', name: 'BDUSS', value: 'owner-value', secure: true },
     ])
@@ -513,6 +517,8 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
 
     wm.createNewTabPage({ url: 'https://creator.douyin.com', accountId: 'acc_2' })
 
+    // 2026-10-09：set 现在位于「读分区 → 补缺注入」异步链内，等一拍
+    await new Promise(resolve => setTimeout(resolve, 0))
     const created = partitions[partitions.length - 1]
     expect(created.cookies.setCalls).toEqual([{ url: 'https://creator.douyin.com', name: 'sid', value: 'v1' }])
   })
@@ -710,6 +716,8 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
 
     wm.createNewTabPage({ url: 'https://baijiahao.baidu.com/', platform: 'baijiahao', accountId: 'baijia-1' })
 
+    // 2026-10-09：set 现在位于「读分区 → 补缺注入」异步链内，等一拍
+    await new Promise(resolve => setTimeout(resolve, 0))
     expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([{
       domain: '.baijiahao.baidu.com',
       name: 'BDUSS',
@@ -831,6 +839,56 @@ describe('WebviewManager.createNewTabPage cleanSession（失效账号登录页�
     expect(js).not.toContain('stale-token')
   })
 
+  it('回归（2026-10-10，QM-6 评审命中）：cleanSession 清除链挂起时导航仍发生', async () => {
+    patchViewAndSessionMocks()
+    const originalFromPartition = __electronMock.session.fromPartition
+    __electronMock.session.fromPartition = function (partition) {
+      const created = originalFromPartition(partition)
+      created.cookies.get = function () { return new Promise(() => {}) }
+      return created
+    }
+    process.env.MP_COOKIE_RESTORE_TIMEOUT_MS = '30'
+    try {
+      const mod = await import('./webview-manager.js')
+      const WM = mod.default || mod
+      const wm = new WM()
+      wm.mainWindow = createMainWindow()
+      wm.createNewTabPage({ url: 'https://mp.weixin.qq.com/', platform: 'wechat_mp', accountId: 'mp-9', cleanSession: true })
+      const view = wm._tabViews.get(wm._activeTabId)
+
+      // 变异反证：摘掉本链的 _gateRestoreWithTimeout 时「读残留 Cookie」无限期门控首个导航
+      await new Promise(resolve => setTimeout(resolve, 300))
+      expect(view.webContents.loadURL).toHaveBeenCalledWith('https://mp.weixin.qq.com/')
+      expect(loggerMock.warn.mock.calls.some(c => {
+        const m = String(c[1] || '')
+        return m.includes('credential restore gate timed out') && m.includes('clean-session:wechat_mp:mp-9')
+      })).toBe(true)
+    } finally {
+      delete process.env.MP_COOKIE_RESTORE_TIMEOUT_MS
+    }
+  })
+
+  it('回归（2026-10-10）：cleanSession 分支 cookies.get 同步抛错不得逃出建标签', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const originalFromPartition = __electronMock.session.fromPartition
+    __electronMock.session.fromPartition = function (partition) {
+      const created = originalFromPartition(partition)
+      created.cookies.get = function () { throw new Error('sync-boom') }
+      return created
+    }
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    // 变异反证：链首直接求值 viewSession.cookies.get({}) 时同步抛错爆出 createNewTabPage（标签建不出来）
+    expect(() => wm.createNewTabPage({ url: 'https://mp.weixin.qq.com/', platform: 'wechat_mp', accountId: 'mp-10', cleanSession: true })).not.toThrow()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(partitions[partitions.length - 1].cookies.removeCalls).toEqual([])
+    expect(loggerMock.warn.mock.calls.some(c => String(c[1] || '').includes('clean session clear failed'))).toBe(true)
+    expect(wm._tabViews.get(wm._activeTabId).webContents.loadURL).toHaveBeenCalledWith('https://mp.weixin.qq.com/')
+  })
   it('未传 cleanSession 的账号标签保持原有凭证恢复行为（回归保护）', async () => {
     const partitions = patchViewAndSessionMocks()
     __electronMock.session._staleCookies = [

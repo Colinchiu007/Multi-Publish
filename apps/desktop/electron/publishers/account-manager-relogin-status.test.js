@@ -238,6 +238,159 @@ describe('登录态固化失败 — 返回值不冒充已登录', () => {
 // 否则「无定论保持原状」会把刚登录成功的新账号重新挡在 active 之外，与本修复互相抵消。
 // 规则唯一实现已下沉到 @multi-publish/shared-utils/src/login-state，account-manager 侧
 // 既不该再有映射，也不该再有转发 shim（那会让第四份口径有藏身之处）。
+/**
+ * 凭证落盘 → 账号分区对齐（seed）的跨模块契约锁（2026-10-10，fix-account-tab-cookie-restore）
+ *
+ * 为什么必须跑「真实现」：account-manager 的 syncAccountPartitionWithCredential 调的是
+ * account-session-restore.seedAccountPartitionCookies。若这里 mock 掉对方，「分区名拼错 /
+ * 平台域判据用错 / 参数形状传错」这一整类断链永远测不出来（AGENTS.md：跨模块调用必须有
+ * 一条用真实现的用例，契约夹具不得替对方剥壳）。所以本块只假 Electron 的 session（宿主
+ * 只能假），seed 与被测入口都跑真的，断言落在「分区里到底被写进了哪几条 Cookie」。
+ *
+ * 锁的业务不变量：重新登录走独立 persist:auth-* 分区，若不把新快照对齐进
+ * persist:account-*，分区里「未过期但已被平台吊销」的同键旧 Cookie 会挡掉开卡恢复，
+ * 用户重登后开卡仍停在登录页——比原 Bug 更糟。
+ */
+describe('凭证落盘 → 账号分区对齐（跨模块契约锁，真 seedAccountPartitionCookies）', () => {
+  /**
+   * 用记录型 session 替掉宿主 mock：真实语义是「每个分区一个独立 session」，
+   * 因此按分区名缓存记录，断言才能区分「写进了账号分区」与「写进了别的分区」。
+   * @param {{rejectSet?: boolean}} [opts]
+   */
+  function installRecordingPartitions (opts) {
+    const options = opts || {}
+    const partitions = {}
+    global.__electronMock.session.fromPartition = function (name) {
+      const record = { name, setCalls: [] }
+      partitions[name] = record
+      return {
+        cookies: {
+          get: function () { return Promise.resolve([]) },
+          set: function (cookie) {
+            record.setCalls.push(cookie)
+            return options.rejectSet ? Promise.reject(new Error('set rejected')) : Promise.resolve()
+          },
+        },
+        on: function () {},
+      }
+    }
+    return partitions
+  }
+
+  // seed 是旁路（fire-and-forget），set 发生在微任务之后；给一帧宏任务让链走完。
+  function flushMacrotask () {
+    return new Promise(function (resolve) { setTimeout(resolve, 0) })
+  }
+
+  function prepareElectron () {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    global.__electronMock.app.getPath = function () { return 'C:/test-user-data' }
+  }
+
+  beforeEach(() => { vi.restoreAllMocks() })
+
+  it('重新登录（updateCapturedAccount）把新快照写进 persist:account-{id}，平台域外不碰', async () => {
+    prepareElectron()
+    const partitions = installRecordingPartitions()
+    const accountManager = loadAccountManager()
+    vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'acc-1', platform: 'kuaishou', status: 'expired' } })
+      .mockResolvedValueOnce({ code: 0, data: {} })
+    vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
+
+    const saved = await accountManager.updateCapturedAccount('kuaishou', {
+      cookies: [
+        { name: 'pass_token', value: 'fresh', domain: '.kuaishou.com' },
+        { name: 'did', value: 'device-only', domain: '.kwai-platform.com' },
+      ],
+      name: '快手号',
+    }, 'acc-1')
+
+    expect(saved.status).toBe('active')
+    await flushMacrotask()
+
+    const record = partitions['persist:account-acc-1']
+    expect(record, '重登只写加密库不写账号分区 → 分区里被吊销的旧 Cookie 会同键挡掉新快照').toBeDefined()
+    // 平台域过滤有两道（调用点 account-manager 与 seed 自身），本条锁的是「跨模块边界上不落平台域外记录」；
+    // seed 自身那道判据由 account-session-restore.test.js 的 seeded/skipped 精确断言锁定（变异实测各自独立变红）。
+    expect(record.setCalls.map(c => c.name), '只允许平台域内的 Cookie 进账号分区').toEqual(['pass_token'])
+    expect(record.setCalls[0].value).toBe('fresh')
+    expect(record.setCalls[0].url).toMatch(/kuaishou\.com/)
+    // 除账号分区外不得打开别的分区（默认 session / auth 分区都不该被落盘动作改写）
+    expect(Object.keys(partitions), '落盘只对齐本账号的分区').toEqual(['persist:account-acc-1'])
+  })
+
+  it('新建账号（saveCapturedAccount）与重登同口径，不得只锁一条落盘路径', async () => {
+    prepareElectron()
+    const partitions = installRecordingPartitions()
+    const accountManager = loadAccountManager()
+    vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'acc-new', platform: 'kuaishou', status: 'unverified' } })
+      .mockResolvedValueOnce({ code: 0, data: {} })
+    vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
+
+    await accountManager.saveCapturedAccount('kuaishou', {
+      cookies: [{ name: 'kuaishou.server.web.st', value: 'fresh', domain: '.kuaishou.com' }]
+    })
+    await flushMacrotask()
+
+    const record = partitions['persist:account-acc-new']
+    expect(record, '创建路径漏对齐会让新账号首次开卡就命中"分区空 → 只信旧快照"的旧路径').toBeDefined()
+    expect(record.setCalls.map(c => c.name)).toEqual(['kuaishou.server.web.st'])
+  })
+
+  it('分区写入失败（cookies.set 拒绝）不得影响返回值与真源回写——旁路不冒泡', async () => {
+    prepareElectron()
+    installRecordingPartitions({ rejectSet: true })
+    const accountManager = loadAccountManager()
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'acc-3', platform: 'kuaishou', status: 'expired' } })
+      .mockResolvedValueOnce({ code: 0, data: {} })
+    vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
+    const warnSpy = vi.spyOn(require('../services/logger'), 'warn').mockImplementation(function () {})
+
+    const saved = await accountManager.updateCapturedAccount('kuaishou', {
+      cookies: [{ name: 'pass_token', value: 'fresh', domain: '.kuaishou.com' }]
+    }, 'acc-3')
+
+    // 分区只是加速手段，不是登录结果的一部分：写失败必须照样返回 active、照样 PATCH
+    expect(saved.status).toBe('active')
+    const patchCall = requestBackend.mock.calls.find(call => call[0] === 'PATCH')
+    expect(patchCall[2]).toMatchObject({ status: 'active' })
+    await flushMacrotask()
+    expect(warnSpy.mock.calls.flat().join(' '), '分区写失败必须出声，否则静默漂移').toMatch(/seed partition cookie failed/)
+  })
+
+  it('凭证未落盘（saveCredential 返回 false）不得对齐分区——半成功不得污染实时会话态', async () => {
+    prepareElectron()
+    const partitions = installRecordingPartitions()
+    const accountManager = loadAccountManager()
+    vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'acc-4', platform: 'kuaishou', status: 'expired' } })
+      .mockResolvedValueOnce({ code: 0, data: {} })
+    vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(false)
+
+    await expect(accountManager.updateCapturedAccount('kuaishou', {
+      cookies: [{ name: 'pass_token', value: 'fresh', domain: '.kuaishou.com' }]
+    }, 'acc-4')).rejects.toThrow('加密凭证更新失败')
+    await flushMacrotask()
+
+    expect(Object.keys(partitions), '快照没存住就没有"最新证据"可对齐，此时写分区等于把可疑值推给实时会话').toEqual([])
+  })
+
+  it('单一口径结构锁：account-manager 不得自带第二份分区写入实现', () => {
+    prepareElectron()
+    const fs = require('node:fs')
+    const source = fs.readFileSync(require.resolve('./account-manager'), 'utf8')
+    expect(source, '必须复用 account-session-restore 的实现').toMatch(/sessionRestore\.seedAccountPartitionCookies/)
+    expect(source, '禁止在 account-manager 里另写一份 fromPartition 拼分区名').not.toMatch(/fromPartition\(/)
+  })
+})
+
 describe('account-manager 不再自带登录态映射（单一口径结构锁）', () => {
   it('loginStatusFromCheckResult 与 loginStatusTransition 均已移除', () => {
     global.__enableElectronMock()
