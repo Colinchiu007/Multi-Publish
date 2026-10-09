@@ -915,3 +915,34 @@ test('Gate 7b 之前必须在 Gate 7 同一步骤内产出 views 两套渲染（
 
   assert.ok(idxFresh > idxGate7, 'views 采集必须在 Gate 7b 判定之前');
 })
+
+// 暗档在 PR 侧的渲染来源锁（门禁②）。
+// 动因（2026-10-08 实测）：`test:visual:pixel:dark` 只存在于 visual-test.yml
+// （main push / dispatch 才跑），而 quality-gate.yml 的 QG Visual 只跑浅色 ⇒ Gate 7b 的
+// `--partial` 把每张 `*-dark.png` 记成 skipped。后果不是"少判几张"，而是
+// **暗色档漂移在 PR 侧结构性不可判**：PR #3159 改了暗色 CSS 并重建了 29 张基线，
+// 其中 8 张暗档与它自己的代码不一致（渲染侧新色值逐字命中该提交新增的 CSS 行，
+// 基线侧是旧值），却在 PR 上全绿合入，直到 main push 才红，且红了约 9 小时无人认领
+// （run 37799089491 / step「Baseline freshness gate」/ 违规 8 张全部 *-dark.png）。
+// 本锁要求暗档采集接在**两处**：Gate 7（首轮判定）与 Gate 7b 的 round2（flake 甄别重采）。
+// 只补一处会得到"首轮判、round2 不判"的半接线 —— round2 的判定域因此永远缺暗档，
+// 一次采集 flake 就会把暗档误判成 flake 放行。
+test('QG Visual 必须在 PR 侧产暗档渲染，且 Gate 7 与 Gate 7b round2 两处都接', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'))
+  const steps = wf.jobs.visual.steps
+  const g7 = steps.find((s) => /Gate 7 - Visual regression/.test(String(s.name || '')))
+  const g7b = steps.find((s) => /Gate 7b - Baseline freshness/.test(String(s.name || '')))
+  assert.ok(g7 && g7b, '未定位到 Gate 7 / Gate 7b 步骤 —— 本锁的锚点失效')
+
+  const body7 = String(g7.run || '')
+  assert.match(body7, /pnpm\.cmd run test:visual:pixel:dark/, 'Gate 7 必须跑暗档像素套，否则 PR 侧暗档永远没有同源渲染')
+  assert.match(body7, /suite exits:.*pixel=.*views=.*views-supplement=.*dark=/, '暗档退出码必须与三套一起逐条打印，否则「套件崩了」会伪装成「本次没产图」')
+
+  const body7b = String(g7b.run || '')
+  assert.match(body7b, /pnpm\.cmd run test:visual:pixel:dark/, 'Gate 7b round2 重采也必须跑暗档，否则 round2 的判定域缺暗档')
+
+  // partial 必须保留（该 job 仍产不出少数基线的渲染），但不得因此把暗档整档豁免：
+  // 摘掉 --partial 会让"无渲染"从 skipped 变成 UNCOVERED_BASELINE 假红。
+  const partialCount = (body7b.match(/--partial/g) || []).length
+  assert.ok(partialCount >= 2, 'Gate 7b 两轮判定都必须带 --partial（当前 ' + partialCount + ' 处）')
+})
