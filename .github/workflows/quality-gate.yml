@@ -14,6 +14,7 @@ on:
       - '.claude/**'
       - '.hermes/**'
       - '.agents/**'
+      - '.quality-rhythm/**'
       - 'openspec/**'
       - '.adversarial/**'
       - 'scripts/gate-record-debt-ledger.json'
@@ -315,8 +316,11 @@ jobs:
           # 本锁要求入口先自证跑在对的 shell 里，且**只拦 WSL 不拦真 Linux**
           # （后者含 ubuntu runner，拦了等于打死 CI）。
           node --test scripts/ccg-bash-entry.test.js
-          # 质量节拍 vendored 契约镜像（.quality-rhythm/）与 openspec 真源的漂移锁
-          node --test scripts/quality-rhythm-spec-mirror.test.js
+          # vendored 契约镜像漂移锁此前在这里也点了一次名（与 changes job 的 Gate 2b2 重复）。
+          # 已由 (白名单路径 → 门禁去向) 对账表判为「接线必须只有一处真源」而删除：
+          # changes 无 job 级 if、对每种事件都跑，static-gates 只在 docs-only != 'true' 时跑，
+          # 前者的执行域真包含后者，故删除不减少任何一次判定。理由与覆盖性论证见
+          # 01-docs/PRD-CI-BLINDSPOT-SEAL-2026-10-09.md §4（撤销 e32210e6a 的刻意冗余，显式声明）。
           # Windows PowerShell 5.1 读**无 BOM** 的 .ps1 时按 ANSI 码页解码，中文注释/字符串可让
           # 整个脚本 tokenize 失败（实测 2026-09-29：15 个含非 ASCII 的 .ps1 里 8 个已不可解析，
           # 其中包括会话隔离入口 start-mp-task.ps1 ⇒ 所有新任务的 worktree 都开不出来，

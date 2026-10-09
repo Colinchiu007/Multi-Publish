@@ -17,6 +17,7 @@ on:
       - '.claude/**'
       - '.hermes/**'
       - '.agents/**'
+      - '.quality-rhythm/**'
       - 'openspec/**'
       - '.adversarial/**'
       - 'scripts/gate-record-debt-ledger.json'

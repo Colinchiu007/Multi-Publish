@@ -1,3 +1,31 @@
+# [未发布] fix(ci-gate): `.quality-rhythm/**` 进 docs-only 白名单，镜像漂移锁收成一处真源（2026-10-09，ci-quality-rhythm-whitelist）
+
+## 背景
+
+改一份 vendored 文档镜像（`.quality-rhythm/integrations/openspec/spec-contract.md`，它是 `openspec/specs/openspec-integration/spec.md` 的行级副本）要付**整轮全量重型 CI**，因为它不在 `CI_IGNORED_PATHS` 里。而 AGENTS.md 的「进白名单前提锁」要求：路径进名单之前，它的校验必须先待在不会被 docs-only 短路的 job。
+
+勘察时我判断这条锁还在被短路的 `static-gates`，计划「先搬锁再放名单」。**该前提在我动手时已过期**：`e32210e6a`（2026-10-08）已把它接进 `changes` job（Gate 2b2），只是同时**刻意保留**了 `static-gates` 那份冗余。我最初的"证据"写的是 `quality-gate.yml:252` —— 那个行号来自**共享主工作区的过期检出**（共享根落后 origin/main 108 个提交）。行号也是坐标，从 stale checkout 读来的坐标会把人引向一个已经不存在的形状。
+
+## 改动（真实差量比初设想窄）
+
+- `scripts/classify-docs-only.js`：名单增 `.quality-rhythm/**`。
+- `scripts/classify-docs-only.test.js`：`(白名单路径 → 门禁去向)` 对账表登记同一行，去向为 `commands: ['node --test scripts/quality-rhythm-spec-mirror.test.js']`。
+- `.github/workflows/quality-gate.yml`：**删除 `static-gates` 里那份重复接线**；三个全量 workflow 的 `push.paths-ignore` 同步加条目（触发级 `pull_request.paths-ignore` 仍是禁区，未动）。
+
+## 为什么删掉别人的"冗余"是安全的
+
+`changes` 无 job 级 `if:`，对每种事件都跑；`static-gates` 带 `if: needs.changes.outputs.docs-only != 'true'`，只在非 docs-only 时跑。前者执行域**真包含**后者 ⇒ 删除不减少任何一次判定，只消除「同一条门禁两处接线、改一处另一处静默留着」的真源分裂。该冗余的当时理由（登记表还不认识这条锁）已被 `e32210e6a` 自己引入的 `strictEqual(hits, 1)` 取代。
+
+## 测试与反证
+
+27 / 33 / 8 / 23 / 30 五组既有锁全绿；三条变异各自实测变红：摘白名单不摘表行 ⇒ `不再一一对应`；把重复接线加回 ⇒ `出现 2 次`；摘掉唯一接线 ⇒ `出现 0 次：接线位置必须只有一处真源`。两条**探针自伤**如实登记：用 `^# pass` 提取 Node 24 的 TAP 汇总（实际前缀是 `ℹ`）会让五个套件齐刷刷输出空串；用 `startsWith('not ok')` 抓失败行会因 TAP 缩进把一条真红误报成 `NOT_RED`。
+
+## 未闭合缺口（如实留账）
+
+决策层跨家族对抗评审判 `DUAL` 但**没跑成**：`adversarial-review-loop/scripts/model-call.js:11` 把 `DEFAULT_WRAPPER` 写死为他人机器的用户名路径（`C:/Users/邱领/...`），且 `ccg-deep-review.js` 三处直取该常量、无 env/config 覆盖入口 ⇒ `ENOENT`。本机正解路径实测存在。未擅改用户全局技能源码，QM-6 改走既有替代通道（直调 opencode 双轴、绑定提交 SHA），决策层降级为自审 + 三条变异，缺口留在此处不写成"已评审"。
+
+暗色基线在 PR 侧结构性不可判（门禁②）另 PR 推进；其前置条件经实测已破坏 —— main tip `a43287ac7` 的 Visual Tests 红在 `Baseline freshness gate`，8 张暗档漂移待归因。
+
 # [未发布] fix(publish): 头条定时发布排期上限按平台取证收窄 30→7 天，发布页提示同步显示真实上限（2026-10-08，schedule-horizon-cap）
 
 ### 用户感知

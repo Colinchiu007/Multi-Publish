@@ -1,0 +1,49 @@
+{
+  "sha": "646acc81f4198cc29c1abbc1efc01e0615b7fdb0",
+  "layer": "plan",
+  "mode": "dual",
+  "reason": "变更 71 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 71,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1
+  },
+  "plannedFiles": [
+    "AGENTS.md",
+    ".github/workflows/quality-gate.yml",
+    "visual-test.yml",
+    "test-runner.js",
+    "-current.png",
+    "check-baseline-freshness.js",
+    "scripts/quality-rhythm-spec-mirror.test.js",
+    "quality-gate.yml",
+    "needs.changes.outputs.docs",
+    "quality-rhythm-spec-mirror.test.js",
+    "scripts/classify-docs-only.test.js",
+    "check-unwired-tests.js",
+    "visual-ci.test.js",
+    "scripts/classify-docs-only.js",
+    "push.paths",
+    "workflow-contract.test.js",
+    ".github/scripts/workflow-contract.test.js",
+    "apps/desktop/tests/visual-testing/visual-ci.test.js"
+  ],
+  "decidedAt": "2026-10-08T16:01:58.140Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [],
+    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ENOENT",
+    "validationErrors": null,
+    "note": "第 1 轮评审失败",
+    "artifacts": ".adversarial\\ccg-plan-prd-ci-blindspot-seal-2026-10-09",
+    "at": "2026-10-08T16:03:32.588Z"
+  }
+}
