@@ -214,6 +214,9 @@ describe('自动模式 IPC · auto-start', () => {
     expect(stored.ok).toBe(true)
     expect(stored.project.confirmations).toHaveLength(1)
     expect(stored.project.shots[0].prompt).toContain('ACTION TIMING')
+    // 等后台那一轮收尾：派发即返回后，单飞标志由异步收尾清理（否则下一次启动会撞 AUTO_TASK_BUSY）
+    await new Promise((r) => setTimeout(r, 30))
+
     // 计划已被首次启动消费（防重放的刻意设计），但**续跑不依赖计划**：
     // 同名任务 + 同 planId 走续跑分支（内容真源是项目文件），不会因计划消费而失败。
     const again = await ipcMain._get('film-engineering:auto-start')(trustedEvent(), {
@@ -387,10 +390,16 @@ describe('自动模式 IPC · 停止（批间生效）', () => {
     const ipcMain = createMockIpcMain()
     registerAutoHandlers(ipcMain, deps)
     const planned = await planOnce(ipcMain, trustedEvent(), { taskId: 'auto-stop-1' })
-    const running = ipcMain._get('film-engineering:auto-start')(trustedEvent(), {
+    const startEvent = trustedEvent()
+    const started = await ipcMain._get('film-engineering:auto-start')(startEvent, {
       planId: planned.data.planId, taskId: 'auto-stop-1', confirmed: true,
     })
-    await new Promise((r) => setTimeout(r, 10))
+    // ★ 回归锁：长任务必须**立即返回**（真机 E2E 抓到的缺陷：原实现 await 整轮，
+    //   渲染端 await autoStart() 被挂住、面板永远升不到运行态）。
+    expect(started.data.started).toBe(true)
+    expect(started.data.dispatched).toBe(true)
+    expect(started.data.stopped).toBe(false)
+    expect(started.data.ok).toBe(null)
 
     // 未停止时 shouldStop() 为 false（否则每批都会被误判为停止）
     const driverOpts = deps._testRunProduction.mock.calls[0][0]
@@ -402,9 +411,12 @@ describe('自动模式 IPC · 停止（批间生效）', () => {
     expect(driverOpts.shouldStop()).toBe(true)
 
     release()
-    const done = await running
-    expect(done.data.stopped).toBe(true)
-    expect(done.data.ok).toBe(false)
+    await new Promise((r) => setTimeout(r, 30))
+    // 收口结果经事件回报（而不是 invoke 返回值）——界面据此刷新到完成态
+    const events = startEvent.sender.send.mock.calls.map((c) => c[1])
+    const complete = events.find((e) => e.type === 'production:complete')
+    expect(complete).toBeTruthy()
+    expect(complete.stopped).toBe(true)
 
     // 任务结束后标志被清理：再次请求停止 → 明确回报「未在运行」
     const idle = await ipcMain._get('film-engineering:auto-stop')(trustedEvent(), { taskId: 'auto-stop-1' })

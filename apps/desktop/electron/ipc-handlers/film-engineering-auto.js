@@ -309,65 +309,86 @@ function registerAutoHandlers (ipcMain, deps) {
     if (planUsed) markPlanConsumed({ home, planId: planUsed.planId })
     runningAutoTasks.add(taskId)
     stoppingAutoTasks.delete(taskId)
-    try {
-      const shotIds = project.shots.map((s) => s.shotId)
-      const r = await driver({
-        taskId,
-        shotIds,
-        ledgerDir: projectDir(home, taskId),
-        mediaRoot,
-        runIdFor: (t, batchIndex) => autoRunIdFor(t, batchIndex),
-        probe,
-        runOnlyBatch: null,
-        // 停止（批间生效）：已开始的批跑完，未开始的批保持 pending；已完成的镜不会被重做
-        shouldStop: () => stoppingAutoTasks.has(taskId),
-        emit: (evt) => {
-          try {
-            if (event && event.sender && typeof event.sender.send === 'function') {
-              event.sender.send('film-engineering:auto-update', evt)
-            }
-          } catch { /* 窗口已销毁：事件推送失败不影响执行 */ }
-        },
-        runBatch: (batch, ctx) => runBatchFn({
-          batch,
-          project,
-          aiGenerator,
-          log,
-          deps: o,
-          onShotProgress: ctx.onShotProgress,
-          onDispatched: () => incrementProviderCalls(project),
-          persist: writeNow,
-        }),
-      })
-      writeNow()
-      const ledgerDone = r && r.ledger ? countDone(r.ledger) : 0
-      return {
-        code: 0,
-        data: {
-          started: true,
-          resumed,
-          stopped: Boolean(r && r.stopped),
+
+    const shotIds = project.shots.map((s) => s.shotId)
+    const countDoneNow = () => project.shots.filter((s) => s.status === 'done').length
+    const emitSafe = (evt) => {
+      try {
+        if (event && event.sender && typeof event.sender.send === 'function') {
+          event.sender.send('film-engineering:auto-update', evt)
+        }
+      } catch { /* 窗口已销毁：事件推送失败不影响执行 */ }
+    }
+
+    // ★ 长任务必须**立即返回**（真机 E2E 抓到的缺陷）：
+    //   原实现 `await driver(...)` 会让渲染端的 `await autoStart()` 一直挂到整轮跑完（可达数小时），
+    //   于是面板停在确认卡、进度永远升不到运行态——用户看到的是「点了没反应」。
+    //   现在：派发后立刻回初始投影，进度与收口一律经事件（driver 已节流）+ `auto-status` 汇总；
+    //   任务本身仍在主进程继续跑，关掉界面不中断（沿用「磁盘为真 + 断点续跑」纪律）。
+    void (async () => {
+      try {
+        const r = await driver({
           taskId,
-          planId: project.planId,
+          shotIds,
+          ledgerDir: projectDir(home, taskId),
+          mediaRoot,
+          runIdFor: (t, batchIndex) => autoRunIdFor(t, batchIndex),
+          probe,
+          runOnlyBatch: null,
+          // 停止（批间生效）：已开始的批跑完，未开始的批保持 pending；已完成的镜不会被重做
+          shouldStop: () => stoppingAutoTasks.has(taskId),
+          emit: emitSafe,
+          runBatch: (batch, ctx) => runBatchFn({
+            batch,
+            project,
+            aiGenerator,
+            log,
+            deps: o,
+            onShotProgress: ctx.onShotProgress,
+            onDispatched: () => incrementProviderCalls(project),
+            persist: writeNow,
+          }),
+        })
+        writeNow()
+        emitSafe({
+          type: 'production:complete',
           ok: Boolean(r && r.ok),
-          doneCount: ledgerDone,
+          stopped: Boolean(r && r.stopped),
+          doneCount: r && r.ledger ? countDone(r.ledger) : countDoneNow(),
           totalCount: shotIds.length,
-          failedBatches: (r && r.failedBatches) || [],
-          renderManifest: r && r.renderManifest ? r.renderManifest.entries : null,
+          failedBatchCount: r && r.failedBatches ? r.failedBatches.length : 0,
           manifestError: (r && r.manifestError) || null,
-          counters: reconcileCounters(project, { doneCount: ledgerDone, totalCount: shotIds.length }),
-        },
+        })
+      } catch (e) {
+        writeNow()
+        const message = e instanceof Error ? e.message : String(e)
+        log.warn('[film-engineering] auto-start run error:', message)
+        emitSafe({ type: 'production:complete', ok: false, error: message, doneCount: countDoneNow(), totalCount: shotIds.length })
+      } finally {
+        runningAutoTasks.delete(taskId)
+        stoppingAutoTasks.delete(taskId)
       }
-    } catch (e) {
-      writeNow()
-      const message = e instanceof Error ? e.message : String(e)
-      log.warn('[film-engineering] auto-start error:', message)
-      return message.startsWith('VIDEO_MODEL_NOT_CONFIGURED')
-        ? fail(EC.REQUEST_ERROR, 'VIDEO_MODEL_NOT_CONFIGURED', message)
-        : fail(EC.REQUEST_ERROR, 'AUTO_START_FAILED', message)
-    } finally {
-      runningAutoTasks.delete(taskId)
-      stoppingAutoTasks.delete(taskId)
+    })()
+
+    return {
+      code: 0,
+      data: {
+        started: true,
+        resumed,
+        stopped: false,
+        dispatched: true,
+        taskId,
+        planId: project.planId,
+        // ok/renderManifest 只在**本轮结束时**成立：这里刻意回 null 而不是 false——
+        // 回 false 会让界面把「刚开始」误判成「失败」。
+        ok: null,
+        doneCount: countDoneNow(),
+        totalCount: shotIds.length,
+        failedBatches: [],
+        renderManifest: null,
+        manifestError: null,
+        counters: reconcileCounters(project, { doneCount: countDoneNow(), totalCount: shotIds.length }),
+      },
     }
   }))
 
