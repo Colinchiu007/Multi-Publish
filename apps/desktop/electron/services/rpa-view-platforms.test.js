@@ -478,15 +478,16 @@ describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图
     expect(context._setFileInput).not.toHaveBeenCalled()
   })
 
-  it('小红书视频模式：无 preFill（视频 tab 是默认态）', async () => {
+  // 2026-10-10 硬约束收紧：小红书视频不再走通用发布流程（终点是点「发布」），改为 fail-closed。
+  // 旧断言（无 preFill + target=video 交给 generic）正是「视频可真实发布」的契约，已被用户要求推翻。
+  it('小红书视频模式：fail-closed 拒绝，绝不进入 generic（不得真实发布）', async () => {
     const { win } = createWindow('https://creator.xiaohongshu.com/publish/publish?from=menu&target=video')
     const context = createImageContext()
 
-    await platformsMixin._publish_xiaohongshu.call(context, win, { title: 'T', video_path: 'D:/v.mp4' })
+    const result = await platformsMixin._publish_xiaohongshu.call(context, win, { title: 'T', video_path: 'D:/v.mp4' })
 
-    const call = context._publish_generic.mock.calls[0]
-    expect(call[3].preFill).toBeUndefined()
-    expect(call[3].publish_url).toContain('target=video')
+    expect(context._publish_generic).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ success: false, platform: 'xiaohongshu', errorCode: 'XHS_VIDEO_DRAFT_UNSUPPORTED' })
   })
 
   it('generic 图片上传：无视频有图时上传首图（image_upload 字段）', async () => {
