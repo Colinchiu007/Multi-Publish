@@ -140,8 +140,8 @@ watch(() => (route.query && route.query.tab), (value) => {
 .fh-tabs { display: flex; gap: 4px; margin: 16px 24px 0; padding: 4px; background: var(--surface, #f8f9fa); border: 1px solid var(--hairline, rgba(0, 0, 0, 0.06)); border-radius: var(--radius-md, 10px); }
 .fh-tab { flex: 1 1 0; min-width: 0; appearance: none; border: 0; background: transparent; cursor: pointer; padding: 8px 12px; border-radius: var(--radius-sm, 8px); font-size: var(--font-size-sm, 13px); color: var(--el-text-color-regular, #606266); transition: background-color .15s ease, color .15s ease; }
 .fh-tab:hover:not(.active) { color: var(--text, #303133); background: var(--bg, rgba(0, 0, 0, 0.03)); }
-.fh-tab:focus-visible { outline: 2px solid var(--color-primary, #5048e5); outline-offset: 2px; }
-.fh-tab.active { background: var(--el-color-primary, #5048e5); color: #fff; font-weight: 600; }
+.fh-tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.fh-tab.active { background: var(--color-primary); color: #fff; font-weight: 600; }
 .fh-panels { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .fh-panels-canvas { min-height: 60vh; }
 @media (max-width: 900px) {

@@ -11,7 +11,7 @@
 .fa-choices { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
 .fa-choice { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-sm, 13px); }
 .fa-chip { appearance: none; border: 1px solid var(--el-border-color, #dcdfe6); background: transparent; border-radius: 999px; padding: 2px 10px; font-size: var(--font-size-xs, 12px); cursor: pointer; margin-right: 4px; }
-.fa-chip.active { border-color: var(--el-color-primary, #5048e5); color: var(--el-color-primary, #5048e5); font-weight: 600; }
+.fa-chip.active { border-color: var(--color-primary); color: var(--color-primary); font-weight: 600; }
 .fa-estimate { margin: 0 0 8px; font-size: var(--font-size-sm, 13px); color: var(--el-text-color-regular, #606266); }
 .fa-advanced { border: 1px solid var(--el-border-color-lighter, #ebeef5); border-radius: 8px; padding: 0 12px; }
 .fa-ref-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
