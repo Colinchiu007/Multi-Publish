@@ -22,6 +22,7 @@
 
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('./helpers')
+const { registerAutoInspectHandlers } = require('./film-engineering-auto-inspect')
 const path = require('path')
 
 const {
@@ -406,109 +407,15 @@ function registerAutoHandlers (ipcMain, deps) {
     return { code: 0, data: { ok: true, stopping: true, running: true } }
   }))
 
-  // ── 只读状态 ───────────────────────────────────────────────────────────
-  ipcMain.handle('film-engineering:auto-status', withSenderCheck((_e, payload) => {
-    const params = payload || {}
-    const projectRes = readProject({ home, taskId: params.taskId })
-    if (!projectRes.ok) return { code: 0, data: { exists: false, taskId: params.taskId || null } }
-    const project = projectRes.project
-    const ledger = loadLedger(projectDir(home, project.taskId))
-    let manifest = null
-    let manifestError = null
-    if (ledger) {
-      const built = buildRenderManifest(ledger, { mediaRoot, probe })
-      if (built.ok) manifest = built.entries
-      else manifestError = built.error
-    }
-    const finalPath = manifest && manifest.length > 0
-      ? path.join(mediaRoot, 'auto', project.taskId, 'final.mp4')
-      : null
-    return {
-      code: 0,
-      data: projectView(project, ledger, {
-        exists: true,
-        renderManifest: manifest,
-        manifestError,
-        finalPath,
-        running: runningAutoTasks.has(project.taskId),
-      }),
-    }
-  }))
 
-  // ── 片段编辑（内容真源唯一写入口）─────────────────────────────────────
-  ipcMain.handle('film-engineering:auto-update-shot', withSenderCheck((_e, payload) => {
-    const params = payload || {}
-    const projectRes = readProject({ home, taskId: params.taskId })
-    if (!projectRes.ok) return validationFail(projectRes.errorCode, projectRes.message)
-    const project = projectRes.project
-    const r = updateShot(project, { shotIndex: params.shotIndex, patch: params.patch || {}, mediaRoot })
-    if (!r.ok) return validationFail(r.errorCode, r.message)
-    const written = writeProject({ home, project })
-    if (!written.ok) return fail(EC.REQUEST_ERROR, written.errorCode, written.message)
-    return { code: 0, data: { ok: true, shot: r.shot, editedAt: project.editedAt } }
-  }))
+  // ── 检视与修订通道（拆到同级模块；见该文件头部说明）──────────────────
+  const inspectChannels = registerAutoInspectHandlers(ipcMain, {
+    EC, path, withSenderCheck, home, mediaRoot, probe, log, aiGenerator, deps: o, runningAutoTasks,
+    readProject, writeProject, loadLedger, projectDir, buildRenderManifest, projectView,
+    validationFail, fail, providerOrError, buildPayloadHash, needsReconfirm, appendConfirmation,
+    buildShotFingerprint, regenerateFn, updateShot, collectMissingShots,
+  })
 
-  // ── 单镜重生成（原子覆盖；需最新确认）─────────────────────────────────
-  ipcMain.handle('film-engineering:auto-regenerate-shot', withSenderCheck(async (_e, payload) => {
-    const params = payload || {}
-    const pre = providerOrError()
-    if (pre.error) return pre.error
-    const projectRes = readProject({ home, taskId: params.taskId })
-    if (!projectRes.ok) return validationFail(projectRes.errorCode, projectRes.message)
-    const project = projectRes.project
-    const payloadHash = buildPayloadHash({
-      shots: project.shots, aspect: project.aspect, seconds: project.seconds, providerId: project.providerId,
-    })
-    if (needsReconfirm(project, { payloadHash }) && params.confirmed !== true) {
-      return { code: 0, data: { ok: false, needsReconfirm: true, payloadHash, taskId: project.taskId } }
-    }
-    if (needsReconfirm(project, { payloadHash })) {
-      appendConfirmation(project, {
-        payloadHash,
-        shotsFingerprint: buildShotFingerprint(project.shots),
-        planVersion: project.runSeq || 1,
-      })
-    }
-    const r = await regenerateFn({
-      project,
-      shotIndex: params.shotIndex,
-      aiGenerator,
-      log,
-      deps: o,
-    })
-    try { writeProject({ home, project }) } catch { /* 忽略 */ }
-    if (!r.ok) return fail(EC.REQUEST_ERROR, r.errorCode || 'AUTO_REGENERATE_FAILED', r.message || '重生成失败')
-    return { code: 0, data: { ok: true, path: r.path, shotIndex: params.shotIndex, shot: project.shots[params.shotIndex] } }
-  }))
-
-  // ── 收口清单校验（合成 run 仍由渲染端经既有 pipeline 通道发起，D31）──
-  ipcMain.handle('film-engineering:auto-compose', withSenderCheck((_e, payload) => {
-    const params = payload || {}
-    const projectRes = readProject({ home, taskId: params.taskId })
-    if (!projectRes.ok) return validationFail(projectRes.errorCode, projectRes.message)
-    const project = projectRes.project
-    const ledger = loadLedger(projectDir(home, project.taskId))
-    if (!ledger) {
-      return validationFail('AUTO_MANIFEST_INCOMPLETE', '尚未产生出片台账，无法收口合成')
-    }
-    const built = buildRenderManifest(ledger, { mediaRoot, probe })
-    if (!built.ok) {
-      const missing = collectMissingShots({ project, probe })
-      return validationFail('AUTO_MANIFEST_INCOMPLETE',
-        '渲染清单未收口（' + (built.error || '存在缺镜') + '）' + (missing.length > 0 ? '，缺失镜：' + missing.map((m) => m.shotId || ('#' + m.shotIndex)).join(', ') : ''))
-    }
-    return {
-      code: 0,
-      data: {
-        ok: true,
-        taskId: project.taskId,
-        aspect: project.aspect,
-        seconds: project.seconds,
-        renderManifest: built.entries,
-        clipCount: built.entries.length,
-      },
-    }
-  }))
 
   return {
     registered: [
@@ -537,3 +444,4 @@ module.exports.stoppingAutoTasks = stoppingAutoTasks
 module.exports.nowStamp = nowStamp
 module.exports.MAX_AUTO_SHOTS = MAX_AUTO_SHOTS
 module.exports.DRIVER_BATCH_SIZE = DRIVER_BATCH_SIZE
+
