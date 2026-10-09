@@ -21,7 +21,7 @@ sync_backfill_owner: 本会话（ue-p4e-contrast-fix 作者）
 | 测试接线 | PASS | styles 契约 + PublishHistory.test + accounts-compile.test 共 **123 passed \| 1 skipped**（vitest 本机实测） |
 | 行数门禁 | PASS | check-max-lines rc=0：Publish/Accounts dark 规则因登记零容差（1773/1578）迁 tokens.css（PublishHistory 1394 同款模式），三个点名文件净零增长 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未动 electron/ 主进程；视觉以 contrast-audit 实测 19→0 为准 |
-| QM-6 CCG 双模型外部评审 | PENDING | 提交后执行 scripts/ccg-review.ps1 -Mode Deep（PowerShell 统一入口），结果回填本行 |
+| QM-6 CCG 双模型外部评审 | PASS | 双家族已执行（proposer=opencode + critic=claude 跨家族，PowerShell 统一入口），出口为自扮演裁决档（置信 0.6），4 条发现全部裁决：i1 coral 全局改深被实证否决（前景 ~80 处会退化）→ 改三元素局部底色覆盖、i2 dismissed（primary 系已映射）、i3 dismissed（两阶段回填既定流程）、i4 upheld（Dashboard 改走 var(--color-sidebar-accent)）；裁决见 `.adversarial/ccg-deep-95063141/adjudication.json` |
 | 远程同步 | PENDING | 合并后取证 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`，`git ls-remote --heads origin ue-p4e-contrast-fix` 应返回 0 行；随后删除上方 sync_* 三字段 |
 
 ### 复盘：已闭合
