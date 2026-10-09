@@ -1,0 +1,37 @@
+/**
+ * copyLibrary 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
+ * 从 locales/en.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
+ */
+export default {
+    pageTitle: 'Copy Library',
+    pageSubtitle: 'Aggregates copies from collection, rewrite, drafts and video creation',
+    filterLabel: 'Source filter',
+    filterAll: 'All',
+    filterCollect: 'Collection',
+    filterRewrite: 'Rewrite',
+    filterDraft: 'Drafts',
+    filterVideo: 'Video Creation',
+    originCollect: 'Collection',
+    originRewrite: 'Rewrite',
+    originDraft: 'Draft',
+    originVideo: 'Video',
+    searchPlaceholder: 'Search title or content...',
+    searchAria: 'Search copies',
+    loading: 'Loading...',
+    emptyTitle: 'No copies yet',
+    emptyDesc: 'Copies from collection, rewrite and video creation will appear here automatically',
+    filterEmptyTitle: 'No matching copies',
+    filterEmptyDesc: 'Try a different filter or keyword',
+    filterEmptyAction: 'Clear filters',
+    shownTruncated: 'Showing first {shown} of {total} copies',
+    loadMoreCopies: 'Load more copies',
+    untitled: 'Untitled',
+    wordCount: (ctx) => ctx.named('count') + ' words',
+    truncated: 'Content truncated',
+    viewDetailAria: 'View copy details',
+    detailLoadedToast: 'Loaded copy from library: {title}',
+    detailModeBanner: 'Copy detail mode: content loaded from Copy Library. Saving as draft writes back to the library (except video source).',
+    detailModeBannerClose: 'Dismiss notice',
+    videoFullTextFailed: 'Failed to load full video text; truncated preview loaded',
+    handoffFailed: 'Failed to open copy details. Please try again.',
+  }

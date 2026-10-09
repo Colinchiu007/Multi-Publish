@@ -1,0 +1,88 @@
+/**
+ * viralAnalysis 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
+ * 从 locales/zh.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
+ */
+export default {
+    empty: {
+      title: '输入主题开始分析',
+      message: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
+    },
+    saveToLibrary: '存入爆款库',
+    savedToLibrary: '已存入爆款库，改写时可被「结合爆款库」检索引用',
+    saveToLibraryHint: '将本次分析结果存入爆款库，供改写引擎参考',
+    saveFailed: '存入爆款库失败',
+    goRewrite: '去改写',
+    topicPrefillNotice: '主题已从热门选题带入，点击「爆款分析」开始',
+    reportTitle: '爆款分析报告',
+    reportTopic: '主题',
+    reportScore: '爆款潜力分',
+    reportTrend: '趋势方向',
+    reportAngles: '推荐写作角度',
+    reportKeywords: '上升关键词',
+    reportFactors: '因子分解',
+    reportPlatform: '目标平台',
+    // 空状态（2026-09-18）：原为硬编码中文，被 CI check-locale-sync --cjk 拦截
+    emptyTitle: '输入主题开始分析',
+    emptyDescription: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
+    // 错误可见化（2026-09-21）：分析/生成失败不再静默吞错，横幅展示友好文案（formatUserError fallback）
+    analyzeFailed: '分析失败，请稍后重试，或检查网络与服务状态',
+    generateFailed: '文案生成失败，请稍后重试',
+    // 精致化（2026-09-21）：本地兜底模式徽章 + 生成任务名本地化
+    localModeBadge: '本地分析',
+    localModeHint: 'orchestrator 服务不可用，结果来自本地启发式引擎',
+    taskTitles: '标题生成',
+    taskHooks: '开场钩子',
+    taskRewrite: '内容改写',
+    taskStructures: '结构建议',
+    // 精致化（2026-09-21）：区块标题去 emoji 后迁入 locale（原基线含 🌐/ 前缀）
+    sectionPlatformScores: '平台评分',
+    sectionSuggestedStructures: '推荐标题结构',
+    sectionGenerateResult: '生成结果',
+    // PR-1 爆款页充分利用（2026-09-21）：F1 task 分段 / F3 热门选题速选 / F9 生成区模式徽标 / Q2 本地估算标注
+    taskSegmentHint: '选择生成类型',
+    sectionTrending: '热门选题',
+    trendSrcHotlist: '热榜',
+    trendSrcLibrary: '库内',
+    trendSrcArticles: '分析',
+    trendingHint: '点击选题词回填主题（不自动分析）',
+    localGenBadge: '本地算法',
+    localGenHint: '本地启发式引擎（无网络/未配置 orchestrator 时可用），仅支持标题与开场钩子；长文改写请前往改写页或配置 AI 服务',
+    localEstimateBadge: '本地估算',
+    // PR-2 爆款页充分利用（2026-09-21）：F6 我的模式命中 / F7 爆款库回读 / F8 实测角标
+    sectionPatternHits: '我的模式命中',
+    patternHitHint: '来自个人模式库实测表现，点击套用到下次生成',
+    applyPatternHint: '点击套用该结构，生成时优先采用',
+    patternSample: '{n} 篇样本',
+    appliedPattern: '已套用结构',
+    cancelPattern: '取消套用',
+    pickFromLibrary: '从爆款库选择',
+    pickFromLibraryHint: '回读已存入爆款库的条目，回填主题并附加文章数据',
+    libraryDialogTitle: '从爆款库选择',
+    librarySearchPlaceholder: '输入关键词搜索爆款库',
+    librarySearch: '搜索',
+    libraryLoading: '加载中…',
+    libraryEmpty: '爆款库还没有条目',
+    libraryEmptyHint: '先完成一次分析并点击「存入爆款库」，这里就会出现可回读的条目',
+    closeDialog: '关闭',
+    measuredBadge: '实测',
+    measuredBadgeHint: '该标题已有发布回采数据（取近期快照最高互动）',
+    // F6 叙事结构枚举标签：显示语义与引擎 NARRATIVE_LABELS 一一对应（引擎为过滤唯一权威）
+    narrative: {
+      list: '数字盘点',
+      contrast: '对比评测',
+      problem_solution: '避坑警示',
+      story_lesson: '个人经历背书',
+      total_subtotal: '深度长文',
+      chronological: '入门教程',
+    },
+    // 手动文章数据 UX 优化（2026-09-21）：步骤说明 + 一键示例填入 + 格式错误可见化
+    manualDataSummary: '可选：手动输入文章数据，让分析更准确',
+    manualDataHelp: '默认情况下，AI 只根据主题估算爆款潜力。如果你粘贴几篇同类文章的真实数据，AI 会按你的实际点赞和评论数计算，结果更准确。',
+    manualDataStep1: '第 1 步：准备 3~10 篇同主题文章的标题、点赞数、评论数（可在小红书 / 抖音 / 公众号后台复制）',
+    manualDataStep2: '第 2 步：点击下方「填入示例数据」查看格式，再改成你自己的数据',
+    manualDataStep3: '第 3 步：点右上角「爆款分析」，即可用真实数据分析',
+    manualDataLabel: '文章列表（每篇填：title=标题，like_count=点赞数，comment_count=评论数）',
+    manualDataSampleTitles: '5个AI效率工具推荐，半小时学会准点下班|新手教程：用AI一句话搞定周报，老板夸我专业|亲测10款AI写作工具，只推荐留下这3个',
+    fillSample: '填入示例数据',
+    articleDataInvalid: '文章数据格式不正确：请提供以 [ 开头、以 ] 结尾的 JSON 数组，每篇包含 title、like_count、comment_count。可点击「填入示例数据」对照示例修改。',
+  }

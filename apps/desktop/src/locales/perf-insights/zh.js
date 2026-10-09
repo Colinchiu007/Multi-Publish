@@ -1,0 +1,41 @@
+/**
+ * perfInsights 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
+ * 从 locales/zh.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
+ */
+export default {
+    title: '效果洞察',
+    subtitle: '模式效果排行 — 哪种表达模式在你的账号上表现最好（基于发布后回采数据归因）',
+    refresh: '刷新',
+    recompute: '重算归因',
+    recomputeDone: '归因重算完成',
+    recomputeFailed: '归因重算失败，请稍后重试',
+    emptyTitle: '暂无归因数据',
+    emptyHint: '发布带改写关联的内容并回采表现数据后，这里会展示各表达模式的效果排行',
+    dimHook: '开头钩子',
+    dimCurve: '情绪曲线',
+    dimNarrative: '叙事结构',
+    dimCta: 'CTA 方式',
+    colValue: '模式',
+    colSamples: '样本数',
+    colAvgViews: '平均阅读',
+    colAvgLikes: '平均点赞',
+    colAvgComments: '平均评论',
+    colAvgFavorites: '平均收藏',
+    colScore: '互动得分',
+    colAvgShares: '平均分享',
+    lowSample: '样本不足',
+    tenThousand: '万',
+    // ── UI 精致化新增（2026-09-21）──
+    allPlatforms: '全部平台',
+    platformFilterAria: '按平台筛选归因数据',
+    scoreFormula: '互动得分 = 平均点赞 + 平均评论 + 平均收藏 × 2（首版启发式，收藏权重更高）',
+    bestPrefix: '最优模式',
+    samplesSummary: '{n} 个样本',
+    updatedAt: '更新于 {time}',
+    overviewSamples: '总样本量',
+    overviewPatterns: '模式数',
+    overviewUpdated: '最近计算',
+    dimEmptyTitle: '该维度暂无归因数据',
+    loadFailed: '归因数据加载失败',
+    lowSampleTip: '样本不足 {min} 条，得分仅供趋势参考，建议继续发布回采后观察',
+  }
