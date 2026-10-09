@@ -395,7 +395,10 @@ function listTaskRuns (opts) {
   const id = resolveTaskId(o.taskId)
   if (!id.ok) return id
   const root = path.join(projectDir(o.home, id.taskId), ARCHIVE_LABEL)
-  let names = []
+  // 不要写成 `let names = []`：try 与 catch 两条路径都会先赋值，初始值必被覆盖，
+  // ESLint no-useless-assignment 判 error（Gate 11 阻断）
+  let names
+
   try { names = fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) } catch { names = [] }
   const runs = names
     .map((n) => Number(n))

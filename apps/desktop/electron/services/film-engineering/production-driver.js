@@ -215,7 +215,10 @@ async function runProduction (opts) {
     // 停止（批间生效）：只看**开始一批之前**的标志，已开始的批必然跑完；
     // 未开始的批保持 pending（不写 failed），因此停下来的任务天然可续跑。
     if (typeof shouldStop === 'function' && p.needRun) {
-      let stop = false
+      // 不要写成 `let stop = false`：try 与 catch 都会赋值，初始值必被覆盖
+      // （ESLint no-useless-assignment 判 error，Gate 11 阻断）；两条路径都不留 undefined
+      let stop
+
       try { stop = shouldStop() === true } catch { stop = false }
       if (stop) {
         stopped = true
