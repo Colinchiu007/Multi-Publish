@@ -526,6 +526,16 @@ test('一次性去重授权不得作为常驻文件留在仓库里', () => {
   assert.ok(!fs.existsSync(live),
     'scripts/changelog-dedup-authorization.json 必须只在“需要它的那次清理 PR”里新增，用完即随该 PR 一起消失。' +
     '要重跑清理请在同一个 PR 里用 scripts/changelog-dedup-regen.js 现生成一份，不得把历史授权留在 main 上。');
+  // 只查那一个固定路径会被两条路绕开：改名（由下面锁 2 的字面量断言拦）与**换位**（挪进 config/ 等目录）。
+  // 所以这里扫的是全仓 tracked 清单，不扫工作树 —— 授权件的语义是"随清理 PR 进出仓库"，未跟踪的临时产物不归它管。
+  const root = path.join(__dirname, '..');
+  const tracked = execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8' })
+    .split('\n').map((l) => l.trim()).filter(Boolean);
+  assert.ok(tracked.length > 1000, `tracked 清单解析退化（只取到 ${tracked.length} 项）—— 空集合会让本锁恒真`);
+  const offenders = tracked.filter((f) => /(^|\/)changelog-dedup-authorization[^/]*\.json$/.test(f));
+  assert.deepEqual(offenders, [],
+    '仓库里不得存在任何 changelog-dedup-authorization*.json（含改名与换到别的目录），无论它叫什么、放在哪。' +
+    '一次性授权只应活在它服务的那次清理 PR 里。');
 });
 
 test('退的是授权件不是通路：常量/生成器/校验函数三样都必须在', () => {
