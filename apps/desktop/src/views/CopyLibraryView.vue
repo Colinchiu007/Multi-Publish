@@ -81,7 +81,7 @@
     <LoadMoreRow v-if="itemsTruncated" data-testid="load-more-copies"
       :hint="t('copyLibrary.shownTruncated', { shown: renderedItems.length, total: filteredItems.length })"
       :button-text="t('copyLibrary.loadMoreCopies')"
-      @more="copyRenderLimit += 30" />
+      @more="copyRenderLimit += 35" />
   </div>
 </template>
 
@@ -248,11 +248,6 @@ onMounted(() => { loadAll() })
 }
 .copy-library-grid {
   display: grid;
-}
-.load-more-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 4px; }
-.load-more-hint { color: #85858f; font-size: var(--font-size-sm); }
-.load-more-btn { padding: 6px 18px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; color: var(--color-text-primary); cursor: pointer; font-size: var(--font-size-sm); }
-.load-more-btn:hover { background: var(--color-bg-inset); }
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 12px;
 }
