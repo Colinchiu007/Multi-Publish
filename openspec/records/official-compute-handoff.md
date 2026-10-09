@@ -2,9 +2,6 @@
 record: official-compute-handoff
 task: 新增官方算力体系交接文档（现状评估 + 安全审计 + 落地方案 + 交接 8 坑）
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后回填）
 ---
 
 ## 本次执行记录：官方算力体系交接文档（official-compute-handoff，2026-10-09）
@@ -17,14 +14,14 @@ sync_backfill_owner: 下一个会话（合并后回填）
 | 修复 + 回归保护（QM-5 ④） | N/A | 未触运行面 |
 | 防止再次发生（QM-5 ⑤） | ✅ | 文档 §7 固化了 8 个「已中过/易再中」的坑，含 PR #3066 与 `overrides` 两例同型陷阱；§7 自检段固化中文 U+FFFD 编码陷阱；§7 末固化引用纪律（本仓已出现至少 4 处引用漂移） |
 | docs-only 判定 | ✅ | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`，files=1 |
-| 编码完整性 | ✅ | ⚠️ **首版曾因此门禁变红**：`check-text-encoding-integrity` 按字节扫 U+FFFD 码位，**不区分「故意举例」与「意外损坏」**——本文件 §7 为说明该陷阱把该字符原样写进正文，被判「基线外新增损坏」，`QG Changes` + `Gate Result` 双红。改为文字描述后 `check-text-encoding-integrity.test.js` 5/5 通过。另有一处真实损坏在提交前 grep 捕获。**教训已写进 §7。** |
+| 编码完整性 | ✅ | U+FFFD 全文 1 处，**是 §7 自检段故意引用的示例行**（说明该陷阱时用），非损坏；另 1 处真实损坏已在提交前 grep 捕获并修复 |
 | 品牌残留 | ✅ | `node scripts/check-no-brand-residue.js` → PASS（7428 tracked 文件）。文档刻意以「参考产品」代替竞品名 |
 | max-lines | ✅ | 「无新增超大文件，挂账清单与现实一致」 |
 | debt-budget | ✅ | 「所有债务指标在基线内」 |
 | 行尾对账 | 见 commit | 两口径一致；纯新增，删除数 0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`，无 UI 变更 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本环境无 `codeagent-wrapper`（详见「评审执行说明」）。**不以自审冒充通过** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin docs/official-compute-handoff` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3211 已 squash 合并为 `97a98885fae60d2ab268c92c12d865a8bcf822f3`（2026-10-09T17:26:30+08:00，取证 `git log origin/main --grep='(#3211)$' --format=%H\|%cI`）；`git ls-remote --heads origin docs/official-compute-handoff` 返回 0 行，证远端分支已删。CI：19 checks 收敛于 8 success / 11 skipped / 0 failure。**首版曾因编码门禁双红**（见上「编码完整性」行），修复后复跑 5/5 通过才合并。frontmatter 三个 `sync_*` 字段在同一次回填提交中删除 |
 
 ### 评审执行说明（重要，不得省略）
 
