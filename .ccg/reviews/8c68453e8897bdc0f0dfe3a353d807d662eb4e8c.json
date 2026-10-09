@@ -1,0 +1,21 @@
+{
+  "sha": "8c68453e8897bdc0f0dfe3a353d807d662eb4e8c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "user policy: every batch requires CCG dual-family review; line-count SINGLE upgraded to DUAL",
+  "decidedAt": "2026-10-09T06:31:14.014Z",
+  "decidedBy": "manual-override-per-user-policy",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_adjudicated",
+    "performedBy": "self-play(opencode proposer + claude critic, adjudicated)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-8c68453e\\adjudication.json",
+    "note": "4 条发现全部裁决（i1/i2/i4 upheld 已修复，i3 dismissed）",
+    "at": "2026-10-09T06:35:39.108Z",
+    "adjudication": ".adversarial/ccg-deep-8c68453e/adjudication.json",
+    "verdicts": "i1 upheld(fixed) / i2 upheld(fixed) / i3 dismissed / i4 upheld(fixed)"
+  }
+}

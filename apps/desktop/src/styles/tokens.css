@@ -306,7 +306,10 @@
  * 徽章/触发按钮的硬编码亮色在暗底不可读（contrast-audit 实测）。
  * 集中放 tokens.css（PublishHistory 登记零容差，组件内无法再放），但 tokens
  * 经 main.js 最先注入，同特异性会被后注入的组件样式按序反超（实测 +16 退化），
- * 故全部规则加 html 前缀抬特异性（(0,2,1)/(0,3,1) 压过 scoped 的 (0,2,0)/(0,3,0)）。 */
+ * 故全部规则加 html 前缀抬特异性（(0,2,1)/(0,3,1) 压过 scoped 的 (0,2,0)/(0,3,0)）。
+ * 作用域契约（CCG i4）：history-tab/secondary-action/toolbar-button/icon-action
+ * 四个类名为 PublishHistory 独占（2026-10-09 全 src 检索证实，各 1 文件）；
+ * 其他视图复用同名 class 前必须改名或加前缀，否则暗色会被本区意外染色。 */
 html[data-theme='dark'] .history-tab { color: var(--color-text-secondary); }
 html[data-theme='dark'] .history-tab.active { color: var(--color-text-primary); }
 html[data-theme='dark'] .secondary-action,
