@@ -66,6 +66,9 @@ for (const ns of namespaces) {
     const ext = extractNamespace(src, ns)
     if (!ext) { console.error(`FAIL: ${lang}.js 找不到命名空间 ${ns}`); process.exit(1) }
     const keyCount = countTopKeys(ext.body)
+    // 顶层键数 < 5 告警（PR3 实测坑：create 域 360 行只有 story2video/history 两个子对象，
+    // 键数口径对非对象键域失真，但 <5 必是大对象域，提示人工确认而非继续盲迁）
+    if (keyCount < 5) console.warn(`WARN: ${ns} (${lang}) 仅 ${keyCount} 个顶层键——若是巨型对象域（如 create），属正常；否则请人工核对抽取边界`)
     // 嵌套展开检测（PR2 实测坑：memberCenter 域内含 ...identityDiagnosticsZh，直接搬运会丢 import → Gate 7 解析失败）
     const nestedSpreads = [...ext.body.matchAll(/\.\.\.(\w+)/g)].map((m) => m[1])
     if (nestedSpreads.length > 0) {
