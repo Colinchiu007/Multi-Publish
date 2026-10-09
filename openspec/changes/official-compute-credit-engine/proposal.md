@@ -417,3 +417,117 @@ reserved ──execute(CAS)──> executing ──上游成功──> completed
 | A.3 原论证 | `models.py:124` 是 `api_key` Fernet 加密 | `models.py:122` 才是 `api_key`；`:124` 是 `models = Column(Text)` |
 | 决策 3 引用 | 「`subscription-service` 侧同源校验」 | **不存在**。该文件 `isInteger` 只校验 `durationDays`（`:239,:283`）与 `count`（`:286`） |
 | 决策 3 引用 | 贴的 SQL 是 `consumeEntitlementUsage` 全文 | 是删节版，漏了 `quota_limit = EXCLUDED.quota_limit`（`:374`）——正是 R5 变危险的原因 |
+
+---
+
+# 附录 B：D1 拍板 —— Key 池物理归属（方案 A：迁移到 Postgres）
+
+> 2026-10-09 决策：`official_keys` 从 ops-center 的 SQLite 迁到 api-publish-engine 的 Postgres，
+> 成为**单真源**。本附录是 P0-b 的实施依据。
+
+## B.1 为什么必须单真源
+
+决策 4 要求 `reserve` **原子地**读 `is_active / tier_access / priority / expires_at`。
+决策 1 承诺「熔断**立刻**全网生效」。这两条都要求 Key 池和权益账本在**同一个事务边界**内。
+
+任何形式的跨库（反向 HTTP、镜像同步）都会让这两条承诺打折：镜像有同步延迟，反向调用把原子性降级为最终一致。
+
+## B.2 ops-center 侧的影响面（逐条取证）
+
+| # | 触点 | 证据 | 迁移动作 |
+|---|---|---|---|
+| 1 | `OfficialKey` ORM 声明 | `ops-center/backend/models.py:116-136` | 列定义基本可移植（SQLAlchemy 双方言）；`id = Column(String, primary_key=True)` 需确认 Postgres 大小写行为 |
+| 2 | **唯一 engine** | `ops-center/backend/database.py:8-11`，`sqlite+aiosqlite:///{db_path}` | **新增第二个 Postgres engine + session 工厂**，原 SQLite engine 保留给 config / feature_flag / model_presets 等其余表 |
+| 3 | **缺 Postgres 驱动** | `ops-center/backend/requirements.txt:11` 只有 `sqlalchemy[asyncio]` | 加 `asyncpg`（或 `psycopg[binary]`），二选一并锁版本 |
+| 4 | **运行时 ALTER 补列** | `key_service.py:140-166` `ensure_official_key_columns` 逐列 `ALTER TABLE official_keys ADD COLUMN`（`rate_per_minute` / `daily_limit` / `alert_threshold_cost` / `note`） | **删除该函数**，全部并入迁移文件 `006`。运行时 DDL 是 schema 漂移的根源，双库下更危险 |
+| 5 | **第二消费方（方案漏项）** | `model_preset_service.py:1112-1122`：`/model-presets/{id}/test` 在 body 未带 `api_key` 时**按 provider 回退读 `official_keys` 并 `decrypt_key`** | 该回退查询改为走新的 Postgres session。**原方案 Impact 清单未列此项** |
+| 6 | Fernet 加密 | `key_service.py:15-45` `_get_fernet()` | 迁移**必须复用同一个 `OPS_ENCRYPTION_KEY`**，密文原样 COPY，不重新加密 |
+| 7 | 前端管理页 | `ops-center/frontend/src/views/Secrets.vue` | 走 REST API，不直接碰 DB，**零改动** |
+| 8 | 告警聚合 | `key_service.py:214-233` `pool_summary`：成本按 **provider** 聚合却判**每 Key** 阈值 | 随迁移一并修：阈值判定改为按 Key 维度（评审 R16） |
+
+### B.2.1 Fernet 密钥是迁移的硬前置
+
+`key_service.py:22-36` 有一条危险分支：
+
+```python
+if os.environ.get("OPS_ALLOW_EPHEMERAL_KEY","").lower() == "true":
+    logger.warning("... DEVELOPMENT ONLY — encrypted data unrecoverable after restart.")
+    key = Fernet.generate_key().decode()
+```
+
+**若 `OPS_ENCRYPTION_KEY` 未配置且开了 `OPS_ALLOW_EPHEMERAL_KEY`，每次重启都会生成新密钥，所有已加密的官方 Key 永久不可解。**
+
+**迁移前置条件（阻断性）**：
+
+1. 确认生产环境 `OPS_ENCRYPTION_KEY` **已配置且固定**（`key_service.py:39` 的 fail-closed 分支应已在生效）
+2. **绝不能**在迁移过程中改动该值
+3. 迁移脚本上线前，先跑一次「用当前 key 解密全部存量行成功」的校验，把校验结果作为迁移的准入证据
+
+> 这一条不写进迁移，迁移后 Key 池会静默变成一堆解不开的密文，而且**只有等用户用到那把 Key 才会发现**。
+
+## B.3 数据迁移
+
+```sql
+-- 006_official_keys.sql（Postgres，与权益账本同库）
+CREATE TABLE official_keys (
+  id                    TEXT PRIMARY KEY,
+  provider              TEXT NOT NULL,
+  name                  TEXT NOT NULL,
+  api_key               TEXT NOT NULL,           -- Fernet 密文，原样迁入
+  base_url              TEXT NOT NULL DEFAULT '',
+  models                TEXT NOT NULL DEFAULT '[]',
+  priority              INTEGER NOT NULL DEFAULT 1,
+  is_active             INTEGER NOT NULL DEFAULT 1,
+  tier_access           INTEGER NOT NULL DEFAULT 1,
+  cost_per_1k_tokens    DOUBLE PRECISION NOT NULL DEFAULT 0,
+  expires_at            TEXT NOT NULL DEFAULT '',
+  rate_per_minute       INTEGER NULL,
+  daily_limit           INTEGER NULL,
+  alert_threshold_cost  DOUBLE PRECISION NULL,
+  note                  VARCHAR(200) NOT NULL DEFAULT '',
+  created_at            TEXT NOT NULL DEFAULT '',
+  updated_at            TEXT NOT NULL DEFAULT '',
+  -- 新增：选 Key 需要的索引
+  CONSTRAINT ck_official_keys_tier   CHECK (tier_access IN (1,2,3)),
+  CONSTRAINT ck_official_keys_active CHECK (is_active IN (0,1))
+);
+CREATE INDEX idx_official_keys_select
+  ON official_keys (is_active, tier_access, priority DESC);
+```
+
+**迁移步骤**：
+
+| # | 步骤 | 校验点 |
+|---|---|---|
+| 1 | 确认 `OPS_ENCRYPTION_KEY` 已固定 | **阻断性**，不通过则停 |
+| 2 | 导出 SQLite 全表 → JSON | 行数 = `SELECT count(*)` |
+| 3 | 用**当前 key** 逐行 `decrypt` → 成功 → 立即 `re-encrypt` 校验（round-trip） | 全部成功才继续 |
+| 4 | 建表 + 导入（密文原样 COPY） | 目标行数 = 源行数 |
+| 5 | 目标侧逐行解密验证 | 全部成功 |
+| 6 | **双读期**：ops-center 优先读 Postgres，回落 SQLite（读路径） | 新增/改 Key 只写 Postgres |
+| 7 | 观察 7 天，确认无回落读 | — |
+| 8 | 停 SQLite 写入，标记 `official_keys` 只读 | — |
+| 9 | 删除 `ensure_official_key_columns` | grep 确认 0 命中 |
+
+**回滚**：第 8 步之前，SQLite 侧数据未被破坏，代码可切回；第 8 步之后需反向导出。
+
+## B.4 跨库事务边界的诚实说明
+
+采纳 A 后，ops-center 同时持有两个连接：
+
+```
+SQLite  : config / feature_flag / model_presets / content_policy / ...
+Postgres : official_keys
+```
+
+**`official_keys` 的 CRUD 不与 SQLite 侧任何表同事务**（`key_service.py` 的写路径是独立 CRUD），所以当前**没有跨库事务需求**。
+
+**但这是新增的架构约束，必须写死**：今后**不得**设计任何「同时写 `official_keys` 和 SQLite 表」的操作。若将来出现这类需求（如「保存 ModelPreset 时同时锁定对应 Key」），必须先解决分布式事务，否则一律拆成两步 + 补偿。
+
+## B.5 P0-b 的验收口径
+
+- 目标库行数 = 源库行数，且逐行可解密
+- ops-center 的 `/api/v1/secrets` CRUD 全量功能不变（前端零改动即证明）
+- `/api/v1/model-presets/{id}/test` 的 Key 回退路径功能不变
+- **端到端**：`reserve` 能读到 Postgres 的 Key；改 `is_active=0` 后 ≤1s 内新 `reserve` 选不到该 Key
+- `grep -rn "ensure_official_key_columns" ops-center/` → 0 命中
