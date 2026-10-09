@@ -2,6 +2,9 @@
 record: docs-agents-merge-closure-gotchas
 task: 把「PR 合并后收尾链」上实测到的六类假失败与共享根滞后前提，写入 AGENTS.md 的收尾清单与新增小节
 date: 2026-10-10
+sync_status: PENDING
+sync_reason: 本轮修订（AGENTS.md:109 的 gh 合并 rc 措辞更正 + 本记录新增「本轮修订」行）尚未合并，本 PR 的 merge SHA 还不存在；合并后由回填 PR 取证并把状态改 PASS，且在同一次提交内删除本段三字段。
+sync_backfill_owner: 下一个会话（本 PR 作者侧）
 ---
 
 ## 本次执行记录：PR 收尾链假失败口径与共享根滞后防线（docs-agents-merge-closure-gotchas，2026-10-10）
@@ -17,7 +20,8 @@ date: 2026-10-10
 | 接线棘轮 | N/A | 本 PR 未新增任何 `*.test.js` / `*.test.mjs` / `*.test.sh` / `*.test.ps1`，`check-unwired-tests.js` 的欠账清单不变（该判据按文件增删比对，无新增即无登记） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 或 `packages/rpa-engine/`，无 UI 文件、无样式、无文案改动，显示项与提示文字不变；docs-only 通道按 AGENTS.md 明确跳过 QM-1/QM-2 代码必检项/QM-4/TDD |
 | QM-6 CCG 双模型外部评审 | 未执行 | 纯流程文档变更，按 AGENTS.md「纯文档/流程变更不强制 QM-6」；本会话亦未把自审冒充双模型外部评审。评审面留给下一个读 `AGENTS.md` 的会话：新增小节的六条判据是否被改宽（这是既有「残留风险」段点名的、机械闸门挡不住的那一类） |
-| 远程同步 | PASS | 已合并：#3241 squash 落地 `52b3d0a5c8ab2c1e8a0a60120c0292a5d144d347`（committer 2026-10-10T05:19:58+08:00）。取证：`git log origin/main --grep='(#3241)$' --format='%H|%cI'` 恰好 1 行且与 `gh pr view 3241 --json state,mergeCommit`（`MERGED` + 同一 `mergeCommit.oid`）两源一致；`git ls-remote --heads origin docs-agents-merge-closure-gotchas` 返回 0 行（远端分支已删）。本次回填同一次提交内删除本文件 frontmatter 三 `sync_*` 字段与 `scripts/gate-record-debt-ledger.json` 的登记项 |
+| 本轮修订（2026-10-10 第二刀：rc 措辞更正） | ✅ | `AGENTS.md:109` 原写「`gh pr merge --squash --delete-branch` 在本仓**恒 rc=1**」，是一条**把一次观测当定律**的过度声明——本会话随后两次实跑均为 rc=0（#3241 merge `52b3d0a5c8ab2c1e8a0a60120c0292a5d144d347`、#3243 merge `9a1ebe4b7c13c7e91cb689536347e45ab8a39109`），当场否证。已改为「两种值都实测出现过 + 一律只认三条产物判据 + 不得因 rc=0 免做取证」，并把「差异落在执行合并时所在 worktree 是否已检出 `main`」这一句**明确标注为未做对照实验的线索而非结论**。这条更正正是本文件「第一性原因」行点名的错误形状（判据取 rc 不取产物）在文档层的复发，且复发位置就在**为纠正它而写的那一行**上。逃逸分析（QM-5 ②）：逃逸的是「写文档时的自我约束」——新增小节里其余五条都配了产物判据，唯独这一条把现象写成恒定规律，而没有任何门禁在看文档措辞的**可证伪性**（`check-gate-record-debt.js` 只管状态列词表，`check-pr-exec-record.js` 只管记录是否随 PR 出现）。防止再次发生（QM-5 ⑤）：刻意**不**新增机械门禁——能锁住「文档里某句话是否为真」的东西不存在；实际防线是本行把反例现场（两个 PR 号 + 两个完整 SHA）留在原位，下一个读到 `AGENTS.md:109` 的人可当场用 `git log origin/main --grep='(#3243)$'` 与 `gh pr view 3243 --json state,mergeCommit` 复核 |
+| 远程同步 | PENDING | 本轮修订（`AGENTS.md:109` 的 rc 措辞更正 + 本文件新增「本轮修订」行）尚未合并，本 PR 的 merge SHA 还不存在。合并后由回填 PR 按 `git log origin/main --grep='(#NNNN)$' --format='%H|%cI'` 取 SHA 与时间、`git ls-remote --heads origin docs-agents-merge-closure-gotchas` 返回 0 行证远端分支已删，回填后删除本文件 frontmatter 三 `sync_*` 字段。注：本行此前曾为 `PASS`（引用 #3241 = `52b3d0a5c…`，已由 #3243 = `9a1ebe4b7…` 回填销账）；**那次闭合的是 #3241，不是本轮修订**，所以本轮重新写 PENDING 不是撤销已发生的证据 |
 
 ### 遗留（不假装已闭合）
 

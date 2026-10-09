@@ -106,7 +106,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 
 **收尾链上的已知假失败（判据一律取产物，不取 rc）**
 
-- `gh pr merge <n> --squash --delete-branch` 在本仓**恒 rc=1**（`failed to run git: fatal: 'main' is already used by worktree at <共享根>`）：gh 的本地收尾步骤要动 `main`，而 `main` 由共享根 worktree 持有。合并成败只认上面三条产物（`state=MERGED` + `mergeCommit.oid`、远端分支 0 行、`git log` 恰好 1 行），**不得因 rc=1 重跑合并**。
+- `gh pr merge <n> --squash --delete-branch` 的 rc **不可作为判据——本仓实测两种值都出现过**：#3239 / #3240 现场 rc=1（`failed to run git: fatal: 'main' is already used by worktree at <共享根>`，gh 的本地收尾步骤要动 `main`，而 `main` 由共享根 worktree 持有），#3241 / #3243 现场 rc=0。两组现场的差异落在「执行合并时所在 worktree 是否已检出 `main`」这一维上，但**该归因没做过对照实验，只作线索、不写成结论**（原判据写的「恒 rc=1」已被后两次实跑否证，属把一次观测当定律的同型错误）。合并成败一律只认上面三条产物（`state=MERGED` + `mergeCommit.oid`、远端分支 0 行、`git log` 恰好 1 行），**既不得因 rc=1 重跑合并，也不得因 rc=0 就免做产物取证**。
 - `scripts/classify-docs-only.js --head=HEAD` 必须在 **commit 之后**取证：未提交时 `HEAD==base` ⇒ 空 diff ⇒ 返回 `docs-only=false files=0`。那是取证顺序问题，不是判定失灵——把预提交的那次判定写进 PR 正文会写成假结论。
 - 共享根下 `git show origin/main:<path>` 会被 Git Bash 的 MSYS 参数转换改成 `origin\main;<path>` ⇒ `fatal: ambiguous argument`。读主干 blob 前先 `export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`。
 - `safe-worktree-remove.ps1` 在 `node_modules` 深路径上报 `error: failed to delete ...: Filename too long`（`git worktree remove` rc=255）属**预期路径**：注册已解除，脚本的 R6 长路径兜底会直删残留目录、R7 再对账基线，末尾出现 `worktree gone : True` 即成功。**不得**据此改判失败、更不得手工递归删除（R0）。
