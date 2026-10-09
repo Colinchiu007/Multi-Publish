@@ -300,3 +300,24 @@
    * 提亮到 #8b85ff（同色相）：暗底上 6.2:1。 */
   --color-primary: #8b85ff;
 }
+
+/* ---- P4 深色可读性系列 · 视图级 dark 覆盖（P4D 2026-10-09）----
+ * PublishHistory 的 history-tab/secondary-action 与 ProfileMenu 的登录标题/
+ * 徽章/触发按钮的硬编码亮色在暗底不可读（contrast-audit 实测）。
+ * 集中放 tokens.css（PublishHistory 登记零容差，组件内无法再放），但 tokens
+ * 经 main.js 最先注入，同特异性会被后注入的组件样式按序反超（实测 +16 退化），
+ * 故全部规则加 html 前缀抬特异性（(0,2,1)/(0,3,1) 压过 scoped 的 (0,2,0)/(0,3,0)）。
+ * 作用域契约（CCG i4）：history-tab/secondary-action/toolbar-button/icon-action
+ * 四个类名为 PublishHistory 独占（2026-10-09 全 src 检索证实，各 1 文件）；
+ * 其他视图复用同名 class 前必须改名或加前缀，否则暗色会被本区意外染色。 */
+html[data-theme='dark'] .history-tab { color: var(--color-text-secondary); }
+html[data-theme='dark'] .history-tab.active { color: var(--color-text-primary); }
+html[data-theme='dark'] .secondary-action,
+html[data-theme='dark'] .toolbar-button,
+html[data-theme='dark'] .icon-action { color: var(--color-text-primary); }
+html[data-theme='dark'] .mp-profile-copy strong { color: var(--color-text-primary); }
+html[data-theme='dark'] .profile-license-badge { background: rgba(139, 133, 255, .18); color: #b6b2ff; }
+html[data-theme='dark'] .profile-license-pro { background: rgba(251, 191, 36, .16); color: #fcd34d; }
+html[data-theme='dark'] .profile-license-trial { background: rgba(56, 189, 248, .16); color: #7dd3fc; }
+html[data-theme='dark'] .mp-profile { background: rgba(35, 35, 41, .72); border-color: #3d3d46; }
+html[data-theme='dark'] .mp-profile:hover { background: rgba(44, 44, 52, .9); }
