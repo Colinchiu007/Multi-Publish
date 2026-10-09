@@ -9,8 +9,6 @@ import { dirname, join } from 'node:path'
 
 const viewDir = join(dirname(fileURLToPath(import.meta.url)))
 const homeSrc = readFileSync(join(viewDir, 'Home.vue'), 'utf8')
-const zhSrc = readFileSync(join(viewDir, '../locales/zh.js'), 'utf8')
-const enSrc = readFileSync(join(viewDir, '../locales/en.js'), 'utf8')
 
 describe('Home.vue T0-4 主页整改（源码级守卫）', () => {
   it('快捷入口/操作按钮不再使用 emoji 图标', () => {
@@ -38,12 +36,15 @@ describe('Home.vue T0-4 主页整改（源码级守卫）', () => {
     expect(homeSrc).toContain('statsLoaded.value = true')
   })
 
-  it('home.todo.* 与 home.empty.* 在 zh/en 成对存在', () => {
+  it('home.todo.* 与 home.empty.* 在 zh/en 成对存在', async () => {
+    // locales 结构拆分后改为模块导入断言（FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 §3.2-6）
+    const zh = (await import('../locales/zh.js')).default
+    const en = (await import('../locales/en.js')).default
     for (const key of ['expired', 'failed', 'allClear']) {
-      expect(zhSrc).toContain(key)
-      expect(enSrc).toContain(key)
+      expect(zh.home.todo, `zh home.todo 缺 ${key}`).toHaveProperty(key)
+      expect(en.home.todo, `en home.todo 缺 ${key}`).toHaveProperty(key)
     }
-    expect(zhSrc).toContain("title: '还没有发布数据'")
-    expect(enSrc).toContain("title: 'No publish data yet'")
+    expect(zh.home.empty.title).toBe('还没有发布数据')
+    expect(en.home.empty.title).toBe('No publish data yet')
   })
 })

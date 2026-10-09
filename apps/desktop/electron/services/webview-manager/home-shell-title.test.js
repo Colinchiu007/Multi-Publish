@@ -46,11 +46,12 @@ describe('C1/C2：+ 新标签初始标题链路（渲染层源码契约）', () 
     expect(appSrc).toMatch(/tabTitleReporter\.stop\(\)/)
   })
 
-  it('locales zh/en 成对含 tabs.newTabTitle（主进程初始标题语义的渲染层孪生键）', () => {
-    const zh = read('src/locales/zh.js')
-    const en = read('src/locales/en.js')
-    expect(zh).toMatch(/newTabTitle:\s*'新标签页'/)
-    expect(en).toMatch(/newTabTitle:\s*'New Tab'/)
+  it('locales zh/en 成对含 tabs.newTabTitle（主进程初始标题语义的渲染层孪生键）', async () => {
+    // locales 结构拆分后改为模块导入断言（FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 §3.2-6）
+    const zh = (await import('../../../src/locales/zh.js')).default
+    const en = (await import('../../../src/locales/en.js')).default
+    expect(zh.tabs.newTabTitle).toBe('新标签页')
+    expect(en.tabs.newTabTitle).toBe('New Tab')
   })
 })
 

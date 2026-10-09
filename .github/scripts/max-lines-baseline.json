@@ -43,8 +43,6 @@
     "apps/desktop/src/composables/useModelProviderCrud.js": 609,
     "apps/desktop/src/composables/usePublishFlow.js": 534,
     "apps/desktop/src/features/accounts/components/AccountManagementCard.vue": 568,
-    "apps/desktop/src/locales/en.js": 3709,
-    "apps/desktop/src/locales/zh.js": 3709,
     "apps/desktop/src/styles/cohere-design-system.css": 1686,
     "apps/desktop/src/views/Accounts.vue": 1472,
     "apps/desktop/src/views/AutoPipelineView.vue": 514,
@@ -126,7 +124,9 @@
     "packages/story2video-engine/src/text-segmentation.ts": 1389
   },
   "pruned": {
-    "apps/desktop/src/components/LogsSettings.vue": 469
+    "apps/desktop/src/components/LogsSettings.vue": 469,
+    "apps/desktop/src/locales/zh.js": 291,
+    "apps/desktop/src/locales/en.js": 290
   },
   "testFiles": {
     "apps/desktop/electron/publishers/account-manager.test.js": 1598,

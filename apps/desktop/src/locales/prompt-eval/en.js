@@ -1,0 +1,37 @@
+/**
+ * promptEval 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
+ * 从 locales/en.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
+ */
+export default {
+    deleteConfirmTitle: 'Delete eval record',
+    deleteConfirmMessage: (ctx) => 'Delete eval record ' + ctx.named('id') + ' and its generated artifacts? This cannot be undone.',
+    deleteConfirmButton: 'Delete',
+    deleteFailed: 'Delete failed. Please try again later',
+    pageTitle: 'Prompt Eval',
+    pageSubtitle: 'Score and analyze prompt-optimization engine outputs (images)',
+    tabRun: 'Run Eval',
+    tabHistory: 'History',
+    tabAnalyze: 'Aggregate',
+    runButton: 'Start Evaluation',
+    running: 'Evaluating ({done}/{total})...',
+    pickImages: 'Generated images (multi-select; consecutive images from the same copy)',
+    sourceText: 'Source text',
+    context: 'Context (optional)',
+    optimizedPrompt: 'Optimized prompt (required)',
+    negativePrompt: 'Negative prompt (optional)',
+    emptyInput: 'Select at least 1 image and fill in the optimized prompt',
+    needSource: 'Fill in the source text or context',
+    noEvaluatorHint: 'Configure and enable a vision evaluation model in Model Providers',
+    evalFailed: 'Evaluation failed: {message}',
+    videoNotSupported: 'Video evaluation is not implemented yet; use images',
+    gradeExcellent: 'Excellent',
+    gradeGood: 'Good',
+    gradeFair: 'Fair',
+    gradePoor: 'Poor',
+    emptyHistory: 'No evaluation records yet.',
+    emptyAnalyze: 'No data yet. Run an evaluation first.',
+    dimRelevance: 'Relevance',
+    dimContentAccuracy: 'Content Accuracy',
+    dimAestheticQuality: 'Aesthetic Quality',
+    dimCrossImageConsistency: 'Cross-Image Consistency',
+  }

@@ -39,12 +39,14 @@ describe('发布结果面板 —— 排期不得渲染成「发布成功」', ()
     expect(SRC).toContain("router.push('/publish/history')")
   })
 
-  it('zh/en 词条成对存在（渲染文案不得缺失导致露出 key）', () => {
-    for (const f of ['src/locales/zh.js', 'src/locales/en.js']) {
-      const t = fs.readFileSync(path.resolve(process.cwd(), f), 'utf8')
-      expect(t, `${f} 缺 scheduleCreatedTag`).toContain('scheduleCreatedTag:')
-      expect(t, `${f} 缺 scheduleCreatedHint`).toContain('scheduleCreatedHint:')
-      expect(t, `${f} 缺 scheduleViewHistory`).toContain('scheduleViewHistory:')
+  it('zh/en 词条成对存在（渲染文案不得缺失导致露出 key）', async () => {
+    // locales 结构拆分后改为模块导入断言（FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 §3.2-6）
+    // 三键位于 publishPage.publishFlow 子对象（2026-10-07 排期第三态同族）
+    for (const lang of ['zh', 'en']) {
+      const mod = (await import(`../locales/${lang}.js`)).default
+      expect(mod.publishPage.publishFlow, `${lang} 缺 scheduleCreatedTag`).toHaveProperty('scheduleCreatedTag')
+      expect(mod.publishPage.publishFlow, `${lang} 缺 scheduleCreatedHint`).toHaveProperty('scheduleCreatedHint')
+      expect(mod.publishPage.publishFlow, `${lang} 缺 scheduleViewHistory`).toHaveProperty('scheduleViewHistory')
     }
   })
 })

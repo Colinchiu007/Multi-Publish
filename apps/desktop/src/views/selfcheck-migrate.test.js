@@ -16,8 +16,6 @@ const preload = read('electron/preload/index.js')
 const ipc = read('electron/ipc-handlers/rate-limit.js')
 const logs = read('src/components/LogsSettings.vue')
 const diagnose = read('src/components/NetSchedDiagnose.vue')
-const zh = read('src/locales/zh.js')
-const en = read('src/locales/en.js')
 
 describe('限流自检迁移运营中心 · 回归契约', () => {
   it('P0-1：模型设置页不再含限流自检一级入口/弹窗/表单', () => {
@@ -43,14 +41,25 @@ describe('限流自检迁移运营中心 · 回归契约', () => {
     expect(diagnose).not.toMatch(/inject429|inject_429|el-input-number/)
   })
 
-  it('P0-2：自检专用 locale 键在 zh/en 成对移除（保留复用的 limitPer5hLabel）', () => {
-    for (const [name, txt] of [['zh', zh], ['en', en]]) {
-      expect(txt, name + ' 仍残留 selfCheckHint').not.toMatch(/selfCheckHint\s*:/)
-      expect(txt, name + ' 仍残留 runSelfCheck').not.toMatch(/runSelfCheck\s*:/)
-      expect(txt, name + ' 仍残留 limitPer5hLabel2').not.toMatch(/limitPer5hLabel2\s*:/)
+  it('P0-2：自检专用 locale 键在 zh/en 成对移除（保留复用的 limitPer5hLabel）', async () => {
+    // locales 结构拆分后改为模块导入断言（FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 §3.2-6）
+    const zhMod = (await import('../locales/zh.js')).default
+    const enMod = (await import('../locales/en.js')).default
+    const flat = (obj, prefix = '', out = {}) => {
+      for (const [k, v] of Object.entries(obj)) {
+        const path = prefix ? `${prefix}.${k}` : k
+        if (v && typeof v === 'object') flat(v, path, out)
+        else out[path] = v
+      }
+      return out
     }
-    // 被 provider 配置表单复用的键不得删除
-    expect(zh).toMatch(/limitPer5hLabel\s*:/)
-    expect(en).toMatch(/limitPer5hLabel\s*:/)
+    for (const [name, mod] of [['zh', zhMod], ['en', enMod]]) {
+      const keys = Object.keys(flat(mod))
+      expect(keys.some((k) => k.endsWith('.selfCheckHint')), name + ' 仍残留 selfCheckHint').toBe(false)
+      expect(keys.some((k) => k.endsWith('.runSelfCheck')), name + ' 仍残留 runSelfCheck').toBe(false)
+      expect(keys.some((k) => k.includes('limitPer5hLabel2')), name + ' 仍残留 limitPer5hLabel2').toBe(false)
+      // 被 provider 配置表单复用的键不得删除
+      expect(keys.some((k) => k.endsWith('.limitPer5hLabel')), name + ' 缺 limitPer5hLabel').toBe(true)
+    }
   })
 })

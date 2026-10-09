@@ -1,0 +1,37 @@
+/**
+ * promptEval 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
+ * 从 locales/zh.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
+ */
+export default {
+    deleteConfirmTitle: '删除评测记录',
+    deleteConfirmMessage: (ctx) => '确认删除评测记录 ' + ctx.named('id') + ' 及其生成产物？此操作不可恢复。',
+    deleteConfirmButton: '确认删除',
+    deleteFailed: '删除失败，请稍后重试',
+    pageTitle: '提示词优化效果评估',
+    pageSubtitle: '对提示词优化引擎的输出（生成图片）打分、归因并产出可优化提示的点',
+    tabRun: '运行评估',
+    tabHistory: '历史记录',
+    tabAnalyze: '聚合分析',
+    runButton: '开始评估',
+    running: '评估中（{done}/{total}）...',
+    pickImages: '生成图片（支持多选，同文案连续图放同一批）',
+    sourceText: '原始文案（sourceText）',
+    context: '文案上下文（context，可选）',
+    optimizedPrompt: '优化后的提示词（optimizedPrompt，必填）',
+    negativePrompt: '负向提示（negativePrompt，可选）',
+    emptyInput: '请先选择至少 1 张图片，并填写优化后的提示词',
+    needSource: '请填写原始文案或文案上下文',
+    noEvaluatorHint: '需要先在「模型服务商」配置并启用视觉评估模型',
+    evalFailed: '评估失败：{message}',
+    videoNotSupported: '视频评估暂未实现，请使用图片进行评估',
+    gradeExcellent: '优秀',
+    gradeGood: '良好',
+    gradeFair: '一般',
+    gradePoor: '差',
+    emptyHistory: '暂无评估记录，先运行一次评估吧。',
+    emptyAnalyze: '暂无数据，先运行评估再来看聚合分析。',
+    dimRelevance: '提示-输出关联度',
+    dimContentAccuracy: '内容准确性',
+    dimAestheticQuality: '视觉审美质量',
+    dimCrossImageConsistency: '跨图上下文一致性',
+  }

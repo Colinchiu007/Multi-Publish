@@ -1,0 +1,37 @@
+/**
+ * copyLibrary 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
+ * 从 locales/zh.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
+ */
+export default {
+    pageTitle: '文案库',
+    pageSubtitle: '聚合采集、改写、草稿与视频创作的全部文案',
+    filterLabel: '来源筛选',
+    filterAll: '全部',
+    filterCollect: '采集',
+    filterRewrite: '改写',
+    filterDraft: '草稿',
+    filterVideo: '视频创作',
+    originCollect: '采集',
+    originRewrite: '改写',
+    originDraft: '草稿',
+    originVideo: '视频创作',
+    searchPlaceholder: '搜索标题或内容...',
+    searchAria: '搜索文案',
+    loading: '加载中...',
+    emptyTitle: '暂无文案',
+    emptyDesc: '去采集、改写或创作视频后，文案会自动出现在这里',
+    filterEmptyTitle: '没有匹配的文案',
+    filterEmptyDesc: '换个筛选条件或关键词试试',
+    filterEmptyAction: '清除筛选',
+    shownTruncated: '已显示前 {shown} 条，共 {total} 条文案',
+    loadMoreCopies: '加载更多文案',
+    untitled: '未命名文案',
+    wordCount: (ctx) => ctx.named('count') + ' 字',
+    truncated: '内容已截断',
+    viewDetailAria: '查看文案详情',
+    detailLoadedToast: '已带入文案库文案：{title}',
+    detailModeBanner: '文案详情模式：内容已从文案库带入，编辑后保存草稿将回写文案库（视频来源除外）',
+    detailModeBannerClose: '关闭提示',
+    videoFullTextFailed: '视频文案全文获取失败，已带入截断预览',
+    handoffFailed: '打开文案详情失败，请重试',
+  }

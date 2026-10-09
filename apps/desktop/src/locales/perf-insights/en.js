@@ -1,0 +1,41 @@
+/**
+ * perfInsights 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
+ * 从 locales/en.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
+ */
+export default {
+    title: 'Performance Insights',
+    subtitle: 'Pattern performance ranking — which expression patterns perform best on your accounts (attributed from post-publish recrawl data)',
+    refresh: 'Refresh',
+    recompute: 'Recompute Attribution',
+    recomputeDone: 'Attribution recomputed',
+    recomputeFailed: 'Recompute failed, please retry later',
+    emptyTitle: 'No attribution data yet',
+    emptyHint: 'Publish content with rewrite linkage and recrawl performance data — pattern rankings will appear here',
+    dimHook: 'Opening Hook',
+    dimCurve: 'Emotion Curve',
+    dimNarrative: 'Narrative Structure',
+    dimCta: 'CTA Style',
+    colValue: 'Pattern',
+    colSamples: 'Samples',
+    colAvgViews: 'Avg Views',
+    colAvgLikes: 'Avg Likes',
+    colAvgComments: 'Avg Comments',
+    colAvgFavorites: 'Avg Favorites',
+    colScore: 'Engagement Score',
+    colAvgShares: 'Avg Shares',
+    lowSample: 'Low sample',
+    tenThousand: 'w',
+    // ── UI polish additions (2026-09-21) ──
+    allPlatforms: 'All Platforms',
+    platformFilterAria: 'Filter attribution data by platform',
+    scoreFormula: 'Engagement score = avg likes + avg comments + avg favorites × 2 (first-version heuristic, favorites weighted higher)',
+    bestPrefix: 'Best pattern',
+    samplesSummary: '{n} samples',
+    updatedAt: 'Updated {time}',
+    overviewSamples: 'Total Samples',
+    overviewPatterns: 'Patterns',
+    overviewUpdated: 'Last Computed',
+    dimEmptyTitle: 'No attribution data for this dimension',
+    loadFailed: 'Failed to load attribution data',
+    lowSampleTip: 'Fewer than {min} samples — the score is indicative only; keep publishing and recrawling to build confidence',
+  }
