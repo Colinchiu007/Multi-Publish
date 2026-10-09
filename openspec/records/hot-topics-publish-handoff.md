@@ -27,7 +27,7 @@ sync_backfill_owner: 下一个会话（或本会话在合并后立即回填）
 | 品牌残留 | PASS | `check-no-brand-residue.js` PASS（7431 tracked 文件） |
 | lint | PASS | `apps/desktop` 下 eslint 8 个变更文件：0 error / 2 warning（`CATEGORY_KEYS`、`copyDetailMeta` 均为既有告警，不在本次改动行） |
 | 接线棘轮 | PASS | 未新增 `*.test.js` 文件（三个用例均追加进既有受 workflow 点名的文件），无需新增接线 |
-| QM-1 打包 | **未执行（如实登记）** | 第二轮改动触达 `apps/desktop/electron/`（路由表 + 新发布器）⇒ 按 QM-1 应在本地跑 `electron-builder --win --x64`；本会话未跑（由 `build` CI job 与 electron-tests 覆盖构建与主进程测试，**不等于打包验证**）。渲染端首轮时该门禁为 N/A |
+| QM-1 打包 | PASS（含一处如实缺口） | 第二轮改动触达 `apps/desktop/electron/` ⇒ 本地 `pnpm exec electron-builder --win --dir --publish never` **exit 0**；asar 清单含新增 `electron/services/xiaohongshu-draft-publisher.js` 与 `publisher-router.js`。缺口：未跑「打包产物启动 8 秒存活」（避免与正在执行的真实发布会话争用共享 profile） |
 | QM-4 视觉 | PARTIAL | 涉及渲染端 UI（工具条 + 批量卡片），已用 CDP 截图存证；未跑像素基线对比（本机无 baseline 流程）——如实记录 |
 | QM-6 CCG 双模型外部评审 | NOT RUN | 本机未执行 `codeagent-wrapper` 双模型评审；不得以自审冒充通过 |
 | E2E（本次修复的验收） | PASS | 见下方「E2E 实证」 |
