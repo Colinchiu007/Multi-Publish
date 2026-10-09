@@ -18,15 +18,17 @@
 - 变异反证三处全部捕获：M1 HotTopics 去向参数 → 1 红；M2 Publish 交接分支禁用 → 4 红；M3 目标不写账号 → 2 红。
 - 文档：`01-docs/PRD-HOT-TOPICS-PUBLISH-HANDOFF-2026-10-09.md`（含数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字、参考产品对照、验收标准、遗留）；`openspec/changes/hot-topics-publish-handoff/`；见 `openspec/records/hot-topics-publish-handoff.md`。
 
-### 追加：小红书仅存平台草稿箱（硬约束，同日）
+### 追加：小红书仅存平台草稿箱（硬约束，2026-10-09 提出 / 10-10 落点修正）
 
-用户明确要求「小红书不要真实发布（风控严格），只把内容放进平台草稿箱，之后由我用 App 扫码/确认再发布」。因此：
+用户明确要求「小红书不要真实发布（风控严格），只把内容放进平台草稿箱，之后由我用 App 扫码/确认再发布」。
 
-- 发布路由 `ROUTE_TABLE.xiaohongshu` 由 `rpa_vm`（RPA 轨会点平台「发布」按钮）改为新增的 `xhs_draft` 轨，新增 `apps/desktop/electron/services/xiaohongshu-draft-publisher.js`：只调用平台 API 且 `draft=true`，**永不点击发布按钮**。
-- fail-closed：缺 Cookie / 缺 `a1` / 缺 `access-token-creator.xiaohongshu.com` / 无图片 / 标题为空 / 平台业务码非 0 / 未返回草稿标识 —— 一律抛错失败，**绝不静默回落到真实发布**。
-- 结果语义：`{ mode: 'xhs_draft', draft: true, postId: <草稿标识> }`；下游据此**不建审核回查**、**不把草稿当已公开作品登记回采**（草稿在平台内容列表里查不到）。
+- **落点在 RPA 轨内部，不在路由表**（第一版把它路由到新增 `xhs_draft` API 草稿轨的设计已被真机实测推翻，见下）：
+  - 图文：`_publish_xiaohongshu` 强制 `draftOnly: true` —— 只填标题/正文/标签并等待平台自动存草稿，**绝不点「发布」**；内容未写入时 fail-closed（`PUBLISH_DRAFT_CONTENT_NOT_FILLED`），不报假成功。
+  - 视频：新增 **fail-closed 拒绝执行**（`XHS_VIDEO_DRAFT_UNSUPPORTED`）——此前视频轨仍走「点发布」链路，与硬约束直接冲突；拒绝而非静默降级，避免把「其实没发出去」伪装成成功。
+- **API 草稿轨实测不可用（保留为诊断通道，不路由）**：`xiaohongshu:probe-draft-chain` 实跑 —— permit（GET）与 ros-upload（PUT）**均通过**，note 步 `creator.xiaohongshu.com/web_api/sns/v2/note` **404**、`edith.xiaohongshu.com/web_api/sns/v2/note` **406**（`{code:-1}`）；该账号只有创作者域会话、缺主站 `web_session`，签名/风控过不去。故删除 `xiaohongshu-draft-publisher.js` 与其路由分支，链实现与探针保留，支持 `noteOrigin` 做端点 A/B。
+- 结果语义：草稿成功携带 `draft: true`；下游据此**不建审核回查**、**不把草稿当已公开作品登记回采**（草稿在平台内容列表里查不到）。
 - 界面提示（zh/en 成对）：单篇在发布目标下方、批量按条目分别提示「小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布」。
-- 回归锁：路由模式、发布器类型、`draft` 恒真、不触碰 RPA 视图管理器、缺件 fail-closed、草稿不建回查；另加「用到 Ui* 基础组件的 SFC 必须自行导入」结构锁（E2E 现场发现新组件漏 `import UiInput` 会让输入框整体失效，而单测夹具的全局注册会掩盖它）。
+- 回归锁：图文必带 `draftOnly`（摘掉即红）、视频 fail-closed 且 generic 零调用、草稿不建回查、内容未写入不报成功（既有 7 例）；另加「用到 Ui* 基础组件的 SFC 必须自行导入」结构锁（E2E 现场发现新组件漏 `import UiInput` 会让输入框整体失效，而单测夹具的全局注册会掩盖它）。
 - 详见 PRD §13 与 `openspec/records/hot-topics-publish-handoff.md`。
 
 # [未发布] fix(publish): 快手图文封面 tofu 乱码修复——ffmpeg 占位图不再冒充 AI 封面（2026-10-09，fix-kuaishou-tuwen-tofu）

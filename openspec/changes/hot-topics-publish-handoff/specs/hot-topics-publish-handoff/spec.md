@@ -104,22 +104,29 @@
 
 ### Requirement: 小红书仅存平台草稿箱（硬约束）
 
-小红书 SHALL NOT 走真实发布链路。发布路由 SHALL 把 `xiaohongshu` 指向「仅存草稿」轨（只调用平台 API 且 `draft=true`），SHALL NOT 路由到会点击平台「发布」按钮的 RPA 轨。该轨 SHALL 在缺任一硬凭据（Cookie / `a1` / `access-token-creator.xiaohongshu.com`）或缺少至少 1 张图片或缺少标题时**抛错失败**，SHALL NOT 静默降级为真实发布。平台返回业务码非 0 或未返回草稿标识时 SHALL 判为失败（不得虚报「已存入草稿箱」）。成功结果 SHALL 携带草稿语义标记（`draft: true`、`mode: 'xhs_draft'`），下游 SHALL 据此不建审核回查、不把草稿 ID 当作已公开作品锚点登记回采。
+小红书 SHALL NOT 真实发布任何形态的内容。`xiaohongshu` 的路由 SHALL 保持 `rpa_vm`（约束的落点在轨内而非路由层），且该平台在 RPA 轨内 SHALL 满足：**图文**形态强制 `draftOnly`（只填内容并等待平台自动存草稿，SHALL NOT 点击平台「发布」按钮）；**视频**形态 SHALL fail-closed 拒绝执行并如实报错（视频草稿链未实现，不得退回真实发布、亦不得静默伪装成草稿成功）。图文形态下，文章携带的标题与正文 SHALL 被写入页面，未写入时 SHALL 判为失败（SHALL NOT 报成功）；草稿落库判据 SHALL 要求带时间量词的保存信号，SHALL NOT 接受页面常驻文案（如侧边栏「草稿箱」）。成功结果 SHALL 携带草稿语义标记（`draft: true`），下游 SHALL 据此不建审核回查、不把草稿当作已公开作品锚点登记回采。
 
-#### Scenario: 路由不再走 RPA
+（历史说明：曾把 `xiaohongshu` 路由到只调 API 的草稿轨；真机实测该轨不可用——`creator` 域 note 端点 404、`edith` 域 note 端点 406，且账号缺主站 `web_session`。故约束改在 RPA 轨内落地，`xhs_draft` 路由被移除。）
 
-- **WHEN** 查询发布路由表或创建小红书的发布器
-- **THEN** 模式为仅存草稿轨（非 `rpa_vm`），且发布器实例为草稿轨发布器
+#### Scenario: 路由不引入特殊轨
 
-#### Scenario: 成功只写草稿箱
+- **WHEN** 查询发布路由表
+- **THEN** `xiaohongshu` 的模式为 `rpa_vm`（不存在仅存草稿的独立路由模式）
 
-- **WHEN** 账号具备 `a1` 与 Authorization、标题非空、至少 1 张图片，平台业务码为 0 且返回草稿标识
-- **THEN** 结果标记 `draft: true` 与 `mode: 'xhs_draft'`，且全程未触碰 RPA 视图管理器
+#### Scenario: 图文只存草稿
 
-#### Scenario: 缺件一律失败而非退回真实发布
+- **WHEN** 小红书图文任务执行（文章不含 `video_path`）
+- **THEN** 交给通用发布流程的配置带 `draftOnly: true`，且不点击平台「发布」按钮
 
-- **WHEN** 缺 `a1`、缺 Authorization、无图片或无草稿标识
-- **THEN** 抛错（不发起平台请求或不判定成功），绝不改走 RPA 真实发布
+#### Scenario: 视频形态拒绝执行
+
+- **WHEN** 小红书任务携带 `video_path`
+- **THEN** 立即返回失败（错误码 `XHS_VIDEO_DRAFT_UNSUPPORTED`），通用发布流程一次都不被调用
+
+#### Scenario: 内容未写入不得报成功
+
+- **WHEN** 图文形态下标题或正文写入失败（选择器失配/回读为空）
+- **THEN** 返回失败（`PUBLISH_DRAFT_CONTENT_NOT_FILLED`），SHALL NOT 记录为成功
 
 #### Scenario: 草稿不进审核回查
 

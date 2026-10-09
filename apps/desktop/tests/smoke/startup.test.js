@@ -37,22 +37,17 @@ describe('PublisherRouter', () => {
     }
   })
 
-  test('ROUTE_TABLE 模式按平台显式登记（api 直调 / xhs_draft 仅存草稿 / 其余 rpa_vm）', () => {
+  test('all ROUTE_TABLE entries mode=rpa_vm（baijiahao / bilibili 例外：api 直调）', () => {
     const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
-    // Tier-A 自包含签名的平台走 api 直调（baijiahao 图文 / bilibili 视频，均已活体验证）
+    // Tier-A 自包含签名的平台走 api 直调（baijiahao 图文 / bilibili 视频，均已活体验证），其余 RPA。
+    // 小红书同为 rpa_vm：其「不得真实发布」的硬约束**不在路由层**，而在 RPA 轨内部
+    // （`_publish_xiaohongshu` 图文强制 draftOnly、视频 fail-closed），锁见
+    // electron/tests/xhs-draft-false-success.test.js。
     const API_MODE_PLATFORMS = ['baijiahao', 'bilibili']
-    // 小红书硬约束（2026-10-09，用户要求）：风控严格 ⇒ 不得真实发布，只调 API 存平台草稿箱。
-    // 该轨同样"非 RPA"，因此**必须在此显式登记**：漏登记会让本用例对它放行成 rpa_vm，
-    // 从而在"路由被改回 RPA 真实发布"时毫无察觉（这正是本条断言存在的意义）。
-    const XHS_DRAFT_PLATFORMS = ['xiaohongshu']
     for (const [platform, route] of Object.entries(ROUTE_TABLE)) {
       if (platform.startsWith('_') || platform === 'shipinhao') continue
       if (API_MODE_PLATFORMS.includes(platform)) {
         expect(route.mode).toBe('api')
-        continue
-      }
-      if (XHS_DRAFT_PLATFORMS.includes(platform)) {
-        expect(route.mode).toBe('xhs_draft')
         continue
       }
       expect(route.mode).toBe('rpa_vm')

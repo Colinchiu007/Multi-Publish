@@ -112,9 +112,9 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }, ownerSubject)
     try {
       const postId = task.result?.postId || task.result?.id
-      // 草稿轨（小红书仅存草稿，用户硬约束 2026-10-09）：草稿不是已公开作品，
+      // 草稿结果（小红书硬约束 2026-10-09，落地于 RPA 轨 draftOnly）：草稿不是已公开作品，
       // 平台内容列表里查不到 ⇒ 建监控任务只会得到恒定的「查无此作品」重试。
-      // 因此草稿结果不建审核回查；历史行仍记 success（API 已确认写入草稿箱）。
+      // 因此草稿结果不建审核回查；历史行仍记 success（内容已确认写入平台草稿箱）。
       const isDraftResult = task.result?.draft === true
       if (postId && !isDraftResult) {
         // P0-1 第二切片：先解析凭证（任务自带→auth 分区只读补齐）再决定是否回查。

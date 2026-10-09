@@ -293,56 +293,68 @@ N=1 时 `goToDestination` 走 `?draft=<id>`，装载进**单篇编辑器**（保
 
 ---
 
-## 13. 小红书「仅存平台草稿箱」（硬约束，2026-10-09 追加）
+## 13. 小红书「仅存平台草稿箱」（硬约束，2026-10-09 提出 / 2026-10-10 落点修正）
 
 ### 13.1 需求原文与判定
 
 > 小红书要特殊对待，不要真实发布。因为小红书风控比较严格。只需要实现发布内容放在小红书平台的草稿箱里就好，之后可以通过我用小红书 APP 扫二维码再真实发布。
 
-判定：小红书**不得走真实发布**。内容只写进**小红书创作者中心草稿箱**（服务端持久化），由用户在手机 App 内确认后自行发布。
+判定：小红书**任何形态都不得真实发布**。内容只写进**小红书创作者中心草稿箱**（服务端持久化），由用户在手机 App 内确认后自行发布。
 
-### 13.2 为什么必须做成「路由级硬约束」而不是「界面提示」
+### 13.2 约束落在哪一层（一次被自己推翻的设计）
 
-- 真实发布一旦发生就**不可撤回**（笔记已公开、已进平台审核），而自动化点击发布正是风控最敏感的行为；
-- 仅靠界面提示无法防住其它入口（单篇发布、批量发布、自动化流水线、定时任务都会经过发布路由）；
-- 因此约束落在**发布路由表**（`ROUTE_TABLE.xiaohongshu`）上：小红书从 `rpa_vm`（RPA 轨会点「发布」按钮）改为 `xhs_draft`（只调 API 且 `draft=true`）。任何缺件一律抛错，**绝不回落到 RPA 真实发布**。
+**第一版设计（错误，已废弃）**：把 `ROUTE_TABLE.xiaohongshu` 从 `rpa_vm` 改成新增的 `xhs_draft` 轨（只调 API + `draft=true`），理由是「RPA 轨会点发布按钮」。
 
-### 13.3 实现
+**真机实测推翻了这条前提**：
 
-| 层 | 内容 |
-|----|------|
-| 路由 | `apps/desktop/electron/services/publisher-router.js`：`xiaohongshu: { mode: 'xhs_draft', timeout: 180000 }`；`createPublisher` 新增 `xhs_draft` 分支 |
-| 发布器 | `apps/desktop/electron/services/xiaohongshu-draft-publisher.js`（新增）：凭证装载 → 图片收集 → 调链 → 结果判定 |
-| 链 | `packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`（既有，本期接入正式链路）：GET permit → PUT ros-upload → POST note（`draft=true`） |
-| 凭证 | Cookie（`a1` / `web_session` …）+ `Authorization: AT <access-token-creator.xiaohongshu.com>`；签名走进程内本地算法（不开窗、不触达活页） |
-| 结果 | `{ success: true, platform: 'xiaohongshu', mode: 'xhs_draft', draft: true, postId: <draftId>, url: '' }` |
+1. **RPA 轨的小红书图文本来就是 draftOnly**（2026-09-29 落地，2026-10-07 修过假成功）：`_publish_xiaohongshu` 对图文强制 `draftOnly: true`，`_publish_generic` 在该分支下只填内容并等平台自动存草稿、**绝不点发布按钮**；且已有字段级 fail-closed（内容没写进去 ⇒ 拒绝报成功）。所以「RPA = 会真实发布」对图文并不成立。
+2. **API 草稿轨在本机账号上不可用**：`xiaohongshu:probe-draft-chain` 实跑结果——
+   - `creator.xiaohongshu.com/web_api/sns/v2/note` → **404**（该端点不在 creator 域）；
+   - `edith.xiaohongshu.com/web_api/sns/v2/note` → **406**，响应体 `{code:-1}`；
+   - 链路前两步（GET permit → PUT ros-upload）**均已通过**（它们不参与签名），只有需要 `x-s` 签名的 note 步失败；
+   - 该账号只有创作者域会话（`customer-sso-sid` / `galaxy_creator_session_id` / `access-token-creator.xiaohongshu.com`），**没有主站 `web_session`**。
 
-### 13.4 数据校验（fail-closed，全部为硬失败）
+**结论（当前落点）**：`xiaohongshu` 保持 `mode: 'rpa_vm'`，硬约束在 **RPA 轨内部**落地：
+
+| 形态 | 行为 | 说明 |
+|------|------|------|
+| 图文（`!article.video_path`） | `draftOnly: true` → 只填内容 + 等平台自动存草稿 | 既有实现；内容未写入时 fail-closed 拒绝报成功（`PUBLISH_DRAFT_CONTENT_NOT_FILLED`） |
+| 视频（`article.video_path`） | **fail-closed 拒绝执行**（`XHS_VIDEO_DRAFT_UNSUPPORTED`） | 2026-10-10 新增：视频轨此前仍走「点发布」链路，与「不得真实发布」直接冲突。拒绝而非静默降级——静默改成草稿会把「其实没发出去」伪装成成功 |
+
+### 13.3 关键代码位置
+
+| 位置 | 作用 |
+|------|------|
+| `apps/desktop/electron/services/rpa-view-platforms.js` `_publish_xiaohongshu` | 图文强制 `draftOnly: true` + 切图文 tab；**视频 fail-closed** |
+| 同文件 `_publish_generic` 的 `draftOnly` 分支 | 填内容 → 判定「内容真的写进去了吗」→ 等落库信号（`/编辑于\s*\S{1,12}|已保存|保存成功|自动保存/`，不接受孤立的「草稿」二字）→ 返回 `{success:true, draft:true}` |
+| `apps/desktop/electron/bootstrap/phase4-events.js` | 结果为草稿语义（`draft === true`）时**不建审核回查**、不登记为可回采作品（草稿在平台内容列表里查不到，建回查只会得到恒定的「查无此作品」） |
+| `apps/desktop/electron/ipc-handlers/xiaohongshu-draft-probe.js` | 调试通道 `xiaohongshu:probe-draft-chain`：主进程内实跑 API 草稿链，回传失败端点/HTTP 状态/平台业务码（用于判断端点是否变更） |
+| `packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js` | API 草稿链实现（当前**未路由**；保留为诊断与后续接入基础）。支持 `noteOrigin` 做端点 A/B |
+
+### 13.4 数据校验（fail-closed）
 
 | 校验项 | 规则 | 失败表现 |
 |--------|------|---------|
-| Cookie | 账号凭证（加密文件或分区回退）里必须有 cookie | 抛「平台 Cookie 缺失（账号 … 未登录或凭证不可用）」 |
-| `a1` | 必须存在 | 抛「缺发布链硬凭据 a1」 |
-| `access-token-creator.xiaohongshu.com` | 必须存在（Authorization AT） | 抛「缺发布链硬凭据 access-token-creator.xiaohongshu.com」 |
-| 标题 | 非空（平台标题上限 20 字，链内截断） | 抛「标题为空」 |
-| 图片 | ≥1 张（图片 → 图片文件描述 → 封面，去重保序） | 抛「小红书草稿需要至少 1 张图片（小红书不支持纯文字笔记）…」 |
-| 业务码 | 平台返回 `code !== 0` 即失败 | 抛「note 失败：code=…」（带业务码与消息，便于判断端点变更） |
-| 草稿标识 | 平台必须返回 `draft_id` 或 `note_id` | 抛「平台未返回草稿标识，无法确认已存入草稿箱」 |
+| 标题/正文/视频 | 三者皆空 ⇒ 直接失败 | 「小红书发布至少需要标题、正文或视频」 |
+| 视频形态 | 一律拒绝 | `XHS_VIDEO_DRAFT_UNSUPPORTED` + 明示「仅允许保存到平台草稿箱」 |
+| 标题写入 | 文章带了标题 ⇒ 必须写入成功 | `PUBLISH_DRAFT_CONTENT_NOT_FILLED`（不报成功） |
+| 正文写入 | 文章带了正文 ⇒ 必须写入成功 | 同上 |
+| 标签写入 | 增强项：失败只 warn，不阻断 | 日志 warn，仍可成功 |
+| 草稿落库信号 | 必须出现带时间量词的保存信号 | 未出现 ⇒ 失败（不接受侧边栏常驻「草稿箱」文案） |
+| API 草稿轨（未路由） | 缺 Cookie / `a1` / Authorization / 图片 / 标题、业务码非 0、无草稿标识 | 一律抛错，绝不静默回退到真实发布 |
 
 ### 13.5 流程
 
 ```
-发布任务（platform=xiaohongshu）
- → PublisherRouter.getRoute → mode=xhs_draft
- → XiaohongshuDraftPublisher.publish
-    ① loadAuthForTask（accountId → 加密凭证 → 分区 cookie 回退）
-    ② 校验 cookie / a1 / Authorization / 标题 / 图片（任一缺失即抛错）
-    ③ 逐图：GET permit（scene=image）→ PUT ros-upload
-    ④ POST /web_api/sns/v2/note（draft=true；带 x-s/x-t/x-s-common/traceid 签名头）
-    ⑤ 判定：业务码 0 且拿到草稿标识 → 成功（draft: true）
- → 任务队列 task:success → 历史记录 success（result.draft=true）
- → **不建审核回查**（草稿不是已公开作品，平台内容列表里查不到）
- → tracked_content 记 untrackable（无公开锚点，不排回采）
+发布任务（platform=xiaohongshu） → ROUTE_TABLE.xiaohongshu.mode = rpa_vm
+ → RpaVmPublisher（复用登录态分区，不开新登录流程）
+ → _publish_xiaohongshu(win, article)
+     ├─ article.video_path 存在 → 直接返回 fail-closed（XHS_VIDEO_DRAFT_UNSUPPORTED），不导航、不点任何按钮
+     └─ 图文 → 打开 publish/publish → 切「上传图文」tab → 上传图片
+              → 填标题/正文/标签（字段级回执 fillReport）
+              → 内容未写入 ⇒ 立即失败；已写入 ⇒ 等平台自动草稿落库
+              → 返回 { success:true, draft:true }
+ → task:success（result.draft=true）→ 历史记 success；**不建审核回查**、不登记可回采作品
 ```
 
 ### 13.6 交互逻辑与显示项
@@ -358,21 +370,22 @@ N=1 时 `goToDestination` 走 `?draft=<id>`，装载进**单篇编辑器**（保
 |-----|------|---------|
 | `publishPage.xhsDraftOnlyHint` | 小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布 | Xiaohongshu saves to the platform draft box only (not published). Confirm in the mobile app to publish. |
 
+（视频被拒时的文案由主进程返回，直接进发布失败原因：`小红书仅允许保存到平台草稿箱（用户硬约束：不得真实发布）；视频草稿链尚未实现，已拒绝真实发布。请改用图文，或在手机 App 内手动发布视频。`）
+
 ### 13.8 验收标准
 
 | 编号 | 验收项 | 判定 |
 |------|--------|------|
-| XHS-1 | `ROUTE_TABLE.xiaohongshu.mode === 'xhs_draft'`（非 `rpa_vm`） | 单测 |
-| XHS-2 | `createPublisher('xiaohongshu')` 返回 `XiaohongshuDraftPublisher` | 单测 |
-| XHS-3 | 成功路径 `draft` 恒为 `true`，返回 `mode: 'xhs_draft'`、`draft: true`，且**不触碰** rpaViewManager | 单测 |
-| XHS-4 | 缺 a1 / 缺 Authorization / 无图片 / 无草稿标识 → 全部抛错且不发起平台请求 | 单测 |
-| XHS-5 | `task:success` 且 `result.draft === true` → 不建审核回查、不登记可回采作品 | 单测 |
-| XHS-6 | 真实链路：内容出现在小红书创作者中心草稿箱，且平台侧**未公开发布** | E2E（见执行记录） |
+| XHS-1 | `ROUTE_TABLE.xiaohongshu.mode === 'rpa_vm'`（不在路由层搞特殊轨） | smoke 测试 |
+| XHS-2 | 图文形态：交给 generic 的 config **必带** `draftOnly: true`（且 `preFill=switchImageTab`） | 单测（摘掉 draftOnly 即红） |
+| XHS-3 | 视频形态：fail-closed，`_publish_generic` **一次都不被调用**（不存在点发布的路径） | 单测 |
+| XHS-4 | 草稿结果（`draft === true`）不建审核回查、不登记可回采作品 | 单测（phase4-events） |
+| XHS-5 | 内容未写入页面时拒绝报成功（`PUBLISH_DRAFT_CONTENT_NOT_FILLED`） | 单测（既有 7 例） |
+| XHS-6 | 真机：图文内容出现在小红书创作者中心草稿箱，且平台侧**未公开发布** | E2E（见执行记录；历史成功例：`【验证稿·可直接删除】DOM轨草稿箱活体验收 …` 小红书 成功 2026-10-08/09） |
 
 ### 13.9 遗留与风险（不假装已闭合）
 
-1. **必须有图**：小红书草稿要求 ≥1 张图片。本期由用户提供（发布页选择图片/封面）；未提供时 fail-closed 报错，不静默跳过。
-2. **RPA 轨的 `_publish_xiaohongshu` 仍在代码里**（`rpa-view-platforms.js`）：本期只改路由（唯一入口）；该函数未被任何路由使用，但**未被删除**——删除属单独的清理动作，避免误伤其它调用点。
-3. **视频笔记未接入**：草稿链只实现了图片笔记（链内注释已声明「不外验证视频」）；小红书视频任务目前会因缺图片而 fail-closed，而不是静默改走真实发布。
-4. **草稿 ID 不等于公开作品 ID**：历史记录与 tracked_content 不把它当作品锚点（见 13.5）。
-
+1. **API 草稿轨被 406 挡住**：链路已实现且 permit/upload 通，note 步需要主站会话（`web_session`）与匹配的签名环境。要打通需先让账号具备主站登录态（用户扫码登录 www.xiaohongshu.com），属**待用户参与的后续项**；当前不路由该轨，避免引入「新失败面」。
+2. **视频草稿未实现**：小红书视频任务现在会明确失败（fail-closed），这是「不得真实发布」的必然代价。若需要视频草稿，属新功能立项（视频草稿链 + 落库判据 + 真机验收）。
+3. **RPA 轨选择器随平台改版失效**：2026-10-07 曾实测标题/正文选择器全部失配（现已被 fail-closed 拦住，不再假成功）。**草稿能否落库依赖小红书创作者页当前 DOM**，改版后需重新校准选择器；判据宁可失败也不假成功。
+4. **草稿 ID 不等于公开作品 ID**：草稿无公开锚点，历史与 tracked_content 不把它当作品（见 13.5）。

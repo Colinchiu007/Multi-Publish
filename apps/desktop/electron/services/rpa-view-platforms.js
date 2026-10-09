@@ -1312,6 +1312,19 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     }
     const config = this._getPlatformConfig('xiaohongshu')
     const contentType = article.video_path ? 'video' : 'image'
+    // 2026-10-10 用户硬约束收紧：小红书**任何形态都不得真实发布**（平台风控严格）。
+    // 图文轨已是 draftOnly；视频轨此前仍走「点发布」链路，与本约束直接冲突 ⇒ fail-closed 拒绝执行。
+    // 拒绝而非静默降级：静默改成草稿会让用户以为视频已发布，是真失败伪装成成功。
+    // 需要小红书视频草稿时属新功能（视频草稿链未实现），必须单独立项。
+    if (contentType === 'video') {
+      log.warn('RpaView', '[xiaohongshu] video mode refused: 小红书仅允许存草稿（硬约束），视频草稿链未实现')
+      return {
+        success:false, platform:'xiaohongshu',
+        error:'小红书仅允许保存到平台草稿箱（用户硬约束：不得真实发布）；视频草稿链尚未实现，已拒绝真实发布。请改用图文，或在手机 App 内手动发布视频。',
+        errorCode:'XHS_VIDEO_DRAFT_UNSUPPORTED',
+        url: win && win.webContents && !win.webContents.isDestroyed() ? (win.webContents.getURL() || '') : '',
+      }
+    }
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
     // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input
     // accept 全是视频格式）；图文需先点「上传图文」tab（switchImageTab hook，参考产品

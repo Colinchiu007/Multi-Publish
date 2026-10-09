@@ -54,6 +54,9 @@ function makeInstance (overrides = {}) {
   inst._win = {
     webContents: {
       getURL: () => 'https://creator.xiaohongshu.com/publish/publish?target=image',
+      // 生产代码在返回失败时会先判 isDestroyed（窗口可能已关）：桩缺这个成员会让
+      // 用例在抵达断言前 TypeError（真实 WebContents 恒有该方法，故桩必须补齐）。
+      isDestroyed: () => false,
       executeJavaScript: async () => undefined,
     },
   }
@@ -193,5 +196,53 @@ describe('draftOnly 假成功修复（2026-10-07）', () => {
     // （旧实现是 /编辑于|已保存|草稿/ —— 裸「草稿」在小红书创作者页是侧边栏
     //   「草稿箱」常驻文案，恒真 ⇒ saved 恒为 true，等于没有判据。）
     expect(block.includes('草稿')).toBe(false)
+  })
+})
+
+// 2026-10-10 硬约束收紧：小红书**任何形态都不得真实发布**。
+// 图文轨早已 draftOnly（上一条 describe）；视频轨此前仍走「点发布」链路，与约束冲突 ⇒ fail-closed。
+// 这两条锁的是**约束的落点本身**：把 draftOnly 摘掉、或把视频放回发布链路，都会立刻变红。
+describe('小红书硬约束落点（2026-10-10）：图文 draftOnly / 视频 fail-closed', () => {
+  async function loadXhsPublish () {
+    const mod = await import(MODULE)
+    const mixin = mod.default || mod
+    const fn = mixin._publish_xiaohongshu
+    if (typeof fn !== 'function') throw new Error('未能从 ' + MODULE + ' 取得 _publish_xiaohongshu')
+    return fn
+  }
+
+  it('图文：强制 draftOnly=true 且切图文 tab 交给 generic（绝不点发布）', async () => {
+    const seen = []
+    const inst = makeInstance({
+      _getPlatformConfig: vi.fn(() => ({
+        publish_url: 'https://creator.xiaohongshu.com/publish/publish',
+        selectors: {},
+      })),
+      _publish_generic: vi.fn(async (win, art, platform, cfg) => {
+        seen.push({ platform, cfg })
+        return { success: true, draft: true }
+      }),
+    })
+    const res = await (await loadXhsPublish()).call(inst, inst._win, article({ images: ['D:/Temp/xhs-covers/cover-1.png'] }))
+
+    expect(res.success).toBe(true)
+    expect(seen).toHaveLength(1)
+    expect(seen[0].platform).toBe('xiaohongshu')
+    // 硬约束的机械判据：draftOnly 必须在，且没有任何路径能把它置回 false
+    expect(seen[0].cfg.draftOnly).toBe(true)
+    expect(seen[0].cfg.preFill).toBe('switchImageTab')
+  })
+
+  it('视频：fail-closed 拒绝执行，绝不进 generic（不得真实发布）', async () => {
+    const inst = makeInstance({
+      _getPlatformConfig: vi.fn(() => ({ publish_url: 'https://creator.xiaohongshu.com/publish/publish' })),
+      _publish_generic: vi.fn(async () => ({ success: true })),
+    })
+    const res = await (await loadXhsPublish()).call(inst, inst._win, article({ video_path: 'D:/Temp/x.mp4' }))
+
+    expect(res.success).toBe(false)
+    expect(res.errorCode).toBe('XHS_VIDEO_DRAFT_UNSUPPORTED')
+    expect(String(res.error)).toMatch(/小红书仅允许保存到平台草稿箱/)
+    expect(inst._publish_generic).not.toHaveBeenCalled()
   })
 })
