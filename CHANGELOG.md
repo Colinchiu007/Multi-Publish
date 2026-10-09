@@ -1,3 +1,17 @@
+# [未发布] fix(publish): 快手图文封面 tofu 乱码修复——ffmpeg 占位图不再冒充 AI 封面（2026-10-09，fix-kuaishou-tuwen-tofu）
+
+### 用户感知
+
+通过应用发布的快手图文，图片上的中文在快手创作者中心显示为一排方块（tofu 乱码），只有数字可读。根因：未配置 AI 生图 provider 时，`cover:generate-ai` 把 asset-generator 的 ffmpeg drawtext 占位图（Windows 下无 CJK 字形）当成「AI 封面」成功返回并上传。现在占位图被识别为 AI 失败，自动改走本地标题卡封面（SVG→sharp 渲染，中文正常），快手图文封面文字恢复可读。
+
+### 变更明细
+
+- `cover:generate-ai` handler 新增占位图判定：`result.data.degraded === true` 视为 AI 生成失败，走 `fallbackLocalCover('ai-generate-degraded-placeholder')` 本地兜底；日志明确记「AI 生图返回的是 ffmpeg 占位图（无真实生图 provider），拒绝作为封面」。
+- 回归锁：`publish.test.js` 新增 degraded 第三态用例（修复前红灯复现 tofu 路径，修复后 37/37 绿）。
+- 根因链与逃逸分析详见 `01-docs/PRD-KUAISHOU-TUWEN-TOFU-2026-10-09.md`。
+
+---
+
 # [未发布] test(ci-gate): 暗档在 PR 侧可判 —— QG Visual 补产暗档渲染 + 19 张漂移基线同源重建（2026-10-09，pr-dark-baseline-gate）
 
 ## 背景
