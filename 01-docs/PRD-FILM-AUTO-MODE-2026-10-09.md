@@ -517,8 +517,10 @@ openspec 五件套（已完成初稿）+ 本 PRD 定稿 + 用户手册增补 `01
 | ~~G2~~ | ~~续跑入口的显式用例~~ | **已闭合**：IPC 侧「只给 taskId 也能续」+ 面板侧「重新打开自动恢复上次任务」两例 | — |
 | G3 | 计划哈希被篡改导致「载荷哈希不匹配即拒绝」的独立 IPC 负向用例 | 由 `needsReconfirm` 三判据单测 + 参考图越界拒绝两例间接覆盖 | T7 补 |
 | G4 | 「缺镜 → 只重生成该镜 → 台账/计划不变」的显式用例 | 能力已具备（`regenerateOneShot` 按镜定位） | T7 补 |
-| G5 | `plan → start → 台账 → manifest → 真实 ffmpeg 出 final.mp4` 的端到端集成测试 | 各层单测已覆盖，缺一条串起来的集成测试 | T7 补（与 CDP 真机 E2E 一并） |
-| G6 | QM-1 打包验证与 CDP 真机长文剧本 E2E | 未执行 | T7 |
+| G5 | `plan → start → 台账 → manifest → 真实 ffmpeg 出 final.mp4` 的端到端集成测试 | **部分闭合**：真机 E2E 已覆盖 plan → 确认 → start → 收敛 → 收口拦截全链；缺「成功出片并合成 `final.mp4`」那一段——因本机视频模型无可用通道（见 G8）未能验证 | 需先解决模型通道 |
+| ~~G6~~ | ~~QM-1 打包验证~~ | **已闭合**：`electron-builder --win --dir` **exit 0**；asar 含 4 个后端新文件与两份 preload bundle；启动冒烟无模块/asar 路径类失败特征。环境条件：worktree 未构建 renderer `dist/`，前端正确性由 vitest + 真机 dev E2E 覆盖 | — |
+| ~~G7~~ | ~~CDP 真机长文剧本 E2E~~ | **已闭合**：Phase 1（零 provider 调用）**22/22**、Phase 2（真实出片）**22/22**（30 场长文剧本 → 12 镜规划；真实派发；失败如实回显；收口点名缺镜；截图留证）。**该驱动的 Phase 2 本身抓到并促成了「派发即返回」缺陷的修复** | 环境限制见 G8 |
+| G8 | **出片成功路径未验证（环境）** | 本机默认视频模型 `agnes-video-v2.0` 返回「No available channel for model agnes-video-v2.0 under group default」⇒ 出片必失败（失败被如实回显、收口被正确拦下，属**正确行为**） | 用户侧切换有可用通道的视频模型后复跑 |
 
 ### 14.8 明确不做（避免"看起来漏了"）
 

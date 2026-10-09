@@ -82,15 +82,15 @@
 
 ## 7. 验证
 
-- [ ] 7.1 目标测试全绿（electron vitest + src vitest 相关套件）
-- [ ] 7.2 全量回归（受影响的 lint/locale 成对/门禁）
-- [ ] 7.3 QM-1 打包（`electron-builder --win --dir --publish never`）+ asar 清单校验
-- [ ] 7.4 QM-4 视觉（涉及样式则跑基线）
-- [ ] 7.5 CDP E2E：真机/打包产物上跑**长文剧本**自动模式全链路（生成预览 → 确认 → 批次进度 → 片段编辑 → 重新合成），产出报告
-- [ ] 7.6 CCG 验证层复评（`deep-review.sh`）
+- [x] 7.1 目标测试全绿：后端定向 26 文件 **740** 用例、auto IPC 20、film-auto 前端 41、Hub 9、StageProgress 前缀 4、story2video 源码锁 5、locales 结构锁 4
+- [x] 7.2 全量回归（受影响面）：`check-locale-sync --keys/--cjk`、`check-route-registry`、`check-doc-abs-paths`、`check-no-brand-residue`、`check-gate-record-debt`、`check-pr-exec-record` 全 PASS/OK
+- [x] 7.3 QM-1 打包：`electron-builder --win --dir --publish never` **exit 0** + asar 清单校验（4 个后端新文件与两份 preload bundle 在包内）+ 启动冒烟无失败特征
+- [x] 7.4 QM-4 视觉：由真机 CDP E2E 在真实 Element Plus 渲染下逐项断言三标签与面板并截图留证（无独立视觉基线需求）
+- [x] 7.5 CDP E2E：真机 dev + 独立已登录 profile 跑**30 场长文剧本**全链路 —— Phase 1（零 provider 调用）**22/22**、Phase 2（真实出片）**22/22**；驱动与夹具入库（`apps/desktop/tests/e2e/film-auto-mode-driver.js` + `fixtures/film-auto-long-script.txt`）。**该 E2E 抓到 1 处真缺陷（auto-start 同步等待整轮）并促成修复**；**环境限制**：默认视频模型无可用通道 ⇒ 成功出片路径未验证（G8）
+- [ ] 7.6 CCG 验证层复评（`deep-review.sh`）—— 决策层已 4 轮收敛；验证层复评未跑（本变更的三道独立核对已覆盖同类风险面：实现期测试 / 手册履约核对 / 真机 E2E）
 
 ## 8. 交付
 
-- [ ] 8.1 `.quality-gates.md` 记录 + `openspec/records/film-auto-mode.md`
-- [ ] 8.2 记忆沉淀（内置 `.agent_context/` / 外部 `01-docs/learnings.md` / EverOS）
-- [ ] 8.3 推送 → PR → CI 全绿 → 自动合并 → 回填销账
+- [x] 8.1 `.quality-gates.md` 记录 + `openspec/records/film-auto-mode.md`（含 frontmatter 三字段与账本登记，`check-gate-record-debt` → OK）
+- [x] 8.2 记忆沉淀：内置 `.agent_context/film-auto-mode.md`（gitignore，本机）/ 外部 `01-docs/learnings.md`（三条经验）/ EverOS（6 条记忆 `add`+`flush`，`flush=extracted`，落盘 `~/.everos/default_app/multi-publish/users/film-auto-mode/` 已复核）
+- [ ] 8.3 推送 → PR **#3234** → CI 全绿 → 自动合并 → 回填销账（进行中）
