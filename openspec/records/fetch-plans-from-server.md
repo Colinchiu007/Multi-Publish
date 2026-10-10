@@ -2,9 +2,6 @@
 record: fetch-plans-from-server
 task: 价目目录改从服务端 /api/v1/plans 取，购买入口保持关闭
 date: 2026-10-07
-# 下面两个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由 docs-only PR 回填
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：价目改从服务端取（fetch-plans-from-server，2026-10-07）
@@ -114,7 +111,7 @@ MemberCenter.vue  读 identityStore.plans
 - 激活码接 `/api/v1/redeem` 未做，属独立功能项。
 - 渲染层 37 处本地权限门禁仍只读 `licenseManager`（架构遗留，独立工程）。
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS —— PR #3118 squash 合并，merge SHA `c162745a6`；quality-gate 全绿（QG Static / Unit Tests / Desktop Shards 1、2 / Coverage 均通过） |
 |---|
 
 ---
