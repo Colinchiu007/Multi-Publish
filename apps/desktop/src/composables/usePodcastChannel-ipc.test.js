@@ -71,6 +71,35 @@ describe('podcast-channel 桥接层：available 语义与脱壳', () => {
     const { feedVerify } = await import('@/api/podcast-channel')
     await expect(feedVerify()).rejects.toThrow('boom')
   })
+
+  // QM-6 外部评审（后端模型）命中的真实缺口：preload 访问控制在未登录/未激活时
+  // 是**同步 throw**（createDynamicAccessApi 的包装函数不是 async），于是它既不属于
+  // 「方法缺失」也不同于 handler 的 reject。本仓 M-14 早已给这类失败定调
+  // （electron-bridge.invokeWithFallback：权限不足必须落进 fallback 语义），
+  // 所以桥接层必须把它归进 available:false，而不是让界面报「调用失败，请重试」。
+  it('权限前置条件（未登录/未激活）**同步** throw → available:false，且不上抛', async () => {
+    // 夹具逐字复刻 access-control.createPermissionError 的产物形状：name 是判据，
+    // message 文案与 code 一并带上，免得下一个会话照抄一个 predicate 认不出的假错误。
+    const permission = () => {
+      const e = new Error('许可证权限不足，无法调用 channelGet')
+      e.name = 'LicensePermissionError'
+      e.code = 'AUTH_ERROR'
+      return e
+    }
+    vi.stubGlobal('window', {
+      electronAPI: { podcast: { channelGet: vi.fn(() => { throw permission() }) } },
+    })
+    const { channelGet } = await import('@/api/podcast-channel')
+    expect(await channelGet()).toEqual({ available: false })
+  })
+
+  it('非权限类的同步 throw 仍原样上抛（不得被 available:false 一并吃掉）', async () => {
+    vi.stubGlobal('window', {
+      electronAPI: { podcast: { channelGet: vi.fn(() => { throw new Error('preload 内部故障') }) } },
+    })
+    const { channelGet } = await import('@/api/podcast-channel')
+    await expect(channelGet()).rejects.toThrow('preload 内部故障')
+  })
 })
 
 describe('usePodcastChannel：桥接结果到用户可见错误码的映射', () => {
@@ -127,6 +156,29 @@ describe('usePodcastChannel：桥接结果到用户可见错误码的映射', ()
 
     expect((await s.loadEpisodes()).code).toBe(IPC_EXCEPTION)
   })
+
+  it('未登录/未激活（权限同步 throw 穿透桥接层）→ IPC_UNAVAILABLE，不是「调用失败请重试」', async () => {
+    // 这条锁的是**用户可见语义**：桥接层归并成 available:false 之后，composable 必须
+    // 走与「命名空间缺失」同一分支。摘掉桥接层的权限判据会让本条落到 IPC_EXCEPTION 而变红。
+    vi.stubGlobal('window', {
+      electronAPI: {
+        podcast: {
+          channelGet: vi.fn(() => {
+            const e = new Error('许可证权限不足，无法调用 channelGet')
+            e.name = 'LicensePermissionError'
+            throw e
+          }),
+        },
+      },
+    })
+    const { usePodcastChannel, IPC_UNAVAILABLE } = await import('./usePodcastChannel')
+    const s = usePodcastChannel()
+
+    const res = await s.loadChannel()
+
+    expect(res.code).toBe(IPC_UNAVAILABLE)
+    expect(s.channelError.value).toBe(IPC_UNAVAILABLE)
+  })
 })
 
 describe('IPC 单轨制结构锁', () => {
@@ -147,10 +199,25 @@ describe('IPC 单轨制结构锁', () => {
     // 经辅助函数转发成变量就变成「生产侧动态取名」，该文件会当场红（本仓 C-1 同形态）。
     for (const m of METHODS) expect(bridge).toContain(`invokeNamespace(NS, '${m}'`)
     expect(bridge).not.toMatch(/invokeNamespace\(\s*NS\s*,\s*[^'"\s]/)
+
+    // QM-6 后端评审的缺口防再犯：权限类前置条件必须归进 available:false，
+    // 且调用必须以 thunk 形态发生在 envelope 的 try 之内（invokeNamespace 非 async，
+    // 直接传 promise 会让同步 throw 逃过 catch —— 那是一条静默的语义退化）。
+    expect(bridge).toMatch(/import \{[^}]*\bisPermissionError\b[^}]*\} from '\.\/electron-bridge'/)
+    expect(bridge).toMatch(/isPermissionError\(err\)/)
+    expect(bridge).toMatch(/await pending\(\)/)
+    expect(bridge).not.toMatch(/envelope\(\s*invokeNamespace\(/)
   })
 
   it('桥接层导出的 8 个名字与 preload 暴露面逐字一致（防改名漂移）', async () => {
     const api = await import('@/api/podcast-channel')
-    expect(Object.keys(api).sort()).toEqual([...METHODS].sort())
+    // 必须拿**真 preload 面**比对，不能拿本文件的 METHODS 常量：后者与桥接层是同一只手写的，
+    // 两边一起改名时该断言照绿（QM-6 前端模型实测命中这条）。preload 是 CJS 且导出工厂，
+    // 用一个只记录通道名的假 ipcRenderer 实例化，取 podcast 命名空间的键即为暴露面。
+    const mod = await import('../../electron/preload/podcast.js')
+    const createPodcastApi = mod.createPodcastApi ?? mod.default.createPodcastApi
+    const surface = createPodcastApi({ invoke: async () => ({ code: 0, data: null }) }).podcast
+    expect(Object.keys(api).sort()).toEqual(Object.keys(surface).sort())
+    expect(Object.keys(surface)).toHaveLength(8)
   })
 })

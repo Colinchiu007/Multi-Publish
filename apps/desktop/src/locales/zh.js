@@ -394,7 +394,7 @@ knowledgeBase: {
       empty: '未能读取分发端目录',
     },
     errors: {
-      PODCAST_IPC_UNAVAILABLE: '播客服务暂不可用（主进程通道未挂载），请稍后重试',
+      PODCAST_IPC_UNAVAILABLE: '播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载）',
       PODCAST_IPC_EXCEPTION: '播客服务调用失败，请重试',
       PODCAST_PAYLOAD_NOT_SERIALIZABLE: '表单数据无法序列化，请检查后重试',
       PODCAST_FEED_INVALID: 'Feed 校验未通过，请先按下列问题解决',

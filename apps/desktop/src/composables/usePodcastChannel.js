@@ -178,7 +178,8 @@ export function usePodcastChannel () {
   })
 
   /**
-   * 统一 IPC 调用：命名空间缺失 → IPC_UNAVAILABLE；调用抛错 → IPC_EXCEPTION。
+   * 统一 IPC 调用：命名空间缺失**或权限前置条件不满足**（未登录 / 许可证未激活，
+   * 由桥接层归进 available:false）→ IPC_UNAVAILABLE；其余调用抛错 → IPC_EXCEPTION。
    * 取用桌面端暴露面的动作不在本文件发生，一律经 src/api/podcast-channel.js
    *（IPC 渲染端访问单轨制，check-frontend-consistency 计数钉 0）。
    * 形参收的是**桥接层函数引用**而非方法名字符串：字符串派发会让桥接层退化成

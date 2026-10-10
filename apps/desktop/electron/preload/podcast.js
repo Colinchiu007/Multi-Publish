@@ -13,8 +13,11 @@
  * 「同一件事两份判据」，届时哪一层错无法归因（并行开发时最容易各写各的）。
  *
  * 访问级别：不在 PUBLIC_METHODS 名单内 ⇒ 默认 authenticated（业务面）。
- * 未登录调用被 access-control 抛 LicensePermissionError，composable 的 call()
- * 捕获后回 { ok:false, code:PODCAST_IPC_EXCEPTION }，界面如实显示不可用而非空白。
+ * 未登录调用被 access-control **同步**抛出 LicensePermissionError（本文件的包装函数
+ * 是普通函数，不是 async）。该错误不在这里消化：渲染侧桥接层
+ * src/api/podcast-channel.js 按 electron-bridge 的 M-14 口径把权限类前置条件归进
+ * 「环境不可用」，用户最终看到的是 PODCAST_IPC_UNAVAILABLE（模块暂不可用），
+ * 而不是 PODCAST_IPC_EXCEPTION（调用失败，请重试）。
  */
 
 /** renderer 侧自有错误码：与 composable usePodcastChannel.js 的常量逐字一致 */

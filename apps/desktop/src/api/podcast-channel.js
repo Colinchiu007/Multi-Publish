@@ -25,45 +25,72 @@
  * 这个区分**显式带出去**，而不是压成一个 undefined 让调用方猜；也不在这里 try/catch
  * 吞异常（与 tts-voice-catalog 的「两种失败同一信封」有意不同，本功能的 PRD §9.1
  * 要求界面能区分「播客模块不可用」与「这一轮没成功」）。
+ *
+ * 例外只有一类，且它是**环境问题**而不是调用失败：preload 的访问控制
+ * （access-control 的 createDynamicAccessApi）在「未登录 / 许可证未激活」时
+ * 对每个 podcast 方法**同步 throw** LicensePermissionError —— 本页 8 个方法都不在
+ * PUBLIC_METHODS 名单内，所以这是生产环境最高频的前置条件失败。electron-bridge
+ * 的 M-14 口径对此早有结论（见 invokeWithFallback：「权限不足必须落进 fallback
+ * 语义⋯⋯其余错误照原样抛出」），因此这里把它归进 available:false，界面据此显示
+ * 「模块暂不可用」而不是「调用失败，请重试」。
+ *
+ * ⚠️ 写法不可回退成「把 invokeNamespace 返回的 promise 直接交给 envelope」：invokeNamespace
+ * 不是 async 函数，权限错误在**参数求值期**就同步抛出，那时 envelope 的 try 还没进场，
+ * catch 永远接不到。所以调用必须包在箭头里（thunk），由 envelope 在 try 内调用它。
+ * （这条由 usePodcastChannel-ipc.test.js 的结构锁钉住，注释本身不写该形态的字面量——
+ * 本仓有过「判据按文本形态抓取、不剥注释」把示例读成真实代码的事故，见 check-ipc-bridge。）
  */
-import { invokeNamespace } from './electron-bridge'
+import { invokeNamespace, isPermissionError } from './electron-bridge'
 
 /** preload 暴露面上的命名空间键名（见 apps/desktop/electron/preload/index.js） */
 const NS = 'podcast'
 
-/** 把 invokeNamespace 的三态（undefined / 原值 / 抛错）中的前两态收成信封；抛错原样上抛 */
-function toEnvelope (result) {
+/**
+ * 把一次命名空间调用的四种结局收成信封：
+ *   方法/命名空间缺失（undefined）→ available:false
+ *   权限前置条件（LicensePermissionError）→ available:false（同属环境问题）
+ *   正常返回 → available:true + result 原样带出
+ *   handler 真抛错 → 原样上抛，本层不吞（调用方据此报 IPC_EXCEPTION）
+ */
+async function envelope (pending) {
+  let result
+  try {
+    result = await pending()
+  } catch (err) {
+    if (isPermissionError(err)) return { available: false }
+    throw err
+  }
   return result === undefined ? { available: false } : { available: true, result }
 }
 
 export async function channelGet () {
-  return toEnvelope(await invokeNamespace(NS, 'channelGet'))
+  return envelope(() => invokeNamespace(NS, 'channelGet'))
 }
 
 export async function channelSave (payload) {
-  return toEnvelope(await invokeNamespace(NS, 'channelSave', payload))
+  return envelope(() => invokeNamespace(NS, 'channelSave', payload))
 }
 
 export async function episodeList () {
-  return toEnvelope(await invokeNamespace(NS, 'episodeList'))
+  return envelope(() => invokeNamespace(NS, 'episodeList'))
 }
 
 export async function episodeSave (payload) {
-  return toEnvelope(await invokeNamespace(NS, 'episodeSave', payload))
+  return envelope(() => invokeNamespace(NS, 'episodeSave', payload))
 }
 
 export async function episodeRemove (id) {
-  return toEnvelope(await invokeNamespace(NS, 'episodeRemove', id))
+  return envelope(() => invokeNamespace(NS, 'episodeRemove', id))
 }
 
 export async function feedBuild () {
-  return toEnvelope(await invokeNamespace(NS, 'feedBuild'))
+  return envelope(() => invokeNamespace(NS, 'feedBuild'))
 }
 
 export async function feedVerify () {
-  return toEnvelope(await invokeNamespace(NS, 'feedVerify'))
+  return envelope(() => invokeNamespace(NS, 'feedVerify'))
 }
 
 export async function endpointList () {
-  return toEnvelope(await invokeNamespace(NS, 'endpointList'))
+  return envelope(() => invokeNamespace(NS, 'endpointList'))
 }

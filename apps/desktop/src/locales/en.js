@@ -395,7 +395,7 @@ knowledgeBase: {
       empty: 'Failed to load the distribution endpoint catalog',
     },
     errors: {
-      PODCAST_IPC_UNAVAILABLE: 'Podcast service is unavailable (main-process channel not mounted). Please retry later',
+      PODCAST_IPC_UNAVAILABLE: 'Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted)',
       PODCAST_IPC_EXCEPTION: 'Podcast service call failed, please retry',
       PODCAST_PAYLOAD_NOT_SERIALIZABLE: 'Form data could not be serialized, please check and retry',
       PODCAST_FEED_INVALID: 'Feed validation failed. Fix the issues below first',
