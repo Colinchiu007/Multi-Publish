@@ -2,9 +2,6 @@
 record: retire-dedup-auth-file
 task: 删除已消费的一次性 CHANGELOG 去重授权文件并加生命周期锁；把 retire-changelog-dedup-auth 的 artifacts 对齐实际落地形态后归档
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后按 `git log origin/main --grep='(#NNNN)$'` 取证回填
-sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug）
 ---
 
 ## 本次执行记录：退役已消费的一次性去重授权（retire-dedup-auth-file，2026-10-09）
@@ -25,8 +22,8 @@ sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug
 | 行尾与 diff 对账 | PASS | 动手前 `git ls-files --eol` 实测受影响文件均 `i/lf w/crlf attr/text=auto`（索引是 LF，工作副本 CRLF 由 checkout 转换，所以写入 LF 行是安全方向）。两口径对照**逐个提交都做了**：主提交 `git diff --numstat HEAD~1 HEAD` 与 `--ignore-cr-eol` 版 md5 相同（`f5b25d913d8d…`，11 文件 20/0+22/1+58/0+11/1+34/0+22/0+0/7+0/36 等）；口径纠正提交同样相同（`ee08a022e50f…`，3 files changed, 3 insertions(+), 3 deletions(-)）。删除数归因：`0/7` 是被删的授权文件本身、`0/36` 是 tasks.md 被 git 判为"删除+新建"的旧位置（rename 相似度 69%/77% 那两条），**没有任何既有行为行被改写** |
 | QM-6 CCG 双模型外部评审 | PASS（替代通道，两路不同底模，共 17 条发现） |后端 `opencode/nemotron-3-ultra-free` ⇒ `.ccg/reviews/retire-auth-logic.json`：Critical 0 / Warning 1 / Info 3。前端 `opencode/ling-3.1-flash-free` ⇒ `.ccg/reviews/retire-auth-maint.json`：**MAJOR 4 / MINOR 9**（它用的是自己的词表，不是我给的字面量，按其定义 MAJOR≈必修）。**四条 MAJOR 全部成立并已处置**：① 锁 1 原本是无条件存在性断言 ⇒ 它把自己的恢复路径锁死：未来任何"同一清理 PR 现生成一份授权"的合法用法都会在 `Gate 2c3` 与锁同步红的同一步骤里变红，即**通路代码还在但流程层已死**，且锁自己的提示语推荐的正是它会打红的操作。处置＝改成 base∧head 判据（见上面两行）+ P0-P4 五条边界实测；② CHANGELOG「一次性豁免通路仍然完整」在 ① 未修前是失实声明 ⇒ 已改成带条件的可核措辞（写明只禁哪种形态、并指向本记录）；③④ 归档的 `design.md` 与 `specs/changelog-growth-retirement/spec.md` 是 100% 原样搬迁、没带对账横幅，而 openspec 语义里「归档即已实施」⇒下个会话会把从未实施的 3b 当现状规格引用（且它的触发条件与实际实现**正好相反**）。处置＝两份文件顶部各加同款横幅，指向真实落地的祖先判据位置与回归锁。后端那两条 Info 是对本记录结论的**独立印证**（门禁读 git blob 不读工作树 ⇒ 删文件零运行时影响；`evaluateAuthorization` 里只有祖先判据、不存在按形状放行的代码路径）。后端第 4 条 Info 说我记录里的测试计数有偏差：核对后**它对了一半**——实测单文件 30→32、两文件 35→37、三文件 56，我误写「32→34」已改；它自己估的「约 40 条」未实跑，不作为依据。**通道局限**：两路同经 opencode harness（原 harness 依赖的 CC Switch `:15721` 本机仍无监听），跨家族独立性打折。
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/**`、`packages/rpa-engine/**` 与任何前端文件 |
-| 合并纪律 | 适用 | 本 PR 属 AGENTS.md「改谁守门」范畴 ⇒ **不自动合并**，CI 全绿后停在这里等用户过目 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin retire-dedup-auth-file` 返回 0 行证远端分支已删；回填与删除上述三个 `sync_*` 字段必须同一次提交 |
+| 合并纪律 | 适用 → 已履行 | 本 PR 属 AGENTS.md「改谁守门」范畴 ⇒ **不自动合并**：CI 全绿（head `90cdd8f45`，19 SUCCESS / 1 SKIPPED=release 非 required / 0 fail，`mergeable=MERGEABLE/CLEAN`）后停在这里请用户过目，用户回复「合」方执行 squash 合并（见下行 merge SHA）。中途 main 前进导致 `CONFLICTING/DIRTY`，按无损解算重推后再绿一轮 |
+| 远程同步 | PASS | PR #3225 已 squash 合并：merge SHA `bf31c3993df6fa86ea8354c1aa41be48392289d6`（2026-10-10T22:57:59+08:00，取证 `git log origin/main --grep='(#3225)$' --format=%H\|%cI`）；`git ls-remote --heads origin retire-dedup-auth-file` 返回 **0 行**（远端分支随合并删除）。合并前最后一次 CI 读数：head `90cdd8f45`，**实测分档 19 SUCCESS / 1 SKIPPED（`release`，非 required）/ 0 fail**（含 `QG Visual` 与 `Gate Result` 均 SUCCESS），`mergeable=MERGEABLE/CLEAN`（`gh pr view --json statusCheckRollup` 原始 buckets）。**间歇红归因（如实登记，不当已通过略过）**：本 PR 早期 head `690633570` 的 run 37953338608（<https://github.com/Colinchiu007/mulpub/actions/runs/37953338608>，实查 `jobs[] | select(conclusion=="failure")` ⇒ `QG Visual` + `Gate Result`）曾红在 `QG Visual`——`home-baseline` 报 `page.goto: Timeout 15000ms`、账号视图停在 `#/`（`appMounted=true / accountsPagePresent=false`），两条都是超时形状而非像素回归；本 PR 变更集不含任何 `apps/**` 前端文件，本 PR 后续两个 head 的 quality-gate 整体 success（`290805b12` ⇒ run 37957923773、`90cdd8f45` ⇒ run 38059599512）。**结论强度如实写明**：失败形态是等待超时、不是像素差值报警，且本变更集无任何 `apps/**` 改动 ⇒ 登记为采集/渲染抖动，**未做同机复现，不作为已证事实**。另一次真因是 main 前进导致的 `CONFLICTING/DIRTY`，按无损解算处理（`MAIN_LINES_MISSING=0`、条目数恰好 +1、`CONFLICT_MARKERS=0`）。本次回填与删除上面三个 `sync_*` 字段**同一次提交**发生，**未**往 `scripts/gate-record-debt-ledger.json` 加键 |
 
 ### 遗留（不假装已闭合）
 
