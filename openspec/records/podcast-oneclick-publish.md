@@ -2,8 +2,6 @@
 record: podcast-oneclick-publish
 task: 按 proposal-v5 落地播客 RSS 频道一键发布的刀 1（多频道数据模型、迁移、按键串行锁、契约与渲染层接线）
 date: 2026-10-10
-sync_reason: 待 PR 合并后按产物取证（state=MERGED + mergeCommit.oid、远端分支 0 行、git log 恰好 1 行）并就地回填
-sync_backfill_owner: podcast-oneclick-publish 分支作者（本会话）
 ---
 
 ## 本次执行记录：播客一键发布 刀1（多频道数据模型与迁移）（podcast-oneclick-publish，2026-10-10）
@@ -26,7 +24,7 @@ sync_backfill_owner: podcast-oneclick-publish 分支作者（本会话）
 | 实现期评审（验证层，QM-6 双模型） | PASS（后端）/ 部分（前端，如实记录） | 引擎 `ccg-deep-review.js` 按**代码提交** `f0968c13d` 命中判定记录（rebase 后该提交为 `2dd3407e4`）（HEAD 是 docs 提交时 `deep-review.sh` 会报「判定记录: 无」——QM-6 必须排在最后一个**代码**提交之后，或直接带 `--sha`）。后端 claude（anthropic，与出方案方跨家族、属外部复核）出 **8 条**：3 Critical（i1 手工写串行未接线 / i2 `endpoints:list` 生产必失败 / i3 迁移冲突首访即抛，域 `datamigration`）+ 3 Warning（i4 读写未分档 / i5 同步自旋 / i6 落盘层无兜底）+ 2 Info（i7 缺码表文案 / i8 死状态与无人渲染的错误位）。最低维度分 correctness 3。产物 `.adversarial/ccg-deep-9ce8fdbf/{critique-v1.md, adjudication.json, family-snapshot.json}`，处置逐条见 adjudication（i1-i4、i6-i8 upheld 并已修；i5 partially_accepted：预算单点导出并锁上界，异步化按 AGENTS.md Windows 原子替换约束拒绝）。**i3 由外部评审直接命中，未走自扮演豁免。** 前端 opencode 四次均未产出 JSON 产物（内联引号被吞 / `--resume` 参数位错 / 只落占位 `{}` / prose 收尾），但其文字命中「locales 两处死键」——已核实成立并转为被界面消费；该路结构化结论缺失，不冒充双模型全通过。另记一条评审自身的错：`toIpcError:51-54` 早已透传 `err.issues`，故「issues 不透传」这条前提不成立，已按实测纠正而非照抄 |
 | 行尾与 diff 对账 | PASS | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件一致（bundle 为工具重生成产物）；`git status` 的 `LF will be replaced by CRLF` 警告即本项告警来源，已按告警核对而非忽略 |
 | QM-4 视觉 | PASS（同一次 run 重取两张） | run `38073491010` `QG Visual` 红在 **Gate 7b 基线新鲜度**（Gate 7 的 6% 全页容差对 1.485% 失明，这条判据存在的意义再次被实测确认）。`gate7b-round1/2.json` 逐文件记账：43 张中违规**恰好 2 张、全部属本 PR**（`podcast-channel.png` 30802 px/1.485%、`podcast-channel-dark.png` 462493 px/22.304%），其余 41 张 0 px ⇒ 本次无上游传染，两类记账不混。基线取自同一次 run 的 `quality-gate-visual-reports` artifact（`screenshots/podcast-channel.png` / `screenshots/podcast-channel-dark-current.png`，按 `findRender` 的 `<name>.png` 优先），逐字节自证 sha256 `f41cc163…` / `7ca6f9d0…`，本机复跑 freshness `--max-drift-px=0` 违规 0 张。阈值、mask、`KNOWN_DYNAMIC` 三者一律未动 | 播客页新增频道目录区块 ⇒ `podcast-channel` 浅/暗两张基线必然漂移，按 QM-4 第 7 条**只能取同一次 CI run 的 `quality-gate-visual-reports` artifact** 重取并逐项归因（禁本机截图、不提 `PIXEL_THRESHOLD`、不加 mask、`KNOWN_DYNAMIC` 保持空）；PR 合并后回填 |
-| 远程同步 | PENDING | 待 PR 合并后回填 `PASS` + merge SHA，并在同一次提交删除本行对应的 ledger 登记项与 frontmatter 三字段 |
+| 远程同步 | PASS | PR #3279 于 2026-10-11T02:39:19+08:00 squash 合并，merge SHA `5fdb97b8b7f171e231ddfa046996b9307933581f`。四源一致：`gh pr view 3279 --json state,mergeCommit`（MERGED + 同 SHA）、`git log origin/main --grep="(#3279)$" --format=%H|%cI`（恰好 1 行）、`git ls-remote --heads origin podcast-oneclick-publish`（0 行）、比树 `git diff --name-only podcast-oneclick-publish 5fdb97b8b7f171e231ddfa046996b9307933581f`（空）。本行、同名 `.quality-gates.md` 行、本文件 frontmatter 两个 sync_* 字段与 ledger 登记项同一次提交收口。QM-1 启动存活证据由 CI `gui-test`=pass 承担并已闭合（本机受另一 worktree 的单实例锁限制，见上一行） |
 
 ## 提交构成（origin/main..HEAD）
 
