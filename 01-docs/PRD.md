@@ -19426,17 +19426,29 @@ apps/desktop/src/views/
 
 ```
 apps/desktop/src/views/
-├── CreateView.vue                                    # 壳：桥接 + 代理（5522→5056 行，净 -466）
+├── CreateView.vue                                    # 壳：桥接 + 代理（5522→5056 行，净 -519）
 └── video-creation/composables/
-    ├── useTtsVoices.js                               # TTS 音色域（792 行）
+    ├── tts-voices-state.js                           # 182 行：状态 + deps + 2 纯 helper + 6 计算属性 + 复位
+    ├── tts-voices-shared.js                          # 268 行：共享操作层（上下文/归一/时效/消息/选择持久化/格式化）
+    ├── tts-voices-clone.js                           # 229 行：克隆 CRUD
+    ├── useTtsVoices.js                               # 229 行：门面（目录 + 服务商/模型切换 + 汇总导出）
     └── useTtsVoices.test.js                          # 独立测试（15 例）
 ```
 
-| 导出 | 类型 | 说明 |
+**为何拆 4 个模块**：CI **债务熔断门禁**对新建文件有 **500 行硬上限**（`scripts/check-debt-budget.js` 的 `NEW_OVER_LIMIT`），单文件版（793 行）被直接拦红。拆分后各模块均 < 500 行。
+
+**层次（单向，禁止环）**：`tts-voices-state` ← `tts-voices-shared` ← { `tts-voices-clone`, `useTtsVoices` }。两条归属约束由生成器的 fail-closed 断言固化：
+
+- `selectS2VVoice`（音色选择持久化）放 **shared**：克隆流程（新增后选中、删除后回退）要调用它，放门面会形成 门面→clone→门面 环；
+- `getS2VVoiceProvider` / `getS2VDefaultVoiceModel` 放 **state**：计算属性 `s2vVoiceModelHidden` 依赖它们，而 shared 依赖这些计算属性，放 shared 会形成 state→shared→state 环。
+
+`check-debt-budget.js` 的 `circularDeps: 0` 是该层次无环的机械证据。
+
+| 导出（门面 `useTtsVoices.js`） | 类型 | 说明 |
 |---|---|---|
 | `ttsVoicesRefs` | `toRefs(reactive)` | 20 个状态（供壳 computed get/set 桥接） |
-| `ttsVoicesComputeds` | object | 6 个只读计算属性（服务商/模型/音色选项、模型隐藏、上下文模型、目录可刷新） |
-| `ttsVoicesMethods` | object | 28 个方法（目录加载/选择/克隆 CRUD/格式化） |
+| `ttsVoicesComputeds` | object | 6 个只读计算属性 |
+| `ttsVoicesMethods` | object | 28 个方法（目录/选择 6 + 共享层 13 + 克隆 7 + state 层 2） |
 | `setupTtsVoicesDeps(deps)` | function | 壳注入 6 个跨域依赖 |
 | `resetTtsVoicesForTest()` | function | 测试复位（模块级单例状态隔离 + 清空 deps） |
 
@@ -19514,8 +19526,9 @@ apps/desktop/src/views/
 | U2 | 新增 composable 独立测试 | ✅ 15/15 |
 | U3 | 相关域全量（views + locales + overlay） | ✅ 1703 passed / 1 skipped（71 文件） |
 | U4 | Gate 7 `--cjk` / `--keys` | ✅ PASS（基线 1489 → 当前 1270）/ PASS（1524 key） |
-| U5 | 壳文件净减 | ✅ 5522 → 5056（-466 行） |
+| U5 | 壳文件净减 | ✅ 5522 → 5056（-519 行） |
 | U6 | 行为零变更（测试零改动） | ✅ |
+| U7 | 债务熔断（新建文件 < 500 行 + 无环） | ✅ 182/268/229/229 行；`circularDeps: 0` |
 
 
 ## 附录：快手图文封面 tofu 乱码修复（2026-10-09，fix-kuaishou-tuwen-tofu）

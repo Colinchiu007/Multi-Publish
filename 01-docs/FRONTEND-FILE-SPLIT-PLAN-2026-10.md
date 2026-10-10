@@ -175,15 +175,30 @@ node .github/scripts/check-locale-sync.js --cjk
 
 **前置检查（§2.6 同口径，实测）**：把 TTS 方法块（`CreateView.vue:3225–3866`，641 行）放入探针文件后 `check-locale-sync.js --cjk` 报 **0 处** fresh 命中——T1 的 i18n 前置任务（§2.6 处置结果）确实解除了阻断。
 
-**抽取规模**：28 个方法 + 6 个计算属性 + 20 个状态 → `useTtsVoices.js`（**792 行**）。
+**抽取规模**：28 个方法 + 6 个计算属性 + 20 个状态 → **按子域拆 4 个模块**（合计 908 行）：
+
+| 模块 | 行数 | 职责 |
+|---|---|---|
+| `tts-voices-state.js` | 182 | 状态 + deps + `requireDeps` + 2 个纯 helper（`getS2VVoiceProvider`/`getS2VDefaultVoiceModel`）+ 6 个计算属性 + 复位 |
+| `tts-voices-shared.js` | 268 | 共享操作层：上下文构造 / 选项归一 / 请求时效判定 / 消息友好化 / **音色选择持久化** / 命名与容量时长格式化 |
+| `tts-voices-clone.js` | 229 | 克隆 CRUD（选样本 / 自动入库 / 删除 / 重命名） |
+| `useTtsVoices.js` | 229 | 门面：目录加载 + 服务商/模型切换 + 汇总导出 `refs/computeds/methods/setup/reset` |
+
+**为什么必须拆（CI 真实拦截）**：单文件版（793 行）被 **债务熔断门禁**判红——`NEW_OVER_LIMIT: useTtsVoices.js 793 行 >= 500，新代码不得引入超大文件`。按子域拆分后各模块均 < 500 行，`check-debt-budget.js` 本地复跑全绿。
+
+**层次（单向，禁止环）**：`state` ← `shared` ← { `clone`, 门面 }。两条约束决定归属，均由生成器的 fail-closed 断言固化：
+- `selectS2VVoice` 必须放 **shared** 而非门面：克隆流程（新增后选中、删除后回退）要调用它，放门面会形成 门面→clone→门面 环；
+- `getS2VVoiceProvider` / `getS2VDefaultVoiceModel` 必须放 **state** 而非 shared：计算属性 `s2vVoiceModelHidden` 依赖前者，而 shared 又依赖这些计算属性，放 shared 会形成 state→shared→state 环。
+`check-debt-budget.js` 的 `circularDeps: 0` 即该层次无环的机械证据。
 
 | 项 | 结果 |
 |---|---|
-| CreateView.vue | 5522 → **5056 行**（净 **-466**） |
+| CreateView.vue | 5522 → **5056 行**（净 **-519**，含桥接/代理与 deps 注入） |
 | CreateView.test.js | **288/288 零改动全绿**（仅新增 composable 复位钩子） |
 | 新增 `useTtsVoices.test.js` | 15/15 |
-| `tts-voice-i18n.test.js` | 6/6（防回流断言改指向新家） |
+| `tts-voice-i18n.test.js` | 6/6（防回流断言改扫 TTS 模块族） |
 | Gate 7 `--cjk` / `--keys` | PASS（基线 1489 → 当前 1270）/ PASS（1524 key） |
+| 债务熔断 | PASS（maxFileLines 5057 < 基线 5657；>500 行文件 96 < 基线 101；**circularDeps 0**） |
 
 **关键架构发现（决定了本批为何能零改动）**：TTS 语音 UI **不在 CreateView 模板里**（模板区 0 处 `s2vVoice*`），而在子组件 `S2vConfigPanels.vue`；该子组件经 `s2v-panel-contract.js` 的 `createS2VPanel(vm)` **按名访问父实例**（`state[key] → vm[key]`、`fns[key] = (...a) => vm[key](...a)`、`setState(key, v) → vm[key] = v`）。因此**只要壳实例上仍存在同名 computed/方法**，子组件与契约**零改动**即可继续工作——本批据此把「桥接 + 代理」做成完整同名面，未触碰 `s2v-panel-contract.js` 一行。
 
@@ -203,6 +218,8 @@ node .github/scripts/check-locale-sync.js --cjk
 2. **成员前的注释归属**：按 `name() {` 行切区间会把「属于下一成员的注释」算进上一成员（并导致区间重叠）。正解：前导注释归属**其后**成员，区间 = [本成员含注释起点, 下一成员含注释起点)。
 3. **必须「先删 data 再算区间」**：接线脚本里若在「删除 data 字段」**之前**就算好方法/计算属性的行区间，索引会整体偏移，导致**误删留壳方法**（本次实测误删 `isS2VDefaultVoice`/`loadS2VProviders` 等，已 `git checkout --` 回退重做）。已在脚本内加两条 fail-closed 断言：区间不得重叠、留壳清单必须齐全。
 4. **CRLF 陷阱**：源文件为 CRLF，生成器的多行正则若用 `\n` 会静默不匹配（`injectRequireDeps` 直接报错，`.replace` 类操作则可能静默漏改）。正解：统一 `replace(/\r\n/g,'\n')` 处理后，写回 `.vue` 时还原其原行尾。
+5. **新建文件有 500 行硬上限（债务熔断）**：抽取产物超 500 行会被 `check-debt-budget.js` 判 `NEW_OVER_LIMIT` 直接拦红（本批实测被 CI 拦下）。结论：**composable 抽取必须一开始就按子域规划模块边界**，而不是先写单文件再拆。
+6. **模块化后须自查「跨模块 import 的名字确实被源模块 export」**：单文件版没有这个问题，一旦拆模块，漏 `export` 只会表现为运行期 `undefined（reading 'value'）`，静态看不出来。生成器已加三道 fail-closed 自检：①未声明/未导入的裸调用；②跨模块 import 必须在源模块有对应 export；③行数上限。
 
 **残留项**：`s2vConfigSummary`（L1925）等壳内文案仍含非本域 CJK；本批已把 `'自动 Edge TTS'` 与 `'（多模态）'` 收敛为共用 locale 键（`autoEdgeProvider` / `multimodalSuffix`，后者由语音与视频两处共用），其余留待后续。
 

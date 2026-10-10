@@ -88,10 +88,13 @@ describe('TTS 音色域 i18n 迁移（tts-i18n-migrate）', () => {
     expect(mismatch).toEqual([])
   })
 
-  it('TTS 取值确实由 locale 驱动（不再写死中文）——迁出前在 CreateView、迁出后在 useTtsVoices', () => {
+  it('TTS 取值确实由 locale 驱动（不再写死中文）——迁出前在 CreateView、迁出后在 TTS 模块族', () => {
     const view = readFileSync(resolve(here, 'CreateView.vue'), 'utf8')
-    const comp = readFileSync(resolve(here, 'video-creation/composables/useTtsVoices.js'), 'utf8')
-    // 迁走的代表性命中不应再以字面量出现在壳或 composable 中
+    // TTS 模块族（按子域拆分：state / shared / clone / 门面）——键位归属断言须扫全族
+    const family = ['tts-voices-state.js', 'tts-voices-shared.js', 'tts-voices-clone.js', 'useTtsVoices.js']
+      .map((f) => readFileSync(resolve(here, 'video-creation/composables', f), 'utf8'))
+      .join('\n')
+    // 迁走的代表性命中不应再以字面量出现在壳或模块族中
     const gone = [
       "'图片'",
       "'旁白音频'",
@@ -106,15 +109,15 @@ describe('TTS 音色域 i18n 迁移（tts-i18n-migrate）', () => {
       "'（多模态）'",
     ]
     expect(gone.filter((lit) => view.includes(lit))).toEqual([])
-    expect(gone.filter((lit) => comp.includes(lit))).toEqual([])
-    // 键位归属：TTS 域方法迁出后，其 locale 键出现在 composable
+    expect(gone.filter((lit) => family.includes(lit))).toEqual([])
+    // 键位归属：TTS 域方法迁出后，其 locale 键出现在模块族
     for (const key of [
       'create.story2video.voice.cloneNamePrefix',
       'create.story2video.voice.cloneHintFormat',
       'create.story2video.voice.durationMinutesSeconds',
       'create.story2video.voice.autoEdgeProvider',
     ]) {
-      expect(comp).toContain(key)
+      expect(family).toContain(key)
     }
     // kind 标签走 `create.story2video.voice.${labelKey}` 模板串，故断言其 map 值（仍在壳：被 BGM 依赖注入复用）
     expect(view).toContain("image: 'kindImage'")
