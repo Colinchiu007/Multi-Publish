@@ -1,3 +1,20 @@
+# [未发布] docs(agents): 删除守卫铁律 R0 的文档命令名更正为脚本真实文件名（2026-10-10，fix-agents-safe-delete-filename）
+
+### 用户感知
+
+无。本次只改流程文档 `AGENTS.md` 的一行命令名，不改任何运行行为、界面控件、显示项或提示文字；打包产物、发布链路、账号登录态口径完全不变，新增/修改的 locale 键为零（zh/en 成对约束不适用）。
+
+### 变更明细
+
+- `AGENTS.md`「⛔ 删除守卫铁律（R0，早于 R1-R7）」：`node scripts/safe-delete.cjs <路径>` → `node scripts/safe-delete.js <路径>`。判据来自 `git ls-files 'scripts/safe-delete*'` 实测（仓库内只有 `safe-delete.js` 与 `safe-delete.test.js`），且 `git log --all --format=%h -- 'scripts/safe-delete.cjs'` 返回 0 行——`.cjs` 这个名字从未被跟踪过，不是「后来改名将留下文档漂移」，是落地当天就写错了。
+- 引入点：`2934326c8`（2026-10-08T15:36:36+08:00，「fix(ci): 新增删除守卫 safe-delete —— 误删 .ccg 1161 个受管文件同日 5 次」）在**同一个提交**里把脚本落成 `scripts/safe-delete.js`、把用法写成 `.cjs` 共 5 处：`AGENTS.md:29` 一处、`scripts/safe-delete.js` 头注释「用法」块三处、`main()` 内 `console.error` 的用法行一处。本条只修文档那 1 处。
+- 为什么值得单独记一条：R0 的立规前提是「写进记忆、文档与提交信息都没能阻止第 5 次误删，所以必须是机械拦截，不能靠自觉」。而照文档执行得到的是 `MODULE_NOT_FOUND`（2026-10-09 会话实测），这句话读起来像「这个守卫不存在」，此时最自然的补救恰好是 R0 明令禁止的 `Remove-Item -Recurse` / `rm -rf`——一个错文件名把「机械拦截」降成「拦截不可用」，方向上等于给误删开门，所以它不是措辞问题。
+- 数据校验与判据口径：同一条铁律里另外两项断言已当场核实为真，未一并改动——`scripts/safe-delete.test.js`（12 例）确实存在且确实接在 `.github/workflows/quality-gate.yml:353` 的 `node --test scripts/safe-delete.test.js`（即「回归锁已接 CI」成立）；审计日志路径 `%LOCALAPPDATA%\Mulpub\safe-delete.log` 与「删除走 mavis-trash」也与脚本实现一致。
+- 流程逻辑：无新增自动化门禁（诚实记录）。能锁住「文档里的命令串指向真实文件」的机械判据不存在——`check-gate-record-debt.js` 只管「远程同步」行词表、`check-pr-exec-record.js` 只管记录是否随 PR 出现、`check-unwired-tests.js` 只管测试接线，三者都看不到 `AGENTS.md` 正文里的路径字面量。敞口与两种可选锁法记在 `openspec/records/fix-agents-safe-delete-filename.md` 的「遗留」。
+- 剩余 4 处（脚本自身的用法文本）不在本 PR：改动 `scripts/` 工具脚本自身会使 `node scripts/classify-docs-only.js` 判 `docs-only=false`（白名单对 `scripts/` 只收 `scripts/gate-record-debt-ledger.json` 一个字面量），须走全量重型门禁的混合 PR，另案处理。
+
+---
+
 # [未发布] docs(agents): PR 合并后收尾链补「已知假失败」判据口径，并加 busy holders 不误杀用户实例的清理规程（2026-10-10，docs-agents-merge-closure-gotchas）
 
 ### 用户感知

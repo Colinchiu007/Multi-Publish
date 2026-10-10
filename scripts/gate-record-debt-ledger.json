@@ -1,4 +1,9 @@
 {
+  "本次执行记录：删除守卫 R0 的文档命令名更正为脚本真名（fix-agents-safe-delete-filename，2026-10-10）【docs-only】": {
+    "reason": "本 PR（分支 fix-agents-safe-delete-filename）尚未合并，merge SHA 还不存在，无法按 PASS 口径取证。合并后由回填 PR 在同一次提交内完成三件事：把 .quality-gates.md 本条「远程同步」行改写为 PASS + merge SHA、删除本登记项、删除 openspec/records/fix-agents-safe-delete-filename.md frontmatter 的 sync_status/sync_reason/sync_backfill_owner 三字段。回填者＝下一个会话（或本会话续跑）。",
+    "status": "PENDING",
+    "line": 11
+  },
   "本次执行记录：多语言内容同步机制文档与规划（i18n-content-sync）（2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "记录",

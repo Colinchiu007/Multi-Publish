@@ -1,0 +1,33 @@
+---
+record: fix-agents-safe-delete-filename
+task: 把 AGENTS.md 删除守卫铁律（R0）里的命令名从 scripts/safe-delete.cjs 更正为脚本真实文件名 scripts/safe-delete.js
+date: 2026-10-10
+sync_status: PENDING
+sync_reason: "本 PR 尚未合并，merge SHA 还不存在，无法按 PASS 口径取证；合并后由回填 PR 在同一次提交内把本行改写为 PASS + merge SHA，并删除 frontmatter 的 sync_status / sync_reason / sync_backfill_owner 三字段。"
+sync_backfill_owner: "下一个会话（分支 fix-agents-safe-delete-filename；`git ls-remote --heads origin fix-agents-safe-delete-filename` 返回 0 行即证远端分支已删）"
+---
+
+## 本次执行记录：删除守卫 R0 的文档命令名更正为脚本真名（fix-agents-safe-delete-filename，2026-10-10）【docs-only】
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | ✅ | 纯流程文档变更（唯一正文改动是 `AGENTS.md:29` 一行里的一个文件名）。按 AGENTS.md「分层分支策略」：不影响运行行为 ⇒ 不需要独立 worktree，在共享主工作区 `D:\Data\projects\mulpub` 就地编辑，但同样经 PR 落地（分支保护对直推 `refs/heads/main` 一律 `GH011`，不存在直推路径）。基线 `origin/main`=`81a4a927a`；动笔前共享根 `main` 实测滞后 1 个提交（`git rev-list --left-right --count HEAD...origin/main` = `0 1`，那一个提交是 #3246），已 `git merge --ff-only origin/main` 吸收后才动笔，并用 `git log HEAD..origin/main -- AGENTS.md` 确认无未吸收的上游改动（返回 0 行） |
+| 第一性原因（QM-5 ①） | ✅ | 不是「后来改名留下漂移」，而是**落地当天就写错**：引入点 `2934326c8`（2026-10-08T15:36:36+08:00「fix(ci): 新增删除守卫 safe-delete —— 误删 .ccg 1161 个受管文件同日 5 次」）在同一个提交里 `A scripts/safe-delete.js`（落成 `.js`）、`A scripts/safe-delete.test.js`、`M AGENTS.md`（写 `node scripts/safe-delete.cjs <路径>`），且脚本头注释「用法」块 3 行与 `main()` 的 `console.error` 用法行同样写 `.cjs` —— 同一提交内共 5 处 `.cjs` 对 1 个真名 `.js`。`git log --all --format=%h -- 'scripts/safe-delete.cjs'` 返回 **0 行**（该名字从未被跟踪过），`git ls-files 'scripts/safe-delete*'` 现只有 `safe-delete.js` 与 `safe-delete.test.js`。后续 `2f0bf1dc5`（2026-10-08T17:01:22+08:00「测试文件纳管」）重新 `A` 同一批文件时把那 5 处原样带入，于是错名固化 |
+| 逃逸分析（QM-5 ②） | ✅ | 逐层逃逸：① **单元层**——`scripts/safe-delete.test.js`（12 例）测的是脚本的**四道闸行为**，不测「文档里写的命令能不能跑起来」，且它自身也写 `.js`，与被测对象的真实路径一致，天然无法暴露文档侧错名；② **CI 层**——`.github/workflows/quality-gate.yml:353` 用 `node --test scripts/safe-delete.test.js` 点名执行，路径写的是**正确的 `.js`**，所以「文档说 .cjs / CI 跑 .js」这种不一致在 CI 里根本没有交汇点；③ **门禁层**——`check-gate-record-debt.js` 只看「远程同步」行词表、`check-pr-exec-record.js` 只看记录是否随 PR 出现、`check-unwired-tests.js` 只看测试接线，三者都不读 `AGENTS.md` 正文的路径字面量；④ **审查层**——`AGENTS.md` 每次会话自动注入上下文，读的人默认它是权威口径，不会去 `git ls-files` 反查。**真正把它逼出来的是实跑**：2026-10-09 会话按文档执行 `node scripts/safe-delete.cjs <路径>` 得到 `MODULE_NOT_FOUND`，改跑 `safe-delete.js` 后 `--dry-run` 立即 rc=0 |
+| 系统性漏洞定位（QM-5 ③） | ✅ | 类型=**流程缺失（无「文档命令串 ↔ 真实文件」的对账机制）**，且不是运气问题：`AGENTS.md` 全文含大量可执行命令字面量（`node scripts/x.js`、`pnpm ...`、`powershell -File scripts/x.ps1`），没有任何一条门禁在核对这些路径是否存在。同类缺陷本仓已有前例并有锁的形态可借——`check-unwired-tests.js` 锁「测试文件 ↔ workflow 点名」、`check-step-failfast.js` 锁「run 块 ↔ fail-fast」，但都只覆盖 workflow 侧，文档侧是空白。为什么本 PR 不顺手补锁见「遗留」第 3 条（判据设计有实质歧义，属人工裁决） |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 修复=`AGENTS.md:29` 一个词（`.cjs` → `.js`），用**不含换行的行内锚点**改（该文件实测 `i/lf w/crlf attr/text=auto`，多行锚点会因 `\r\n` vs `\n` 失配）。同段另外两项断言**当场核实为真、未一并改动**：`scripts/safe-delete.test.js` 实含 12 个 `test(` 且确被 `quality-gate.yml:353` 点名（「回归锁已接 CI」成立）；审计日志路径与「删除走 mavis-trash」与实现一致（`safe-delete.js:54` `AUDIT = %LOCALAPPDATA%\Mulpub\safe-delete.log`、`:169` `cp.spawnSync('mavis-trash', ...)`）。回归保护形态如实记录：文档类变更没有可执行锁可加，本文件的防再犯机制是既有 `check-pr-exec-record.js`（本文件即其要求的载体）与 `check-gate-record-debt.js`（本条 PENDING 已同次登记 ledger），两者会在下一次绕过时报红；真正的「命令串对账」尚未落地，见遗留 |
+| 防止再次发生（QM-5 ⑤） | ✅ | 四处落盘：① `AGENTS.md` 正文更正（本 PR 唯一运行无关的行为改动）；② `CHANGELOG.md` 置顶条目，写清引入点 SHA、5 处错名的分布、以及「为什么错文件名属于安全面而不只是措辞」；③ 内置记忆 `repo-cleanup-tool-gaps.md`（2026-10-10 已落，记「文档名与真名不符 + 本机 `mavis-trash` 缺失 ⇒ 真删除恒 rc=1 ⇒ 不得退回 `rm`」）与 `MEMORY.md` 索引行；④ 本执行记录（`openspec/records/`）。刻意**不**新增脚本或 CI 门禁，理由与两种可选锁法见「遗留」 |
+| 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径逐文件**完全相同**：`AGENTS.md` `1 1`（一行改一行，删除数 1 是那一行自身）、`.quality-gates.md` `12 0`、`CHANGELOG.md` `17 0`、`scripts/gate-record-debt-ledger.json` `5 0`。三个既有载体均为 `i/lf w/crlf attr/text=auto`（工作副本 CRLF、blob LF），插入由 `%TEMP%\dr-agents-fix\insert.cjs` 完成并**逐行保留各自行尾**（不做任何「统一回写」），脚本内三条 `endsWith(原内容)` 断言保证原字节被完整保留为后缀、`crDelta == lfDelta`（12/12、5/5、17/17）证明没有把 LF 行混进 CRLF 文件，JSON 另过 `JSON.parse` 自检 |
+| 接线棘轮 | N/A | 本 PR 未新增任何 `*.test.js` / `*.test.mjs` / `*.test.sh` / `*.test.ps1`，`check-unwired-tests.js` 的扫描域与欠账清单均不变 |
+| QM-1 打包 / QM-2 代码必检 / QM-4 视觉 / TDD | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/`.css`/样式/文案文件；无 UI 控件、无显示项、无提示文字变化，打包产物与发布链路逐字节不变。按 AGENTS.md「docs-only 快速通道」明确豁免 |
+| PRD / 数据校验 / 交互 / 显示项 / 提示文字 | N/A（含理由，非漏写） | 本 PR 不产生任何用户可见行为：不改功能定义 ⇒ 无 PRD 条目需改；不改数据流与校验判据 ⇒ 无数据校验口径需写；不改控件、文案、i18n ⇒ 无 locale 键新增（zh/en 成对约束 Gate 7 不适用），`apps/desktop/src` 新增中文字面量为零。需求侧的「尽量写详细」在本 PR 的落点是**流程文档**，因此详细度全部体现在 `AGENTS.md` 该行、`CHANGELOG.md` 条目与本记录三处 |
+| QM-6 CCG 双模型外部评审 | 未执行 | 纯文档/流程变更，按 AGENTS.md「纯文档/流程变更不强制 QM-6」；本机亦未执行，不以自审冒充双模型外部评审。评审面留给下一个读 `AGENTS.md` 的会话：R0 铁律的其余断言是否仍与实现一致（本次只核了 CI 接线与 mavis-trash/审计日志两项） |
+
+| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在，故无法按 PASS 口径取证。回填判据（三源一致）：`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 恰好 1 行、`gh pr view NNNN --json state,mergeCommit` 给出 `MERGED` + `mergeCommit.oid`、`git ls-remote --heads origin fix-agents-safe-delete-filename` 返回 0 行（同次调用 `main` 返回 1 行作正控，证「0 行」是分支确已删除而非命令静默失败）。回填与销账必须**同一次提交**：本行与 `.quality-gates.md` 对应行改 PASS + merge SHA，删除本 frontmatter 三 `sync_*` 字段，删除 `scripts/gate-record-debt-ledger.json` 中键为本条标题的登记项。本条不走 ledger 之外的登记——历史标题键与本文件名不同形（`check-gate-record-debt.js` 的两源键重叠判据会当场报错） |
+
+### 遗留（不假装已闭合）
+
+1. **同一漂移在 `scripts/safe-delete.js` 自身还剩 4 处，本 PR 刻意不修**：头注释「用法」块 3 行（`:41`–`:43`）与 `main()` 里 `console.error` 的用法行（`:145`）。后者是**用户可见输出**——不带参数运行脚本时，它自己打印一条跑不通的命令。不并入的理由是机械的：`classify-docs-only.js` 的白名单对 `scripts/` 只收 `scripts/gate-record-debt-ledger.json` 一个字面量，改 `scripts/safe-delete.js` 会使判定变 `docs-only=false`，整个 PR 从短路通道转为全量重型门禁（Desktop Shards / Coverage / 视觉）。需要动手时的正解：4 处一次改完 + 同 PR 跑 `node --test scripts/safe-delete.test.js`（12 例，实测不打印、不断言用法文本，故无联动改动）+ 按混合 PR 走完整质量节拍。
+2. **本机 `mavis-trash` 未安装，R0 的「可恢复删除」在后半段实际不可用**（属环境事实，不是文档漂移，故不在本 PR 修）：2026-10-09/10 实跑 16 个 `%TEMP%` 自建脚本，`--dry-run` 全过，真删除一律 rc=1，完整输出为 `'mavis-trash' 不是内部或外部命令`；守卫四道闸无 `--force` 绕过，因此**没有**退回 `rm`/`Remove-Item`（那正是 R0 禁止的），临时产物至今留在 `%TEMP%`。修法是装 `mavis-trash` 或把删除后端改成系统回收站 API，二者都需要先确认脚本实现的取舍，未获用户指示前不动。
+3. **「文档里的命令串指向真实文件」目前没有机械锁，本 PR 也没加**，因为判据设计有实质歧义、需要人工裁决：`AGENTS.md` 里的命令字面量混含三类——仓库内路径（`scripts/x.js`，可判存在性）、外部 CLI 与包管理器命令（`pnpm`/`node`/`gh`，存在性属机器态）、以及示例/伪路径（例如 `<task-name>` 占位、`D:/...` 机器级个人路径，AGENTS.md「记忆体系」节明确禁止把这类写死成断言）。一条「扫全仓 md 的路径字面量并 `existsSync`」的粗判据必然先产生一批假红，正解要按三类分面并让「仓库内路径」成为唯一强制域，且需决定它挂在哪条不被 docs-only 短路的 job 上（AGENTS.md 的「进白名单前提锁」）。裁决前敞口保留。
+4. **本 PR 未做「共享根滞后即拒绝提交」的 pre-commit 拦截**。上一条 #3244 记录已把这类风险写成纪律（AGENTS.md「收尾链上的已知假失败」第 ⑥ 条），本会话按纪律先 ff 再动笔（证据见上表第一行）。它仍是纪律而非门禁，风险与处置意见沿用 #3244 记录「遗留」第 2 条，不在此重复裁决。
