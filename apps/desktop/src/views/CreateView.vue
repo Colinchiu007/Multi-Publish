@@ -3307,13 +3307,14 @@ export default {
       return typeof voiceId === 'string' && voiceId.length > 0 && this.s2vConfig.voiceId === voiceId
     },
     story2videoKindLabel(kind) {
-      const labels = {
-        image: '图片',
-        audio: '旁白音频',
-        bgm: '背景音乐',
-        video: '视频素材',
+      const labelKeys = {
+        image: 'kindImage',
+        audio: 'kindAudio',
+        bgm: 'kindBgm',
+        video: 'kindVideo',
       }
-      return labels[kind] || ''
+      const labelKey = labelKeys[kind]
+      return labelKey ? this.$t(`create.story2video.voice.${labelKey}`) : ''
     },
     toS2VVoiceCloneRequirements(requirements) {
       if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return null
@@ -3333,41 +3334,39 @@ export default {
     friendlyVoiceCatalogError(message) {
       const raw = String(message || '')
       const map = {
-        VOICE_CATALOG_UNSUPPORTED: ['当前语音模型暂不支持音色列表与克隆功能，已使用默认音色。', 'This voice model does not support voice lists or cloning yet. Using the default voice.'],
-        VOICE_CATALOG_CONFIG_UNAVAILABLE: ['当前语音服务商配置不可用，请在模型设置中检查并配置后重试。', 'The voice provider configuration is unavailable. Check it in model settings and retry.'],
-        VOICE_CATALOG_UNAVAILABLE: ['暂时无法获取音色列表，已使用默认音色，请稍后重试。', 'The voice list is temporarily unavailable. Using the default voice. Please try again later.'],
-        VOICE_MODEL_MISMATCH: ['所选语音模型与配置不一致，请检查模型设置。', 'The selected voice model does not match the configuration. Check the model settings.'],
-        VOICE_PREFERENCE_STORE_UNAVAILABLE: ['音色偏好保存不可用，请检查本地存储。', 'Voice preference storage is unavailable. Check local storage.'],
-        VOICE_OWNER_UNAVAILABLE: ['登录状态不可用，请重新登录后重试。', 'Sign-in state is unavailable. Sign in again and retry.'],
-        VOICE_NOT_IN_CATALOG: ['所选音色不在当前音色列表中，请重新选择。', 'The selected voice is not in the current voice list. Select another voice.'],
-        VOICE_CLONE_SAMPLE_INVALID: ['上传的音频文件不符合要求，请按提示调整格式、时长或大小后重试。', 'The uploaded audio does not meet the requirements. Adjust format, duration, or size and retry.'],
-        VOICE_CLONE_SAMPLE_DURATION_INVALID: ['上传的音频文件时长不符合要求，请按提示调整时长后重试。', 'The uploaded audio duration does not meet the requirements. Adjust the duration and retry.'],
-        VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED: ['上传的音频文件格式不符合要求，请使用 mp3、m4a 或 wav 格式。', 'The uploaded audio format is not supported. Use mp3, m4a, or wav.'],
-        VOICE_CLONE_SAMPLE_TOO_LARGE: ['上传的音频文件大小超出限制，请压缩或更换文件后重试。', 'The uploaded audio is too large. Compress it or use another file.'],
-        VOICE_CLONE_TOTAL_SIZE_EXCEEDED: ['上传的音频总大小超出限制，请减少文件后重试。', 'The total audio size exceeds the limit. Remove files and retry.'],
-        VOICE_CLONE_TOTAL_DURATION_EXCEEDED: ['上传的音频总时长超出限制，请减少文件后重试。', 'The total audio duration exceeds the limit. Remove files and retry.'],
-        VOICE_CLONE_PROVIDER_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
-        VOICE_CLONE_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
-        VOICE_CLONE_UNSUPPORTED: ['当前语音模型暂不支持音色克隆，已使用默认音色。', 'This voice model does not support voice cloning yet. Using the default voice.'],
-        VOICE_CLONE_DIALOG_UNAVAILABLE: ['无法打开本地音频文件选择窗口，请重试。', 'Could not open the audio file picker. Please try again.'],
-        VOICE_CLONE_DUPLICATE_ID: ['该克隆音色已存在，请更换名称后重试。', 'A cloned voice with this name already exists. Use another name.'],
-        VOICE_CLONE_MODEL_MISMATCH: ['所选语音模型与克隆配置不一致，请检查模型设置。', 'The selected voice model does not match the clone configuration. Check the model settings.'],
-        VOICE_CLONE_NOT_FOUND: ['未找到该克隆音色，请重新选择。', 'The cloned voice was not found. Select it again.'],
-        VOICE_CLONE_REGISTRY_INVALID: ['克隆音色本地记录异常，请重新选择音频文件后重试。', 'The local clone voice record is invalid. Select the audio file again and retry.'],
-        VOICE_CLONE_ROLLBACK_REQUIRED: ['克隆音色保存未完成，请重新选择音频文件后重试。', 'The clone voice save did not finish. Select the audio file again and retry.'],
-        VOICE_CLONE_SELECTION_UNAVAILABLE: ['音频样本暂存不可用，请重新选择音频文件。', 'Audio sample staging is unavailable. Select the audio file again.'],
-        VOICE_CLONE_STORE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
-        VOICE_CLONE_STORAGE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
-        VOICE_CLONE_INVALID_ARGUMENTS: ['克隆音色参数不合法，请重新选择音频文件。', 'Invalid clone voice parameters. Select the audio file again.'],
+        VOICE_CATALOG_UNSUPPORTED: 'This voice model does not support voice lists or cloning yet. Using the default voice.',
+        VOICE_CATALOG_CONFIG_UNAVAILABLE: 'The voice provider configuration is unavailable. Check it in model settings and retry.',
+        VOICE_CATALOG_UNAVAILABLE: 'The voice list is temporarily unavailable. Using the default voice. Please try again later.',
+        VOICE_MODEL_MISMATCH: 'The selected voice model does not match the configuration. Check the model settings.',
+        VOICE_PREFERENCE_STORE_UNAVAILABLE: 'Voice preference storage is unavailable. Check local storage.',
+        VOICE_OWNER_UNAVAILABLE: 'Sign-in state is unavailable. Sign in again and retry.',
+        VOICE_NOT_IN_CATALOG: 'The selected voice is not in the current voice list. Select another voice.',
+        VOICE_CLONE_SAMPLE_INVALID: 'The uploaded audio does not meet the requirements. Adjust format, duration, or size and retry.',
+        VOICE_CLONE_SAMPLE_DURATION_INVALID: 'The uploaded audio duration does not meet the requirements. Adjust the duration and retry.',
+        VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED: 'The uploaded audio format is not supported. Use mp3, m4a, or wav.',
+        VOICE_CLONE_SAMPLE_TOO_LARGE: 'The uploaded audio is too large. Compress it or use another file.',
+        VOICE_CLONE_TOTAL_SIZE_EXCEEDED: 'The total audio size exceeds the limit. Remove files and retry.',
+        VOICE_CLONE_TOTAL_DURATION_EXCEEDED: 'The total audio duration exceeds the limit. Remove files and retry.',
+        VOICE_CLONE_PROVIDER_UNAVAILABLE: 'Voice cloning is temporarily unavailable. Please try again later.',
+        VOICE_CLONE_UNAVAILABLE: 'Voice cloning is temporarily unavailable. Please try again later.',
+        VOICE_CLONE_UNSUPPORTED: 'This voice model does not support voice cloning yet. Using the default voice.',
+        VOICE_CLONE_DIALOG_UNAVAILABLE: 'Could not open the audio file picker. Please try again.',
+        VOICE_CLONE_DUPLICATE_ID: 'A cloned voice with this name already exists. Use another name.',
+        VOICE_CLONE_MODEL_MISMATCH: 'The selected voice model does not match the clone configuration. Check the model settings.',
+        VOICE_CLONE_NOT_FOUND: 'The cloned voice was not found. Select it again.',
+        VOICE_CLONE_REGISTRY_INVALID: 'The local clone voice record is invalid. Select the audio file again and retry.',
+        VOICE_CLONE_ROLLBACK_REQUIRED: 'The clone voice save did not finish. Select the audio file again and retry.',
+        VOICE_CLONE_SELECTION_UNAVAILABLE: 'Audio sample staging is unavailable. Select the audio file again.',
+        VOICE_CLONE_STORE_UNAVAILABLE: 'Clone voice storage is unavailable. Check disk space and retry.',
+        VOICE_CLONE_STORAGE_UNAVAILABLE: 'Clone voice storage is unavailable. Check disk space and retry.',
+        VOICE_CLONE_INVALID_ARGUMENTS: 'Invalid clone voice parameters. Select the audio file again.',
       }
       const found = Object.entries(map).find(([key]) => raw.includes(key))
-      if (found) return this.translateWithLocaleFallback('create.story2video.voice.' + found[0], found[1][0], found[1][1])
+      // 英文兜底（ASCII）仅用于「键缺失」的防御路径；键存在时一律取 locale 值（zh/en 成对）
+      if (found) return this.translateWithLocaleFallback('create.story2video.voice.' + found[0], found[1], found[1])
       // 不向用户泄露系统技术错误码
-      return this.translateWithLocaleFallback(
-        'create.story2video.voice.catalogLoadFailed',
-        '无法加载音色列表，已使用默认音色，请稍后重试。',
-        'The voice list could not be loaded. Using the default voice. Please try again later.'
-      )
+      const generic = 'The voice list could not be loaded. Using the default voice. Please try again later.'
+      return this.translateWithLocaleFallback('create.story2video.voice.catalogLoadFailed', generic, generic)
     },
     s2vVoiceCloneHint() {
       const r = this.s2vVoiceCloneRequirements
@@ -3375,16 +3374,16 @@ export default {
       const parts = []
       if (Array.isArray(r.allowedExtensions) && r.allowedExtensions.length > 0) {
         const extText = r.allowedExtensions.map(ext => String(ext).replace(/^\./, '')).join('、')
-        parts.push('上传的音频文件格式需为：' + extText + ' 格式')
+        parts.push(this.$t('create.story2video.voice.cloneHintFormat', { extensions: extText }))
       }
       if (r.minSampleDurationSeconds > 0 && r.maxSampleDurationSeconds > 0) {
         const maxMinutes = Math.round(r.maxSampleDurationSeconds / 60)
-        parts.push('上传的音频文件的时长最少应不低于 ' + r.minSampleDurationSeconds + ' 秒，最长应不超过 ' + maxMinutes + ' 分钟')
+        parts.push(this.$t('create.story2video.voice.cloneHintMinDuration', { seconds: r.minSampleDurationSeconds, minutes: maxMinutes }))
       } else if (r.maxSampleDurationSeconds > 0) {
-        parts.push('上传的音频文件的时长最长应不超过 ' + this.formatS2VVoiceCloneDuration(r.maxSampleDurationSeconds))
+        parts.push(this.$t('create.story2video.voice.cloneHintMaxDuration', { duration: this.formatS2VVoiceCloneDuration(r.maxSampleDurationSeconds) }))
       }
       if (r.maxSampleBytes > 0) {
-        parts.push('上传的音频文件大小需不超过 ' + this.formatS2VVoiceCloneBytes(r.maxSampleBytes))
+        parts.push(this.$t('create.story2video.voice.cloneHintMaxSize', { size: this.formatS2VVoiceCloneBytes(r.maxSampleBytes) }))
       }
       return parts.length > 0 ? parts.join('；') + '。' : ''
     },
@@ -3474,7 +3473,7 @@ export default {
           : []
         this.s2vVoiceCloneError = requirementsResponse?.code === 0 && clonesResponse?.code === 0
           ? ''
-          : (requirementsResponse?.message || clonesResponse?.message || '无法加载克隆音色信息。')
+          : (requirementsResponse?.message || clonesResponse?.message || this.$t('create.story2video.voice.cloneInfoUnavailable'))
         this.s2vVoiceCloneLoading = false
       }
 
@@ -3606,9 +3605,9 @@ export default {
         const result = await clearTtsVoicePreference(this.cloneForIpc(selectContext))
         if (!this.isCurrentS2VVoiceSelectionRequest(requestId, selectContext, this.s2vConfig.voiceId)) return false
         if (result?.code !== 0) {
-          this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
+          this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: this.$t('create.story2video.voice.catalogFetchFailed') }).message
             ? this.friendlyVoiceCatalogError(result?.message)
-            : '音色默认值恢复失败。'
+            : this.$t('create.story2video.voice.defaultVoiceRestoreFailed')
           return false
         }
         const selectedVoiceId = typeof result.data?.selectedVoiceId === 'string' ? result.data.selectedVoiceId : ''
@@ -3618,7 +3617,7 @@ export default {
         return true
       }
       if (!this.s2vVoiceOptions.some(voice => voice.id === normalizedVoiceId)) {
-        this.s2vVoiceCatalogError = '所选音色不在当前目录中。'
+        this.s2vVoiceCatalogError = this.$t('create.story2video.voice.selectionNotInCatalog')
         return false
       }
       // 显式选择（下拉或克隆列表「设为默认」）先同步下拉框与配置：
@@ -3633,9 +3632,9 @@ export default {
       if (result?.code !== 0) {
         // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
         this.s2vConfig.voiceId = previousVoiceId
-        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
+        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: this.$t('create.story2video.voice.catalogFetchFailed') }).message
           ? this.friendlyVoiceCatalogError(result?.message)
-          : '音色选择保存失败。'
+          : this.$t('create.story2video.voice.selectionSaveFailed')
         return false
       }
       this.s2vPersistedVoiceId = typeof result.data?.selectedVoiceId === 'string'
@@ -3668,12 +3667,12 @@ export default {
           return
         }
         this.s2vVoiceCloneSelection = null
-        if (result?.code !== 0) this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法选择本地音频样本。'
+        if (result?.code !== 0) this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || this.$t('create.story2video.voice.cloneSamplePickFailed')
       } catch (error) {
         // 异常路径硬化（2026-08-13 审查 W1）：IPC 封装层已将 reject 统一转为错误码，此处兜底
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
           this.s2vVoiceCloneSelection = null
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || '无法选择本地音频样本。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || this.$t('create.story2video.voice.cloneSamplePickFailed')
         }
       } finally {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
@@ -3685,9 +3684,12 @@ export default {
       // - 用户手动命名为 音色100 后，下一个自动名继续用 音色101。
       // 序号用 BigInt 解析/比较，避免超长数字名（如 128 位）经 Number 转浮点后污染名称。
       const clones = Array.isArray(this.s2vVoiceClones) ? this.s2vVoiceClones : []
+      const cloneNamePrefix = this.$t('create.story2video.voice.cloneNamePrefix')
+      const escapedNamePrefix = cloneNamePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const cloneNamePattern = new RegExp('^' + escapedNamePrefix + '(\\d+)$')
       let maxIndex = 0n
       for (const voice of clones) {
-        const match = /^音色(\d+)$/.exec(String(voice?.name || '').trim())
+        const match = cloneNamePattern.exec(String(voice?.name || '').trim())
         if (match) {
           try {
             const index = BigInt(match[1])
@@ -3697,7 +3699,7 @@ export default {
       }
       const count = BigInt(clones.length)
       const nextIndex = (count > maxIndex ? count : maxIndex) + 1n
-      return '音色' + String(nextIndex).padStart(3, '0')
+      return cloneNamePrefix + String(nextIndex).padStart(3, '0')
     },
     async addS2VVoiceClone(name = this.nextS2VVoiceCloneName()) {
       const context = this.getS2VVoiceCloneContext()
@@ -3727,7 +3729,7 @@ export default {
           // 自动保存失败：一次性选择令牌已被主进程销毁，清除本地快照避免「已选择 N 个样本」误导
           this.s2vVoiceCloneSelection = null
           this.s2vVoiceClonePending = null
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法添加克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || this.$t('create.story2video.voice.cloneAddFailed')
           return
         }
         this.s2vVoiceClones = [
@@ -3740,7 +3742,7 @@ export default {
         await this.selectS2VVoice(voice.id)
         this.showS2VOptionsToast(this.translateWithLocaleFallback(
           'create.story2video.voice.cloneSuccessToast',
-          '已添加克隆音色「' + voice.name + '」',
+          this.$t('create.story2video.voice.cloneSuccessToast', { name: voice.name }),
           'Cloned voice "' + voice.name + '" added',
           { name: voice.name },
         ))
@@ -3750,7 +3752,7 @@ export default {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
           this.s2vVoiceCloneSelection = null
           this.s2vVoiceClonePending = null
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || '无法添加克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || this.$t('create.story2video.voice.cloneAddFailed')
         }
       } finally {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
@@ -3765,7 +3767,7 @@ export default {
       const count = Number.isFinite(pending.sampleCount) ? pending.sampleCount : 1
       return this.translateWithLocaleFallback(
         'create.story2video.voice.cloneStatusPending',
-        '已选择 ' + count + ' 个样本，正在上传并克隆音色…（通常需要 10~60 秒，请勿重复操作）',
+        this.$t('create.story2video.voice.cloneStatusPending', { count }),
         'Selected ' + count + ' sample(s). Uploading and cloning the voice... (usually 10-60 s, please wait)',
         { count },
       )
@@ -3793,7 +3795,7 @@ export default {
         const result = await deleteTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         if (result?.code !== 0) {
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法删除克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || this.$t('create.story2video.voice.cloneDeleteFailed')
           return
         }
         this.s2vVoiceClones = this.s2vVoiceClones.filter(voice => voice.id !== normalizedVoiceId)
@@ -3834,7 +3836,7 @@ export default {
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
         if (!voice) {
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法重命名克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || this.$t('create.story2video.voice.cloneRenameFailed')
           return
         }
         // 重命名只更新展示名；保留旧条目的 invalid 标记，避免失效克隆在重命名后被误判为可用
@@ -3858,7 +3860,9 @@ export default {
       const seconds = Math.floor(value)
       const minutes = Math.floor(seconds / 60)
       const remainingSeconds = seconds % 60
-      return minutes > 0 ? `${minutes} 分${remainingSeconds ? ` ${remainingSeconds} 秒` : ''}` : `${seconds} 秒`
+      if (minutes <= 0) return this.$t('create.story2video.voice.durationSeconds', { seconds })
+      if (!remainingSeconds) return this.$t('create.story2video.voice.durationMinutes', { minutes })
+      return this.$t('create.story2video.voice.durationMinutesSeconds', { minutes, seconds: remainingSeconds })
     },
     saveCurrentS2VTemplate() {
       const name = String(this.s2vCustomTemplateName || '').trim()
@@ -5221,10 +5225,10 @@ export default {
     validateStory2VideoFile(file, kind) {
       const extension = String(file?.name || '').toLowerCase().match(/\.[^.]+$/)?.[0] || ''
       const rules = {
-        image: { extensions: ['.jpg', '.jpeg', '.png', '.webp'], maxBytes: 10 * 1024 * 1024, label: '图片' },
-        audio: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 50 * 1024 * 1024, label: '旁白音频' },
-        bgm: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 15 * 1024 * 1024, label: '背景音乐' },
-        video: { extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi'], maxBytes: 512 * 1024 * 1024, label: '视频素材' },
+        image: { extensions: ['.jpg', '.jpeg', '.png', '.webp'], maxBytes: 10 * 1024 * 1024 },
+        audio: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 50 * 1024 * 1024 },
+        bgm: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 15 * 1024 * 1024 },
+        video: { extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi'], maxBytes: 512 * 1024 * 1024 },
       }
       const rule = rules[kind]
       if (!rule || !rule.extensions.includes(extension)) {
@@ -5233,7 +5237,7 @@ export default {
           messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID,
           messageParams: {
             extension: extension ? extension.toUpperCase() : '该',
-            kindLabel: rule?.label || '',
+            kindLabel: rule ? this.story2videoKindLabel(kind) : '',
             extensions: rule?.extensions || [],
           },
         })
@@ -5341,7 +5345,7 @@ export default {
         : ''
       if (!filePath) {
         this.pipelineVideo = null
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '视频素材' } })
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: this.story2videoKindLabel('video') } })
         return
       }
       const imported = await story2videoImportMediaPath(filePath, 'video')
