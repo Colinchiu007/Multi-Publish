@@ -1,3 +1,20 @@
+# [未发布] feat(podcast): 播客 RSS 频道一键发布 · 刀 1 —— 多频道、迁移与串行锁（2026-10-10，podcast-oneclick-publish）
+
+## 背景
+
+P0 播客 RSS 频道（PR #3193）交付了引擎与独立页面，但每一期都要手工填标题与 https 音频地址、手工生成并上传 feed。本次把"产出一期"做成一键动作，并回答一个产品问题：**是否所有放了"一键发布"的位置都该出现播客入口** —— 结论是不该，判据是"成稿 + 能拿到音频形态 + 交付意图"三条同时成立（详见 PRD §0.2 的 15 位置判定表：成片两入口最该放且最便宜，热点/关键词/发布历史明确不放）。
+
+## 改动（刀 1：数据模型与契约）
+
+- **多频道**：`index.json`（频道目录 + 默认频道 + 全局托管配置 + 迁移状态）+ `channels/<ch_id>/{channel.json,episodes.json,feed.xml}`；`channelId` 为不可变短 id `^ch_[a-z0-9]{4,16}$`（托管路径含它，改它等于改掉已提交给 Apple/小宇宙的 feed URL），改名只改显示名。
+- **迁移**：`ensureMigratedOnce()` 在注册期不触盘的前提下单飞执行；完整性按内容哈希三态判定（等值 / 静默续传 / 真冲突）；冲突与 IO 失败落**持久化状态**，读路径可见（渲染处置入口）、写路径 fail-closed；legacy 文件不删；**绝不改写既有 guid**（补写新形态会让聚合端把每期认成新节目，听众看到节目单重复）。
+- **并发**：`episodes.json` 全部写者（一键 + 手工增删）按 channelId 串行，`index.json` 另用全局单键；同键不可重入（迁移收在锁外），等待超时者不得补写且仍推进后序序位；发布防重入用进程内标记，被占即 `PODCAST_CHANNEL_BUSY`（不借用登录态锁的 30s 预算与文案）。
+- **校验**：`channel.json` 拆 `meta`/`feedSync` 两段，改名不再抹掉发布状态；`saveEpisode` 的预校验打在**合并结果**上（严格模式整次拒绝，手工路径保留"先登记后补直链"中间态、落盘后即时校验只出声）。
+- **契约**：6 条既有通道改为必填 `channelId`，`podcast:endpoints:list` 保持频道无关无参；新增 `channel:list|create|rename|setDefault|migrate:resolve`；`episode:list` 回 `{episodes, cap, count}`；preload 与两个 bundle 重生成；渲染层在 composable 单点注入 channelId（不在 7 个调用点各写一份）。
+
+## 评审与门禁
+
+设计经 5 轮跨家族对抗评审（38 条）+ 外部 CCG 设计评审（10 条），逐条先取证再处置：8 接受 / 部分接受含 L2 证据 / 0 无证据拒绝；第 2 轮把第 1 轮 9 条**全部**独立复核后撤回，说明修对了方向；同时纠正原稿两处方向性错误（自动挤出已发布单集、guid 作用域缺 channelId）。QM-1 打包与启动验证、IPC 契约/桥、locale 成对与 CJK 基线、术语锁均绿；QM-4 基线与远程同步按 CI 产物回填。
 # [未发布] docs(openspec): 归档 dedup-changelog-history 并把台账完整性规格同步进主规格——先对账、按实况纠正规格（2026-10-10，archive-dedup-changelog-history）
 
 ### 用户感知
