@@ -373,6 +373,47 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     queue.shutdown()
   })
 
+  test('【日配额】等待中的任务被重新放回队列时仍被 _quotaBlocked 跳过（真正的紧循环锁）', async () => {
+    // 为什么需要这条：日配额等待中的任务**不在 _queue 里**（blocked 分支只把它放进 _delayed），
+    // 所以上面那条「连续调 _processNext 不出新事件」的断言在**摘掉 _quotaBlocked 跳过之后依然全绿**
+    // —— 变异反证 M13 实测为「不成立」，说明它是弱锁。真正会触发的路径是任务被重新放回队列
+    // （手动 retry / 状态恢复 / serialize-restore），此时若不跳过，_executeTask 会再次判定日配额、
+    // 再次发 publish:blocked 并重新武装定时器 —— 这就是紧循环。
+    const guard = new PublishIntervalGuard({
+      minInterval: 0,
+      jitterRatio: 0,
+      policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 1 }),
+      dailyStore: new (require('../src/publish-interval-guard').InMemoryDailyStore)(),
+    })
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+    let executed = 0
+    queue.setExecutor(async () => { executed += 1; return { success: true } })
+    const blocked = []
+    queue.on('publish:blocked', (p) => blocked.push(p))
+
+    queue.add({ platform: 'douyin', article: { title: 'Q1', accountId: 'acc_q2' } })
+    await new Promise(r => setTimeout(r, 60))
+    expect(executed).toBe(1)
+
+    queue.add({ platform: 'douyin', article: { title: 'Q2', accountId: 'acc_q2' } })
+    await new Promise(r => setTimeout(r, 80))
+    expect(blocked).toHaveLength(1)
+    expect(blocked[0].bucket).toBe('daily')
+
+    // 模拟「任务被重新放回队列」（手动 retry / 恢复路径）
+    const entry = [...queue._delayed.values()].find(e => e.task.article.title === 'Q2')
+    expect(entry).toBeTruthy()
+    queue._queue.unshift(entry.task)
+
+    const before = blocked.length
+    queue._processNext()
+    await new Promise(r => setTimeout(r, 30))
+    // 被 _quotaBlocked 跳过 ⇒ 不得产生新的 blocked 事件（紧循环的特征就是反复重判反复出声）
+    expect(blocked.length).toBe(before)
+    expect(executed).toBe(1)
+    queue.shutdown()
+  })
+
   test('带 guard 的任务失败不阻止后续任务', async () => {
     const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
     const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
