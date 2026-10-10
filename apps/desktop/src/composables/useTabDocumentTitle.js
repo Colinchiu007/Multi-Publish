@@ -57,6 +57,7 @@ const ROUTE_TITLE_KEYS = [
   ['/hot-topics', 'hotTopics.menuLabel'],
   ['/film-engineering', 'tabs.filmEngineering'],
   ['/auto-pipeline', 'autoPipeline.title'],
+  ['/podcast', 'podcast.pageTitle'],
 ]
 
 /** :param 前缀路由（startsWith 判定；独立表避免 '/' 精确键误入前缀匹配）。

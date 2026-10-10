@@ -46,22 +46,44 @@ describe("LicenseManager", function() {
   })
 
   test("activate sets pro status", function() {
-    manager.activate("TEST-KEY-12345")
+    manager.activate("TEST-KEYX-2345")
     expect(manager.isPro()).toBe(true)
-    expect(manager.getInfo().licenseKey).toBe("TEST-KEY-12345")
+    expect(manager.getInfo().licenseKey).toBe("TEST-KEYX-2345")
+  })
+
+  test("activate rejects arbitrary garbage strings (S1 格式守卫)", function() {
+    // S1 最小止血第 2 步（2026-10-09）：#3085 已在 IPC 层对正式包拒收本地激活码，
+    // 但 `activate()` 方法本身仍接受任意非空字符串。开发构建里该路径仍可达。
+    // 格式守卫与 subscription-service 的 REDEEM_CODE_PATTERN（ABCD-EFGH-JKMN）对齐：
+    // 游离单字符 / 纯标点 / 中文等垃圾输入一律拒绝，且不写入任何授权状态。
+    var garbage = ["a", "x", "随便什么字符串", "!!!", "12345", "abc-def", "test-key-no-format"]
+    for (var i = 0; i < garbage.length; i++) {
+      var m = new LicenseManager("/mock/license-" + i + ".json")
+      expect(m.activate(garbage[i])).toBe(false)
+      expect(m.getInfo().type).toBe("free")
+      expect(m.isPro()).toBe(false)
+    }
+  })
+
+  test("activate accepts service-issued redemption code format", function() {
+    // 服务端兑换码格式（subscription-service.js REDEEM_CODE_ALPHABET，无易混淆 0/O/1/I/L）：
+    // 4-4-4 段，允许连字符分隔。格式通过≠码有效——真实核销在服务端 /api/v1/redeem。
+    var m = new LicenseManager("/mock/license-fmt.json")
+    expect(m.activate("ABCD-EFGH-JKMN")).toBe(true)
+    expect(m.isPro()).toBe(true)
   })
 
   test("deactivate resets to free", function() {
-    manager.activate("TEST-KEY-12345")
+    manager.activate("TEST-KEYX-2345")
     expect(manager.isPro()).toBe(true)
     manager.deactivate()
     expect(manager.isPro()).toBe(false)
   })
 
   test("activate does not overwrite existing key on re-activate", function() {
-    manager.activate("KEY-1")
-    manager.activate("KEY-2")
-    expect(manager.getInfo().licenseKey).toBe("KEY-1")
+    manager.activate("AAAA-BBBB-CCCC")
+    manager.activate("DDDD-EEEE-FFFF")
+    expect(manager.getInfo().licenseKey).toBe("AAAA-BBBB-CCCC")
   })
 
   test("getFeatures returns free features for free users", function() {
@@ -71,20 +93,20 @@ describe("LicenseManager", function() {
   })
 
   test("getFeatures returns pro features for pro users", function() {
-    manager.activate("PRO-KEY")
+    manager.activate("SAVE-TEST-K234")
     var features = manager.getFeatures()
     expect(features).toContain("batch-publish")
   })
 
   test("hasFeature checks specific feature", function() {
     expect(manager.hasFeature("templates")).toBe(false)
-    manager.activate("PRO-KEY")
+    manager.activate("SAVE-TEST-K234")
     expect(manager.hasFeature("templates")).toBe(true)
   })
 
   test("save persists to disk", function() {
     var fs = require("fs")
-    manager.activate("SAVE-TEST")
+    manager.activate("ATOM-WXYZ-2345")
     manager.save()
     expect(fs.writeFileSync).toHaveBeenCalled()
   })
@@ -99,12 +121,12 @@ describe("LicenseManager", function() {
       captured = data
     })
     var producer = new LicenseManager("/mock/license.json")
-    producer.activate("LOADED-KEY")
+    producer.activate("REST-KEYX-2345")
     producer.save()
     expect(captured).toBeTruthy()
     fs.readFileSync.mockReturnValue(captured)
     manager.load()
     expect(manager.isPro()).toBe(true)
-    expect(manager.getInfo().licenseKey).toBe("LOADED-KEY")
+    expect(manager.getInfo().licenseKey).toBe("REST-KEYX-2345")
   })
 })

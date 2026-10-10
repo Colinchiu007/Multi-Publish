@@ -47,5 +47,8 @@
 !intelligence-dark.png
 !keyword-monitor-dark.png
 !collection-dark.png
+# 播客频道（2026-10-09）：基线由 CI artifact 回填，白名单必须先行放行，否则 PNG 被根 *.png 静默吞掉
+!podcast-channel.png
+!podcast-channel-dark.png
 # Current screenshots from test runs (not tracked)
 *-current.png

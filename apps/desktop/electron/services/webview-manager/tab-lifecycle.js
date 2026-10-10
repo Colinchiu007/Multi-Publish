@@ -10,7 +10,7 @@ const credentialStore = require('../credential-store')
 const { attachLoginNetworkDiagnostics } = require('../login-network-diagnostics')
 const { buildEvalScript } = require('../../core/js-eval-payload')
 const { SAFE_IDENTIFIER, AUTH_TAB_ID } = require('./constants')
-const { _getUserDataDir, _injectLocalStorageAtDocumentStart, normalizeElectronCookie, _homeShellUrl, _homeShellPreloadPath, _urlHasHomeShellParam, _parseHashRoute } = require('./utils')
+const { _getUserDataDir, _injectLocalStorageAtDocumentStart, normalizeElectronCookie, _homeShellUrl, _homeShellPreloadPath, _urlHasHomeShellParam, _parseHashRoute, _gateRestoreWithTimeout } = require('./utils')
 
 module.exports = {
   /**
@@ -60,17 +60,67 @@ module.exports = {
       if (!cleanSession) {
         var credCookies = (accountCredential && Array.isArray(accountCredential.cookies)) ? accountCredential.cookies : []
         var initialUrlForCookies = initialUrl === 'about:blank' ? '' : initialUrl
-        for (var ci = 0; ci < credCookies.length; ci++) {
-          var cookieToSet = normalizeElectronCookie(credCookies[ci], initialUrlForCookies)
-          if (!cookieToSet) continue
+        // 分区优先、快照仅补缺（2026-10-09 账号标签开卡跳登录页修复）：
+        // 账号分区的 Cookie 是平台持续轮换的实时会话态；加密快照是上次显式保存时的
+        // 冻结值——普通账号标签的会话轮换不回写快照，快照必然越放越旧。旧实现把快照
+        // 无条件覆盖式写入分区，会把分区里更新鲜的同 name+domain Cookie 打回旧值：
+        // 首开被判未登录，一次失败导航后被平台 Set-Cookie 静默修补，表现为「第一次
+        // 打开是登录页、之后又正常」。现改为仅注入分区缺失的 Cookie，分区已有同
+        // name+domain 的一律不覆盖。判据与 mergeCookies 同构，同样只在快照条目带 domain 时命中。
+        // 读分区失败（罕见：磁盘锁/会话异常）回退旧行为（全量注入），保证「清空后首次
+        // 恢复」能力不回退；整个「读 + 写」聚合为一个门控 promise，导航仍等注入完成，
+        // 但该 promise 有硬超时且永不 reject（见 utils.js 的 _gateRestoreWithTimeout）——门控首个导航
+        // 的异步 promise 必须是「最多等一会儿」，不能是「等它回来」，否则会话命令挂起
+        // 时页面直接白屏（2026-09-24 头条事故同族）。
+        var setCookieForRestore = function (cookieToSet) {
           try {
-            cookieRestorations.push(Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function (e2) {
+            return Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function (e2) {
               log.warn('WebviewManager', 'credential cookie restore failed name=' + (cookieToSet.name || '') + ' err=' + ((e2 && e2.message) || 'unknown'))
-            }))
-          } catch (e) { log.warn('WebviewManager', 'credential cookie restore threw name=' + (cookieToSet.name || '') + ' err=' + ((e && e.message) || 'unknown')) }
+            })
+          } catch (e) {
+            log.warn('WebviewManager', 'credential cookie restore threw name=' + (cookieToSet.name || '') + ' err=' + ((e && e.message) || 'unknown'))
+            return Promise.resolve()
+          }
+        }
+        var restoreFromCredential = function (existingKeys) {
+          var pending = []
+          var skipped = 0
+          for (var ci = 0; ci < credCookies.length; ci++) {
+            var cookieToSet = normalizeElectronCookie(credCookies[ci], initialUrlForCookies)
+            if (!cookieToSet) continue
+            if (existingKeys && existingKeys.has(cookieToSet.name + '@' + String(cookieToSet.domain || ''))) { skipped++; continue }
+            pending.push(setCookieForRestore(cookieToSet))
+          }
+          return Promise.all(pending).then(function () {
+            log.info('WebviewManager', '[' + (platform || 'unknown') + ':' + (accountId || '') + '] credential restore (partition-first): injected=' + pending.length + ' skipped-existing=' + skipped)
+          })
+        }
+        // 快照一条可用 Cookie 都没有时不发起分区读：那是一次纯开销的无界 IPC，且在导航前。
+        if (credCookies.length > 0) {
+          var readExistingKeys = function () {
+            // cookies.get 是异步 API，但 Promise.resolve() 求值前就会执行它——同步抛错
+            // 必须转成 reject，否则「读失败回退全量注入」这条护栏对同步失效形态失明。
+            try {
+              return Promise.resolve(viewSession.cookies.get({}))
+            } catch (e) {
+              return Promise.reject(e)
+            }
+          }
+          var restoreChain = readExistingKeys().then(function (existing) {
+            var existingKeys = new Set()
+            for (var ei = 0; ei < (existing ? existing.length : 0); ei++) {
+              var ec = existing[ei]
+              if (ec && typeof ec.name === 'string') existingKeys.add(ec.name + '@' + String(ec.domain || ''))
+            }
+            return restoreFromCredential(existingKeys)
+          }, function (e) {
+            log.warn('WebviewManager', 'partition cookie read failed, fallback to full credential restore ' + (platform || '') + ':' + (accountId || '') + ' err=' + ((e && e.message) || 'unknown'))
+            return restoreFromCredential(null)
+          })
+          cookieRestorations.push(_gateRestoreWithTimeout(restoreChain, (platform || 'unknown') + ':' + (accountId || '')))
         }
       } else {
-        cookieRestorations.push(viewSession.cookies.get({}).then(function (existing) {
+        cookieRestorations.push(_gateRestoreWithTimeout(Promise.resolve().then(function () { return viewSession.cookies.get({}) }).then(function (existing) {
           var stale = existing || []
           var removals = stale.map(function (c) {
             var removeUrl = (c.secure ? 'https' : 'http') + '://' + String(c.domain || '').replace(/^\./, '') + (c.path || '/')
@@ -81,7 +131,7 @@ module.exports = {
           })
         }).catch(function (e) {
           log.warn('WebviewManager', 'clean session clear failed ' + (platform || '') + ':' + (accountId || '') + ' err=' + ((e && e.message) || 'unknown'))
-        }))
+        }), 'clean-session:' + (platform || 'unknown') + ':' + (accountId || '')))
       }
     }
 
@@ -91,9 +141,9 @@ module.exports = {
         var suppliedCookie = normalizeElectronCookie(cookies[i], initialUrl === 'about:blank' ? '' : initialUrl)
         if (!suppliedCookie) continue
         try {
-          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(suppliedCookie)).catch(function (e2) {
+          cookieRestorations.push(_gateRestoreWithTimeout(Promise.resolve(viewSession.cookies.set(suppliedCookie)).catch(function (e2) {
             log.warn('WebviewManager', 'supplied cookie restore failed name=' + (suppliedCookie.name || '') + ' err=' + ((e2 && e2.message) || 'unknown'))
-          }))
+          }), 'supplied-cookie:' + (platform || 'unknown') + ':' + (accountId || '')))
         } catch (e) { log.warn('WebviewManager', 'supplied cookie restore threw name=' + (suppliedCookie.name || '') + ' err=' + ((e && e.message) || 'unknown')) }
       }
     }

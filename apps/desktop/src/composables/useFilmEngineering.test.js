@@ -110,19 +110,17 @@ describe('useFilmEngineering', () => {
     expect(writeClipboard).toHaveBeenCalledWith('copied-full')
   })
 
-  it('剧本套用：请求映射为 script+characterMap+llmEnabled，结果进入 adaptedShots', async () => {
+  it('剧本套用：请求映射为 script+characterMap（开关下线后不再带 llmEnabled），结果进入 adaptedShots', async () => {
     const api = installMockApi()
     stubWindow(api)
     const c = useFilmEngineering()
     c.adapt.script = '第一场 废墟\n\n小强走在废墟中。'
     c.adapt.characterMap.ROKO = '小强'
-    c.adapt.llmEnabled = true
     const ok = await c.adaptScript()
     expect(ok).toBe(true)
     expect(api.adaptScript).toHaveBeenCalledWith({
       script: '第一场 废墟\n\n小强走在废墟中。',
       characterMap: { ROKO: '小强' },
-      llmEnabled: true,
     })
     expect(c.adapt.adaptedShots.length).toBe(1)
     expect(c.adapt.adaptedShots[0].prompt).toBe('adapted prompt')
@@ -188,13 +186,14 @@ describe('useFilmEngineering', () => {
     c.copyMode.value = 'characters'
     c.adapt.script = '私密剧本'
     c.adapt.characterMap.ROKO = '小强'
-    c.adapt.llmEnabled = true
     c.adapt.adaptedShots = [{ prompt: 'runtime' }]
     const entries = [{ key: 'ROKO', value: '小强' }, { key: ' JAXX ', value: ' 小莉 ' }]
     const snapshot = c.buildConfigProfileSnapshot(entries)
-    expect(snapshot).toMatchObject({ schemaVersion: 1, kind: 'film-engineering', filmEngineering: { copyMode: 'characters', llmEnabled: true } })
+    expect(snapshot).toMatchObject({ schemaVersion: 1, kind: 'film-engineering', filmEngineering: { copyMode: 'characters' } })
     expect(snapshot.filmEngineering.characterMap).toEqual({ ROKO: '小强', JAXX: '小莉' })
     expect(snapshot.filmEngineering).not.toHaveProperty('script')
+    // 2026-10-07：llmEnabled 随开关下线，快照不再写入该字段
+    expect(snapshot.filmEngineering).not.toHaveProperty('llmEnabled')
     expect(snapshot.filmEngineering).not.toHaveProperty('adaptedShots')
     expect(() => structuredClone(snapshot)).not.toThrow()
   })
@@ -202,13 +201,37 @@ describe('useFilmEngineering', () => {
   it('applyConfigProfileSnapshot 归一化模式并同步 roleEntries 与 adapt.characterMap', () => {
     const c = useFilmEngineering()
     const entries = [{ key: 'ROKO', value: '' }]
-    expect(c.applyConfigProfileSnapshot({ kind: 'film-engineering', filmEngineering: { copyMode: 'geo', llmEnabled: true, characterMap: { ROKO: ' 小强 ', JAXX: '小莉' } } }, entries)).toBe(true)
+    expect(c.applyConfigProfileSnapshot({ kind: 'film-engineering', filmEngineering: { copyMode: 'geo', characterMap: { ROKO: ' 小强 ', JAXX: '小莉' } } }, entries)).toBe(true)
     expect(c.copyMode.value).toBe('geo')
-    expect(c.adapt.llmEnabled).toBe(true)
     expect(c.adapt.characterMap).toEqual({ ROKO: '小强', JAXX: '小莉' })
     expect(entries).toEqual([{ key: 'ROKO', value: '小强' }, { key: 'JAXX', value: '小莉' }])
-    expect(c.applyConfigProfileSnapshot({ kind: 'film-engineering', filmEngineering: { copyMode: 'bad', llmEnabled: 'yes' } }, entries)).toBe(false)
+    expect(c.applyConfigProfileSnapshot({ kind: 'film-engineering', filmEngineering: { copyMode: 'bad' } }, entries)).toBe(false)
     expect(c.copyMode.value).toBe('geo')
+  })
+
+  /**
+   * 回归锁（2026-10-07）：llmEnabled 字段删除**不得**让存量配置档案静默失效。
+   *
+   * 形态：applyConfigProfileSnapshot 过去硬要求 `typeof config.llmEnabled === 'boolean'`，
+   * 字段一删，新写入的档案反而通不过校验、旧档案里的值又无处安放。快照结构演进
+   * 必须对存量数据保持「多余字段忽略、缺失字段不阻塞」。
+   */
+  it('存量档案带 llmEnabled 仍可套用（旧数据不因字段下线而失效）', () => {
+    const c = useFilmEngineering()
+    const entries = []
+    expect(c.applyConfigProfileSnapshot({
+      kind: 'film-engineering',
+      filmEngineering: { copyMode: 'full', llmEnabled: true, characterMap: { ROKO: '小强' } },
+    }, entries)).toBe(true)
+    expect(c.adapt.characterMap).toEqual({ ROKO: '小强' })
+  })
+
+  it('新档案不带 llmEnabled 同样通过校验（字段不再被断言）', () => {
+    const c = useFilmEngineering()
+    expect(c.applyConfigProfileSnapshot({
+      kind: 'film-engineering',
+      filmEngineering: { copyMode: 'full', characterMap: {} },
+    }, [])).toBe(true)
   })
 
   it('config profile CRUD 固定 film-engineering pipelineId，并过滤其他流水线', async () => {

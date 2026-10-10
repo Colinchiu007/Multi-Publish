@@ -90,6 +90,11 @@ platforms:
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
+  # ⚠️ 命名澄清（publish-frequency-policy-v2 P2-3）：本条的 id 是 `tencent_video`，
+  # 但 name 是「视频号」、publish_url 指向 channels.weixin.qq.com —— 实际发布目标是
+  # **微信视频号**（WeChat Channels），不是腾讯视频（v.qq.com，其开放平台已关闭）。
+  # id 因存量数据/账号绑定/历史记录兼容无法改名，**新增代码请勿据 id 推断平台归属**。
+  # 频率策略表里 `tencent_video` 同样指视频号；腾讯视频（v.qq.com）未接入。
   tencent_video:
     id: 21
     name: 视频号

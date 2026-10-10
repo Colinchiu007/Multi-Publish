@@ -23,6 +23,10 @@ import ScriptInputNode from '@/components/film-canvas/ScriptInputNode.vue'
 import ReferenceNode from '@/components/film-canvas/ReferenceNode.vue'
 import ShotNode from '@/components/film-canvas/ShotNode.vue'
 
+// embedded=true 时作为 Hub 第 2 标签内嵌：隐藏品牌块，跳转按钮改为派发 open-classic（由 Hub 切标签）。
+// 默认 false 时渲染与本次变更前逐字一致（FilmCanvasView.actions.test.js 以此为准）。
+defineProps({ embedded: { type: Boolean, default: false } })
+
 const { t } = useI18n()
 const router = useRouter()
 const { onNodeDragStop } = useVueFlow()
@@ -70,8 +74,6 @@ async function onAdapt () {
   if (!r.ok) { ElMessage.error(errText(r.errorCode)); return }
   ElMessage.success(t('filmEngineering.canvas.adapt.done', { n: r.total }))
   if (r.warnings && r.warnings.length) ElMessage.warning(r.warnings.join('; '))
-  // 3.3 LLM 降级合同：用户勾选了润色但引擎未走 LLM（无 key/调用失败等），非阻断提示，分镜仍按内置规则产出
-  if (form.llmEnabled === true && r.llmEnhanced !== true) ElMessage.warning(t('filmEngineering.canvas.adapt.llmFallback'))
 }
 
 function pickFile (kind) {
@@ -143,7 +145,7 @@ function gotoClassic () { router.push('/film-engineering/classic') }
 <template>
   <div class="film-canvas-view">
     <header class="fcv-topbar">
-      <div class="fcv-brand">
+      <div v-if="!embedded" class="fcv-brand">
         <span class="fcv-title">{{ t('filmEngineering.canvas.title') }}</span>
         <span class="fcv-subtitle">{{ t('filmEngineering.canvas.subtitle') }}</span>
       </div>
@@ -159,7 +161,7 @@ function gotoClassic () { router.push('/film-engineering/classic') }
         <el-button size="small" :disabled="!engineReady" data-testid="fcv-upload-scene" @click="pickFile('scene')">{{ t('filmEngineering.canvas.upload.scene') }}</el-button>
         <el-button size="small" type="primary" :disabled="!engineReady || busy" data-testid="fcv-generate" @click="onGenerate(selectedShotIds.length ? selectedShotIds : allShotIds)">{{ t('filmEngineering.canvas.generate.btn') }}</el-button>
         <el-button size="small" data-testid="fcv-clear" @click="clearCanvas()">{{ t('filmEngineering.canvas.toolbar.clear') }}</el-button>
-        <el-button size="small" link data-testid="fcv-classic" @click="gotoClassic">{{ t('filmEngineering.canvas.toolbar.classic') }}</el-button>
+        <el-button size="small" link data-testid="fcv-classic" @click="embedded ? $emit('open-classic') : gotoClassic()">{{ t('filmEngineering.canvas.toolbar.classic') }}</el-button>
       </div>
       <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" class="fcv-file" data-testid="fcv-file" @change="onFileChosen" />
     </header>
@@ -168,10 +170,6 @@ function gotoClassic () { router.push('/film-engineering/classic') }
       <el-input v-model="form.script" type="textarea" :rows="3" :placeholder="t('filmEngineering.canvas.scriptPlaceholder')" data-testid="fcv-script" />
       <div class="fcv-script-meta">
         <span>{{ t('filmEngineering.canvas.adapt.scriptLimitHint') }}</span>
-        <label class="fcv-llm">
-          <input v-model="form.llmEnabled" type="checkbox" data-testid="fcv-llm" />
-          {{ t('filmEngineering.canvas.llmEnabled') }}
-        </label>
       </div>
     </div>
 
@@ -228,7 +226,6 @@ function gotoClassic () { router.push('/film-engineering/classic') }
 .fcv-file { display: none; }
 .fcv-script { padding: 10px 16px; border-bottom: 1px solid var(--el-border-color, #dcdfe6); }
 .fcv-script-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: var(--font-size-xs); color: var(--el-text-color-secondary, #909399); }
-.fcv-llm { display: flex; align-items: center; gap: 4px; }
 .fcv-alert { margin: 10px 16px; }
 .fcv-canvas { flex: 1; min-height: 0; position: relative; }
 .fcv-cost-hint { margin: 0; line-height: 1.6; }

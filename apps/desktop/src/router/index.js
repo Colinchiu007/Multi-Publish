@@ -49,13 +49,14 @@ const routes = [
   { path: '/replay/:projectId', name: 'ReplayTimeline', component: () => import('@/views/ReplayTimeline.vue') },
   { path: '/prompt-eval', name: 'PromptEval', component: () => import('@/views/PromptEvalView.vue') },
   { path: '/video-clone', name: 'VideoClone', component: () => import('@/views/VideoCloneView.vue') },
-  { path: '/film-engineering', name: 'FilmEngineering', component: () => import('@/views/FilmCanvasView.vue') },
+  { path: '/film-engineering', name: 'FilmEngineering', component: () => import('@/views/FilmEngineeringHubView.vue') },
   { path: '/film-engineering/classic', name: 'FilmEngineeringClassic', component: () => import('@/views/FilmEngineeringView.vue') },
   { path: '/auto-pipeline', name: 'AutoPipeline', component: () => import('@/views/AutoPipelineView.vue') },
   { path: '/knowledge-base', name: 'KnowledgeBase', component: () => import('@/views/KnowledgeBasePage.vue') },
   { path: '/performance-insights', name: 'PerformanceInsights', component: () => import('@/views/PerformanceInsights.vue') },
   { path: '/rewrite', name: 'Rewrite', component: () => import('@/views/RewriteView.vue') },
   { path: '/hot-topics', name: 'HotTopics', component: () => import('@/views/HotTopics.vue') },
+  { path: '/podcast', name: 'PodcastChannel', component: () => import('@/views/PodcastChannelView.vue') },
 ]
 
 const router = createRouter({

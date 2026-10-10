@@ -93,12 +93,15 @@ describe('RpaViewManager 小红书发布', () => {
     expect(result).toMatchObject({ success: true, platform: 'xiaohongshu' })
   })
 
-  test('视频内容也允许进入通用上传流程', async () => {
+  // 2026-10-10 硬约束收紧（用户要求「小红书不得真实发布」）：视频形态不再进入通用上传流程
+  // （那条链路的终点是点平台「发布」按钮），改为 fail-closed。本条锁住「视频绝不落到发布链路」。
+  test('视频内容被拒绝：不得进入通用上传流程（小红书仅存草稿）', async () => {
     rpa._getPlatformConfig = vi.fn().mockReturnValue(publishConfig)
     rpa._publish_generic = vi.fn().mockResolvedValue({ success: true, platform: 'xiaohongshu' })
 
-    await rpa.publish('xiaohongshu', { video_path: 'D:/media/demo.mp4' }, null, 5000)
+    const result = await rpa.publish('xiaohongshu', { video_path: 'D:/media/demo.mp4' }, null, 5000)
 
-    expect(rpa._publish_generic).toHaveBeenCalledOnce()
+    expect(rpa._publish_generic).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ success: false, platform: 'xiaohongshu', errorCode: 'XHS_VIDEO_DRAFT_UNSUPPORTED' })
   })
 })

@@ -1039,6 +1039,71 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       expect(logEntry.latency_ms).toBeGreaterThanOrEqual(0)
     })
 
+    it('S4：adapter 返回 usage 时透传 tokens_in/tokens_out（成功路径）', async () => {
+      // G3/S4 断点修复（2026-10-09）：_writeLog 原本不传 tokens/cost，
+      // model_provider_logs 三列恒 NULL → usage-reporter 聚合恒 0 → 成本账不可观测。
+      // 修复后：adapter 响应里的 usage（OpenAI 兼容口径 prompt_tokens/completion_tokens）
+      // 必须进入日志条目，否则官方算力的成本归集没有任何数据基础。
+      logManager.createProvider({
+        id: 'usage-prov', name: 'Usage', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+      logManager.registerAdapter('usage-prov', (creds) => ({
+        id: 'usage-prov',
+        credentials: creds,
+        supports: () => true,
+        chatCompletion: vi.fn(async () => ({
+          content: 'ok',
+          usage: { prompt_tokens: 120, completion_tokens: 45, total_tokens: 165 },
+        })),
+      }))
+
+      const result = await logManager.callAdapter('usage-prov', 'chatCompletion', {})
+      expect(result.code).toBe(0)
+      expect(addProviderLogSpy).toHaveBeenCalledOnce()
+      const logEntry = addProviderLogSpy.mock.calls[0][0]
+      expect(logEntry.tokens_in).toBe(120)
+      expect(logEntry.tokens_out).toBe(45)
+      expect(logEntry.model).toBeNull()
+    })
+
+    it('S4：响应无 usage 时日志不携带 token 字段（保持 NULL 而非伪 0）', async () => {
+      logManager.createProvider({
+        id: 'no-usage-prov', name: 'NoUsage', category: 'video',
+        api_key: 'sk-test', models: ['m'],
+      })
+      logManager.registerAdapter('no-usage-prov', (creds) => ({
+        id: 'no-usage-prov',
+        credentials: creds,
+        supports: () => true,
+        generateVideo: vi.fn(async () => ({ taskId: 't-1' })),
+      }))
+
+      const result = await logManager.callAdapter('no-usage-prov', 'generateVideo', {})
+      expect(result.code).toBe(0)
+      const logEntry = addProviderLogSpy.mock.calls[0][0]
+      // 实现显式写 null（SQLite 列语义：NULL = 无数据），断言随之对齐
+      expect(logEntry.tokens_in).toBeNull()
+      expect(logEntry.tokens_out).toBeNull()
+    })
+
+    it('S4：模型名进入日志（provider.params.model）', async () => {
+      logManager.createProvider({
+        id: 'model-prov', name: 'Model', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+      logManager.registerAdapter('model-prov', (creds) => ({
+        id: 'model-prov',
+        credentials: creds,
+        supports: () => true,
+        chatCompletion: vi.fn(async () => ({ content: 'ok', usage: { prompt_tokens: 1, completion_tokens: 2 } })),
+      }))
+
+      await logManager.callAdapter('model-prov', 'chatCompletion', { model: 'gpt-4o-mini' })
+      const logEntry = addProviderLogSpy.mock.calls[0][0]
+      expect(logEntry.model).toBe('gpt-4o-mini')
+    })
+
     it('失败调用时写入 error 日志（含 error_message）', async () => {
       logManager.createProvider({
         id: 'fail-prov', name: 'Fail', category: 'tts',

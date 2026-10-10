@@ -1,0 +1,48 @@
+# Proposal: podcast-rss-channel（播客 RSS 频道发布——自动覆盖小宇宙收录）
+
+## Why
+
+1. **小宇宙没有官方发布 API，"发布到小宇宙"本质是 RSS 收录**（调研取证：`01-docs/INVESTIGATE-XIAOYUZHOU-PODCAST-2026-10-09.md`，2026-10-09）。官网无开放平台入口；主播后台功能面为运营互动、无音频上传单集；教程生态一致指向"托管出 RSS → App 内提交 → 此后聚合端自动抓取"。
+2. 用户目标"一键发布覆盖小宇宙"唯一合规、稳定、可自动化的实现路径是**协议分发通道**：生成/维护标准 Podcast RSS（iTunes RSS 2.0），一份 feed 同时分发小宇宙 / Apple Podcasts / Spotify 等全部 RSS 型播客端。
+3. 逆向写接口（未发现且属未授权）与主播后台 RPA（无单集发布能力、投稿入口在 App 内）均不可作主通道——见 ADR-0008 否决记录。
+
+## What Changes
+
+### A. 共享引擎（本 PR 已实现）
+- `packages/shared-utils/src/podcast-rss.js`：RSS 生成/校验/自检单一真源。纯函数、零出站（`headImpl` 注入）；`buildFeed` 校验不过抛 `PODCAST_FEED_INVALID` 且**不产出文件**（fail-closed）；常量 `TITLE_MAX=255 / SUMMARY_MAX=4000 / SUBTITLE_MAX=120 / DURATION_MAX_SEC=86400 / ITEMS_MAX=1000 / 封面 1400~3000px 正方形`；协议判据复用 `safe-http-url`（https-only）。
+- `packages/shared-utils/src/podcast-endpoints.json` + `.js`（CJS）+ `.browser.js`（ESM 孪生）：分发端目录（`xiaoyuzhou`/`apple_podcasts`/`spotify`），承载 `submitChannel/requiresManualFirstSubmit/timing/steps/verifiedAt/evidence` 提交指引；**不进入平台登记契约面**（隔离断言锁定）。
+- 测试：`__tests__/podcast-rss.test.js`（25 例）+ `__tests__/podcast-endpoints.test.js`（8 例）。
+
+### B. 文档（本 PR）
+- `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md`：全量数据模型、校验码表、流程、IPC 合同（规划）、交互/显示/提示文字（locales `podcast` 命名空间 zh/en 清单）。
+- `docs/adr/0008-podcast-rss-is-protocol-channel-not-platform.md`：不新增平台登记、不扩 publishMode 三态。
+- 调研报告入库、主 PRD 索引、i18n-glossary、CHANGELOG、质量节拍记录与 ledger 登记。
+
+### C. 主进程与渲染层（本 PR 已落地）
+- IPC 8 通道：`podcast:channel:get/save`、`podcast:episode:list/save/remove`、`podcast:feed:build/verify`、`podcast:endpoints:list`（合同见 PRD §8.1），全部**字面量**注册（`electron/tests/ipc-contract.test.js` 从源码正则清点通道名，间接/循环注册会使通道对契约锁隐身）；信封 `{code:0,data}` / `{code,message,issues}`；`unwrapObject` 形态守卫；空 `id` 不下沉服务层；日志禁记用户文本（只记通道名与错误消息）。
+- 持久化：`<userData>/podcast/` 下 `channel.json`/`episodes.json`/`feed.xml`（**偏差声明**：原写 `podcast/<channelId>/feed.xml`，P0 是单频道（开放问题 O1 未启动），故目录不带 channelId 一层，多频道时再按 `channelId` 分目录并做迁移）。`feed.xml` 临时文件 + `renameSync` 原子覆盖，Windows 仅 `EPERM/EACCES/EBUSY` 有界退避；损坏 JSON → `PODCAST_STORE_CORRUPT` fail-closed。单集保存按 `id` → `guid` 原地更新；`guid||audioUrl||resolvedAudioUrl` 全链判重由引擎 `EPISODE_DUPLICATE` 在构建期兜底（服务层不抄第二份口径）。
+- 页面三区块（频道配置 / 单集列表 / RSS 输出与分发端指引）+ locales `podcast` 命名空间成对落盘；`useEmbeddedViewSuspension` 不适用（无内嵌视图交互）。**偏差声明**：状态承载用 `src/composables/usePodcastChannel.js` 而非 `stores/podcast.js`（单页自持、无跨页共享）。表单↔引擎键名映射唯一实现点 = 模块级 `channelFormToPayload`/`channelPayloadToForm`（`category`+`subCategory` ↔ `categoryId="Top/Sub"`），有承重合同测试。
+- `headImpl` 注入点在位但**主进程 `net` 版 HEAD provider 未接**：缺省不注入即跳过网络检查，生产默认零真实出站（日志标 `head=off`）；外链巡检属 F9/P1。
+
+### D. 正交通道分叉与高敏闸守护（本 PR 已落地）
+- 发布任务入口**无需新增分流代码**：分发端 id 在 `config/platforms.yaml`、`publish-capabilities.json`、`platform-definitions.js`、rpa 选择器四处全缺，DOM/API 轨无从选中；`publishMode` 三态值域保持不变；`normalizeMode` 对未知值抛 `unknown publishMode`（既有闭值域实现），本 PR 补上此前缺失的行为锁（含 `decideRoute({mode:'rss'})` 必须抛、`platforms.yaml` 平台键不得含分发端 id）。
+- 接线守卫：`podcast-endpoints.test.js` 两把结构锁（不进登录 URL 表/平台名表/发布能力注册表；不进会话标记表/认证主机表）+ `platform-definitions.test.js` 15 平台数不变。
+- 双实现收敛（PRD R3）：`packages/api-publish-engine/src/podcast/feed-schema.js` 早期草稿已移出源码树，仓库内零引用，唯一真源 `shared-utils/podcast-rss.js`。
+
+## Impact
+
+- 受影响面（本 PR 实际清单，供评审对齐范围）：`packages/shared-utils/src/podcast-rss.js`、`podcast-rss.browser.js`（渲染层窄面 ESM 孪生，为过 `check-renderer-cjs-boundary` 而设，只导出渲染层真实消费的 5 个符号）、`podcast-endpoints.{json,js,browser.js}` 及其 `__tests__`；`apps/desktop/electron/services/podcast-channel-service.js`、`podcast-hosting-upload.js`（P1 规则层，未接线）、`ipc-handlers/podcast.js`+`index.js`、`preload/podcast.js`+`index.js`+两个 bundle；`apps/desktop/src/views/PodcastChannelView.vue`、`composables/usePodcastChannel.js`+`useTabDocumentTitle.js`、`api/podcast-channel.js`（**第四刀新增、第五刀修异常语义**：本页渲染端 IPC 的唯一取用点，内部走 `electron-bridge.js` 的 `invokeNamespace`，为满足 `QG Static` Gate 10 单轨制而设；第五刀把 `toEnvelope(await …)` 改为 `envelope(() => …)` 的 **thunk** 形态，并用共享判据 `isPermissionError` 把「未登录 / 许可证未激活」归进 `{available:false}`——preload 的访问控制是**同步** throw、发生在实参求值期，外层包装器自己的 `try` 那时还没进场，结构上不可能接住。口径来源为本仓既有约定 M-14（`invokeWithFallback`），非新发明；`electron-bridge.js`/`access-control.js` 未改动，只消费既有导出）、`composables/usePodcastChannel-ipc.test.js`（**第四刀 11 例 → 第五刀 14 例**，含 reactive 脱壳行为锁、逐条字面量结构锁、thunk 与共享判据结构锁、一条**负向锁**（不得把 promise 直接交给 `envelope`；按「判据不剥注释」教训刻意不写出被禁形态的字面量），以及「导出名 ↔ preload 暴露面」一致锁——**第五刀起该锁改为实例化真 `createPodcastApi`（假 `ipcRenderer`）取键比对并加键数下界 8**，此前比的是本文件自写的 `METHODS` 常量，QM-6 前端评审按此报出 Warning）、`src/locales/zh.js`+`en.js` 的 `PODCAST_IPC_UNAVAILABLE`（第五刀改写为点名三成因并**删除「请稍后重试」**，zh/en 成对）、`src/styles/tokens.css`（**只读引用**，第四刀把本页 16 处 `font-size` 字面量折进该七档标度，未改令牌文件本身）、`config/route-registry.js`+两个 sidebar 测试、`router/index.js`、`locales/zh.js`+`en.js`、`apps/desktop/vite.config.js`（alias 登记）；**视觉门禁登记面**（修复刀补；第六刀再重取/入库 12 张基线 PNG：`podcast-channel.png`、`podcast-channel-dark.png`（首次入库）、`collection.png` 与 9 张 `*-dark.png`，全部取自同一次 run 的 `quality-gate-visual-reports`）：`tests/visual-testing/views/all-views.visual.test.js`、`tests/visual-testing/scripts/run-pixel-tests.js`、`tests/visual-testing/base-screenshots/.gitignore`；`packages/api-publish-engine/test/publish-mode-config.test.js`；`.github/scripts/max-lines-baseline.json`（locales 基线随新增键上调，**接受漂移并在此披露**）；文档与门禁记录（`01-docs/PRD.md` 索引、`i18n-glossary.md`、CHANGELOG、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`、`openspec/records/podcast-rss-channel.md`）。
+- 行为变化：新增「播客 RSS 频道」页面与侧边菜单项；不改动既有 15 平台发布链路，不新增出站请求。
+- 破坏性：无。`PLATFORM_NAMES`/`PLATFORM_PUBLISH_META` 保持 15；`publishMode` 值域不动。
+- 已收敛风险：PRD R3 双实现漂移（草稿移出源码树）。
+- 未闭合项（如实）：QM-4 像素用例**登记已闭合**（双清单 + `.gitignore` 浅色/暗色放行），**首张基线尚未入库**——AGENTS QM-4 第 7 条规定基线只能取自同一次 CI run 的 `quality-gate-visual-reports` artifact，所以本 PR 首次 `QG Visual` 对 `podcast-channel` 必然报 `ERR_VISUAL_BASELINE_MISSING`，须由那次 run 的渲染回填并自证「新基线 vs 同一次 CI 渲染 = 0 px」；侧边菜单新增条目同时会改变所有含侧栏视图的全页像素，若 `QG Visual` 因此变红，正解同样是按同一次 run 的 CI 渲染重建受影响基线（**禁提阈值**、禁本机截图）。**该回填已在第三刀完成**（浅色侧）：取自 run `37840950306` 的 `quality-gate-visual-reports` artifact，新增 `podcast-channel.png` + 重建 8 张被侧栏位移的基线，逐张 SHA-256 自证与渲染字节全等，`check-baseline-freshness` 违规数 8 → 0。**（第六刀更正）**原先此处写的「暗色基线在本 PR 内结构上无法合法取得」不成立：PR 侧那次 run 上传的 `quality-gate-visual-reports` 里就含像素门禁产出的 `<name>-dark-current.png`，而 `check-baseline-freshness.js` 的 `findRender()` 对暗色名解析到的正是它（该 run 的 9 条暗色违规 `来源=pixel-gate` 即现场）。故 `podcast-channel-dark.png` 已于第六刀按同一口径入库，暗色欠账提前闭合。**⚠️ 第四刀使浅色侧重新进入未闭合**：该刀把本页 16 处 `font-size` 字面量折进七档设计令牌，16px→`md`(17px)、14px→`base`(15px) 使两处标题各高 1 px，run `37840950306` 回填的 `podcast-channel.png` 因此**不再等于下一次渲染**，须按下一次 run 的同一 artifact、同一 `findRender()` 口径重取并逐张 SHA-256 自证 0 px。**第五刀又叠了第二条独立的过期原因，且它落在同一张图上**：该刀重写了 `podcast.errors.PODCAST_IPC_UNAVAILABLE` 的 zh/en 文案，而这段文案**就渲染在 `podcast-channel` 基线截图里**——像素捕获用的是纯 Playwright chromium 打 Vite dev server（`run-pixel-tests.js:61` + `test-runner.js:100`），环境里**没有 `window.electronAPI`** ⇒ `invokeNamespace` 返回 undefined ⇒ 桥接层 `available:false` ⇒ `channelError='PODCAST_IPC_UNAVAILABLE'`（`PodcastChannelView.test.js:295`–`301` 已钉住该形态，且第 301 行断言的是 locales **实时值**而非字面量）⇒ `PodcastChannelView.vue:96` 的 `v-if="channelError"` 段落把它渲染出来。新文案比旧文案长 4 个汉字，除字形外还可能改换行宽度。因此浅色基线**同时因字号标度（第四刀）与错误文案（第五刀）两点过期**，重取一次即同时覆盖，处置口径不变。注意 PR 侧 `QG Visual` 的 6% 全页容差对 1 px 文本变更**天生失明**，它报绿**不作为**基线仍然有效的证据；权威判据是**同一 job 内的 Gate 7b**（PR 侧 0 px、两轮交集终判，`quality-gate.yml`「Gate 7b - Baseline freshness (PR-side, partial, two-round verdict)」）——它会在**合并前**拦红（两轮皆红=真漂移、非 flake），故回填必须在本 PR 内完成：先推一次、取该 run 的 `quality-gate-visual-reports`（`screenshots/**` 与 `screenshots-round1/**`）回填后再推第二次；合并后 main 那次 Visual Tests 的新鲜度门禁是第二道防线。仍**禁止**提阈值、加 mask、以本机截图充数（AGENTS QM-4 第 7 条）。**该回填已于第六刀完成**（run `38024249964`），并因第七刀的词典术语修复（zh 文案变长）**第二次重取**（run `38027584685`：只红 2 张 1312 / 1408 px，其余 41 张保持 0 违规 ⇒ 反证第六刀的重取是稳定基线，不是临时压红）：现场与预告一致——`Gate 7 - Visual regression` success 而 `Gate 7b` failure；`podcast-channel.png` 漂移 **19335 px（0.932%）**，其中超出字号的部分就是第五刀改写的那行降级文案被 `v-if` 渲染进截图（这条判断由代码链核实升级为像素实测）；同批另 10 张（9 张暗色各 **恰好 559 px / 字节数各恰好 +1900 B**、`collection.png` 231 px）归因于本 PR 的侧边栏条目，对照 main 最近两次 quality-gate run（`38021251092`、`38018881009`）均 success，可确认非既有欠账。重取后 `check-baseline-freshness --partial` 由「42 查 / 11 违规」变「**43 查 / 0 违规**」，并对同一次 run 的第二轮渲染同样 0 违规（两轮交集为空 ⇒ 非 flake）。
+- 第三刀另修一处**自查引入的假缺口**（非功能缺陷）：`electron/ipc-handlers/podcast.js` 顶部注释原写有 `ipcMain.handle('podcast:…', …)` 示例，而 `check-ipc-bridge.js` 的 `RE1` 直接扫源码、**不剥离注释**，把注释里的示例当成真实注册过的通道，报「Handler 已注册但 preload.js 未暴露」⇒ `QG Static` Gate 6 变红。修法方向是**改注释措辞**（现已写明该禁止写法及其后果），**没有**放宽门禁或改成间接注册（间接注册会让整条通道从 `ipc-contract.test.js` 的双向对账里消失）。修复后 `node .github/scripts/check-ipc-bridge.js` → 431 handlers / 449 preload / rc=0（修复前 432，那 1 条正是幽灵通道）。
+- **QM-6 双模型复审已闭合到第五刀**（2026-10-09）：第四刀的桥接层作为「新写的、承载错误语义的一层」按 QM-6 规则重跑双模型，两路均实回（后端 claude / 前端 opencode，模型名唯一真源 `~/.claude/.ccg/config.toml` 的 `[routing.*].primary`）。结果 1+1 条 Warning **均已修**（成因与四条变异反证见上两条与 `openspec/records/podcast-rss-channel.md` 第五次刀行），4 条 Info 逐条给出处置（2 条改文档、2 条评估后不改并写明理由）。一处流程事实如实登记：前端首轮返回的是**状态快照而非 findings**，按既有口径用 `codeagent-wrapper resume <session_id>` 同会话追讨，未另起会话重跑；第二轮仍以快照收尾，但其「Important Details / Next Move」已含三条已核实结论与那条真实 Warning，故按该结果消费。**这两条缺陷都不是自审或机械门禁发现的**——本地 6 文件 / 88 测试全绿躺了一整刀，这正是 QM-6 存在的理由。仍**未闭合**的是：本 PR 的运行时验收 §6.1（真实链路人工核对：生成 feed → 部署可达 → 小宇宙 App 提交 → 收录后追加单集验证小时级同步）、暗色基线、以及第四刀带来的浅色基线重取。
+
+## Out of Scope
+
+- P1 用户自有 OSS/COS 直传（形态 B）：**上传动作与 `resolvedAudioUrl` 回填、AK 进 credential-store、外链巡检不在本 PR**；本 PR 只落规则层 `podcast-hosting-upload.js`（`object_key` 派生 / 公网 URL 拼接 / OSS V1 待签串 / 签名头不含凭证 / MIME 复用共享实现，34 例锁，除自身测试外无消费者）。改造 `oss-uploader.js` 的接线设计另行规格化（PRD §四 F7~F9，tasks §7）。
+- P2 mulpub 代托管（形态 C）：三前置条件（能收费/可审核/可退出）闭合前不启动。
+- 主播后台 RPA 运营动作（公告/投票/改节目信息）：不进 MVP。
+- 收录状态观测（轮询各端公开页判断新单集出现）：涉第三方读取面，另立 change 前先过相关性/合规判据（PRD O2）。
+- 多频道（>1 个 podcast channel）：P0 单频道，开放问题 O1。

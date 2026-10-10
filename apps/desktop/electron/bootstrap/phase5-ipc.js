@@ -200,6 +200,19 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     riskSuspender,
   } = context
 
+  // publish-frequency-policy-v2：发布频率守卫单例（容器注册项）。优先取 context 上的引用，
+  // 其次经容器现取；整体 try 包裹并在失败时降级为 null —— IPC 侧据此如实回报「服务未初始化」，
+  // 绝不允许在装配期抛错把整条 IPC 注册链带崩。
+  const publishIntervalGuardForIpc = (() => {
+    try {
+      if (context && context.publishIntervalGuard) return context.publishIntervalGuard
+      if (context && context.container && typeof context.container.get === 'function') {
+        return context.container.get('publishIntervalGuard')
+      }
+    } catch (_) { /* 降级为 null，由 IPC 侧回报未初始化 */ }
+    return null
+  })()
+
   const registerAllHandlers = require('../ipc-handlers')
   const handlerDependencies = {
     app, BrowserWindow, log, renderEngine, taskQueue, history,
@@ -286,6 +299,13 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
       identityService,
     )
     const registerCentralHandlers = () => {
+      // publish-frequency-policy-v2：守卫在此挂到依赖对象上（对象字面量已闭合，故用赋值）。
+      // 放在注册**之前**是硬要求：IPC handler 在调用时才读 deps，但顺序错了会让早期调用拿到 undefined。
+      handlerDependencies.publishIntervalGuard = publishIntervalGuardForIpc
+      const { createPublishEmergencyReleaseService } = require('../services/publish-emergency-release')
+      handlerDependencies.publishEmergencyRelease = createPublishEmergencyReleaseService({
+        store, log, app, identityService, now: Date.now,
+      })
       return registerAllHandlers(controlledIpcMain, handlerDependencies)
     }
     const cloudRegistration = cloudPublisher

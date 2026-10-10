@@ -164,15 +164,24 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     }
 
     // ── 阶段 2：实跑三步链 ──
-    // 签名器：进程内 XYW_ 纯算法（不开窗、不触达活页）
+    // 签名器（2026-10-09）：走签名页浏览器通道（XYS_ 代签名，note-406-signature-report.md）。
+    // 旧本地 XYW_ AES 形态对 note 端点 406，降级保留在 signer-xhs-local.test.js 锁的
+    // 降级路径里（signXiaohongshuLocal），probe 不再直连。
+    // fail-closed：browserPageProvider 未接 bridge（主进程装配未跑）时如实带回 stage=signer-bridge。
     let signer
     try {
-      const { signXiaohongshuLocal } = require('../signer/signer-assembly')
-      signer = (payload) => signXiaohongshuLocal(payload)
+      const { browserPageProvider } = require('@multi-publish/api-publish-engine/src/signer/index')
+      signer = (payload) => browserPageProvider.sign('xiaohongshu.x-s-browser', {
+        accountId,
+        fullUri: payload.fullUri,
+        cookie: payload.cookie,
+        method: payload.method,
+        data: payload.payload,
+      })
     } catch (e) {
       return {
         code: EC.REQUEST_ERROR, message: '签名器装配失败: ' + sanitizeMessage(e instanceof Error ? e.message : String(e)),
-        data: { stage: 'signer-load' },
+        data: { stage: 'signer-bridge' },
       }
     }
 
@@ -188,6 +197,46 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     })
 
     try {
+      // 页内整发（2026-10-10）：note 步在签名页上下文执行（X-S-Common 页内生成，绕开本地模板 406）。
+      // ① cookie 注入签名页：bindSignerCookie in-proc 绑定（provider.js 契约，cookie 不过 renderer）
+      // ② sendNote 桥：经 signer-assembly 的页窗口 executeJavaScript 执行带签名头的 fetch
+      //    （credentials:'include' 自动带登录态；页内 _webmsxyw 已由 #3215 extractor 通道就绪）
+      let pageInpage
+      try {
+        const provider = require('../signer/provider')
+        provider.bindSignerCookie('xiaohongshu', accountId, cookie)
+        const asm = provider.__getAssemblyForProbe()
+        if (asm && typeof asm.getOrCreatePage === 'function') {
+          const entry = await asm.getOrCreatePage('xiaohongshu', accountId, cookie)
+          const wc = entry.win.webContents
+          pageInpage = {
+            sendNote: async ({ url, headers, body }) => {
+              const script = `(async function () {
+                try {
+                  const resp = await fetch(${JSON.stringify(url)}, {
+                    method: 'POST',
+                    headers: ${JSON.stringify(headers)},
+                    body: ${JSON.stringify(body)},
+                    credentials: 'include',
+                  })
+                  const status = resp.status
+                  let data = null
+                  try { data = await resp.json() } catch (_e) { data = null }
+                  return { status, data }
+                } catch (e) {
+                  return { status: 0, data: { code: -1, msg: 'inpage-fetch: ' + String((e && e.message) || e).slice(0, 120) } }
+                }
+              })()`
+              return wc.executeJavaScript(script)
+            },
+          }
+        }
+      } catch (e) {
+        // 页内整发准备失败：降级回 http 路径（pageInpage 保持 undefined），错误只进日志
+        ipcLog('warn', 'xiaohongshu:probe-draft-chain', 'inpage-prep-failed',
+          `accountId=${accountId} message=${sanitizeMessage(e instanceof Error ? e.message : String(e))}`)
+      }
+
       const result = await chain.publishToDraft({
         title: article.title,
         content: article.content,
@@ -196,6 +245,10 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
         tags: Array.isArray(article.tags) ? article.tags : [],
         cookie,
         authorization,
+        // 调试通道专用：A/B 对照 note 端点宿主（'creator' | 'edith'），生产路由不传该字段
+        noteOrigin: arg && arg.noteHost === 'edith' ? 'https://edith.xiaohongshu.com'
+          : (arg && arg.noteHost === 'creator' ? 'https://creator.xiaohongshu.com' : undefined),
+        pageInpage,
       })
       ipcLog('info', 'xiaohongshu:probe-draft-chain', 'ok', `accountId=${accountId} draft=${draft}`)
       return {

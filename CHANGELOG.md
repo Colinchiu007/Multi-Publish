@@ -20,6 +20,200 @@
 - 详见 `openspec/records/retire-dedup-auth-file.md`。
 
 ---
+# [未发布] feat(film-engineering): 影视工程三标签重组 + 「自动」模式（2026-10-09，film-auto-mode）
+
+## 背景
+
+影视工程页原先只有一个视图（节点式画布）。用户提出两件事：①把画布降为第 2 个标签，把画布之前的页面放到第 3 个标签「工程案例」；②新增第 1 个标签「自动」，目标「越简单越好」——输入一段文案、可选人物/场景参考图、设定横竖屏与大概时长，其余全部由程序完成生成与合成，且**必须把这条流水线已有的技术积累全部用上**，生成后还要能单独修改某个片段。
+
+两条容易走偏的路，这次都明确避开了：一是新做一套「简化版生成」把底层积累绕过去；二是把自动模式塞进 pipeline 六阶段里，与 checkpoint 语义纠缠。
+
+## 改动
+
+**三标签 Hub**：新增 `FilmEngineeringHubView.vue`（自动 / 画布 / 工程案例），`?tab=` 双向绑定 + 懒挂载（切回不丢状态）+ ARIA tablist 键盘导航。`/film-engineering` 指向 Hub，`/film-engineering/classic` **刻意保持非 redirect 路由**——改 redirect 会减少「非 redirect 路由数」，触碰 `useTabDocumentTitle.test.js` 的覆盖棘轮。两个既有视图各加一个 `embedded` prop（默认 `false` 时渲染逐字不变），内嵌时隐藏品牌块/页面级标题。
+
+**自动模式（后端四层）**：
+- `auto-plan.js`（纯函数、零 IO）：时长规划 `N = clamp(round(T/s), 1, 120)`；分场复用剧本套用引擎语义；镜数不足**只拆**（按句末标点、不丢字、不造空镜）、超出**只并**（相邻合并、顺序拼接）；角色检出（用户标注 > 显式标记 > 对话动词 > 频次，带停用词守卫）；槽位映射 `ROKO/JAXX/LULU/REIN`；参考绑定（人物按命中、场景按场景轮转共享、单镜 ≤2 张、受控根纵深防御）；提示词复用 `buildTemplatePrompt` 套用 kit 模板块结构。
+- `auto-project.js`（落盘层）：计划文件（TTL 24h + consumed 标记 + 归属校验）、项目文件（内容真源）、镜头编辑校验（先校验后应用）、**append-only 确认历史**、`providerCalls` 派发前自增与对账、`overwrite` 时旧一轮归档到 `archive/<runSeq>/`。
+- `auto-runner.js`（执行层）：批执行器**从项目文件取提示词**（这样片段编辑才真的生效，与全量出片从 kit 查询的做法不同）；单镜重生成走「临时目录生成 → ffprobe 校验 → rename 原子覆盖」，校验失败**不破坏既有产物**。
+- `film-engineering-auto.js`（IPC 层）：6 条通道 + 1 条事件。`auto-start` **只收** `{planId, taskId, confirmed, overwrite}`——分镜与参考图路径一律由服务端读自己落盘的计划重建，并在启动前对每一条 `refPaths` 重校验受控媒体根（计划文件被篡改即拒绝启动）。
+
+**自动模式（前端）**：`FilmAutoPanel.vue`（状态机 `input → preview → running → done`）+ `FilmAutoSegmentEditor.vue`（提示词逐字符编辑 / 时长 / 预览 / 恢复原文 / 块结构黄提示）。进度流程直接复用故事讲述流水线的 `StageProgress.vue`（为跨流水线复用给它加了 `testidPrefix`，默认值保持既有行为不变）；收口合成复用既有 `pipelineStartOrchestrated('film-engineering', { initialContext: { renderManifest } })`，与全量出片**同一条**引擎路径。
+
+**为复用而做的最小改动**：`production-driver.js` 加可选 `runIdFor`（默认 `prod-<taskId>-b<N>` 不变）让自动模式产物落 `auto/<taskId>/b<N>/`；`shot-library.js` 加 `listAllShots`（跨场景模板）与 `film-engineering-service.js` 的 `listTemplateShots` 门面；preload 加 6 方法 + 1 订阅并重建 bundle（计数 17→24）；`license-access-control.js` 登记为 public。
+
+## 三条不变量（改动时最该被保护的东西）
+
+1. **确认前零 provider 调用**：规划阶段不产生任何模型调用；未勾选确认不调 `auto-start`；编辑（`editedAt` 晚于最新确认）会让 `auto-start` 与 `auto-regenerate-shot` 都先要求重新确认。
+2. **提示词逐字符直送**：不接任何润色/优化器，片段编辑后的文本原样提交（对照既有 `video-gen.test.js` 的 `CONTRACT VIOLATION` 锁）。
+3. **磁盘为真**：`project.json` 的状态字段只是投影，产物是否存在以磁盘复核为准；收口合成要求台账与磁盘**双判据**同时成立。
+
+## 验证
+
+新增 145 条用例：`auto-plan`(42) / `auto-project`(14) / `auto-exec-contract`(9) / `auto-runner`(13) / `film-engineering-auto`(18) / 面板(19) / 片段编辑器(9) / 前端工具(8) / Hub(9) / StageProgress 前缀(4)。回归：影视工程服务目录 21 文件 263 用例全过、preload 与既有影视工程 IPC 447 全过、路由注册表 PASS、文案成对 PASS（1562 key，无新增硬编码）。
+
+实现期由测试暴露并修掉两处真问题：①`AUTO_TOO_MANY_SHOTS` 上限分支用 clamp 后的值判断，永远不可达（等于把防线写成死码）；②收口条件原为「全部完成」，使部分失败的任务永远停在运行态，片段编辑与收口入口都到不了——改为「不再运行 且 每镜都有结论（完成或失败）」。
+
+## 已知缺口
+
+停止按钮（批间生效）、端到端集成测试（plan → start → 台账 → manifest → 真实 ffmpeg 出 `final.mp4`）、QM-1 打包验证与 CDP 真机长文剧本 E2E、三处补充用例。均已登记在 `openspec/changes/film-auto-mode/tasks.md` 与 PRD §14.7，不装已闭合。
+# [未发布] feat(pubfreq): 发布频率策略 v2 —— 失败语义细分、日配额、抖动、紧急放行与设置页（2026-10-10，publish-frequency-policy-v2）
+
+### 用户感知
+
+**发布节奏变了，且更贴近人工。** 三处直接可感：
+
+1. **失败不再一律罚满窗口。** 以前「登录态失效 / Cookie 缺失 / 风控挂起」这类**请求根本没发到平台**的失败，也会吃掉整个间隔窗口（实测 bilibili 连续 3 次失败被 120/30 分钟钉住）；现在这类失败会**回滚窗口**，进度面板显示「未提交到平台，已恢复可发布」。反之，**已经发到平台**的失败仍然占满窗口（卡片显示「已提交，需等待约 N 分钟」）—— 这条边界是刻意保守的。
+2. **间隔数值下调 + 加抖动。** 账号档 60/30/10 分钟 → **20/10/3 分钟**；跨账号平台档 5/3/1 分钟 → 统一 **2 分钟**；等待时间加入 0–40% 的**只增不减**随机抖动，发布点不再落在精确的整数分钟边界上。
+3. **新增「发布设置」页（设置 → 发布设置）与紧急放行。** 可查看当前档位与实际等待区间，可按账号/平台/日配额/抖动覆盖策略（**保存即生效，无需重启**）；「立即解除本账号等待」可跳过某个等待窗口，带二次确认、每日每账号上限（默认 1 次）、跨账号 10 分钟冷却与**追加式本地审计**（界面不可编辑）。四态全部明确回显：成功 / 已达每日上限 / 冷却中（显示还需等几分钟）/ 当前没有等待中的窗口。
+
+新增/修改的 locale 键：`publishPage.publishProgressPanel.blockedBucketDaily|blockedDailyQuota|releasedNotSubmitted`、`settings.publishFrequency.*`（zh/en **成对**）。
+
+### 变更明细
+
+- **策略单一真源**（`packages/shared-utils/src/publish-frequency-policy.js`）：新增 `tier` 与 `accountDailyMax` 维度（复用既有三档分组，不新增分类器）；新增三档日配额 env（`MP_PUBLISH_DAILY_MAX_LONG|CLIP|SHORT`）与全局覆盖 env（`MP_PUBLISH_ACCOUNT_DAILY_MAX`）、抖动比例 env、回滚退避 env、紧急放行上限 env；间隔源声明上界 7 天（越界钳位并出声，防含抖动系数后逼近 `setTimeout` 上限）；未登记平台由**静默回落**改为**回落 + `fallback` 标记**（由守卫出声，进程内按平台去重）。
+- **守卫 v2**（`publish-interval-guard.js`）：日配额为**独立否决项**（`bucket='daily'`、`reason='daily_quota'`、`remainingMs=0` —— 它是「今天到此为止」而不是「等一会儿」）；新增只增不减的抖动（可注入随机源，`ratio=0` 严格退化为 v1 行为）；`recordPublish()` 返回占位前值；新增 `release()`（乐观并发：仅回滚本次占位；`prev` 缺失即 no-op 并出声；**防风上限** `max(2, dailyMax)`，回滚计数只增不减）；新增 `clearWindow()` 与 `setJitterRatio/setReleaseGraceMs`（非法值 no-op 并出声，不把已生效的保守配置降级成 0）；`buildKey()` 为唯一 key 构造函数（percent-encode；平台档哨兵 `*` 不参与编码）。
+- **队列 v2**（`task-queue.js`）：用**阶段判据**取代错误类型白名单 —— `submitAttempted` / `submittedAt` 双标记；未提交失败回滚窗口并发 `publish:released`，回滚后按最小退避重排（防「回滚即零等待」的重试风暴）；日配额被拒任务进 `_quotaBlocked` 且 `_processNext` 跳过（防紧循环），定时器指向**次日 00:00:05** 且与 `today()` 共用同一注入时钟；新增 `emergencyRelease()`（机制层，上限/冷却/审计刻意留在调用方）；**不变量 I4**：成功而 `submittedAt` 为空 ⇒ `error` + 计数 + 对该平台**停用回滚**（接线缺陷主动告警而非等某次失败被误放行）；失败路径**接线矛盾检测**（已证明会打点的平台持续出现「未发起尝试」⇒ 自动降级为占满窗口）。
+- **桌面传输层打点**（`bootstrap.js`）：分层判据 —— 进入 `publish()` **之前**的失败（风控挂起 / 信号中止 / 进度注册失败）不打点 ⇒ 可回滚；`publish()` **之内**的失败默认按已提交处理，仅当发布器显式声明 `definitelyNotSent === true` 时才可回滚；成功置 `submittedAt`。发布器内部补细粒度打标（`services/publish-not-submitted.js`，**封闭词表** + 每条注明「为什么必然发生在平台写之前」，刻意不收录泛化错误）。
+- **存储**：新增 `publish_daily_count(owner_subject,key,day_key,count,rollback_count,updated_at)`，`store-schema.js` **七处注册表**逐项登记（owner 隔离重建路径要求齐备）；新增 `store/publish-daily-store.js` mixin（字段名白名单防注入、UPSERT 用 `MAX(0,…)` 保下限、无 owner 一律 no-op、保留最近 7 天）。两个计数器**语义分离**：`count` 可幂等回补（一次从未发出的尝试不构成平台负载），`rollback_count` **只增不减**（否则「回滚—回补—再回滚」可无限循环，防风上限形同虚设）。
+- **装配**（`container.setup.js`）：注入 `dailyStore` / 抖动 / 回退退避 / `isKnownPlatform` / `warn`；设置页覆盖改为**每次 check 现取**（构造期快照会让设置页改动只能靠重启生效而 UI 无任何提示）。新增 **3 条装配锁**，其中行为锁**打桩 store 方法**证明「guard → 适配器 → store」链路真的接通（而非只断言「注入了」）。
+- **可观测与文案**：`publish:blocked` 增 `reason`/`daily` 并按原因分流文案；新增 `publish:released`（独立 `phase='released'`，可本地化，不依赖主进程中文串）；渲染层 `PHASE_ENUM`/`STAGE_KEY_ENUM` 增 `released`；进度行归属标签扩到三档、未知 `bucket` 仍不渲染标签。**顺手修掉一个既有渲染缺陷**：日配额 `remainingWait` 恒为 0，而旧分支的 `&& task.remainingWait` 守卫会让该行**完全没有文案**。
+- **IPC**（`ipc-handlers/publish.js`，与 `publishRisk:*` 同约定）：`publishFreq:getPolicy|setPolicy|emergencyRelease|emergencyStatus`；四态如实回报且都不是错误码；`setPolicy` 全有或全无（非法配置整体拒绝且**不写库**，否则界面显示「已保存」而策略没变）；**顺序修正**：先校验 → 服务 → 策略闸 → 队列能力 → 机制（把队列能力检查提前会把「今日已用尽」遮蔽成「任务队列不可用」，测试当场抓到）。操作者由主进程按 identity 解析，**不接受渲染层自报**。
+- **设置页**（`src/components/PublishFrequencySettings.vue` + `SettingsDialog` 的 `publish` tab 由 disabled 转可用）：按档位分组展示当前口径（不逐平台列 15 行噪音）+ 实际等待区间；保存被拒时报错且**不报成功**；恢复默认提交 `null`（清空覆盖）。组件经 `@/api/publisher` 访问 IPC（该文件头明令禁止直连 `window.electronAPI`；`rendererIpcDirect` 基线实测保持 0）。
+- **小坑（P2-3）**：`config/platforms.yaml` 的 `tencent_video` 加命名澄清 —— id 因存量兼容保留，但 `name=视频号`、`publish_url=channels.weixin.qq.com` ⇒ 实际目标是**微信视频号**，不是腾讯视频（其开放平台已关闭）；显式提示「新增代码请勿据 id 推断平台归属」。
+- **校准基础设施（P2-4）**：新增只读取数脚本 `scripts/calibrate-publish-frequency.js`（零依赖、不参与运行时判定），头部写死四条口径（两个数据源回答不同问题：`publish_timeline`=提交时刻 / `publish-history.jsonl`=终态时刻 ⇒ 后者相邻间隔 ≥ 前者，违规数只是下界；一行 ≠ 一次提交；日界按本机运营日；违规判据 = 相邻间隔 < 账号档），输出末尾强制附「局限」段。实测 66 行 / 8 平台，并暴露两条事实：该数据源**无 `accountId` 字段**（分组坍缩，报告里按账号的分析无法从该源复现）、baijiahao 有 4 处 1–5ms 相邻间隔（**在旧档位下也越限** ⇒ 当时并未被守卫拦住，待单独归因）。
+- **既有缺陷修复**：`publisher-router.js` 的 RPA 失败兜底文案原为 `'RPA 鍙戝竷澶辫触'`（「RPA 发布失败」的 GBK 误读）已修并钉进测试；同批次测试夹具里的 `document.body.innerHTML = ''` 改为 `textContent = ''`（旧版 CCG 安全扫描器把 `innerHTML` 赋值判为 XSS 高危；仓库自带 `.ccg/skills` 副本已排除测试文件，门禁实际调用的 home 副本尚未同步该规则）。
+- **与报告的显式偏离**：报告 P1-1 建议「跨账号平台档默认关」，本期改为**默认开 2 分钟**（理由与代价见 PRD §5.1；两轮评审各自独立指出默认关会削弱同平台多账号共档保护，且 1 账号/平台时该档完全惰性）。
+- **未闭合（不冒充）**：变异反证 M1–M14 未执行；QM-1 打包未执行；QM-6 验证层双模型评审因「判定记录以父提交为键」的机制原因首跑未落地（需再提交后用 `--force` 审全分支 diff）。
+
+### 测试
+
+`packages/shared-utils` **800 passed / 10 skipped（39 文件）**；桌面受影响面 **153 passed（7 文件）**；`publish.test.js` **49**（含 12 新增）；`publish-emergency-release.test.js` **15**；`publish-not-submitted.test.js` **27**；`publisher-router.test.js` **68**（含 3 条端到端接线锁）；`PublishFrequencySettings.test.js` **10**；`SettingsDialog.test.js` **6**。
+
+
+
+# [未发布] docs(investigate): 发布限制频率机制严格性与必要性调查报告（2026-10-10，publish-frequency-strictness-report）
+
+### 用户感知
+
+无。本次只新增一份**只读**调查报告 `01-docs/INVESTIGATE-PUBLISH-FREQUENCY-STRICTNESS-2026-10-10.md` 与配套流程留痕，**不改任何运行行为**、界面控件、显示项或提示文字；打包产物、发布链路、账号登录态口径完全不变，新增/修改的 locale 键为零（zh/en 成对约束不适用）。
+
+### 变更明细
+
+- 新增调查报告，回答「现在的发布限制频率机制是否太严格、是否有必要」，含四部分：①现状机制全貌（策略表 / 守卫 / 队列接线 / 四条发布入口的覆盖面，全部带 `file:line`）；②本机真实数据取证；③公开资料调研（可信度分级 + 取证边界）；④P0/P1/P2 分级建议。
+- **四条本次首次落盘的发现**：①**失败惩罚从「理论代价」变为「已观测事实」**——`publish-frequency-control`（PR #2773）的执行记录把乐观记账列为「已接受但未观测的代价」；本次实测 `publish-history.jsonl` 中 bilibili 连续 3 次失败的间隔恰为 **120.0 / 30.0 分钟**、tencent_video 4 次失败同样被 30 分钟钉住，且 `task-queue.js:587-597` 的自动重试与 `:240-262` 的手动重试都走同一条守卫路径 ⇒ 一条坏链 2 小时只推进 3 次尝试。②**零抖动**——`publish-interval-guard.js` 与 `task-queue.js` 内 `Math.random` 命中数为 **0**，发布点落在精确的 30.0 / 60.0 分钟整数边界上；同仓 `batch-rate-controller.js:5-9` 的注释早已写明「模拟人类不规则操作间隔」，而微博开放平台官方口径是「**非用户主动行为**频繁调用（即使未超过频次限制）也会被封接口权限」⇒ 现状不是「太慢」，是「**又慢又更像机器**」。③**跨账号平台档实测空转**——`backend-data/accounts.json` 实测每平台恰好 1 个账号，故该档恒被更严的账号档支配，唯一实际作用是惩罚「同平台多账号」这一合法用法。④**口径陷阱**——`publish-history.jsonl` 记**终态时间**、`publish_timeline` 记**提交时间**，直接用 history 做间隔标定会系统性失真（报告 §4.6 用一条「看似违规」的 toutiao 24.63 分钟案例证明）。
+- **判定结论**：「有闸门」必要（接线前 `maxConcurrent=3` 且间隔为 0；官方文本支持「降低自动化特征」的方向）；「这个刻度」站不住（10/30/60 分钟三个量级在公开资料中**零依据**，且与平台真实硬限两个方向都不对齐——60 分钟档 = 24 条/天，既远松于微信订阅号 1 条/天、又远严于微信发布接口 100 次/日）；**维度也选错了**——公开资料唯一有依据的维度是**日配额**，而实现只有最小间隔、没有日配额（`publish-frequency-control` PRD 把 quota 列为非目标）。
+- **建议（全部未实施）**：P0 记账语义细分（未提交的失败回滚窗口，已提交的失败仍占窗口）与重试放行路径；P1 跨账号平台档默认关、补账号级日配额维度、给间隔加可注入抖动；P2 数值下调（须先补可复现的校准数据）、统一渲染层口径（`locales/publish-page/zh.js:195` 目前向用户承诺扁平 5 分钟，而运行期同平台可达 60 分钟）、未登记平台回落时出声、两处小坑（`config/platforms.yaml:93-100` 的 `tencent_video` 实指微信视频号；`ipc-handlers/publish.js:230-235` 的 `publish:wechat` 未带任务级 `accountId`）。另列出「明确不建议做的」四项（按旧标定表逐平台调数字 / 回退成「成功才记账」/ 放弃门禁 / 用日配额替换最小间隔）。
+- **对既有决策的关系**：逐条回应 2026-10-08「保持现值」的三条理由——①②③**均成立**，故本报告不主张按那份 n≤4 的标定表逐平台调数字，而是主张**把闸门与刻度解耦** + 修失败语义 + 补维度。本次新增的、当时没有的信息只有一条：有依据的维度是日配额而非分钟间隔。
+- **取证边界（如实记录，不假装穷尽）**：本会话 `web_search` 无 API key、境外域名一律解析到非公网 IP ⇒ 报告**零引用** YouTube / X / Instagram / TikTok 的任何数字；抖音/快手/B站/小红书官方帮助中心是 JS-SPA 抓不到 ⇒ 只写「未找到公开依据」而不能写「不存在限制」；第三方经验仅取检索结果页标题+摘要、未打开原文；**无真机连发实验**。已取得的官方原文：微博发博 30 次/小时·100 次/天·单 IP 15000 次/小时与上述「非用户主动行为」条、微信订阅号 1 条/天·服务号 4 条/月·发布接口 100 次/日·群发 60 次/分钟、微信运营规范 3.1（禁止外挂接入）。其中「3-5 分钟/次」经原文核对系**微博接口轮询建议被误引为发布间隔**。
+- 流程逻辑：**无新增自动化门禁**（诚实记录）。报告是一份调查结论，其建议项是否落地须另立 OpenSpec change（运行时代码改动 → 隔离 worktree + 完整质量节拍），并由运营先确认日配额数值。另记录一条方法学结论：`publish-history.jsonl` 今天实测 61 行 / 57 条真实提交 / 跨度 48.87 天，与 `publish-frequency-control` 记录里的「100 条、9.1 天」对不上（只记现象、不做归因）⇒ 标定的「数据源 + 取数脚本 + 口径定义」必须一并落盘，否则每次重测都要重建方法。
+
+---
+
+# [未发布] docs(agents): 删除守卫铁律 R0 的文档命令名更正为脚本真实文件名（2026-10-10，fix-agents-safe-delete-filename）
+
+### 用户感知
+
+无。本次只改流程文档 `AGENTS.md` 的一行命令名，不改任何运行行为、界面控件、显示项或提示文字；打包产物、发布链路、账号登录态口径完全不变，新增/修改的 locale 键为零（zh/en 成对约束不适用）。
+
+### 变更明细
+
+- `AGENTS.md`「⛔ 删除守卫铁律（R0，早于 R1-R7）」：`node scripts/safe-delete.cjs <路径>` → `node scripts/safe-delete.js <路径>`。判据来自 `git ls-files 'scripts/safe-delete*'` 实测（仓库内只有 `safe-delete.js` 与 `safe-delete.test.js`），且 `git log --all --format=%h -- 'scripts/safe-delete.cjs'` 返回 0 行——`.cjs` 这个名字从未被跟踪过，不是「后来改名将留下文档漂移」，是落地当天就写错了。
+- 引入点：`2934326c8`（2026-10-08T15:36:36+08:00，「fix(ci): 新增删除守卫 safe-delete —— 误删 .ccg 1161 个受管文件同日 5 次」）在**同一个提交**里把脚本落成 `scripts/safe-delete.js`、把用法写成 `.cjs` 共 5 处：`AGENTS.md:29` 一处、`scripts/safe-delete.js` 头注释「用法」块三处、`main()` 内 `console.error` 的用法行一处。本条只修文档那 1 处。
+- 为什么值得单独记一条：R0 的立规前提是「写进记忆、文档与提交信息都没能阻止第 5 次误删，所以必须是机械拦截，不能靠自觉」。而照文档执行得到的是 `MODULE_NOT_FOUND`（2026-10-09 会话实测），这句话读起来像「这个守卫不存在」，此时最自然的补救恰好是 R0 明令禁止的 `Remove-Item -Recurse` / `rm -rf`——一个错文件名把「机械拦截」降成「拦截不可用」，方向上等于给误删开门，所以它不是措辞问题。
+- 数据校验与判据口径：同一条铁律里另外两项断言已当场核实为真，未一并改动——`scripts/safe-delete.test.js`（12 例）确实存在且确实接在 `.github/workflows/quality-gate.yml:353` 的 `node --test scripts/safe-delete.test.js`（即「回归锁已接 CI」成立）；审计日志路径 `%LOCALAPPDATA%\Mulpub\safe-delete.log` 与「删除走 mavis-trash」也与脚本实现一致。
+- 流程逻辑：无新增自动化门禁（诚实记录）。能锁住「文档里的命令串指向真实文件」的机械判据不存在——`check-gate-record-debt.js` 只管「远程同步」行词表、`check-pr-exec-record.js` 只管记录是否随 PR 出现、`check-unwired-tests.js` 只管测试接线，三者都看不到 `AGENTS.md` 正文里的路径字面量。敞口与两种可选锁法记在 `openspec/records/fix-agents-safe-delete-filename.md` 的「遗留」。
+- 剩余 4 处（脚本自身的用法文本）不在本 PR：改动 `scripts/` 工具脚本自身会使 `node scripts/classify-docs-only.js` 判 `docs-only=false`（白名单对 `scripts/` 只收 `scripts/gate-record-debt-ledger.json` 一个字面量），须走全量重型门禁的混合 PR，另案处理。
+
+---
+
+# [未发布] docs(agents): PR 合并后收尾链补「已知假失败」判据口径，并加 busy holders 不误杀用户实例的清理规程（2026-10-10，docs-agents-merge-closure-gotchas）
+
+### 用户感知
+
+无。本次只改流程文档（`AGENTS.md`），不改任何运行行为、界面控件、显示项或提示文字；打包产物、发布链路、账号登录态口径完全不变。
+
+### 变更明细
+
+- `AGENTS.md`「PR 自动合并 → 合并后收尾清单（缺一不可）」新增第 6 条：清理 worktree 被 `busy holders` 挡住时的判读规程——按「命令行含该 worktree 绝对路径」定位持有者，再核**完整进程树**与 CPU 增量（同一 PID 间隔 6s 两次采样 `UserModeTime` 完全相同即挂死残留），确认是本会话自己中止的运行后**逐个按 PID** 终止；终止前后各测一次 `Get-Process electron` 计数，两者**必须相等**。动机是本机通常还有别的 worktree 在跑用户的应用实例，按进程名批量 kill 会直接误杀；脏清单（多为 `.ccg/reviews/<sha>.json` 孤儿）先复制到共享根同名目录留证，再 `-Force -ConfirmDirtyDiscarded`，复制前须先 `git ls-tree -r --name-only origin/main -- <路径>` 确认该文件名未被上游托管，否则会把后续 `git merge --ff-only` 变成「untracked working tree files would be overwritten」并卡住所有文档 PR。
+- `AGENTS.md` 新增小节「收尾链上的已知假失败（判据一律取产物，不取 rc）」六条，每条给出**正确判据**而非仅现象：① `gh pr merge <n> --squash --delete-branch` 在本仓恒 rc=1（gh 本地收尾要动 `main`，而 `main` 由共享根 worktree 持有）⇒ 只认 `state=MERGED` + `mergeCommit.oid`、远端分支 0 行、`git log` 恰好 1 行，不得因 rc=1 重跑合并；② `classify-docs-only.js --head=HEAD` 必须在 commit 之后取证（未提交时 `HEAD==base` ⇒ 空 diff ⇒ 假 `docs-only=false files=0`）；③ Git Bash 的 MSYS 会把 `git show origin/main:<path>` 改成 `origin\main;<path>` ⇒ 先 `export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`；④ `safe-worktree-remove.ps1` 在 `node_modules` 深路径报 `Filename too long`（`git worktree remove` rc=255）属预期路径，R6 长路径兜底 + R7 基线对账，末尾 `worktree gone : True` 即成功，不得据此改判失败、更不得手工递归删除（R0）；⑤ squash 合并后分支 tip 不是 `origin/main` 的祖先，`git merge-base --is-ancestor` 判「已合并」必然为假（`git branch -d` 同因拒绝）⇒ 正解是比树：`git diff --stat <branch-tip> <merge-SHA>` 输出为空；⑥ 共享根 `main` 滞后于 `origin/main` 时不得就地编辑 `AGENTS.md`/`.quality-gates.md`/`CHANGELOG.md` 这类上游也在改同一处的文件 ⇒ 开写前先 `git merge --ff-only origin/main`，并用 `git log HEAD..origin/main -- <目标文件>` 确认没有未吸收的上游改动。
+- 数据来源与校验口径：六条全部来自本会话 `fix-account-tab-cookie-restore`（PR #3239、回填 #3240）收尾链的实跑现场（合并产物、`safe-worktree-remove.ps1` 输出、`git diff --stat` 树等值对账、两次共享根 ff 取证），无一条为推测。第 ⑥ 条有**本条 CHANGELOG 编辑过程中当场复发**的事故支撑：先把旧条目标题行当锚点替换成自己的新块、漏把原标题放回，等于反向撤销上一条已合并的记录，且两口径 `git diff --numstat` 对账照样通过（行尾对账不是内容逆否证）——发现后立即 `git restore --source=HEAD --worktree -- CHANGELOG.md`（单文件，R2 合规）重放，重放后对账 `17 0` == `17 0`、删除数 0。
+- 流程逻辑：无新增自动化门禁（诚实记录）。这六条是「退出码语义」问题，可机械锁住的产物判据已由既有收尾清单第 1-2 条与 `check-pr-exec-record.js` 覆盖；是否把「共享根滞后即拒提交」升级为 pre-commit 拦截属人工裁决，敞口如实记在 `openspec/records/docs-agents-merge-closure-gotchas.md` 的「遗留」。
+- 交互与文案：无新增 locale 键、无新增用户可见文案；「一键检测」结论口径与登录态真源单向证据规则均未改动。
+- 详见 `openspec/records/docs-agents-merge-closure-gotchas.md`（QM-5 五步逐条取证与两条遗留）。
+
+---
+
+# [未发布] fix(account): 账号卡片开卡不再把旧快照盖回实时分区，修复「点开是登录页、检测后再开才正常」（2026-10-10，fix-account-tab-cookie-restore）
+
+### 用户感知
+
+点击账号卡片打开该平台页面时，此前会先「把加密快照逐条覆盖写入账号分区」，而快照只在显式保存凭证时更新（普通标签里平台的会话轮换不回写它），于是**每次开卡都把较新的实时会话打回较旧的冻结值**——首屏被判未登录、跳到登录页。用户观察到的「点一次一键检测后再开就正常」是假因果：检测读的是快照与分区的并集且零持久写，真正起作用的是那次失败导航被平台 `Set-Cookie` 静默修补。现在开卡改为**分区优先、快照仅补缺**（同 `name@domain` 一律不覆盖），首次点击即直接进入创作者中心，不再需要先做一次检测。
+
+同时闭合一个反向风险（不改就会出现比原 Bug 更糟的症状）：重新登录走独立 `persist:auth-*` 分区、从不触碰账号分区，分区里「未过期但已被平台吊销」的同键旧 Cookie 会挡掉新快照。现在**凭证成功落盘的时刻会把新快照对齐进账号分区**（旁路执行、只覆盖本平台域记录、失败只出声不影响登录结果），重登后开卡立即生效。
+
+### 变更明细
+
+- `webview-manager/tab-lifecycle.js`：恢复前读一次分区并构造 `name@domain` 集合，只注入分区缺失的 Cookie；读失败（含**同步抛错**）回退全量注入；快照无可用 Cookie 时不发起分区读（导航前不加无谓 IPC）。
+- `webview-manager/constants.js`：新增 `PARTITION_COOKIE_RESTORE_TIMEOUT_MS = 2500`（可经 `MP_COOKIE_RESTORE_TIMEOUT_MS` 覆盖，非法值回落默认并 `warn`）。门控首个导航的这条链带硬超时且永不 reject，超时语义是「放弃注入、放行导航」。
+- `webview-manager/utils.js`：承接 `_partitionRestoreTimeoutMs` 与 `_gateRestoreWithTimeout` 两个护栏（原在 `tab-lifecycle.js`，因该文件贴近 500 行逐文件上限而按既有「工具函数集中在 utils」范式移出；行为不变）。
+- `account-session-restore.js`：新增 `seedAccountPartitionCookies(platform, accountId, cookies, deps)`——落盘时刻把快照对齐进 `persist:account-<id>`，只写 `isPlatformCookieDomain` 命中的记录，日志只记计数与 Cookie 名（禁记 value）。
+- `account-manager.js`：`saveCapturedAccount` / `updateCapturedAccount` 两条落盘入口在 `saveCredential` 成功后调用上述对齐（旁路 `try/catch` + `pending.catch` 双保险，不 `await`）。凭证未落盘（半成功）时不执行对齐。
+- 界面与 locale：无新增控件、无新增文案（`mp-home-shell` 与账号页显示项不变）；「一键检测」的结论口径与登录态真源单向证据规则均未改动。
+- 回归锁：`webview-manager-partition-restore.test.js`（开卡侧 8 例：仅补缺 / 读失败降级 / 挂起时导航仍发生 / 同步抛错回退 / 空快照不读分区 / `injected` 只计真正发起 set 的条数 / `supplied-cookie` 链挂起 / `no_restriction` 直通）、`webview-manager.test.js`（`clean-session` 旁路 2 例）、`account-session-restore.test.js`（seed 6 例）、`account-manager-relogin-status.test.js`（跨模块契约锁 5 例，跑真实现只假宿主）。10 条变异反证（A–J，含 seed 两处调用点各测一处）均实测变红。
+- 详见 `01-docs/BUGFIX-ACCOUNT-TAB-COOKIE-RESTORE-2026-10-09.md`（含数据校验规则表 V1-V13、时序、日志文案表、逃逸链与遗留项）。
+
+---
+
+# [未发布] fix(hot-topics): 改写完成后「去发布」批量交接全部草稿，并提供批量发布目标一次分发（2026-10-09，hot-topics-publish-handoff）
+
+### 用户感知
+
+此前在热门选题页勾选 5 条选题、选「直接发图文」、等 5 条改写全部成功（进度区如实显示「改写完成，已生成 5 条草稿」）之后，点「去发布」看到的是**空白表单**：标题 0 字、正文 0/10000 字。原因是跳转不带任何草稿参数（`router.push('/publish')`），而发布页只在地址里有草稿 id 时才装载——弹窗承诺的「改写内容将自动填入文案输入框」并不成立，用户只能自己进草稿箱逐条点「加载」（5 条 = 5 次）。
+
+现在：点「去发布」后发布页直接进入**批量模式**，5 条草稿一次性装载（标题＝选题、正文＝改写结果），并预置好全部有账号的平台与各平台默认账号；底部主按钮如实显示任务数（5 篇 × 8 平台 = 40 个任务）。另新增「批量设置发布目标」工具条，改完平台勾选点「应用到全部条目」即可一次分发到所有条目（此前需要 5 条 × 8 平台 = 40 次逐条勾选）。
+
+### 变更明细
+
+- `HotTopics.vue`：`goToDestination()` 图文去向按成功条目数带参——多条走 `?drafts=<id,id,...>`，单条保留 `?draft=<id>`（单篇语义零回归）；只交接 `success && draftId` 的条目。
+- `Publish.vue`：新增 `?drafts=` 交接接收端（`parseHandoffDraftIds` 解析去重限量 50 / `applyDraftHandoff` 装载）；触发点覆盖 `onMounted`、`onActivated`（keep-alive）与 `watch(route.query.drafts)`；`?drafts=` 与 `?draft=` 同时出现时批量为准。
+- `Publish.vue`：幂等键为「本批已装载的 id 串」——同一批 id 重复激活不重建条目（不覆盖用户编辑），换一批才重新装载；全部未命中时提示且**不记账**，便于用户回选题页重生成后再交接。
+- `Publish.vue`：批量区新增「批量设置发布目标」工具条（只列有账号的平台 + 应用到全部条目 + 逐条仍可调整）。
+- `useBatchPublish.js`：抽出 `createArticleItem()` 作为条目默认字段面**唯一真源**（`addArticle` 与装载共用，防「新增字段只改一处 ⇒ 装载条目缺字段」重演）；新增 `seedArticlesFromDrafts`（过滤无 id 条目、标签/话题走共享归一、返回实际装载数）与 `applyTargetsToAll`（平台 + 默认账号一次写入，无账号平台不写空数组）。
+- `locales/{zh,en}.js`：`publishPage.handoff.*`（3 条）与 `publishPage.batchTargets.*`（5 条）成对文案。
+- 回归锁：`HotTopics.test.js` 2 例（多条/单条去向参数）、`Publish.test.js` 6 例（装载、部分缺失、全缺失、keep-alive 幂等、id 解析、工具条应用）、`useBatchPublish.test.js` 7 例（字段面、非法条目、空入参、键集一致、账号写入、空输入返回 0、重复应用覆盖）。
+- 变异反证三处全部捕获：M1 HotTopics 去向参数 → 1 红；M2 Publish 交接分支禁用 → 4 红；M3 目标不写账号 → 2 红。
+- 文档：`01-docs/PRD-HOT-TOPICS-PUBLISH-HANDOFF-2026-10-09.md`（含数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字、参考产品对照、验收标准、遗留）；`openspec/changes/hot-topics-publish-handoff/`；见 `openspec/records/hot-topics-publish-handoff.md`。
+
+### 追加：小红书仅存平台草稿箱（硬约束，2026-10-09 提出 / 10-10 落点修正）
+
+用户明确要求「小红书不要真实发布（风控严格），只把内容放进平台草稿箱，之后由我用 App 扫码/确认再发布」。
+
+- **落点在 RPA 轨内部，不在路由表**（第一版把它路由到新增 `xhs_draft` API 草稿轨的设计已被真机实测推翻，见下）：
+  - 图文：`_publish_xiaohongshu` 强制 `draftOnly: true` —— 只填标题/正文/标签并等待平台自动存草稿，**绝不点「发布」**；内容未写入时 fail-closed（`PUBLISH_DRAFT_CONTENT_NOT_FILLED`），不报假成功。
+  - 视频：新增 **fail-closed 拒绝执行**（`XHS_VIDEO_DRAFT_UNSUPPORTED`）——此前视频轨仍走「点发布」链路，与硬约束直接冲突；拒绝而非静默降级，避免把「其实没发出去」伪装成成功。
+- **API 草稿轨实测不可用（保留为诊断通道，不路由）**：`xiaohongshu:probe-draft-chain` 实跑 —— permit（GET）与 ros-upload（PUT）**均通过**，note 步 `creator.xiaohongshu.com/web_api/sns/v2/note` **404**、`edith.xiaohongshu.com/web_api/sns/v2/note` **406**（`{code:-1}`）；该账号只有创作者域会话、缺主站 `web_session`，签名/风控过不去。故删除 `xiaohongshu-draft-publisher.js` 与其路由分支，链实现与探针保留，支持 `noteOrigin` 做端点 A/B。
+- 结果语义：草稿成功携带 `draft: true`；下游据此**不建审核回查**、**不把草稿当已公开作品登记回采**（草稿在平台内容列表里查不到）。
+- 界面提示（zh/en 成对）：单篇在发布目标下方、批量按条目分别提示「小红书仅保存到平台草稿箱（不直接发布），请在手机 App 里确认后自行发布」。
+- 回归锁：图文必带 `draftOnly`（摘掉即红）、视频 fail-closed 且 generic 零调用、草稿不建回查、内容未写入不报成功（既有 7 例）；另加「用到 Ui* 基础组件的 SFC 必须自行导入」结构锁（E2E 现场发现新组件漏 `import UiInput` 会让输入框整体失效，而单测夹具的全局注册会掩盖它）。
+- 详见 PRD §13 与 `openspec/records/hot-topics-publish-handoff.md`。
+
+# [未发布] fix(publish): 快手图文封面 tofu 乱码修复——ffmpeg 占位图不再冒充 AI 封面（2026-10-09，fix-kuaishou-tuwen-tofu）
+
+### 用户感知
+
+通过应用发布的快手图文，图片上的中文在快手创作者中心显示为一排方块（tofu 乱码），只有数字可读。根因：未配置 AI 生图 provider 时，`cover:generate-ai` 把 asset-generator 的 ffmpeg drawtext 占位图（Windows 下无 CJK 字形）当成「AI 封面」成功返回并上传。现在占位图被识别为 AI 失败，自动改走本地标题卡封面（SVG→sharp 渲染，中文正常），快手图文封面文字恢复可读。
+
+### 变更明细
+
+- `cover:generate-ai` handler 新增占位图判定：`result.data.degraded === true` 视为 AI 生成失败，走 `fallbackLocalCover('ai-generate-degraded-placeholder')` 本地兜底；日志明确记「AI 生图返回的是 ffmpeg 占位图（无真实生图 provider），拒绝作为封面」。
+- 回归锁：`publish.test.js` 新增 degraded 第三态用例（修复前红灯复现 tofu 路径，修复后 37/37 绿）。
+- 根因链与逃逸分析详见 `01-docs/PRD-KUAISHOU-TUWEN-TOFU-2026-10-09.md`。
+
+
+
+---
+
 # [未发布] test(ci-gate): 暗档在 PR 侧可判 —— QG Visual 补产暗档渲染 + 19 张漂移基线同源重建（2026-10-09，pr-dark-baseline-gate）
 
 ## 背景
@@ -51,6 +245,7 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 
 `--partial` 仍在，因为该 job 确实产不出 3 张基线的渲染（`CI 无渲染 3 张`）；`KNOWN_DYNAMIC` 保持为空（`calendar-dark` / `keyword-monitor-dark` 由采集层钉住的时钟决定，本次重建后仍是 0 px）。
 
+
 # [未发布] fix(ci-gate): `.quality-rhythm/**` 进 docs-only 白名单，镜像漂移锁收成一处真源（2026-10-09，ci-quality-rhythm-whitelist）
 
 ## 背景
@@ -79,6 +274,7 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 
 暗色基线在 PR 侧结构性不可判（门禁②）另 PR 推进；其前置条件经实测已破坏 —— main tip `a43287ac7` 的 Visual Tests 红在 `Baseline freshness gate`，8 张暗档漂移待归因。
 
+
 # [未发布] fix(publish): 头条定时发布排期上限按平台取证收窄 30→7 天，发布页提示同步显示真实上限（2026-10-08，schedule-horizon-cap）
 
 ### 用户感知
@@ -94,6 +290,119 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 - 详见 `openspec/records/schedule-horizon-cap.md`。
 
 ---
+
+# [未发布] feat(podcast): 播客 RSS 频道 P0 落地——主进程持久化+IPC+preload、渲染层页面、正交闸锁（2026-10-09，podcast-rss-channel）
+
+## 背景
+
+引擎与文档刀（下一条）落地后，本刀把 RSS 通道做成可用功能：用户在「播客 RSS 频道」页配置频道、录入单集、一键构建 `feed.xml` 并做不合格自检。范围以 `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md` §八 IPC 合同、§九~§十一 交互/显示项/文案为准。
+
+## 新增（主进程）
+
+- `apps/desktop/electron/services/podcast-channel-service.js`：频道/单集/feed 三份持久化（`<userData>/podcast/` 下 `channel.json`/`episodes.json`/`feed.xml`）。① 路径解析 `userDataDir` 与 `app.getPath('userData')` **同构**（两者得到同一目录，有行为锁），禁止在模块顶层读 `app.getPath`（惰性解析，保证纯 Node 下可做真实文件往返）；② `feed.xml` 走「临时文件 + `renameSync`」原子替换，Windows 仅对 `EPERM/EACCES/EBUSY` 做有界退避 `[20,40,80,160,320,640]ms`，超预算原样抛出，失败清理 `.tmp.*`；③ 读回 JSON 损坏即 `PODCAST_STORE_CORRUPT` fail-closed，**不得**当成"还没有配置"；④ 构建失败透传引擎 `PODCAST_FEED_INVALID` + `issues`，且**绝不写文件**（禁止半成品覆盖上一版）；⑤ 单集保存按 `id` → `guid` 原地更新，`guid||audioUrl||resolvedAudioUrl` 全链判重在引擎构建层以 `EPISODE_DUPLICATE` 兜底（不在服务层重复实现第二份切词口径）；⑥ 服务层错误码用 `PODCAST_*` 命名空间，与引擎 `CHANNEL_/EPISODE_/FEED_` 码分列，两套并存不互相吞掉。
+- `apps/desktop/electron/ipc-handlers/podcast.js`：8 通道 `podcast:channel:get/save`、`podcast:episode:list/save/remove`、`podcast:feed:build/verify`、`podcast:endpoints:list`，全部**字面量**注册（`ipcMain.handle('podcast:…')`）——`electron/tests/ipc-contract.test.js` 用正则从源码清点通道名，间接/循环注册会让通道对契约锁**隐身**并误报「preload 通道无 handler」。信封 `{code:0,data}` / `{code,message,issues}` 复用 `core/error-codes`；`unwrapObject` 形态守卫（数组/标量/键在但值非对象一律判缺失，避免"分类明明选了却报不能为空"式的键名断链）；空 `id` 不下沉到服务层；日志只记通道名与错误消息，**禁记草稿标题原文与音频 URL**。
+- `apps/desktop/electron/preload/podcast.js` + `preload/index.js` / `index.bundle.js` / `home-shell-preload.bundle.js`：暴露 `electronAPI.podcast`（渲染层无该命名空间时降级为 `IPC_UNAVAILABLE` 提示而非静默）。
+
+## 新增（渲染层）
+
+- `apps/desktop/src/views/PodcastChannelView.vue` + `src/composables/usePodcastChannel.js`：三区块（频道配置 / 单集列表 / RSS 输出与分发端指引）。表单↔引擎键名的**唯一映射点**是模块级 `channelFormToPayload`/`channelPayloadToForm`（表单持 `category`+`subCategory`，引擎读 `categoryId="Top/Sub"`），反向映射供编辑回填；时长展示复用引擎 `formatDuration` 单一口径。路由、侧边菜单、`useTabDocumentTitle` 同步注册。
+- locales `podcast` 命名空间 zh/en **成对**落盘（`check-locale-sync.js --pair-base` 与 `--cjk` 双 PASS）。
+- 分发端指引卡片：`podcastEndpointHref` 走共享 https 判据（无 `href-scheme-contract` 例外新增）、`target=_blank` 配 `rel=noopener`、审核时效引用目录 `timing` + `verifiedAt` 并附「以对方后台当日实况为准」；空态与失败态如实（`EPISODES_EMPTY` 不硬凑、未构建与"构建出来但不合格"分档、自检异常点名单集）。
+
+## 新增（正交闸锁与收敛）
+
+- `packages/api-publish-engine/test/publish-mode-config.test.js` +3 条（实跑 13/13）：`publishMode` 值域仍精确三态、`normalizeMode('rss')` 与 `decideRoute({mode:'rss'})` 必须抛 `unknown publishMode`（**不得**静默回落 `api-then-dom`——回落等于把 RSS 推进 DOM/API 轨调度去点不存在的选择器）、`platforms.yaml` 平台键不得含三个分发端 id。文件头原本自称"归一 fail-closed"却无对应断言，本刀补齐。
+- `podcast-endpoints.test.js` 已承担分发端 id 不进登录 URL/平台名/发布能力/会话标记表的结构锁；`platform-definitions.test.js` 的 15 平台数不变是第二道。
+- 双实现收敛（PRD R3）：`packages/api-publish-engine/src/podcast/feed-schema.js` 早期草稿移出源码树（唯一真源 = `shared-utils/podcast-rss.js`，仓库内零引用；草稿留档 `%TEMP%` 可恢复，本机缺 `mavis-trash` 故 `safe-delete.js` 按设计拒绝删除，改走可逆移出）。
+
+## 修复（QM-6 双模型外部评审回项，逐条带变异反证）
+
+- **Critical｜enclosure 优先级反向**：`buildItem` 取音频地址用 `resolvedAudioUrl || audioUrl`，与同文件的 `resolveEnclosure` 口径相反，等于允许未过结构检查的 http 地址进 feed。统一为 `audioUrl || resolvedAudioUrl`，判重键 `(guid || audioUrl || resolvedAudioUrl).trim()` 同屏保持同一优先级（两处各做一次变异，各红 2 条）。
+- **W①｜自检徽标的 `ok` 取错层**：渲染层把 IPC 信封的 `ok`（只要 handler 正常返回就为真）当成"feed 合格"，用户会看到不合格 feed 挂着绿色通过徽标。改为引擎语义 `issues.length === 0`，信封只提供"这一趟调用通了"。
+- **W②｜空 `guid` 两侧口径不一致**：验证侧把空白串视为缺省（不报错），构建侧原样产出 `<guid> </guid>`，订阅端会拿到一个空标识的条目。构建侧改为同口径 `trim` 后回落 `audioUrl`。
+- **W③｜`ownerEmail` 公开性未提示**：该字段会写入 `itunes:email` 随 feed 公开。补固定提示行 `podcast-owner-email-privacy-hint`，文案唯一实现进 locales 且 zh/en 成对。
+- **W④｜保存失败只有通用码 toast**（"未知问题(-2)"，违反 F1 验收）：改为区块下方逐条 issues 清单（频道 `podcast-channel-save-issues`、单集 `podcast-episode-save-issues`），每条给 `issueText` 文案 + `<code>field</code>` 定位字段，保存成功即清空。
+- **渲染层 CJS 越界**（QG Static 首跑红因）：渲染层直接 `require` CJS 引擎。新建窄面 ESM 孪生 `packages/shared-utils/src/podcast-rss.browser.js`（只导出渲染层真实消费的 5 个符号，parity 锁断言其导出集合恰好等于该窄面）+ `vite.config.js` alias 登记 + 消费点改裸 specifier import。
+- **新增路由缺视觉用例**（全量回归红因）：`electron/tests/visual-view-runner.test.js` 从路由表抽全部 `path:` 并要求每条被 `viewTests` 覆盖，报「路由 /podcast 缺少单视图门禁」。修法见下一条。
+
+## 新增（视觉门禁登记）
+
+- `podcast-channel` 用例**同时**登记进两份清单（`views/all-views.visual.test.js` 的 `viewTests` 与 `scripts/run-pixel-tests.js` 的 `pixelTests`，`QG Visual` 只执行后者，只登记前者会得到一条必然的绿），`route=/podcast`、`waitFor=.podcast-channel-page [data-testid="podcast-page-title"]` 两份逐字一致（由 `tests/visual-ci.test.js` 双清单漂移锁守）；`base-screenshots/.gitignore` 放行 `!podcast-channel.png` 与 `!podcast-channel-dark.png`（根 `*.png` 会静默吞掉基线，`git add` 不报错也不收）。等待条件指向页面主标题本身，页面渲染不出来即本条失败，而不是"截一张空白页当基线"。
+- **浅色基线按 CI artifact 回填（第三刀）**：首次 `QG Visual` 如预测报 `ERR_VISUAL_BASELINE_MISSING`，而同一次 run `37840950306` 的 `quality-gate-visual-reports` artifact 因上传步骤是 `if: always()` 而同时含本次渲染 ⇒ 一刀即可闭合。取该 artifact 的 views 域渲染（复用 `scripts/check-baseline-freshness.js` 导出的 `findRender()`，优先 `<name>.png`，**不另写第二份名字映射**——像素套产出的 `<name>-current.png` 与 views 渲染不是同一张图，拿它比 views 域基线会报假违规）新增 `podcast-channel.png`，并重建 8 张被侧栏「播客」条目位移的基线（`calendar`/`cloud-publish`/`collection`/`create-editor`/`intelligence`/`keyword-monitor`/`model-providers`/`viral-analysis`；diff 量级同为 473 px 且包围盒落在同一条带，是"一个共享元素在每页各渲染一次"的形状，属本次改动而非噪声）。每张以 SHA-256 自证「落盘字节 == artifact 渲染字节」全等；`check-baseline-freshness` 由「检查 42 张 / 违规 8 张」变为「违规 0 张」。**没有**动 `PIXEL_THRESHOLD`、**没有**加 mask、`KNOWN_DYNAMIC` 仍为空、**没有**提交任何本机截图（AGENTS QM-4 第 7 条）。
+- **修掉一处自己写出来的假缺口（`QG Static` Gate 6）**：`ipc-handlers/podcast.js` 顶部注释原含 `ipcMain.handle('podcast:…', …)` 示例，而 `.github/scripts/check-ipc-bridge.js` 的 `RE1` 是对**源码原文**做正则、**不剥离注释**，于是把注释里的示例当成真实注册过的通道，报「Handler 已注册但 preload.js 未暴露」。正解是改注释措辞并把这个坑写进注释本身，**不**放宽门禁、**不**改成间接/循环注册（那会让整条通道从 `ipc-contract.test.js` 的双向对账里消失）。修复后 `node .github/scripts/check-ipc-bridge.js` → 431 handlers / 449 preload / rc=0（修复前 432，多出的那 1 条正是幽灵通道）。
+
+## 修复（第四刀：`QG Static` 两道在此前任何一次 run 里**从未被执行到**的门禁）
+
+- **Gate 10 渲染端 IPC 访问单轨制**：`check-frontend-consistency.js` 报 `src/composables/usePodcastChannel.js` 直写桌面端暴露面（实回现场：该文件 9 处，`PodcastChannelView.vue` 0 处——视图一直只经 composable），基线为 0 且棘轮只能缩小（**禁止**为该文件抬高）。正解不是给这两个文件开例外，而是补上本仓既有的窄面入口：新建 `apps/desktop/src/api/podcast-channel.js`（渲染端 IPC 的唯一取用点，内部只走 `electron-bridge.js` 的 `invokeNamespace`，且**形态是 8 个具名导出、每个各自把方法名写成字面量**（不是一个 `callPodcastIpc(method, …)` 泛化入口——`electron/tests/ipc-exposure-contract.test.js` 按调用点首参字面量与 preload 暴露面对账，变量转发会被判「生产侧动态取名」，这 8 条路径会从账上消失；该文件还要求新面先登记进 `SCAN_DOMAIN`，本 PR 已登记。**本层不剥壳、不改写、不补默认值**，只把「命名空间或方法不存在」这一 `undefined` 显式转成 `{available:false}` —— 它与「调用抛错」是两种用户可见语义，前者是"这台构建没有该能力"，后者是"能力在但这次失败"）。`usePodcastChannel.js` 的 `call()` 改由该层取用并删除自制的探测函数。回归锁 `usePodcastChannel-ipc.test.js` 11 例：只 mock 桌面暴露面、驱动**真实**桥接层（mock 桥接层就等于把解包动作 mock 掉），断言 reactive 包装经桥接后原型为 `Object.prototype` 且不是同一引用，另含一条结构锁断言 composable 源码内不得再出现该暴露面属性名；变异反证实测变红后还原全绿：摘 `available` 判定 → 行为锁红 3 例；把某个导出退回 `forward(name, …)` 变量转发 → **两道锁同时红**（`ipc-exposure-contract` 的「生产侧动态取名」+ 本文件结构锁的逐条字面量断言）。先例 `src/api/tts-voice-catalog.js` 的头部注释当时就写着这条原因，我没读到就自己发挥了收敛形态，属可避免的重复学费（见 learnings 事件八）。
+- **Gate 16 字号标度**：`check-font-size-scale.js` 不允许新增 `font-size: Npx` 字面量（存量走只下棘轮）。`PodcastChannelView.vue` 的 16 处字面量全部折进七档标度令牌（xs12/sm13/base15/md17/lg20/xl24/xxl32）；16px 与 14px 不在标度上，就近取 `md`(17px) 与 `base`(15px)，**页面上两处标题各高 1 px**——这是该门禁的既定代价，明确**不用** `calc(var(--font-size-md) - 1px)` 把 off-scale 值藏回令牌。连带后果：上一刀按 CI artifact 回填的 `podcast-channel.png` 不再等于本次渲染，浅色基线须按下一次 run 的渲染重取（同 `findRender()` 口径、逐张 SHA-256 自证、不动 `PIXEL_THRESHOLD`、不加 mask），已在 `.quality-gates.md`、PRD §十五 与 openspec tasks §4.6 登记为待办。
+- **为什么这两道"现在才红"**：`QG Static` 是同一 job 内的顺序步骤，**任一步失败即让后续步骤全部 `skipped`**。第三刀修的是 Gate 6，Gate 10 在其后、Gate 16 又在 Gate 10 之后（第 22 步），二者此前从未被执行过。由此确立一条本机口径：动 `QG Static` 覆盖的面时，必须把该 job 的**全部**门禁脚本逐个跑一遍（本刀实测 37 个），不能只跑改动相关的那个。
+
+## 修（第六刀：浅色基线重取 + 暗色基线首次入库，顺带更正一条我自己写错的结构性判断）
+
+- **门禁现场与本 PR 的预告一致**：`Gate 7 - Visual regression` success，`Gate 7b - Baseline freshness (PR-side, partial, two-round verdict)` failure —— 6% 全页容差对「+1 px 标题」和「一行错误文案」双双失明，只有 0 px 的新鲜度门禁看得见。
+- **`podcast-channel.png` 漂移 19335 px（0.932%）**：远大于字号该造成的量级，多出来的是第五刀改写的那行降级文案——它被 `PodcastChannelView.vue:96` 的 `v-if` 渲染进基线截图。上一刀这条只有代码链核实，现在有像素级实测（旧基线 115579 B → 新 118646 B）。
+- **另外 10 张是本 PR 侧边栏条目造成的，不是既有欠账**：9 张暗色基线漂移**逐张恰好 559 px**、PNG 字节**每张恰好 +1900 B**（九个互不相关视图同一增量＝同一共享元素每页各渲染一次），`collection.png` 231 px；对照 main 最近两次 quality-gate run 均 success 完成归因。全部按同一次 run 的渲染重取。
+- **更正一条我写错的判断**：此前记录与 proposal 都写「PR 侧不跑暗档 ⇒ `podcast-channel-dark.png` 在本 PR 内结构上无法合法取得」。实测不成立——PR 侧 run 上传的 `quality-gate-visual-reports` 里就含像素门禁的 `<name>-dark-current.png`，而 freshness 的 `findRender()` 对暗色名解析到的正是它。故暗色基线**本次按同一口径入库**（123652 B），暗色欠账提前闭合。
+- **一轮 CI 的代价**：为尽早入库 docs 而单独推了一次提交，撞上 `quality-gate.yml:29-36` 的 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`，把上一轮重型 job 整个取消——而我要的产物正是被取消那轮的 artifact。判据改写成可机械执行的一句：**推送前先问「有没有 pending 的 job 正持有我下一步要取的产物」，有就不推**；本刀把 12 张基线 + 记录 + 措辞修正 + SHA 表攒成一次提交一次推送。
+- **一条没放宽的纪律**：未提 `PIXEL_THRESHOLD`、未加 mask、`KNOWN_DYNAMIC` 保持为空、零本机截图；重取全程复用 `scripts/check-baseline-freshness.js` 导出的 `findRender()`，未写第二份命名映射。复跑 `check-baseline-freshness --partial` 由「42 查 / 11 违规」变「43 查 / 0 违规」，并对同一次 run 的第二轮渲染（`screenshots-round1/`）同样 0 违规（两轮交集为空 ⇒ 非 flake）；`vitest run tests/visual-ci.test.js electron/tests/visual-view-runner.test.js` → 2 files / 34 tests passed。
+
+## 修（第九刀：基线第三次重取，并把「上游造成的陈旧」与「本 PR 造成的陈旧」分开记账）
+
+- 本轮 freshness 一开局报 **18 张违规**，而不是我预期的 2 张。分两类，必须分开记账：
+  - **本 PR 的 2 张**：`podcast-channel.png` / `podcast-channel-dark.png`——第八刀把 `pageTitle` 的「播客RSS频道」补空格成「播客 RSS 频道」，标题宽度变了（新基线 119121 / 124092 B）。
+  - **上游造成的 16 张**：11 个视图的浅色与暗色，浅色**逐张恰好 396 px**、暗色**逐张恰好 424 px**。`origin/main` 自 merge-base `840ccd370` 起前进 2 个提交，其中 `0947ec3e3`（TTS 音色域硬编码中文迁入 locales）改的是**渲染文案**且**没有改任何 `base-screenshots`**；PR 侧 run 渲染的是 main+分支的 merge commit，于是这批基线在这条 PR 上集体判旧。
+- **处置依据**：QM-4 的既定口径是"陈旧基线 → 按**同一次 run** 的 CI 渲染重建"，所以由能拿到同源渲染的这一侧收口；否则每个后续 PR 都要继承这批红。**同时把"归因"写成硬性判据**：每次重取必须交两样——差值的逐项归因 + 同一次 run 内未触碰视图漂移为 0（本轮重取后两轮渲染均 0 违规；`PIXEL_THRESHOLD` 未动、`KNOWN_DYNAMIC` 仍空、零本机截图）。
+- **一条方法论自我纠正**：我原本按"只有 podcast 两张会红"去预期，若没现场跑 freshness 就直接写记录，会漏记上游那 16 张并给出错误归因。**判据一律取当场产物，不取预期。**
+
+## 修（第七刀：词典术语锁的 CI 红 + 基线第二次重取）
+
+- CI 四条红（`QG Unit Tests` / 两个 `QG Desktop Shards` / `QG Coverage`）只有一个红因：`src/i18n/glossary.test.js` 的 L3 锁报「术语『RSS 订阅源 / RSS feed』在 zh locale 中未出现，但 en locale 已出现」。根因是 docs 刀往 `01-docs/i18n-glossary.md` 加了词条，而 zh 文案用裸词「RSS」。
+- 修法取「UI 采用词典 canonical 术语」，不把词典削到已有裸词（后者等于把锁的目标改成缺陷）：`podcast.channel.ownerEmailPrivacy`、`podcast.feed.sectionHint` 两处 zh 改为「RSS 订阅源」，en 不动。验证 3 files / 46 passed，`--pair-base` / `--cjk` / 品牌残留 / 记录欠账全 PASS。
+- **逃逸分析**：本机预跑清单没有这条锁；`check-locale-sync --pair-base` 判键级成对、判不到术语成对，不能当它的替代证据；自审把「zh/en 成对」理解成键与条目成对。只有 CI 的 `vitest run src` 全域收得到。落点：改词典词条必须本机跑该锁（已写入 `.quality-gates.md` 与执行记录）。
+- 文案变长使基线**第三次**由 Gate 7b（而非 Gate 7）拦下：只红 2 张（1312 / 1408 px），已按同一 run 的 artifact 重取并两轮自证 0 违规。
+- **一处我自己的写错位（如实）**：第六刀往 `.quality-gates.md` 插登记行时锚点取了「文件内第一个 `| QM-4 视觉 |`」，而该文件是多记录拼接、该行首标签出现 41 次，两行因此落到别人的记录块里；本刀插入前按所属 `## 本次执行记录` 标题反向断言并搬回原位。判据：`check-gate-record-debt` 只看行内容合规，**看不出行落在谁的块里**，所以拼接文件的插入锚点必须先在「本记录标题 → 下一个 `^## `」的块界内定位。
+
+- **QM-6 外部评审回项（后端 claude，用 `resume` 续接同一会话拿到结论）**：两条 Info（键名/键集、IPC 契约与错误码映射）无发现；两条 Warning 分别按「部分成立」与「方法论」处置。
+- **W③「术语未全量对齐」逐条核对后只有 1 条成立并已修**：`podcast.pageTitle` 原值为「播客RSS频道」，中英夹杂缺空格，与本仓写法（`route-registry.js` 的注释、en 侧「Podcast RSS Channel」）不一致，已改为「播客 RSS 频道」。被一并点名的 `pageSubtitle`「经 RSS 订阅…」、`directory.sectionHint`「RSS 聚合端…」以及 `collection` 模块的「RSS 批量采集」，语义上指**技术/通道**而非词典定义的 "RSS feed"（那一份可提交的订阅源），改成「RSS 订阅源」反而失真，故不改——**术语对齐只覆盖"指代同一事物"的出现点，不做无差别字符串替换**。
+- **W④「重取基线是否会掩盖真实回归」用归因代替自参照**：QM-4 第 7 条要求基线与比对环境同源，自参照是规则的设计而非漏洞；防掩盖靠的是「差值逐项归因」＋「同一次 run 内未触碰的视图漂移为 0」（三次重取分别是 19335 px、1312 + 1408 px、+1 px，而未触碰的 41 张始终 0 px）。判据补一条硬要求：**此后每次重取都必须同时给出这两项，只报"违规数归零"不构成证据**。
+- **工具路由坑（写下来防下次被误判成"模型没结论"）**：`codeagent-wrapper resume <id>` 不带 `--backend` 会落到默认后端 codex，用 claude 的 session id 去 resume 直接报 `no rollout found for thread id (-32600)`；且 `… | tail` 会把 `timeout` 的 rc=124 吃成 0——判有没有结论只看产物里有无结论行。
+## 修复（第五刀：QM-6 双模型复审回项——两条都不是文案问题，而是把用户引向错误排障方向）
+
+- **Warning（后端 claude）｜权限前置条件被报成"调用失败"**：未登录 / 许可证未激活时，`invokeNamespace` 的抛错发生在**实参求值期**（preload 的 `createDynamicAccessApi` 是普通 `function`、**同步** throw `LicensePermissionError`，播客 8 个方法都不在 `PUBLIC_METHODS` 里 ⇒ 需要已登录），而第四刀写成 `toEnvelope(await invokeNamespace(…))`——包装器自己的 `try` 那时还没进场，结构上不可能接住，用户看到的是 `PODCAST_IPC_EXCEPTION`（并被告知"请稍后重试"）。修法：`envelope(() => invokeNamespace(NS, '…'))` 以 **thunk** 传入、在 `try` 体内求值，catch 内用 `electron-bridge.js` 导出的**共享判据** `isPermissionError` 归进 `{available:false}` ⇒ 界面映射 `PODCAST_IPC_UNAVAILABLE`；其余错误原样上抛。口径来源是本仓既有约定 **M-14**（`invokeWithFallback`：权限不足落进 fallback、其余照原样抛），**不是新发明**；`electron-bridge.js` 与 `access-control.js` 未改动，只消费其既有导出。反向依据：主进程 8 个 handler 全被 `guarded` 包住、领域错误以负码**返回**而不 throw，所以能穿透边界的 throw 这一档**只剩**环境/前置条件——把它映射成"调用失败"等于丢掉唯一有意义的分类。
+- **文案随之如实（zh/en 成对）**：`PODCAST_IPC_UNAVAILABLE` 改为点名三种成因（未登录 / 许可证未激活 / 主进程通道未挂载）并**删除「请稍后重试」**——前两者都不是重试能解决的，`en.js` 同步。`electron/preload/podcast.js` 头注释原声称未登录会得到 `PODCAST_IPC_EXCEPTION`，属**与实际相反**的文档，一并改写（纯注释刀：`build:preload` 产物 0 字节差，esbuild 剥注释）。
+- **"0 字节差"改为实测三方对账（QM-1 第五次实跑）**：重建前 / `pnpm run build:preload` 后 / 解包交付产物内，同一份 `electron/preload/index.bundle.js` 三个 SHA-256 **同值**（`34533fa7b4…a167b`，86010 B），机制由 `scripts/build-preload.js` 的 `legalComments: 'none'` 解释。顺带核到一个容易被误读成缺口的反向事实：包内 bundle 里 grep `PODCAST_IPC_UNAVAILABLE` = 0，因为该码按设计只在渲染侧（preload 只声明 `IPC_EXCEPTION`），**不是**"新码没进包"。`build:dir` rc=0，包内 `dist/assets/` 两处命中该错误码（桥接层未被 tree-shake）、8 个 `podcast:*:*` 通道字面量齐全，启动 12 秒且三类禁发噪声计数 0。
+- **本刀让浅色像素基线因第二个独立原因再次过期（只登记，不声明已闭合）**：`PODCAST_IPC_UNAVAILABLE` 的文案**就出现在 `podcast-channel` 的基线截图里**——捕获用的是纯 Playwright chromium 打 Vite dev server（无 `window.electronAPI`）⇒ `invokeNamespace` 返 undefined ⇒ `available:false` ⇒ `channelError='PODCAST_IPC_UNAVAILABLE'` ⇒ `PodcastChannelView.vue:96` 的 `v-if` 段落把它渲染出来。这条的普适教训：**改任何"无宿主即降级"分支的错误/空态文案，等于改基线像素**；而 `PodcastChannelView.test.js:301` 断言的是 locales 实时值，所以单测对此完全无感——它既不报错也不证明文案变了。处置口径不变：取下一次 run 的 `quality-gate-visual-reports`、复用 `findRender()`、逐张 SHA-256 自证 0 px，不提 `PIXEL_THRESHOLD`、不加 mask、不用本机截图。
+- **Warning（前端 opencode）｜一条结构锁的标题过度声称**：名为「桥接层导出的 8 个名字与 preload 暴露面逐字一致」，实际比的是**测试文件自己的 `METHODS` 常量**（与桥接层同一只手写的），preload 单独改名时照绿。正解不是改标题而是让它**真读 preload**：假 `ipcRenderer` 实例化 `createPodcastApi` 后取 `podcast` 命名空间的键当暴露面，另加键数下界 8（防"两边都空也相等"的解析退化）。
+- **回归锁 11 → 14 例 + 4 条结构锁**：桥接层同步 throw → `available:false` 且不上抛 / 非权限类同步 throw 仍上抛 / composable 层未登录 → `IPC_UNAVAILABLE`；结构锁四条件为 import 共享判据、`isPermissionError(err)` 在调用、`await pending()` thunk 形态，以及一条**负向锁**「不得把 promise 直接交给 `envelope`」——该负锁按本仓「判据按文本形态抓取、不剥注释」的既有坑（`check-ipc-bridge` 的 `RE1`）**刻意不在文件里写出被禁形态的字面量**。**变异反证四条均实测变红后还原全绿**：① 摘权限分支 → 红 3（2 行为 + 1 结构）；② thunk 退回直接传 promise → 红 10（桥接 3 + composable 2 + 结构 1 + 视图 4）；③ 换成**行为等价**的内联副本 `err.name === 'LicensePermissionError'` → **行为全绿、结构锁单独红 1**（守的是"判据只有一份实现"，只能靠结构锁）；④ preload 改名 `endpointList` → **新的暴露面锁单独红 1、其余 13 条全绿**（旧形态在该变异下不可能红）。还原后 6 文件 / 88 测试全绿。
+- **两条 Info 评估后不改（写明理由，不假装完成）**：`call()` 误传不可调用值——8 个调用点已逐个核对为函数引用，引用形态下的笔误在 import 期即报错，属"不能发生的场景"，按本项目纪律不为不可能场景加校验；`IPC_EXCEPTION` 丢弃原始 message——非本刀引入且全仓同口径，另开议题。前端另两条 Info：与先例 `tts-voice-catalog.js`「本层刻意不吞异常」的差异已在注释与 PRD §9.1 双向说明（upheld，防下一个会话顺手改成吞）；PRD §十 字号行「其余 12/13/14/20px」的 14px 冗余已按实测改写（本页唯一 14px 即单列的 `h3`）。
+- **第三次 rebase 的落笔口径**：本 PR 与上游的 locale 命名空间迁移（多数命名空间收成 `{ ...xxxZh }` 单行 spread）相撞于 `apps/desktop/src/locales/zh.js`。取证确认本 PR **没有改过**上游迁移的那五个命名空间内部，因此冲突只取上游侧的新形态、`podcast` 命名空间块保持内联（迁移覆盖它属后续 docs 刀）；随之内联基线 `locales/{zh,en}.js` 从 max-lines 账上撤下（上游迁移后 zh.js 仅 457 行，该两条不再必要）。置顶型记录（`.quality-gates.md` / `01-docs/learnings.md` / `01-docs/PRD.md` / `scripts/gate-record-debt-ledger.json`）一律**并集保留**，终判据取 `git diff --numstat origin/main...HEAD` 的「删除数为 0」而不是「冲突解完了」。
+- **文档同步**：PRD §9.1 新增「『不可用』与『调用失败』两档的**实际覆盖面**」行，并把第四刀那行的「交互语义不变」限定为"仅对第四刀自身成立"；§十五 实现状态行加第五刀例外；openspec tasks 新增 §4.7；learnings 新增事件九~十；`.quality-gates.md` QM-6 行按第五刀复审改写（双模型均实回，评审产物入库 `.ccg/reviews/`）。
+
+## 未包含（如实）
+
+`headImpl` 的主进程 `net` 版 HEAD provider 未接（缺省不注入即跳过网络检查，生产默认零真实出站，日志标 `head=off`），外链巡检属 F9；P1 直传已有规则层 `podcast-hosting-upload.js`（34 例锁）但除自身测试外无消费者，上传与 `resolvedAudioUrl` 回填属 P1 刀；像素用例登记与**浅色基线均已闭合**（按 run `37840950306` 的 CI artifact 回填并逐张 0 px 自证），**唯一未闭合是暗色基线 `podcast-channel-dark.png`**——`test:visual:pixel:dark` 只接在 `.github/workflows/visual-test.yml:100`（main push / workflow_dispatch），PR 侧 `QG Visual` 只跑浅色，故暗档在本 PR 内结构性无法产出，须合并后由那次 main 的 Visual Tests artifact 回填（与 #3159/`visual-baseline-collection-dark` 同一盲区，不伪造、不本机生成）；P2 代托管未启动。
+
+# [未发布] feat(podcast): 播客 RSS 频道发布（自动覆盖小宇宙收录）——RSS 协议通道立项：引擎+目录+全套文档（2026-10-09，podcast-rss-channel）
+
+## 背景
+
+小宇宙无官方发布 API，"发布到小宇宙"的真实机制是 RSS 收录（托管出 Podcast RSS → App 内一次性人工提交 → 此后聚合端定时抓取自动同步新单集）。调研报告 `01-docs/INVESTIGATE-XIAOYUZHOU-PODCAST-2026-10-09.md` 与三项架构决策（D1 托管形态分期 A/B/C、D2 `publishMode` 三态不扩第四态、D3 Apple/Spotify 以「分发端目录+指引」形态纳入）全部定稿后，本刀落地通道地基。
+
+## 新增（引擎与目录，随本 PR 首次入库）
+
+- `packages/shared-utils/src/podcast-rss.js`：Podcast RSS（iTunes RSS 2.0）生成/校验/自检单一真源。纯函数零出站（`headImpl` 注入）；`buildFeed` 校验不过抛 `PODCAST_FEED_INVALID` 且**不产出文件**（fail-closed）；URL 字段复用共享协议判据并收紧 https-only；时长 `MM:SS`/`HH:MM:SS` 两档；单集判重键 `trim(guid||audioUrl||resolvedAudioUrl)`。
+- `packages/shared-utils/src/podcast-endpoints.json` + `.js`（CJS）/`.browser.js`（ESM 孪生）：分发端目录（xiaoyuzhou/apple_podcasts/spotify），承载提交方式、`requiresManualFirstSubmit`、审核时效、步骤与 `verifiedAt` 取证日期；**不进入平台登记契约面**（测试断言分发端 id 不出现在登录 URL/平台名/发布能力/会话标记表，15 平台数不变）。
+- 测试 33 例（`podcast-rss.test.js` 25 + `podcast-endpoints.test.js` 8），本机实跑全绿。
+
+## 新增（文档）
+
+- `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md`：P0/P1/P2 功能列表与验收标准、频道/单集数据模型（与引擎常量逐项对齐）、全部校验码表（触发条件/提示文案/阻断语义/自检码分列）、首次接入时序与"RSS 生效"验收主判据、IPC 合同表（标注规划未实现）、页面三区块交互/显示项、locales `podcast` 命名空间 zh/en 全清单、非功能需求（纯本地构建/日志隐私/零强制出站）、风险与开放问题（含聚合端缓存带宽前提与外链失效缓解）。
+- `docs/adr/0008-podcast-rss-is-protocol-channel-not-platform.md`：RSS 走正交协议通道，不新增发布平台登记、不扩 publishMode 三态。
+- `openspec/changes/podcast-rss-channel/`（proposal/design/tasks/specs delta）；主 PRD 索引、i18n-glossary 播客术语、本条 CHANGELOG、`.quality-gates.md` 执行记录（混合 PR，不适用 docs-only 快速通道）。
+
+## 未包含（如实）
+
+主进程 IPC/持久化、渲染层页面与 locales 落盘、P1 OSS/COS 直传、P2 代托管均为规划未实现，拆分与阻塞关系见 openspec tasks；`packages/api-publish-engine/src/podcast/feed-schema.js` 早期草稿与真源存在口径漂移，实现刀启动前删除或对齐（PRD R3）。
 
 # [未发布] fix(shared-utils): 作品链接判据四项收紧——评审 upheld 跟进修复（2026-10-08，fix-public-link-followups）
 

@@ -107,3 +107,103 @@ X-s = "XYW_" + hex(AES-128-CBC(
 | `envFlags` 失配导致 406/签名不匹配 | 默认取常规桌面 Chrome 取值；失配时有明确报错而非静默成功 |
 | 草稿箱接口无公开文档 | 依据 `xhs-mcp` / `openclaw-xiaohongshu-skill` 等公开实现的端点与字段形态；真机验证为最终判据 |
 | **尚未真机验证** | 本 PR 完成的是实现 + 契约测试 + 交叉校验；**草稿箱真机写入待验证**，未验证前不得宣称可用 |
+
+---
+
+# 增补：XYS_ 签名页升级 + note 页内整发（2026-10-10 增补）
+
+> 增补来源：#3215（签名代差根因）+ #3257（页内整发机制）。原 PRD 第 3 章的技术选型 A（本地 XYW_ 纯算法）
+> 已被真机取证推翻，本章为现行有效方案。
+
+## 8. 签名代差根因（真机取证结论）
+
+### 8.1 事实链
+
+| # | 事实 | 取证方式 |
+|---|---|---|
+| 1 | 真机浏览器 x-s 是 **XYS_ 前缀**（约 300 字符） | CDP attach 签名页抓 28 条请求（`.agent_context/xhs-real-signature-sample.json`）|
+| 2 | 页内生成入口是 `window._webmsxyw(url, data)` | CDP `Runtime.evaluate typeof` 直证 |
+| 3 | 返回形态为 Base64 JSON 信封 `{signSvn:"56", signType:"x2", appId:"ugc", signVersion:"1", payload:<hex>}`，长度 664 | 页内调用解码 |
+| 4 | 本地 XYW_（AES-128-CBC 定长 hex，~420 字符）是**旧协议仿制**，与信封结构完全不同 | 结构对比 |
+| 5 | note 端点（edith `/web_api/sns/v2/note`）只认新签名：带页内签名+登录态后响应从 406 变 **业务层响应** | probe 全链真机 |
+| 6 | 原记载「XYS_ 已被 406 拒、只有 XYW_ 可用」**已失效** | 本文件 8.1-1/5 与其矛盾，以本章为准 |
+
+### 8.2 对第 3 章选型的修订
+
+- **选项 A（本地 XYW_ 纯算法）作废**：签名格式代差不可用参数修补弥合。
+- **现行方案 C（页内求签，browser 形态）**：隐藏 sandbox BrowserWindow 加载 `creator.xiaohongshu.com`，
+  页内执行 `window._webmsxyw` 取真签名——与浏览器行为逐字节一致，随平台升级自动跟随。
+- 本地 `signXiaohongshuLocal`（XYW_ AES）保留为**降级路径**（轻接口登录巡检仍可用），note 链不再直连。
+
+## 9. 页内整发机制（pageInpage，本 PR #3257）
+
+### 9.1 数据校验
+
+| 校验 | 规则 | 失败行为 |
+|---|---|---|
+| accountId | 与 credential-diagnostics 同款正则 `^[a-zA-Z0-9_-]+$` | 主进程侧 fail-closed 返回 `stage:validate` |
+| a1 cookie | 缺失即抛 `XHS_MISSING_A1`（链入口） | 不发起任何请求 |
+| Authorization | 缺失即抛 `XHS_MISSING_AUTHORIZATION` | 同上 |
+| images | 空数组抛 `XHS_NO_IMAGE`（平台不支持纯文字） | 同上 |
+| title | 非空，超 20 字截断 | — |
+| sendNote 返回 status>=400 | 抛 `XiaohongshuDraftError`（携带 httpStatus） | 中止链路，探针如实回传 |
+| sendNote 返回 code!==0 | `assertBusinessOk` 抛业务错误（bizCode/bizMsg 入 chainDetail） | 同上 |
+| draft 锁 | probe 通道**锁死 true**（#3215 审查 i2），调用方传 draft:false 被忽略 | — |
+
+### 9.2 流程（页内路径）
+
+```
+probe 调用（renderer → IPC xiaohongshu:probe-draft-chain）
+  → 阶段1 凭据解密（DPAPI，主进程内）
+  → 阶段2 签名器装配（browserPageProvider 桥，fail-closed → stage=signer-bridge）
+  → 阶段2.5 页内整发准备：
+       bindSignerCookie("xiaohongshu", accountId, cookie)   ← cookie in-proc 注入页 session
+       asm.getOrCreatePage(...)                             ← 取签名页句柄（按账号隔离）
+       构造 sendNote = 页内 executeJavaScript(fetch(url, {headers, body, credentials:"include"}))
+       任一步失败 → 降级回 http 路径（pageInpage=undefined，只进日志不阻断）
+  → 阶段3 链执行：permit(GET) → ros-upload(PUT) → note（pageInpage.sendNote 页内整发）
+       note 失败语义与 http 路径一致（业务码入 chainDetail 回传）
+```
+
+### 9.3 功能逻辑要点
+
+- **签名页按账号隔离**：`platform::accountId` 键复用页实例；挂起/异常页下次求签自动重建（自愈）。
+- **降级三层**：页内整发准备失败 → http 路径；签名页连续失败 ≥3 次 → degraded 拒签（await 自愈/手动 resetState）；
+  localAlgorithm（XYW_）仅剩登录巡检等轻接口使用。
+- **零回归**：`pageInpage` 缺失时 `submitNote` 行为与 #3215 前完全一致（单测钉住）。
+- **noteOrigin**：`creator`/`edith` 双路由在页内路径同样生效（A/B 对照保留）。
+
+### 9.4 交互逻辑（探针回传面）
+
+| 字段 | 说明 |
+|---|---|
+| `data.stage` | `validate` / `credentials` / `signer-bridge` / `publish`——失败发生在哪一段 |
+| `data.errorCode` | `XHS_*` 系列错误码 / 平台 bizCode |
+| `data.chainDetail` | `{bizCode, bizMsg, topKeys, dataKeys, successFlag}`——键名级诊断，不含响应值 |
+| `data.failedEndpoint` | 失败端点（origin+path，query 剥离） |
+| `data.noteId/draftId` | 成功时的产物标识（非凭据，可回传） |
+
+### 9.5 显示项与提示文字
+
+| 场景 | 提示 |
+|---|---|
+| 凭据缺失 | `缺发布链硬凭据: <cookie 名列表>` |
+| 签名页未就绪 | `签名器装配失败: <原因>`（stage=signer-bridge）|
+| 业务拒绝 | `note 失败：code=<bizCode> <bizMsg>`（message 经 sanitizeMessage 脱敏）|
+| 页内整发准备失败 | 仅日志 `inpage-prep-failed`（自动降级 http，不打断用户）|
+
+### 9.6 安全边界（延续 #3172/#3215 五轮审查确立）
+
+- cookie/Authorization 值**永不回传** renderer（白名单 12 键：bizCode/键名数组/布尔旗标级）
+- 探针 draft 锁死 true，公开发布走产品正式通道
+- 页内脚本只回签名与响应 JSON，不回 DOM/源码（extractor 合规边界）
+- prewarm/求签 IPC 保持 isTrustedSender 校验（Gate 17）
+
+## 10. 真机验证现状与遗留
+
+| 项 | 状态 |
+|---|---|
+| permit + ros-upload | ✅ 真机通过（#3215）|
+| note 签名（页内 XYS_） | ✅ 签名关已过（业务层响应替代 406/401）|
+| note 业务受理 | ⚠️ `code:-1`（无 msg）——**端点域不匹配**：edith 不吃 creator 会话（401 实证），creator 域同名端点 404 |
+| 下一刀 | 抓登录后「手动存草稿」的真实页面交互流量（CDP 拦截）→ 定位真实草稿保存端点与参数 → 替换 NOTE_PATH → 全链闭环 |

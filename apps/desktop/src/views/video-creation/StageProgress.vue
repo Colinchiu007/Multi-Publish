@@ -1,10 +1,10 @@
 <template>
   <div class="stage-progress" v-if="stages && stages.length > 0">
     <!-- 阶段列表 -->
-    <div class="stages-list" data-testid="story2video-stage-list">
+    <div class="stages-list" :data-testid="tid('stage-list')">
       <!-- 粘性头部：进度条 + 摘要，在阶段列表内滚动时固定在顶部 -->
-      <div class="stages-sticky-header" data-testid="story2video-stage-sticky-header">
-        <div data-testid="story2video-orchestration-progress">
+      <div class="stages-sticky-header" :data-testid="tid('stage-sticky-header')">
+        <div :data-testid="tid('orchestration-progress')">
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: normalizedProgressPercent + '%' }"></div>
           </div>
@@ -19,12 +19,12 @@
         v-for="(stage, index) in stages"
         :key="stage.id || stage.name || index"
         class="stage-item"
-        :class="stageStateClass(stage, index)" :data-testid="`story2video-stage-${stage.name || index}`"
+        :class="stageStateClass(stage, index)" :data-testid="tid(`stage-${stage.name || index}`)"
       >
         <span class="stage-icon">{{ stageStateIcon(stage, index) }}</span>
         <span class="stage-main">
           <span class="stage-name">{{ stageName(stage.name) }}</span>
-          <span v-if="stageDetailText(stage, index)" class="stage-detail" :data-testid="`story2video-stage-detail-${stage.name || index}`">{{ stageDetailText(stage, index) }}</span>
+          <span v-if="stageDetailText(stage, index)" class="stage-detail" :data-testid="tid(`stage-detail-${stage.name || index}`)">{{ stageDetailText(stage, index) }}</span>
           <span v-if="stageTimeDetailText(stage, index)" class="stage-meta">
             {{ stageTimeDetailText(stage, index) }}
           </span>
@@ -32,14 +32,14 @@
           <span
             v-if="stageProgressPercent(stage) !== null"
             class="stage-sub-progress"
-            :data-testid="stage.name === 'compose' ? 'story2video-stage-compose-progress' : `story2video-stage-progress-${stage.name || index}`"
+            :data-testid="stage.name === 'compose' ? tid('stage-compose-progress') : tid(`stage-progress-${stage.name || index}`)"
             role="progressbar"
             :aria-valuenow="stageProgressPercent(stage)"
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <span class="stage-sub-bar">
-              <span class="stage-sub-fill" :data-testid="stage.name === 'compose' ? 'story2video-stage-sub-fill' : undefined" :style="{ width: stageProgressPercent(stage) + '%' }"></span>
+              <span class="stage-sub-fill" :data-testid="stage.name === 'compose' ? tid('stage-sub-fill') : undefined" :style="{ width: stageProgressPercent(stage) + '%' }"></span>
             </span>
           </span>
         </span>
@@ -50,7 +50,7 @@
       </div>
       <!-- 合成时间说明（2026-08-17）：story2video 专属参考口径，仅 showTimeGuidance 时渲染；
            2026-08-28 移出 sticky 浮层，作为阶段列表内普通内容随滚动条滚动，不再遮挡阶段信息 -->
-      <div v-if="showTimeGuidance" class="stage-time-guidance" data-testid="story2video-time-guidance">
+      <div v-if="showTimeGuidance" class="stage-time-guidance" :data-testid="tid('time-guidance')">
         <p class="time-guidance-title">{{ $t('stageProgress.timeGuidanceTitle') }}</p>
         <p class="time-guidance-intro">{{ $t('stageProgress.timeGuidanceIntro') }}</p>
         <ul class="time-guidance-refs">
@@ -82,6 +82,9 @@ export default {
     orchestrationContext: { type: Object, default: null },
     // 当前运行检查点（scene_asset_selection 等）：用于区分「等待用户选择素材」与「手动暂停」
     checkpoint: { type: Object, default: null },
+    // testid 前缀（跨流水线复用）：默认 'story2video' 保持既有测试与先例逐字不变；
+    // 影视工程自动模式传 'film-auto'，避免同一页面出现两套 story2video 命名的节点。
+    testidPrefix: { type: String, default: 'story2video' },
   },
   computed: {
     normalizedProgressPercent() {
@@ -106,6 +109,11 @@ export default {
     return { lastActiveStageIndex: -1 }
   },
   methods: {
+    /** testid 统一出口：所有节点 testid 一律经此前缀化（禁止再写裸 'story2video-' 字面量） */
+    tid(suffix) {
+      const prefix = typeof this.testidPrefix === 'string' && this.testidPrefix ? this.testidPrefix : 'story2video'
+      return prefix + '-' + suffix
+    },
     stageName(name) {
       return getPipelineStage((key) => this.$t?.(key), name)
     },
@@ -258,7 +266,7 @@ export default {
       const stage = this.stages[idx]
       if (!stage) return
       const el = this.$el && this.$el.querySelector
-        ? this.$el.querySelector('[data-testid="story2video-stage-' + (stage.name || idx) + '"]')
+        ? this.$el.querySelector('[data-testid="' + this.tid('stage-' + (stage.name || idx)) + '"]')
         : null
       if (el && typeof el.scrollIntoView === 'function') {
         el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })

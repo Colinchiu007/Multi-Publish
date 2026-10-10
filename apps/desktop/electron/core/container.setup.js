@@ -60,6 +60,10 @@ const CommentManager = require('../services/comment-manager');
 const ProviderManager = require('../services/provider-manager');
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService, publishFrequencyPolicy } = require("@multi-publish/shared-utils");
 const resolvePublishIntervals = publishFrequencyPolicy.resolveIntervals;
+const resolvePolicyOverrides = publishFrequencyPolicy.resolvePolicyOverrides;
+const resolveJitterRatio = publishFrequencyPolicy.resolveJitterRatio;
+const resolveReleaseGraceMs = publishFrequencyPolicy.resolveReleaseGraceMs;
+const isKnownPublishPlatform = publishFrequencyPolicy.isKnownPlatform;
 const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-interval-guard");
 const TemplateManager = require('../services/template-manager');
 const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
@@ -368,14 +372,30 @@ function createContainer(options) {
   });
   container.register("publishIntervalGuard", function(c) {
     const s = c.get("store");
+    // publish-frequency-policy-v2：设置页覆盖（全有或全无，解析在策略模块内）+ 抖动 + 日配额存储。
+    // ⚠️ 覆盖对象**每次 check 现取**（不在构造时快照）：设置页改完要求「下一次判定即生效」，
+    //    构造期快照会让改动只能靠重启生效而 UI 无任何提示；代价是每次 check 一次 settings 读（任务粒度）。
+    const warn = (m) => logger.warn(m);
+    const readOverrides = () => resolvePolicyOverrides(
+      typeof s.getSettingObject === 'function' ? s.getSettingObject("publishFrequencyPolicy", null) : null,
+      { warn }
+    );
     return new PublishIntervalGuard({
-      // 间隔值由 publish-frequency-policy 单一持有（含环境变量覆盖）；
-      // 禁止在此硬编码 minInterval，那会让策略表变成摆设。
-      policy: resolvePublishIntervals,
+      // 间隔值由 publish-frequency-policy 单一持有（含 env + 设置页覆盖）；禁止在此硬编码 minInterval
+      policy: (platform) => resolvePublishIntervals(platform, { overrides: readOverrides(), warn }),
+      isKnownPlatform: isKnownPublishPlatform,
       store: {
         get: (key) => s.getPublishTimeline(key),
         set: (key, value) => s.setPublishTimeline(key, value),
-      }
+      },
+      // 日配额计数落在 publish_daily_count（owner 隔离；count 可回补 / rollback_count 只增）
+      dailyStore: {
+        getDay: (key, dayKey) => s.getPublishDailyCount(key, dayKey) || { count: 0, rollback_count: 0 },
+        incrDay: (key, dayKey, field, delta) => s.incrPublishDailyCount(key, dayKey, field, delta),
+        decrDay: (key, dayKey, field) => s.decrPublishDailyCount(key, dayKey, field),
+      },
+      jitterRatio: resolveJitterRatio({ overrides: readOverrides(), warn }), releaseGraceMs: resolveReleaseGraceMs({ overrides: readOverrides(), warn }),
+      warn,
     });
   });
 

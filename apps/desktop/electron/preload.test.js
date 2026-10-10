@@ -196,10 +196,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 124 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed）', () => {
+  it('publish 模块应导出 129 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed；2026-10-10 发布频率策略 v2 +getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(124)
+    expect(Object.keys(r).length).toBe(129)
   })
 
   it('account 模块应导出 51 个方法（50 + probeXiaohongshuDraftChain，2026-10-08 小红书 API 草稿链受控调试通道；49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
@@ -227,8 +227,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(149)
   })
 
-  it('合并后 api 总键数应为 338（2026-10-08：337 + probeXiaohongshuDraftChain，小红书 API 草稿链受控调试通道；上一基线 337 = 336 + identityDiagnosticReport，身份诊断报告；更早 336 = 335 + accountCredentialNames 小红书 AT 凭据诊断，且 337 - 3 个 scheduled_tasks 死桥接后回落）', () => {
-    expect(Object.keys(api).length).toBe(338)
+  it('合并后 api 总键数应为 343（2026-10-10：338 + 5 个发布频率策略 v2 键 getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased；上一基线 338 = 337 + probeXiaohongshuDraftChain）', () => {
+    expect(Object.keys(api).length).toBe(343)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -697,11 +697,11 @@ describe('子模块 require 链可加载', () => {
 })
 
 describe('影视工程 film-engineering preload API', () => {
-  it('createFilmEngineeringApi 应为函数且返回 17 个方法', () => {
+  it('createFilmEngineeringApi 应为函数且返回 25 个方法', () => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     expect(typeof createFilmEngineeringApi).toBe('function')
     const api = createFilmEngineeringApi(ipcRenderer)
-    expect(Object.keys(api.filmEngineering).length).toBe(17)
+    expect(Object.keys(api.filmEngineering).length).toBe(25)
   })
 
   it.each([
@@ -721,6 +721,14 @@ describe('影视工程 film-engineering preload API', () => {
     ['productionPlan', 'film-engineering:production-plan', [{ shotIds: ['s1'] }]],
     ['productionRunBatch', 'film-engineering:production-run-batch', [{ taskId: 't1', shotIds: ['s1'], batchIndex: 0 }]],
     ['productionStatus', 'film-engineering:production-status', [{ taskId: 't1', shotIds: ['s1'] }]],
+    // 自动模式（film-auto-mode）：auto-start 只收 { planId, taskId, confirmed, overwrite }，不收分镜负载
+    ['autoPlan', 'film-engineering:auto-plan', [{ script: '第一场\n剧情', aspect: '16x9', seconds: 5, targetDurationSec: 30 }]],
+    ['autoStart', 'film-engineering:auto-start', [{ planId: 'plan-1', taskId: 'auto-1', confirmed: true }]],
+    ['autoStop', 'film-engineering:auto-stop', [{ taskId: 'auto-1' }]],
+    ['autoStatus', 'film-engineering:auto-status', [{ taskId: 'auto-1' }]],
+    ['autoUpdateShot', 'film-engineering:auto-update-shot', [{ taskId: 'auto-1', shotIndex: 0, patch: { prompt: 'p' } }]],
+    ['autoRegenerateShot', 'film-engineering:auto-regenerate-shot', [{ taskId: 'auto-1', shotIndex: 0, confirmed: true }]],
+    ['autoCompose', 'film-engineering:auto-compose', [{ taskId: 'auto-1' }]],
   ])('%s() 应转发到 invoke("%s")', (method, channel, args) => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     ipcRenderer.invoke.mockClear()
@@ -739,5 +747,9 @@ describe('影视工程 film-engineering preload API', () => {
     expect(PUBLIC_METHODS).toContain('filmEngineering.generateSelected')
     expect(requiredLevelForChannel('film-engineering:list-scenes')).toBe('public')
     expect(requiredLevelForChannel('film-engineering:generate-selected')).toBe('public')
+    expect(requiredLevelForChannel('film-engineering:auto-plan')).toBe('public')
+    expect(requiredLevelForChannel('film-engineering:auto-start')).toBe('public')
+    expect(requiredLevelForChannel('film-engineering:auto-stop')).toBe('public')
+    expect(requiredLevelForChannel('film-engineering:auto-regenerate-shot')).toBe('public')
   })
 })

@@ -12,6 +12,10 @@ function registerAllHandlers(ipcMain, deps) {
   require('./cloud-account')(ipcMain, deps)
   require('./keyword')(ipcMain, deps)
   require('./publish')(ipcMain, deps)
+  // publish-frequency-policy-v2：策略读取/写入 + 紧急放行。原在 publish.js 内，
+  // 该文件被本次变更推到 645 行触到「新代码不得引入超大文件」门禁（limit=500），
+  // 按门禁给的正解（mixin/composable 范式拆分）外移为独立模块。
+  require('./publish-frequency')(ipcMain, deps)
   require('./analytics')(ipcMain, deps)
   require('./sync')(ipcMain, deps)
   require('./update')(ipcMain, deps)
@@ -43,6 +47,9 @@ function registerAllHandlers(ipcMain, deps) {
   require('./generation-feedback')(ipcMain, deps)
   // 影视工程（film-engineering）流水线
   require('./film-engineering')(ipcMain, deps)
+  // 影视工程「自动」模式（film-auto-mode）：规划/执行/片段编辑/收口校验
+  // 注意：执行不经 pipeline 引擎（直连 production-driver + auto-runner），合成仍走既有 manifest 通道
+  require('./film-engineering-auto')(ipcMain, deps)
   require('./aggregation')(ipcMain, deps)
   // 博主监控与采集（PRD-CREATOR-WIRING-2026-10-07）。
   // 必须注册：缺了它，渲染端点「博主监控」会拿到 Electron 原生的
@@ -66,6 +73,9 @@ function registerAllHandlers(ipcMain, deps) {
   require('./approval-gate')(ipcMain, deps)
   // Backlot Replay 生产回放
   require('./replay')(ipcMain, deps)
+  // 播客 RSS 频道（小宇宙收录链路）。必须注册：缺了它渲染端「播客频道」页
+  // 拿到的是 Electron 原生 "No handler registered"，对用户毫无意义。
+  require('./podcast')(ipcMain, deps)
   // 全自动管道
   require('./auto-pipeline')(ipcMain, deps)
   // 自动化任务（定时 / 应用启动触发，后台执行）

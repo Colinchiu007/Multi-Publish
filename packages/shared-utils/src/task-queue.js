@@ -8,6 +8,10 @@
  * - 进度事件通知
  */
 const EventEmitter = require('events')
+// 紧急放行需要与守卫**同一份** accountId 归一判据（否则「设置页传 abc」与「任务里存 abc 」
+// 在归一后不等，会找不到等待中的任务却报 no_waiting_window）。守卫只用 publish-frequency-policy，
+// 不反向依赖本模块，无循环依赖。
+const PublishIntervalGuard = require('./publish-interval-guard')
 // R14：持久化快照（待派发 / running / delayed）的字段取舍统一到一处，
 // 见 task-projection.js 头注释（publishTime 曾在三份手抄白名单里全部缺席）。
 const { projectTask } = require('./task-projection')
@@ -48,6 +52,18 @@ class TaskQueue extends EventEmitter {
     this._history = []        // 已完成的任务历史
     this._pendingTimers = new Set()  // R28/R37：跟踪频率控制重排定时器，shutdown 时清理
     this._delayed = new Map() // 频控等待任务 { id -> { task, timer } }
+    // ── publish-frequency-policy-v2 ──────────────────────────────────────────
+    // 日配额被拒的任务单独成集：它们不是「等一会儿」而是「今天到此为止」，
+    // _processNext 必须跳过，否则会立刻重新取到同一任务形成紧循环。
+    this._quotaBlocked = new Set()
+    // 已证明「会调用 markSubmitted」的平台（由成功且 submittedAt 非空的发布累积）。
+    // 用于失败路径的接线矛盾检测：若某平台既能证明会打点、又持续出现
+    // 「从未发起提交尝试」的失败，则判为接线矛盾 ⇒ 对该平台停用回滚（fail-closed）。
+    this._platformsProvenSubmit = new Set()
+    this._rollbackDisabledPlatforms = new Set()
+    this._missingWiringCounts = new Map()
+    // 探针计数（供设置页/诊断读取）
+    this._probeCounts = { successWithoutSubmittedAt: 0, releaseFailed: 0, rollbackDisabled: 0 }
     this._abortControllers = new Map() // 运行中任务的协作式取消信号
     this._runningByChannel = new Map() // 通道键 -> 在跑计数（B 方案：同通道串行，跨通道并行）
     this._paused = false
@@ -69,6 +85,7 @@ class TaskQueue extends EventEmitter {
     this._pendingTimers.clear()
     for (const { task } of this._delayed.values()) this._markCancelled(task, true)
     this._delayed.clear()
+    this._quotaBlocked.clear()
     for (const task of this._queue.splice(0)) this._markCancelled(task, true)
     for (const [taskId, task] of this._running) {
       this._markCancelled(task, false)
@@ -473,6 +490,12 @@ class TaskQueue extends EventEmitter {
         this._queue.push(task)
         continue
       }
+      // v2：日配额被拒的任务不参与本轮扫描（否则会被反复取到 ⇒ 紧循环）。
+      // 它们由跨日定时器或下一次 _processNext 的显式重新判定放行。
+      if (this._quotaBlocked.has(task.id)) {
+        this._queue.push(task)
+        continue
+      }
       // B 方案通道调度：同通道（platform:accountId）已有任务在跑时，本任务留队轮候，
       // 继续扫描后续可启动任务（跨通道不互相阻塞）。轮候计数用 inspected 保证不无限循环。
       if ((this._runningByChannel.get(this._channelKey(task)) || 0) > 0) {
@@ -525,25 +548,44 @@ class TaskQueue extends EventEmitter {
         const blockedCount = (this._runningByChannel.get(blockedChannelKey) || 0) - 1
         if (blockedCount <= 0) this._runningByChannel.delete(blockedChannelKey)
         else this._runningByChannel.set(blockedChannelKey, blockedCount)
+
+        const isDailyQuota = verdict.bucket === 'daily' || verdict.reason === 'daily_quota'
         this.emit('publish:blocked', {
-          task, remainingWait: verdict.remainingMs, bucket: verdict.bucket,
+          task,
+          remainingWait: verdict.remainingMs,
+          bucket: verdict.bucket,
+          reason: verdict.reason || null,
+          daily: verdict.daily || null,
         })
         // 达到等待时间后重新加入队列
         // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
+        // v2：日配额命中的等待是「到次日 00:00:05」（几十万毫秒量级），
+        //     且截止时间由守卫的注入时钟推导（与 today() 同源），避免测试注入时钟时漂移。
+        const waitMs = isDailyQuota
+          ? (typeof this._publishIntervalGuard.msUntilNextDay === 'function'
+              ? this._publishIntervalGuard.msUntilNextDay()
+              : 24 * 60 * 60 * 1000)
+          : verdict.remainingMs
+        if (isDailyQuota) this._quotaBlocked.add(task.id)
         const requeueTimer = setTimeout(() => {
           this._pendingTimers.delete(requeueTimer)
           this._delayed.delete(task.id)
+          this._quotaBlocked.delete(task.id)
           if (task.cancelRequested || task.status === 'cancelled') return
           this._queue.unshift(task)
           this._processNext()
-        }, verdict.remainingMs)
+        }, waitMs)
         if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
         this._pendingTimers.add(requeueTimer)
         this._delayed.set(task.id, { task, timer: requeueTimer })
         this._saveState()
         return
       }
-      this._publishIntervalGuard.recordPublish(task.platform, accountId)
+      this._quotaBlocked.delete(task.id)
+      // 占位并保存前值：release() 需要它才能精确还原（结构锁断言该返回值被消费）
+      task._hold = this._publishIntervalGuard.recordPublish(task.platform, accountId)
+      task.submitAttempted = false
+      task.submittedAt = null
     }
 
     // 创建超时 Promise
@@ -577,19 +619,40 @@ class TaskQueue extends EventEmitter {
       task.status = 'success'
       task.result = result
       task.completedAt = new Date().toISOString()
+      // ── 不变量 I4：成功路径自证 ──
+      // 成功的发布必然发生过平台写操作，因此传输层**必须**已置位 submittedAt。
+      // 若为空，说明该平台的传输层漏接线 —— 这会把「未提交失败」误判为可回滚（危险侧），
+      // 故在这里把它变成第一次成功就暴露的主动告警，而不是等某次失败被误放行。
+      if (this._publishIntervalGuard && !task.submittedAt) {
+        this._probeCounts.successWithoutSubmittedAt += 1
+        console.error(
+          `[task-queue] 接线缺陷：平台 ${task.platform} 的发布成功但 submittedAt 为空`
+          + '（传输层未调用 markSubmitted）—— 该平台的「未提交失败」判定不可信'
+        )
+        this._disableRollbackForPlatform(task.platform, 'success_without_submitted_at')
+      } else if (this._publishIntervalGuard && task.submittedAt) {
+        this._platformsProvenSubmit.add(task.platform)
+      }
       this.emit('task:success', task)
       this._saveState()
     } catch (e) {
       if (task.cancelRequested || task.status === 'cancelled') return
       task.error = e.message
 
+      // ── P0-1：未提交失败回滚窗口 ──
+      // 判据是**提交阶段**而非错误类型：从未发起平台写尝试（submitAttempted=false），
+      // 或传输层显式声明可确证未送出（definitelyNotSent=true）。其余一律占窗口（I2）。
+      const rolledBack = this._maybeRollback(task, e)
+
       // 风控即停等不可重试错误（e.noRetry）直接判失败，不进入重试环
       if (!e.noRetry && task.retriesLeft > 0) {
         task.retriesLeft--
         task.status = 'pending'
+        task.lastAttemptNotSubmitted = rolledBack
         this.emit('task:retry', task)
-        // 放回队列尾部
-        this._queue.push(task)
+        // 放回队列尾部；回滚过的按最小退避延后重排（防「回滚即零等待」的重试风暴）
+        if (rolledBack) this._delayRequeue(task, this._releaseGraceMs())
+        else this._queue.push(task)
       } else {
         task.status = 'failed'
         task.completedAt = new Date().toISOString()
@@ -617,6 +680,7 @@ class TaskQueue extends EventEmitter {
     }
   }
 
+
   /**
    * 实际执行任务的钩子 — 由外部设置
    */
@@ -636,6 +700,11 @@ class TaskQueue extends EventEmitter {
     this._executor = fn
   }
 }
+
+// publish-frequency-policy-v2：频率相关方法（传输层打点 / 探针与降级 / 未提交回滚 / 紧急放行）
+// 外移到 mixin —— 本文件被本次变更从 576 行推到 897 行，触到行数门禁的挂账文件膨胀容差
+// （growthAllowance=200 ⇒ 上限 776），按门禁给的正解拆分；见 task-queue-frequency.js 头部。
+Object.assign(TaskQueue.prototype, require('./task-queue-frequency'))
 
 module.exports = TaskQueue
 module.exports.resolveQueueMaxConcurrent = resolveQueueMaxConcurrent

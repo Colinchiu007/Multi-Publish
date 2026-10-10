@@ -1,7 +1,7 @@
 <template>
   <div class="film-engineering-view">
-    <h1 class="fe-title">{{ t('filmEngineering.title') }}</h1>
-    <p class="fe-subtitle">{{ t('filmEngineering.subtitle') }}</p>
+    <h1 v-if="!embedded" class="fe-title">{{ t('filmEngineering.title') }}</h1>
+    <p v-if="!embedded" class="fe-subtitle">{{ t('filmEngineering.subtitle') }}</p>
 
     <ConfigProfileManager
       pipeline-id="film-engineering"
@@ -156,7 +156,6 @@
               <el-button v-if="roleEntries.length < 10" size="small" text type="primary" @click="addRole">{{ t('filmEngineering.adapt.addRole') }}</el-button>
             </div>
             <div class="fe-adapt-actions">
-              <el-checkbox v-model="adapt.llmEnabled">{{ t('filmEngineering.adapt.llmEnabled') }}</el-checkbox>
               <el-button type="primary" :loading="adapt.loading" @click="onAdapt">{{ t('filmEngineering.adapt.adaptBtn') }}</el-button>
             </div>
           </el-card>
@@ -390,7 +389,10 @@
             <span class="fe-vg-shot-no">#{{ b.batchIndex + 1 }}</span>
             <el-tag size="small" :type="pdBatchType(b.status)">{{ pdBatchLabel(b.status) }}</el-tag>
             <span class="fe-vg-shot-id">{{ t("filmEngineering.production.shotsDone", { done: b.doneShots || 0, total: b.shotCount }) }}</span>
-            <el-button v-if="b.status === 'pending' || b.status === 'failed'" size="small" type="primary" :loading="pdBusy" :data-testid="'fe-production-confirm-' + b.batchIndex" @click="onProductionConfirmBatch(b.batchIndex)">{{ t("filmEngineering.production.confirmBatch", { i: b.batchIndex + 1, n: pdBatches.length, count: b.shotCount, aspect: pdChosen.aspect, seconds: pdChosen.seconds }) }}</el-button>
+            <!-- 付费前的批次上下文：批号 / 总批数 / 本批镜数 / 画幅 / 时长。
+                 这行此前只有文案定义、零引用，用户在确认计费前看不到本批要出什么。 -->
+            <span class="fe-vg-shot-meta" data-testid="fe-production-batch-card">{{ t("filmEngineering.production.batchCard", { i: b.batchIndex + 1, n: pdBatches.length, count: b.shotCount, aspect: pdAspectLabel(pdChosen.aspect), seconds: pdChosen.seconds }) }}</span>
+            <el-button v-if="b.status === 'pending' || b.status === 'failed'" size="small" type="primary" :loading="pdBusy" :data-testid="'fe-production-confirm-' + b.batchIndex" @click="onProductionConfirmBatch(b.batchIndex)">{{ t("filmEngineering.production.confirmBatch") }}</el-button>
             <el-button size="small" @click="toggleBatch(b.batchIndex)">{{ t("filmEngineering.production.batchDetail") }}</el-button>
             <div v-if="pdExpandedBatches.has(b.batchIndex) && b.shots" style="width:100%;padding-left:24px">
               <div v-for="(sh, si) in b.shots" :key="si" style="display:flex;align-items:center;gap:6px;font-size:12px;margin:2px 0">
@@ -456,6 +458,10 @@ import { useRouter } from 'vue-router'
 import { useFilmVideoGen, FILM_MAX_VIDEO_BATCH } from '@/composables/useFilmVideoGen'
 import { story2videoShowInFolder, story2videoSaveAs } from '@/api/publisher'
 import { useFilmProduction } from '@/composables/useFilmProduction'
+
+// embedded=true 时作为 Hub 第 3 标签「工程案例」内嵌（隐藏页面级 h1/subtitle）；
+// 默认 false 时渲染与本次变更前逐字一致（既有测试与 /film-engineering/classic 直达页以此为准）。
+defineProps({ embedded: { type: Boolean, default: false } })
 
 const { t } = useI18n()
 const {
@@ -562,6 +568,15 @@ function pdBatchLabel (st) { return st === "done" ? t("filmEngineering.productio
 function pdBatchType (st) { return st === "done" ? "success" : st === "running" ? "" : st === "failed" ? "danger" : "info" }
 function pdFmtBytes (b) { if (!Number.isFinite(b)) return "—"; if (b > 1e9) return (b / 1e9).toFixed(1) + " GB"; return Math.round(b / 1e6) + " MB" }
 function pdFmtDuration (sec) { if (!Number.isFinite(sec)) return "—"; const m = Math.round(sec / 60); return m + " min" }
+// 画幅枚举 → 与画幅下拉完全相同的显示标签（2026-10-07）。
+// 付费确认行上出现原始枚举 "16x9"、而下拉里显示 "16:9 横屏"，是同一次操作里两套说法；
+// 用户正要据此确认扣费，标签必须与他刚选的那一串逐字一致。未知值原样回显，不静默兜底。
+function pdAspectLabel (aspect) {
+  if (aspect === "16x9") return t("filmEngineering.video.aspect169")
+  if (aspect === "9x16") return t("filmEngineering.video.aspect916")
+  if (aspect === "source") return t("filmEngineering.video.aspectSource")
+  return aspect || "—"
+}
 
 // 角色映射输入（前 4 个为 Hell Grind 主角预设）
 const roleEntries = reactive([
@@ -574,7 +589,6 @@ const roleEntries = reactive([
 const filmEngineeringProfileSnapshot = computed(() => buildConfigProfileSnapshot(roleEntries))
 const filmEngineeringProfileDirty = computed(() => (
   copyMode.value !== 'full' ||
-  adapt.llmEnabled === true ||
   roleEntries.some((entry) => Boolean(String(entry?.key || '').trim() && String(entry?.value || '').trim()))
 ))
 
@@ -775,5 +789,7 @@ onMounted(() => {
 .fe-vg-shot { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .fe-vg-shot-no { font-weight: 600; width: 32px; }
 .fe-vg-shot-id { font-family: monospace; font-size: var(--font-size-xs); color: #909399; flex: 1; }
+/* 批次上下文（批号/镜数/画幅/时长）：付费前必须可见，flex:1 后跟按钮会换行，用 flex-basis 限宽 */
+.fe-vg-shot-meta { font-size: var(--font-size-xs); color: #909399; flex: 0 1 auto; margin-right: auto; }
 .fe-vg-path { font-family: monospace; font-size: var(--font-size-xs); color: #606266; word-break: break-all; }
 </style>

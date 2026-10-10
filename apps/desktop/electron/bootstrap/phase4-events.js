@@ -112,7 +112,11 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }, ownerSubject)
     try {
       const postId = task.result?.postId || task.result?.id
-      if (postId) {
+      // 草稿结果（小红书硬约束 2026-10-09，落地于 RPA 轨 draftOnly）：草稿不是已公开作品，
+      // 平台内容列表里查不到 ⇒ 建监控任务只会得到恒定的「查无此作品」重试。
+      // 因此草稿结果不建审核回查；历史行仍记 success（内容已确认写入平台草稿箱）。
+      const isDraftResult = task.result?.draft === true
+      if (postId && !isDraftResult) {
         // P0-1 第二切片：先解析凭证（任务自带→auth 分区只读补齐）再决定是否回查。
         // 凭证拿不到就**不建监控任务**——旧形态传 `article.cookies`（全仓从未写入）导致
         // 每次发布都发 12 次必然失败的请求后再 timeout。异步门不阻塞发布主流程；
@@ -141,8 +145,11 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     try {
       if (store && typeof store.addTrackedContent === 'function') {
         const result = task.result || {}
-        const postId = result.postId || result.publishId || ''
-        const url = safeHttpUrl(result.url) || ''
+        // 草稿（小红书）没有公开作品锚点：草稿 ID 不是可回采的作品 ID，
+        // 强行登记 pending 会让回采器反复去平台找一篇「永远不会公开」的作品。
+        const isDraftResult = result.draft === true
+        const postId = isDraftResult ? '' : (result.postId || result.publishId || '')
+        const url = isDraftResult ? '' : (safeHttpUrl(result.url) || '')
         const hasAnchor = Boolean(postId || url)
         store.addTrackedContent({
           platform: task.platform,
@@ -233,10 +240,31 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }
   })
 
-  taskQueue.on('publish:blocked', ({ task, remainingWait, bucket }) => {
+  taskQueue.on('publish:blocked', ({ task, remainingWait, bucket, reason, daily }) => {
+    // v2：日配额用尽是「今天到此为止」而非「等一会儿」，remainingWait 恒为 0，
+    // 故 stage 文案必须按 reason 分流；渲染端另按 reason 选择本地化文案（勿依赖这句中文）。
+    const isDailyQuota = reason === 'daily_quota' || bucket === 'daily'
+    const stage = isDailyQuota
+      ? '⏳ 今日发布已达上限，明日 00:00 后自动继续'
+      : '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试'
     emitter.emit(task.id, task.platform, 'blocked', {
-      stage: '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试',
-      remainingWait, bucket: bucket || null, batchId: task.batchId || null,
+      stage,
+      remainingWait,
+      bucket: bucket || null,
+      reason: reason || null,
+      daily: daily || null,
+      batchId: task.batchId || null,
+    })
+  })
+
+  // v2：未提交失败已回滚窗口（可立即重试）——必须可观测，否则「为什么这次不用等」无从解释
+  taskQueue.on('publish:released', ({ task, reason, graceMs }) => {
+    emitter.emit(task.id, task.platform, 'released', {
+      stage: '↺ 未提交到平台，已恢复可发布',
+      stageKey: 'released',
+      releaseReason: reason || null,
+      graceMs: graceMs || null,
+      batchId: task.batchId || null,
     })
   })
 

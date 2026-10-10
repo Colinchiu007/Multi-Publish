@@ -1,8 +1,6 @@
 // @ts-check
-/**
- * store-schema — Store 的 SQL schema 定义 + 帮助函数
- * 从 store.js 提取，可独立测试。
- */
+/** store-schema — Store 的 SQL schema 定义 + 帮助函数（原从 store.js 提取） */
+const PF = require('./store-schema-publish-frequency')
 
 const TABLE_NAMES = {
   accounts: "accounts",
@@ -12,6 +10,7 @@ const TABLE_NAMES = {
   callback_logs: "callback_logs",
   batch_jobs: "batch_jobs",
   publish_timeline: "publish_timeline",
+  [PF.TABLE]: PF.TABLE,
   model_providers: "model_providers",
   model_provider_logs: "model_provider_logs",
   backlot_projects: "backlot_projects",
@@ -82,6 +81,7 @@ const OWNER_TABLE_SCHEMA_SQL = {
     last_publish_at TEXT,
     PRIMARY KEY (owner_subject, key)
   )`,
+  [PF.TABLE]: PF.SCHEMA_SQL,
 };
 
 const OWNER_INDEX_SQL = [
@@ -91,6 +91,7 @@ const OWNER_INDEX_SQL = [
   `CREATE INDEX IF NOT EXISTS idx_scheduled_owner_time ON scheduled_tasks(owner_subject, publish_time)`,
   `CREATE INDEX IF NOT EXISTS idx_batch_owner_created ON batch_jobs(owner_subject, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_timeline_owner_key ON publish_timeline(owner_subject, key)`,
+  PF.INDEX_SQL,
 ];
 
 const SCHEMA_SQL = [
@@ -99,6 +100,7 @@ const SCHEMA_SQL = [
   OWNER_TABLE_SCHEMA_SQL.scheduled_tasks,
   OWNER_TABLE_SCHEMA_SQL.batch_jobs,
   OWNER_TABLE_SCHEMA_SQL.publish_timeline,
+  OWNER_TABLE_SCHEMA_SQL[PF.TABLE],
   `CREATE TABLE IF NOT EXISTS settings (
     key           TEXT PRIMARY KEY,
     value         TEXT
@@ -110,8 +112,7 @@ const SCHEMA_SQL = [
     payload       TEXT DEFAULT "{}",
     created_at    TEXT DEFAULT ''
   )`,
-  // owner 索引由 migrateOwnerIsolationSchema 在旧表重建后统一创建，
-  // 避免升级旧库时先引用尚不存在的 owner_subject 列。
+  // owner 索引由 migrateOwnerIsolationSchema 在旧表重建后统一创建，避免升级旧库时先引用尚不存在的 owner_subject 列。
   `CREATE INDEX IF NOT EXISTS idx_callback_created ON callback_logs(created_at)`,
   `CREATE TABLE IF NOT EXISTS model_providers (
     id            TEXT PRIMARY KEY,
@@ -261,6 +262,7 @@ const OWNER_TABLE_COLUMNS = {
   scheduled_tasks: ["owner_subject", "id", "platform", "article", "publish_time", "status", "created_at"],
   batch_jobs: ["owner_subject", "id", "name", "articles", "total", "completed", "failed", "status", "created_at"],
   publish_timeline: ["owner_subject", "key", "last_publish_at"],
+  [PF.TABLE]: PF.COLUMNS,
 };
 
 const OWNER_TABLE_KEY_COLUMNS = {
@@ -269,6 +271,7 @@ const OWNER_TABLE_KEY_COLUMNS = {
   scheduled_tasks: "id",
   batch_jobs: "id",
   publish_timeline: "key",
+  [PF.TABLE]: PF.KEY_COLUMN,
 };
 
 const OWNER_COLUMN_DEFAULTS = {
@@ -297,6 +300,7 @@ const OWNER_COLUMN_DEFAULTS = {
   completed: "0",
   failed: "0",
   last_publish_at: "NULL",
+  ...PF.COLUMN_DEFAULTS,
 };
 
 function execSchemaSql(db, sql) {

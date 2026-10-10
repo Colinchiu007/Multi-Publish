@@ -14,6 +14,8 @@
 const path = require('path')
 const { execFile } = require('child_process')
 const logger = require('./logger')
+// publish-frequency-policy-v2 P0-1：把「可确证未送出」的登录态族失败打标，供队列回滚间隔窗口
+const { markDefinitelyNotSent } = require('./publish-not-submitted')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
@@ -23,6 +25,9 @@ const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/ric
 const { extractInlineTopicNames } = require('@multi-publish/api-publish-engine/src/content-formatter')
 const { getConfigPath } = require('./config-resolver')
 const { buildApiTaskData } = require('./api-task-data')
+// 小红书「仅存草稿箱」轨（2026-10-09 用户硬约束：小红书不得真实发布）
+// 小红书硬约束的落地不在路由表（见 ROUTE_TABLE 上方注释）：API 草稿轨真机 406 不可用，
+// 故不在此 require 草稿发布器；约束由 RPA 轨的 draftOnly + 视频 fail-closed 保证。
 // P1-5 语义级可见性：语义档位（public/friends/private）→ 平台字段值的单一真源在注册表层。
 const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publish-capabilities')
 
@@ -36,12 +41,19 @@ const { mapVisibilitySemantic } = require('@multi-publish/shared-utils/src/publi
 // 前置 fail-closed 见 resolvePlatformArticle 内的 VIDEO_ONLY_API_PLATFORMS 检查。
 const VIDEO_ONLY_API_PLATFORMS = new Set(['bilibili'])
 
+// 2026-10-09/10 用户硬约束：小红书**不得真实发布**（平台风控严格），内容只进平台草稿箱。
+// 落地位置在 **RPA 轨内部**而不是路由表：`rpa-view-platforms._publish_xiaohongshu` 对图文
+// 强制 `draftOnly: true`（只填内容 + 等平台自动存草稿，绝不点「发布」），对视频 fail-closed
+// 拒绝执行。原因（真机实测 2026-10-10）：曾尝试把 xiaohongshu 路由到 API 草稿轨（xhs_draft），
+// permit/ros-upload 均通过，但 note 端点恒 **406**（creator 域 404 ⇒ 端点确在 edith 域）；
+// 该账号只有创作者域会话、缺主站 `web_session`，签名/风控过不去，故 API 轨不具备可用条件。
+// 路由表保持 rpa_vm：硬约束由轨内 draftOnly + 视频 fail-closed 保证（有回归锁钉住）。
 const ROUTE_TABLE = {
   wechat_mp:    { mode: 'rpa_vm', timeout: 120000 },
   zhihu:        { mode: 'rpa_vm', timeout: 120000 },
   weibo:        { mode: 'rpa_vm', timeout: 120000 },
   douyin:       { mode: 'rpa_vm', timeout: 300000 },
-  xiaohongshu:  { mode: 'rpa_vm', timeout: 120000 },
+  xiaohongshu:  { mode: 'rpa_vm', timeout: 180000 },
   tencent_video:{ mode: 'rpa_vm', timeout: 300000 },
   kuaishou:     { mode: 'rpa_vm', timeout: 300000 },
   toutiao:      { mode: 'rpa_vm', timeout: 120000 },
@@ -572,7 +584,12 @@ class RpaVmPublisher {
         })
         return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, mode: 'dom', ...(diagnostics ? { diagnostics } : {}) }
       }
-      throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
+      // publish-frequency-policy-v2 P0-1：登录态失效族**可确证未送出**（RPA 在发布页导航后
+      // 先判登录态并 early-return，早于任何表单填充/提交）⇒ 打标后由队列回滚间隔窗口。
+      // 词表是封闭的（services/publish-not-submitted.js），未命中一律按已提交处理（保守侧）。
+      const rpaErr = new Error(result.error || 'RPA 发布失败')
+      markDefinitelyNotSent(rpaErr, result.error)
+      throw rpaErr
     } finally {
       signal?.removeEventListener('abort', onAbort)
     }
@@ -609,7 +626,10 @@ class ApiPublisher {
         error: '平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）',
         params: { platform, accountId, mode: 'api' },
       })
-      throw new Error('平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）')
+      // publish-frequency-policy-v2 P0-1：cookie 为空时**尚未发出任何请求** ⇒ 无条件可回滚
+      const cookieErr = new Error('平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）')
+      cookieErr.definitelyNotSent = true
+      throw cookieErr
     }
     const cookie = cookies.map((c) => c.name + '=' + c.value).join('; ')
     const signal = options && options.signal
@@ -647,7 +667,13 @@ class ApiPublisher {
       logger.notify('PublisherRouter', 'publish-cancelled', { level: 'WARN', params: { platform, accountId } })
       throw new Error('任务已取消')
     }
-    if (!result || !result.success) throw new Error((result && result.error) || 'API 发布失败')
+    if (!result || !result.success) {
+      // publish-frequency-policy-v2 P0-1：**此处刻意不打 definitelyNotSent**（评审 i2）。
+      // 走到这里说明已经过了一次完整的网络往返（publishViaApi 已返回），请求是**发出去过的**；
+      // 平台响应里出现「登录失效」这类文本恰恰证明请求到达了平台。把它判成「未送出」会让
+      // 已提交窗口被误回滚 ⇒ 早于窗口的重复发布（危险侧）。凭证缺失在更早处已无条件打标。
+      throw new Error((result && result.error) || 'API 发布失败')
+    }
     const postId = typeof result.publishId === 'string' && result.publishId.trim() ? result.publishId.trim() : ''
     if (!postId) throw new Error('发布结果缺少平台作品 ID')
     return { success: true, url: sanitizePublishResultUrl(result.url || ''), postId, platform, mode: 'api' }
@@ -774,5 +800,4 @@ class PublisherRouter {
 }
 
 module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask, resolvePlatformArticle, buildPublishArticle }
-
 

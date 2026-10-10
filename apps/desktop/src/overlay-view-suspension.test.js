@@ -150,6 +150,38 @@ describe('弹窗互斥：静态链路完整性', () => {
     expect(previewSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
     expect(publishSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
   })
+
+  // owner 登记表：CreateView BGM 素材库两个模态浮层（拆分方案 v3 §2.4，CreateView 拆分第 1 步）。
+  // 素材库弹窗是一级浮层（openBgmLibraryDialog 挂起），删除确认是其内二级浮层（requestBgmDelete 挂起），
+  // 各自持唯一 owner；释放成对且 beforeUnmount 兜底（父组件直接销毁时不经过 visible=false）。
+  it('CreateView BGM 素材库：素材库弹窗 / 删除确认弹窗各自持唯一 owner 并成对释放 + 卸载兜底', () => {
+    const bgmSrc = fs.readFileSync(path.join(ROOT, 'src/views/video-creation/composables/useBgmLibrary.js'), 'utf8')
+    const createSrc = fs.readFileSync(path.join(ROOT, 'src/views/CreateView.vue'), 'utf8')
+
+    expect(bgmSrc).toMatch(/BGM_LIBRARY_OVERLAY_OWNER = ['"]create-bgm-library-dialog['"]/)
+    expect(bgmSrc).toMatch(/BGM_LIBRARY_DELETE_OVERLAY_OWNER = ['"]create-bgm-library-delete-dialog['"]/)
+
+    // 素材库弹窗：open 挂起 / close 释放（成对）
+    const openBlock = bgmSrc.match(/async function openBgmLibraryDialog \(\) \{[\s\S]*?\n\}/)
+    const closeBlock = bgmSrc.match(/function closeBgmLibraryDialog \(\) \{[\s\S]*?\n\}/)
+    expect(openBlock && openBlock[0]).toContain('await suspendEmbeddedViewsForOverlay(BGM_LIBRARY_OVERLAY_OWNER)')
+    expect(closeBlock && closeBlock[0]).toContain('releaseEmbeddedViewsForOverlay(BGM_LIBRARY_OVERLAY_OWNER)')
+
+    // 删除确认弹窗：request 挂起 / close 释放（成对）
+    const reqBlock = bgmSrc.match(/function requestBgmDelete \(item\) \{[\s\S]*?\n\}/)
+    const closeDelBlock = bgmSrc.match(/function closeBgmDeleteDialog \(\) \{[\s\S]*?\n\}/)
+    expect(reqBlock && reqBlock[0]).toContain('suspendEmbeddedViewsForOverlay(BGM_LIBRARY_DELETE_OVERLAY_OWNER)')
+    expect(closeDelBlock && closeDelBlock[0]).toContain('releaseEmbeddedViewsForOverlay(BGM_LIBRARY_DELETE_OVERLAY_OWNER)')
+
+    // 卸载兜底：releaseAllOverlays 双 owner 都释放，且 CreateView beforeUnmount 调用
+    const releaseAll = bgmSrc.match(/async function releaseAllOverlays \(\) \{[\s\S]*?\n\}/)
+    expect(releaseAll && releaseAll[0]).toContain('releaseEmbeddedViewsForOverlay(BGM_LIBRARY_OVERLAY_OWNER)')
+    expect(releaseAll && releaseAll[0]).toContain('releaseEmbeddedViewsForOverlay(BGM_LIBRARY_DELETE_OVERLAY_OWNER)')
+    expect(createSrc).toMatch(/bgmLibraryMethods\.releaseAllOverlays\(\)/)
+
+    // owner 一律经命名常量传递：出现字面量即意味着绕过登记
+    expect(bgmSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]create-bgm/)
+  })
 })
 
 describe('弹窗互斥：内嵌主页壳态（home-shell）不得挂起', () => {

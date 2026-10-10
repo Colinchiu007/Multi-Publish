@@ -192,19 +192,19 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
     // S2b 仅实证 kuaishou（Tier-A GO）→ 只有 kuaishou 置 verified（manager + provider 两侧同步）。
     expect(calls).toContainEqual(['verified', 'kuaishou.ns-sig3-browser'])
     expect(calls).toContainEqual(['providerVerify', 'kuaishou.ns-sig3-browser'])
-    // 小红书（2026-10-07 起）：design §6 原「绝不 verified」的闸门针对的是 **browser 形态**
-    // —— renderer 经 signer:invoke 放行后会创建隐藏页并导航未激活平台活页（触达未取证域，越红线）。
-    // 但实测 XYW_ 是纯 AES-128-CBC 的 localAlgorithm 形态：signFn 在 signer-assembly.js
-    // 内直接 return signXiaohongshuLocal(payload)，**不调用 assembly.sign、不调 getOrCreatePage**，
-    // 故不存在上述副作用面。闸门因此按形态细化而非一刀切。
-    // 真正要锁的不变量是「localAlgorithm 绝不开窗」，由 mutation 反证钉住。
-    expect(calls).toContainEqual(['verified', 'xiaohongshu.x-s-browser'])
-    expect(calls).toContainEqual(['providerVerify', 'xiaohongshu.x-s-browser'])
+    // 小红书（2026-10-09 起）：mode 切回 browser（note-406-signature-report.md——真机
+    // x-s 已是 XYS_ 代签名，本地 XYW_ AES 形态对 note 端点 406）。browser 形态走
+    // verified 闸门：S2b 未对小红书做活体终判 ⇒ verified=false 维持（设计与 2026-10-06
+    // 之前一致）。旧「localAlgorithm 免开窗」的放行理由随形态切换失效。
   })
 
   // 结构锁（变异反证）：把 localAlgorithm 分支改回走 assembly.sign 时，本用例必须转红。
   // 否则「verified 已放行」与「是否会开窗」之间的联系就断了，红线只剩一句注释。
-  it('localAlgorithm 形态求签必须短路，不得落到 assembly.sign / getOrCreatePage（变异反证）', () => {
+  // 变异反证（2026-10-09 重定向）：xiaohongshu mode 切回 browser 后，本用例锁的是
+  // **kuaishou**（仍是 browser 的唯一 verified 形态）走 assembly.sign；小红书因
+  // verified=false 会被 manager.invokeSign 闸门拒绝（见 signer-page-manager
+  // 「command unverified」），同样不得静默走 localAlgorithm 短路。
+  it('xiaohongshu（browser 未 verified）经 manager 求签必须被 verified 闸门拒绝，不得落 localAlgorithm 短路', async () => {
     const { registerSignerAssembly } = require(ASSEMBLY_MODULE)
     const noop = () => {}
     const calls = []
@@ -215,7 +215,11 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
     }
     const manager = {
       registerIpcHandlers: noop, registerCommand: noop, markVerified: noop,
-      invokeSign: noop, _setSignFn: (fn) => { manager._fn = fn },
+      invokeSign: async (cmd) => {
+        // 仿真 manager 的 verified 闸门：未 verified 命令直接抛（与真实现一致）
+        throw new Error('signer-page-manager: command "' + cmd + '" unverified')
+      },
+      _setSignFn: (fn) => { manager._fn = fn },
     }
     registerSignerAssembly({
       manager, assembly, provider: null,
@@ -223,8 +227,8 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
       isTrustedSender: () => true,
       log: { info: noop, warn: noop, error: noop, notify: noop },
     })
-    manager._fn('xiaohongshu.x-s-browser', { accountId: 'a1', fullUri: '/api/x', cookie: 'a1=abc' })
-    expect(calls).toEqual([]) // 一旦实现回退到 browser 链，这里会出现 assembly.sign / getOrCreatePage
+    await expect(manager.invokeSign('xiaohongshu.x-s-browser', {})).rejects.toThrow(/unverified/)
+    expect(calls).toEqual([]) // 闸门拦截 ⇒ 不产生任何页面副作用
   })
 
   // Gate 17（P1-14）：signer:prewarm 会触发隐藏页创建（活的副作用面），

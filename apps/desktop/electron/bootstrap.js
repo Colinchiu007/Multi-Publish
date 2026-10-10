@@ -121,11 +121,30 @@ function createAppContext() {
         stage: msg, percent: pct, batchId: task.batchId || null,
       })
     }
+    // publish-frequency-policy-v2：区分「进入发布器之前」与「之内」的失败（见下方打点注释）
+    let enteredPublisher = false
     try {
+      // ── publish-frequency-policy-v2：提交阶段打点（P0-1 的正确性基础）──
+      // 判据是「平台写操作是否真的发出去过」，因此打点必须由**这一层**（真正调用发布器
+      // 的地方）而不是由抛错的那一层来做：抛错方同时是「免等重试」的获益方，自标可被伪造。
+      //
+      // 分层语义：
+      //   ① 进入 publish() 之前的失败（风控挂起 / 信号已中止 / 进度注册失败）⇒ 从未发起
+      //      平台写尝试 ⇒ 不打点 ⇒ 守卫可回滚该窗口（这正是报告点名的「风控挂起」族）。
+      //   ② publish() 内部失败：默认按**已提交**处理（保守：宁可多等一个窗口）；
+      //      仅当发布器显式声明 `definitelyNotSent === true`（连接未建立 / DNS 失败等
+      //      可确证未送出）时才允许回滚。
+      //   ③ 成功 ⇒ submittedAt 置位（同时满足不变量 I4：成功而 submittedAt 为空即接线缺陷）。
+      enteredPublisher = true
       const result = await publisher.publish(task, { signal: context.signal, onProgress: onPublisherProgress })
+      if (typeof taskQueue.markSubmitted === 'function') taskQueue.markSubmitted(task.id)
       // 终态事件单一来源是 phase4-events 的 task:success/task:failed（executor 不再重复发送）
       return result
     } catch (e) {
+      // ② 已进入发布器且未自证「未送出」⇒ 标记已发起提交尝试，以阻止误回滚
+      if (enteredPublisher && !(e && e.definitelyNotSent === true)) {
+        if (typeof taskQueue.markSubmitAttempted === 'function') taskQueue.markSubmitAttempted(task.id)
+      }
       log.error('Executor', 'Publish failed for ' + platform + ': ' + errorMessage(e))
       throw e
     } finally {

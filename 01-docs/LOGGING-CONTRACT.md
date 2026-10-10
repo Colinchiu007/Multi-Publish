@@ -43,20 +43,23 @@
 
 ## 3. 脱敏清单（Sensitive Data Redaction）
 
-### 3.1 五组模式（3 处 JS 内联实现必须同源）
+### 3.1 五组模式 + 手机号（3 处 JS 内联实现必须同源）
 
 | # | 模式 | 替换 | 覆盖 |
 |---|------|------|------|
 | ① | `Bearer\s+[A-Za-z0-9._~+/=-]+` | `Bearer ***` | Authorization Bearer token |
-| ② | 带引号键值：`api[_-]?key / access_token / refresh_token / password / secret / authorization / cookie` 后接 `:` 或 `=` | 保留键名、值替换 `***` | JSON 风格 `"apiKey":"x"`、`password: "p"` |
-| ③ | 无引号键值：`api[_-]?key / access_token / refresh_token / password / secret / cookie`（**无 authorization**，② 才含）后接 `=` | `key=***` | URL/表单风格 `access_token=xxx&...` |
+| ② | 带引号键值：`api[_-]?key / access_token / refresh_token / password / secret / authorization / cookie / token / sid / session / pwd` 后接 `:` 或 `=` | 保留键名、值替换 `***` | JSON 风格 `"apiKey":"x"`、`password: "p"` |
+| ③ | 无引号键值：`api[_-]?key / access_token / refresh_token / password / secret / cookie / token / sid / session / pwd`（**无 authorization**，② 才含）后接 `=` | `key=***` | URL/表单风格 `access_token=xxx&...` |
 | ④ | `sk-[A-Za-z0-9_-]{4}` 开头长串 | 保留 `sk-` + 前 4 位，其余替换 `***` | sk- 前缀密钥 |
 | ⑤ | `eyJ` 开头三段 base64url JWT | `eyJ***` | 通用 JWT |
+| ⑥ | 中国大陆手机号 `\b1[3-9]\d{9}\b`（词边界） | `***` | 账号昵称/备注里的手机号（S6 2026-10-09 新增） |
+
+> **键级脱敏优先于前缀保留**：`"token":"sk-…"` 会被 ② 整值打码（`"token":"***"`），④ 的前缀保留不再命中——泄露面更小，属 2026-10-09 S6 扩集后的既定行为（回归锁 `log-injection-sanitization.test.js`）。
 
 同源实现位置（**禁止单边修改**，契约测试断言三处一致）：
-- `apps/desktop/electron/services/logger.js:96-102`
-- `packages/shared-utils/src/logger.js:22-28`
-- `packages/api-publish-engine/src/log-redact.js:12-19`（供 `publish-api-server.js:12,49,270-274` 等使用）
+- `apps/desktop/electron/services/logger.js:95-104`
+- `packages/shared-utils/src/logger.js:21-30`
+- `packages/api-publish-engine/src/log-redact.js:14-25`（供 `publish-api-server.js:12,49,270-274` 等使用）
 
 ### 3.2 Python 侧
 

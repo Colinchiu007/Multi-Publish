@@ -37,6 +37,7 @@ import {
   DataAnalysis,
   Document,
   FolderOpened,
+  Headset,
   HomeFilled,
   MagicStick,
   Search,
@@ -297,16 +298,19 @@ export const ROUTE_REGISTRY = Object.freeze([
     entryFrom: '/create',
   },
   {
-    // 暗路由：从 /create（CreateView.vue 选择 film-engineering 流水线）进入；主视图为短剧画布 FilmCanvasView.vue
+    // 暗路由：从 /create（CreateView.vue 选择 film-engineering 流水线）进入；
+    // 主视图为三标签 Hub（FilmEngineeringHubView.vue：自动 / 画布 / 工程案例）
     path: '/film-engineering',
     name: 'FilmEngineering',
-    view: 'FilmCanvasView.vue',
+    view: 'FilmEngineeringHubView.vue',
     navEntry: null,
     internal: true,
     entryFrom: '/create',
   },
   {
-    // 暗路由：经典三栏视图回退入口，仅从 /film-engineering 画布工具栏「回退经典页」进入
+    // 暗路由：工程案例无标签直达页（与 Hub 第 3 标签同源）；
+    // 刻意保持为非 redirect 路由——改 redirect 会减少「非 redirect 路由数」，
+    // 触碰 useTabDocumentTitle.test.js 的路由覆盖棘轮（design D24）
     path: '/film-engineering/classic',
     name: 'FilmEngineeringClassic',
     view: 'FilmEngineeringView.vue',
@@ -355,6 +359,15 @@ export const ROUTE_REGISTRY = Object.freeze([
     internal: false,
     entryFrom: null,
   },
+  {
+    // 播客 RSS 频道（2026-10）：小宇宙等聚合端不是发布平台，独立"频道"实体走 RSS 订阅链路
+    path: '/podcast',
+    name: 'PodcastChannel',
+    view: 'PodcastChannelView.vue',
+    navEntry: { key: 'podcast', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'podcast.pageTitle', to: '/podcast', icon: Headset },
+    internal: false,
+    entryFrom: null,
+  },
 ])
 
 /**
@@ -388,6 +401,7 @@ export const SIDEBAR_MENU_KEY_ORDER = Object.freeze([
   'knowledge-base',
   'performance-insights',
   'member-center',
+  'podcast',
 ])
 
 /**

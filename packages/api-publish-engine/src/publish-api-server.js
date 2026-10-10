@@ -40,6 +40,12 @@ function setMediaRequestResolver(fn) {
 
 const GZIP_MIN_BYTES = 256;
 
+// S2（2026-10-09，评审 R7）：这些 feature 只面向 Logto 身份发放（来自 plan-matrix 的
+// 订阅权益），API Key / 匿名身份一律 fail-closed。未来新增消费型 feature（如官方算力
+// compute 类）必须加入本集合，防止 _assertEntitlementFeature/_consumeEntitlementFeature
+// 的「非 Logto 静默放行」旧语义被无意复用。
+const LOGTO_ONLY_FEATURES = new Set(["cloud_publish"]);
+
 /**
  * JSON 请求体体积上限（1 MiB）。
  * 口径依据：本服务的业务请求体只承载 JSON（标题、正文、标签、媒体本地路径、cookie），
@@ -538,7 +544,23 @@ class PublishApiServer {
   }
 
   async _assertEntitlementFeature(req, feature) {
-    if (!feature || !this._usesLogtoIdentity(req)) return true
+    if (!feature) return true
+    // S2（2026-10-09，评审 R7）：Logto 专属 feature 对**无凭证匿名请求** fail-closed。
+    // 原实现 `!this._usesLogtoIdentity(req)` 时直接放行 true——匿名/api_key 请求
+    // 静默跳过权益校验（plan/execute 无认证头即可执行发布计划是漏洞实证）。
+    // 分级处置：
+    //   匿名（req.auth 不存在）+ 属集 feature → 403 ENTITLEMENT_IDENTITY_REQUIRED；
+    //   api_key（已过 scope 校验的 legacy 契约）→ 维持放行，不扣减——API Key 计费
+    //   模型未实现，属登记债务；未来 compute/官方算力路由是**新代码**，必须按评审
+    //   R7 显式 requireLogto，不得依赖本方法的宽松分支。
+    if (!this._usesLogtoIdentity(req)) {
+      if (LOGTO_ONLY_FEATURES.has(feature) && !(req && req.auth && req.auth.authType === "api_key")) {
+        throw Object.assign(new Error("ENTITLEMENT_IDENTITY_REQUIRED"), {
+          code: "ENTITLEMENT_IDENTITY_REQUIRED", status: 403,
+        })
+      }
+      return true
+    }
     if (!this._entitlementProvider) {
       throw Object.assign(new Error("ENTITLEMENT_PROVIDER_NOT_CONFIGURED"), { code: "ENTITLEMENT_PROVIDER_NOT_CONFIGURED", status: 503 })
     }
@@ -560,7 +582,18 @@ class PublishApiServer {
   }
 
   async _consumeEntitlementFeature(req, feature, amount = 1) {
-    if (!feature || !this._usesLogtoIdentity(req)) return null
+    if (!feature) return null
+    // S2（同上）：扣减与校验同向。原实现非 Logto 身份返回 null，调用方（plan/execute）
+    // 把 null 当成功继续执行——匿名零凭证即可免费执行发布计划。api_key 身份保持
+    // legacy 放行语义（不扣减），匿名 fail-closed。
+    if (!this._usesLogtoIdentity(req)) {
+      if (LOGTO_ONLY_FEATURES.has(feature) && !(req && req.auth && req.auth.authType === "api_key")) {
+        throw Object.assign(new Error("ENTITLEMENT_IDENTITY_REQUIRED"), {
+          code: "ENTITLEMENT_IDENTITY_REQUIRED", status: 403,
+        })
+      }
+      return null
+    }
     if (!this._entitlementProvider || typeof this._entitlementProvider.consumeFeature !== "function") {
       throw Object.assign(new Error("ENTITLEMENT_USAGE_PROVIDER_NOT_CONFIGURED"), {
         code: "ENTITLEMENT_USAGE_PROVIDER_NOT_CONFIGURED", status: 503,
@@ -1252,7 +1285,11 @@ class PublishApiServer {
           }, 0);
           if (usageAmount > 0) {
             try {
-              await this._consumeEntitlementFeature(req, "cloud_publish", usageAmount);
+              // S2（2026-10-09）：plan/execute 与 publish 的授权契约对称——都走
+              // _authorizeImmediateEntry（权益校验 + 扣减一体）。原实现只调
+              // _consumeEntitlementFeature，匿名零凭证请求在 consume 静默放行的
+              // 旧语义下可免费执行发布计划；修复 consume 后暴露出该不对称。
+              await this._authorizeImmediateEntry(req, usageAmount);
             } catch (error) {
               this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, this._ctx(req));
               this._json(res, error && error.status ? error.status : 503, {

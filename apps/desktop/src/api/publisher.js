@@ -19,6 +19,14 @@ export async function listSuspendedRisk() { return invokeWithFallback("listSuspe
 export async function resumeRisk(payload) { return invokeWithFallback("resumeRisk", { code: -1, message: 'electronAPI not available' }, payload) }
 export async function isSuspendedRisk(payload) { return invokeWithFallback("isSuspendedRisk", { code: -1, message: 'electronAPI not available' }, payload) }
 
+// ─── 发布频率策略（publish-frequency-policy-v2）───────────
+// 紧急放行不接受渲染层自报操作者：operator 由主进程按当前 identity 解析，故这里不转发该字段
+export async function getPublishFrequencyPolicy() { return invokeWithFallback("getPublishFrequencyPolicy", { code: -1, message: 'electronAPI not available' }) }
+export async function setPublishFrequencyPolicy(policy) { return invokeWithFallback("setPublishFrequencyPolicy", { code: -1, message: 'electronAPI not available' }, policy) }
+export async function emergencyReleasePublishWait(payload) { return invokeWithFallback("emergencyReleasePublishWait", { code: -1, message: 'electronAPI not available' }, payload) }
+export async function getPublishEmergencyStatus() { return invokeWithFallback("getPublishEmergencyStatus", { code: -1, message: 'electronAPI not available' }) }
+export function onPublishEmergencyReleased(callback) { return bridgeOn("PublishEmergencyReleased", callback) }
+
 // ─── AI 写作 API ──────────────────────────
 export async function modelProviderIsConfigured(category) { return invokeWithFallback("modelProviderIsConfigured", { code: -1, data: false }, category) }
 export async function modelProviderGetDefault(category) { return invokeWithFallback("modelProviderGetDefault", { code: -1, data: null }, category) }

@@ -56,4 +56,10 @@ function __resetSignerAssemblyForTest () {
   wired = null
 }
 
-module.exports = { setupSignerAssembly, bindSignerCookie, __resetSignerAssemblyForTest }
+/** 探针专用：拿 assembly 句柄（页内整发需要 executeJavaScript 通道）。
+ *  仅在 wired 已装配时返回；未装配返回 null（调用方降级回 http 路径）。 */
+function __getAssemblyForProbe () {
+  return (wired && wired.assembly) || null
+}
+
+module.exports = { setupSignerAssembly, bindSignerCookie, __getAssemblyForProbe, __resetSignerAssemblyForTest }

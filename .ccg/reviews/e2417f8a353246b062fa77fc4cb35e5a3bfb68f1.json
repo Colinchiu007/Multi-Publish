@@ -1,0 +1,51 @@
+{
+  "sha": "e2417f8a353246b062fa77fc4cb35e5a3bfb68f1",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 5 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 5,
+    "fileCount": 4,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "stagedDiffHash": "754ad26f7864bba61c58cdfc92a7e35ccac087a28dfd061e5e55f3dc571dbaa6",
+  "decidedAt": "2026-10-10T05:25:14.351Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "auth",
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "datamigration"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-e2417f8a\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
+    "at": "2026-10-10T05:31:14.496Z"
+  }
+}

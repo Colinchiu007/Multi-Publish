@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "comment": "播客 RSS 分发端目录（openspec/changes/podcast-rss-channel）。这些条目不是「可登录的发布平台」，不参与 PLATFORM_LOGIN_URLS / PLATFORM_AUTH_HOSTS / 会话标记 / publish-capabilities 的 titleMode 判定；仅承载「一份 feed 多投」的提交指引。收录事实以 verifiedAt 标注取证日期，改版后须重新取证。",
+  "endpoints": {
+    "xiaoyuzhou": {
+      "name": "小宇宙",
+      "submitChannel": "app",
+      "submitUrl": null,
+      "requiresManualFirstSubmit": true,
+      "timing": "首次提交为人工审核，通常 1~7 天；此后新增单集由小宇宙定时抓取 RSS，小时级延迟",
+      "docUrl": "https://blog.xiaoyuzhoufm.com/podcaster-manual/",
+      "verifiedAt": "2026-10-09",
+      "evidence": "官方站点无开放平台/API 入口；主播后台功能面为运营互动（节目信息、语音回复、公告、投票），无音频上传单集入口",
+      "steps": [
+        "在 mulpub「播客频道」中生成并公开 RSS 地址（feed 必须公网 https 可达）",
+        "在小宇宙 App 内进入「我的 → 播客投稿 / 创建节目」，粘贴 RSS 地址提交",
+        "等待人工审核收录（小时到天级），期间不要变更 feed 地址",
+        "此后每期只需在 mulpub 发布单集（追加 item 并更新 feed），无需再在小宇宙做任何逐期操作",
+        "若小宇宙侧未出现新单集，先用「RSS 自检」确认 enclosure 可达且字段合规"
+      ]
+    },
+    "apple_podcasts": {
+      "name": "Apple Podcasts",
+      "submitChannel": "web",
+      "submitUrl": "https://podcastsconnect.apple.com/",
+      "requiresManualFirstSubmit": true,
+      "timing": "网页端提交后审核通常数分钟到数天；此后由 Apple 定时抓取 RSS",
+      "docUrl": "https://podcasters.apple.com/",
+      "verifiedAt": "2026-10-08",
+      "evidence": "自助提交入口 Podcasts Connect 实测仍在服务（曾有「关闭自助提交」讨论，截至取证日期未生效）",
+      "steps": [
+        "用 Apple 账号登录 Podcasts Connect",
+        "选择「新节目 / Add a Show」并粘贴 RSS 地址",
+        "按页面提示确认频道信息与分类，提交验证",
+        "此后新单集由 Apple 自动抓取，无需逐期提交"
+      ]
+    },
+    "spotify": {
+      "name": "Spotify",
+      "submitChannel": "web",
+      "submitUrl": "https://podcasters.spotify.com/",
+      "requiresManualFirstSubmit": true,
+      "timing": "提交后小时到天级出现；此后由 Spotify 定时抓取 RSS",
+      "docUrl": "https://support.spotify.com/",
+      "verifiedAt": "2026-10-08",
+      "evidence": "Spotify for Podcasters 以 RSS 地址为唯一节目来源",
+      "steps": [
+        "登录 Spotify for Podcasters",
+        "选择「添加/podcast 已存在的 RSS」并粘贴地址",
+        "完成所有权验证（可能要求临时把节目所有者邮箱设为可收信地址）",
+        "此后新单集由 Spotify 自动抓取"
+      ]
+    }
+  }
+}

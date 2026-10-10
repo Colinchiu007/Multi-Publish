@@ -242,6 +242,35 @@ describe('publish IPC 可信来源正常工作', () => {
       expect(generateLocalCover).toHaveBeenCalled()
     })
 
+    // 2026-10-09 快手图文 tofu 修复：ffmpeg drawtext 占位图（degraded:true）在 Windows 打包环境
+    // 无 CJK 字形，中文字符全部渲染为方块（实锤证据 D:\Temp\story2video\assets\default\img_9400.png，
+    // 标题「白应苍临刑前称随口1个资金盘就20亿」仅 ASCII「1」「20」可读）。占位图绝不能作为
+    // 「AI 封面」成功返回——必须视为 AI 生成失败，走本地标题卡兜底（sharp/Pango 正确渲染 CJK）。
+    it('degraded 占位图（ffmpeg-placeholder）不得当成功返回，必须回退本地封面', async () => {
+      const generateLocalCover = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/multi-publish-cover-local/cover-degraded-probe.png' } }))
+      const assetGenerator = {
+        generateImage: vi.fn(async () => ({
+          code: 0,
+          data: { path: 'C:/tmp/story2video/assets/default/img_9400.png', source: 'ffmpeg-placeholder', degraded: true },
+        })),
+      }
+      const deps = createMockDeps({ assetGenerator, localCoverGenerator: { generateLocalCover } })
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const handler = ipcMain._get('cover:generate-ai')
+
+      const result = await handler(TRUSTED_EVENT, { prompt: '白应苍临刑前称随口1个资金盘就20亿', ratio: '3:4' })
+
+      // 不再把 tofu 占位图当 AI 封面返回
+      expect(result.code).toBe(0)
+      expect(result.data.coverPath).toBe('C:/tmp/multi-publish-cover-local/cover-degraded-probe.png')
+      expect(result.data.coverPath).not.toContain('img_9400')
+      expect(result.data.source).toBe('local-fallback')
+      // 占位图判定为失败后真实走了兜底
+      expect(assetGenerator.generateImage).toHaveBeenCalled()
+      expect(generateLocalCover).toHaveBeenCalled()
+    })
+
     // 2026-10-06 内容感知封面：兜底必须拿到文章标题与正文，否则封面与内容无关
     it('兜底分支把文章标题与正文透传给本地封面生成器', async () => {
       const generateLocalCover = vi.fn(async () => ({
@@ -566,5 +595,179 @@ describe('publish IPC Logto 权益门禁', () => {
       expect(result).toMatchObject({ code: -3 })
       expect(deps.taskQueue.add).not.toHaveBeenCalled()
     } finally { __electronMock.app.isPackaged = false }
+  })
+})
+
+// ── publish-frequency-policy-v2：策略读取 / 覆盖写入 / 紧急放行 ────────────────
+describe('publishFreq IPC（策略与紧急放行）', () => {
+
+  // publish-frequency-policy-v2：publishFreq:* handler 已按行数门禁要求外移到独立模块，
+  // 故本组用例必须同时注册两个模块 —— 只注册 publish.js 会得到「handler 不存在」的假红。
+  const registerFreq = (ipcMain, deps) => {
+    registerHandlers(ipcMain, deps)
+    require('./publish-frequency')(ipcMain, deps)
+  }
+  const EC = require('../core/error-codes').ERROR
+
+  function policyGuard (overrides = {}) {
+    return {
+      _intervals: vi.fn((p) => ({ accountMinMs: 1000, platformMinMs: 500, accountDailyMax: 3, tier: 'clip' })),
+      jitterRatio: 0.4,
+      releaseGraceMs: 60000,
+      setJitterRatio: vi.fn(() => true),
+      setReleaseGraceMs: vi.fn(() => true),
+      ...overrides,
+    }
+  }
+
+  function makeDeps (overrides = {}) {
+    return createMockDeps({
+      publishIntervalGuard: policyGuard(),
+      publishEmergencyRelease: {
+        check: vi.fn(() => ({ allowed: true, code: null, used: 0, max: 1, dayKey: '2026-10-10' })),
+        record: vi.fn(() => ({ at: 1, operator: 'unknown', audited: true })),
+        getStatus: vi.fn(() => ({ dayKey: '2026-10-10', max: 1, cooldownMs: 600000, retryAfterMs: 0, perAccount: {} })),
+      },
+      store: { getSettingObject: vi.fn(() => null), setSetting: vi.fn() },
+      ...overrides,
+    })
+  }
+
+  it('emergencyRelease 拒绝外部网页调用（与其余写通道同闸）', async () => {
+    const ipcMain = createMockIpcMain()
+    registerFreq(ipcMain, makeDeps())
+    const result = await ipcMain._get('publishFreq:emergencyRelease')(UNTRUSTED_EVENT, { platform: 'douyin', accountId: 'a' })
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
+  it('emergencyRelease 校验 platform / accountId 格式（防注入进 key 与审计）', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    registerFreq(ipcMain, deps)
+    const handler = ipcMain._get('publishFreq:emergencyRelease')
+
+    expect(await handler(TRUSTED_EVENT, { platform: 'dou/../yin', accountId: 'a' }))
+      .toMatchObject({ code: EC.VALIDATION_ERROR })
+    expect(await handler(TRUSTED_EVENT, { platform: 'douyin', accountId: 'a b' }))
+      .toMatchObject({ code: EC.VALIDATION_ERROR })
+    expect(deps.publishEmergencyRelease.check).not.toHaveBeenCalled()
+  })
+
+  it('emergencyRelease：服务未初始化时如实回报，不静默成功', async () => {
+    const ipcMain = createMockIpcMain()
+    registerFreq(ipcMain, makeDeps({ publishEmergencyRelease: null }))
+    const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin' })
+    expect(result).toMatchObject({ code: EC.REQUEST_ERROR })
+  })
+
+  it('emergencyRelease：策略闸未过 ⇒ 四态如实回报（released:false + 原因），不是错误码', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    deps.publishEmergencyRelease.check = vi.fn(() => ({
+      allowed: false, code: 'exhausted', used: 1, max: 1, dayKey: '2026-10-10',
+    }))
+    registerFreq(ipcMain, deps)
+
+    const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin', accountId: 'a' })
+    expect(result).toEqual({
+      code: 0,
+      data: { released: false, reason: 'exhausted', used: 1, max: 1, retryAfterMs: 0 },
+    })
+    // 未过闸时**不得**调用机制层，也不得记账
+    expect(deps.taskQueue.emergencyRelease).toBeUndefined()
+    expect(deps.publishEmergencyRelease.record).not.toHaveBeenCalled()
+  })
+
+  it('emergencyRelease：冷却中回报 retryAfterMs', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    deps.publishEmergencyRelease.check = vi.fn(() => ({
+      allowed: false, code: 'cooldown', used: 0, max: 1, retryAfterMs: 12345, dayKey: '2026-10-10',
+    }))
+    registerFreq(ipcMain, deps)
+    const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin' })
+    expect(result.data).toMatchObject({ released: false, reason: 'cooldown', retryAfterMs: 12345 })
+  })
+
+  it('emergencyRelease：没有等待中的窗口 ⇒ released:false + no_waiting_window（不得谎报成功）', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    deps.taskQueue.emergencyRelease = vi.fn(() => ({ ok: false, code: 'no_waiting_window' }))
+    registerFreq(ipcMain, deps)
+
+    const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin', accountId: 'a' })
+    expect(result.data).toMatchObject({ released: false, reason: 'no_waiting_window' })
+    expect(deps.publishEmergencyRelease.record).not.toHaveBeenCalled()
+  })
+
+  it('emergencyRelease 成功：记账 + 广播 + 回报已用次数', async () => {
+    const ipcMain = createMockIpcMain()
+    const sent = []
+    const deps = makeDeps({
+      BrowserWindow: { getAllWindows: () => [{ isDestroyed: () => false, webContents: { send: (ch, p) => sent.push({ ch, p }) } }] },
+    })
+    deps.taskQueue.emergencyRelease = vi.fn(() => ({ ok: true, taskId: 't-9', clearedKeys: ['douyin:*', 'douyin:a'] }))
+    registerFreq(ipcMain, deps)
+
+    const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin', accountId: 'a', reason: '客户催稿' })
+    expect(result.code).toBe(0)
+    expect(result.data).toMatchObject({ released: true, taskId: 't-9', used: 1, max: 1 })
+    expect(deps.publishEmergencyRelease.record).toHaveBeenCalledWith('douyin', 'a', expect.objectContaining({ result: 'ok', reason: '客户催稿' }))
+    expect(sent).toHaveLength(1)
+    expect(sent[0].ch).toBe('publish:emergencyReleased')
+    // 渲染层自报的 operator 不得被采用（operator 由主进程解析）
+    expect(deps.taskQueue.emergencyRelease.mock.calls[0][2]).not.toHaveProperty('operator')
+  })
+
+  it('setPolicy：非法配置整体拒绝且**不写库**（半生效态不可解释）', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    registerFreq(ipcMain, deps)
+
+    const result = await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy: { accountMinMs: -5 } })
+    expect(result).toMatchObject({ code: EC.VALIDATION_ERROR })
+    expect(deps.store.setSetting).not.toHaveBeenCalled()
+    expect(deps.publishIntervalGuard.setJitterRatio).not.toHaveBeenCalled()
+  })
+
+  it('setPolicy：合法配置写库并下发抖动/退避（间隔与日配额是每次现取，无需下发）', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    registerFreq(ipcMain, deps)
+
+    const policy = { accountMinMs: 30000, jitterRatio: 0.2, releaseGraceMs: 30000 }
+    const result = await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy })
+    expect(result.code).toBe(0)
+    expect(result.data.saved).toBe(true)
+    expect(deps.store.setSetting).toHaveBeenCalledWith('publishFrequencyPolicy', expect.objectContaining({ accountMinMs: 30000 }))
+    expect(deps.publishIntervalGuard.setJitterRatio).toHaveBeenCalledWith(0.2)
+    expect(deps.publishIntervalGuard.setReleaseGraceMs).toHaveBeenCalledWith(30000)
+  })
+
+  it('setPolicy：null ⇒ 清空覆盖（写库为 null），不是校验错误', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    registerFreq(ipcMain, deps)
+    const result = await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy: null })
+    expect(result.code).toBe(0)
+    expect(deps.store.setSetting).toHaveBeenCalledWith('publishFrequencyPolicy', null)
+  })
+
+  it('getPolicy：逐平台回报档位 + 抖动/退避 + 覆盖原文', async () => {
+    const ipcMain = createMockIpcMain()
+    const deps = makeDeps()
+    registerFreq(ipcMain, deps)
+    const result = await ipcMain._get('publishFreq:getPolicy')(TRUSTED_EVENT)
+    expect(result.code).toBe(0)
+    expect(Object.keys(result.data.platforms).length).toBeGreaterThanOrEqual(15)
+    expect(result.data.jitterRatio).toBe(0.4)
+    expect(result.data.releaseGraceMs).toBe(60000)
+  })
+
+  it('守卫未初始化时 getPolicy/setPolicy 如实回报，不抛', async () => {
+    const ipcMain = createMockIpcMain()
+    registerFreq(ipcMain, makeDeps({ publishIntervalGuard: null }))
+    expect(await ipcMain._get('publishFreq:getPolicy')(TRUSTED_EVENT)).toMatchObject({ code: EC.REQUEST_ERROR })
+    expect(await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy: {} })).toMatchObject({ code: EC.REQUEST_ERROR })
   })
 })

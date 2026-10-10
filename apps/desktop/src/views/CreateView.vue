@@ -906,33 +906,18 @@ import {
   storeGetSetting, storeSetSetting,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects, story2videoGetThumbnail,
   story2videoDeleteProject,
-  story2videoBgmLibraryList, story2videoBgmLibraryAdd,
-  story2videoBgmLibraryRename, story2videoBgmLibraryDelete,
   story2videoConfigProfileList, story2videoConfigProfileCreate,
   story2videoConfigProfileRename, story2videoConfigProfileDelete,
   story2videoBatchCreate, story2videoBatchStatus, story2videoBatchCancel, story2videoPickBatchFiles
 } from '@/api/publisher'
+import { bgmLibraryRefs, bgmLibraryMethods, setupBgmLibraryDeps } from './video-creation/composables/useBgmLibrary'
+import { ttsVoicesRefs, ttsVoicesComputeds, ttsVoicesMethods, setupTtsVoicesDeps } from './video-creation/composables/useTtsVoices'
 import { modelProviderList } from '@/api/model-providers'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 import { opsCenterSyncRuntime, opsCenterSyncPipelineOptions } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
-import {
-  getTtsVoiceCatalog,
-  getTtsVoiceCapability,
-  selectTtsVoice,
-  clearTtsVoicePreference,
-} from '@/api/tts-voice-catalog'
-import {
-  addTtsVoiceClone,
-  chooseTtsVoiceCloneSamples,
-  deleteTtsVoiceClone,
-  getTtsVoiceCloneRequirements,
-  listTtsVoiceClones,
-  renameTtsVoiceClone,
-} from '@/api/tts-voice-clone'
-import { confirmDanger } from '@/utils/confirm-danger'
 import {
   getPipelineCategory,
   getPipelineDescription,
@@ -1135,14 +1120,6 @@ export default {
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       story2videoBatchDeleteDialog: { visible: false, items: [] },
       deleting: false,
-      // 背景音乐素材库（2026-08-14）：设备级持久化，添加/重命名/删除后自动刷新
-      s2vBgmLibrary: [],
-      s2vBgmLibraryLoading: false,
-      s2vBgmLibraryDialogOpen: false,
-      s2vBgmLibraryRenamingId: '',
-      s2vBgmLibraryRenameDraft: '',
-      s2vBgmLibraryDeleteDialogOpen: false,
-      s2vBgmLibraryDeleteTargetId: null,
       // 流水线「保存配置」（2026-08-28 s2v-pipeline-config-profiles）：设备级命名组合配置
       s2vConfigProfiles: [],
       s2vConfigProfilesLoading: false,
@@ -1176,17 +1153,7 @@ export default {
       S2V_BATCH_MAX_TEXTS: 10,
       S2V_BATCH_MAX_FILES: 20,
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
-      s2vImageProviders: [], s2vVoiceProviders: [], s2vVideoProviders: [],
-      s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
-      s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
-      s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
-      s2vVoiceCloneSelection: null, s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
-      // 克隆进行中占位行（选择本地音频后自动克隆期间的即时反馈，2026-08-13）
-      s2vVoiceClonePending: null,
-      s2vVoiceCloneRenamingId: '', s2vVoiceCloneRenameDraft: '',
-      // 用户显式选择了「自动 Edge TTS」（voiceProvider=''）时为 true；用于区分「未选择」与「显式 Edge」，
-      // 避免 loadS2VProviders 重入时被多模态默认覆盖。
-      s2vVoiceProviderExplicitEdge: false,
+      s2vImageProviders: [], s2vVideoProviders: [],
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 运营中心选项控制（2026-08-31）：可见性与默认值
@@ -1205,6 +1172,35 @@ export default {
     }
   },
   computed: {
+    // ── TTS 音色域（useTtsVoices，拆分方案 v3 §2.2 第 2 步）─────────────────
+    // 状态桥接：整体赋值经 setter 替换 ref.value；原地变异要求 getter 返回 ref 内对象本身（禁止 spread 副本）。
+    s2vVoiceProviders: { get() { return ttsVoicesRefs.s2vVoiceProviders.value }, set(v) { ttsVoicesRefs.s2vVoiceProviders.value = v } },
+    s2vVoiceCatalog: { get() { return ttsVoicesRefs.s2vVoiceCatalog.value }, set(v) { ttsVoicesRefs.s2vVoiceCatalog.value = v } },
+    s2vVoiceCatalogLoading: { get() { return ttsVoicesRefs.s2vVoiceCatalogLoading.value }, set(v) { ttsVoicesRefs.s2vVoiceCatalogLoading.value = v } },
+    s2vVoiceCatalogError: { get() { return ttsVoicesRefs.s2vVoiceCatalogError.value }, set(v) { ttsVoicesRefs.s2vVoiceCatalogError.value = v } },
+    s2vVoiceCatalogErrorCode: { get() { return ttsVoicesRefs.s2vVoiceCatalogErrorCode.value }, set(v) { ttsVoicesRefs.s2vVoiceCatalogErrorCode.value = v } },
+    s2vVoiceCapability: { get() { return ttsVoicesRefs.s2vVoiceCapability.value }, set(v) { ttsVoicesRefs.s2vVoiceCapability.value = v } },
+    s2vVoiceProviderRequestId: { get() { return ttsVoicesRefs.s2vVoiceProviderRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceProviderRequestId.value = v } },
+    s2vVoiceRequestId: { get() { return ttsVoicesRefs.s2vVoiceRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceRequestId.value = v } },
+    s2vVoiceSelectionRequestId: { get() { return ttsVoicesRefs.s2vVoiceSelectionRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceSelectionRequestId.value = v } },
+    s2vVoiceCloneRequestId: { get() { return ttsVoicesRefs.s2vVoiceCloneRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRequestId.value = v } },
+    s2vPersistedVoiceId: { get() { return ttsVoicesRefs.s2vPersistedVoiceId.value }, set(v) { ttsVoicesRefs.s2vPersistedVoiceId.value = v } },
+    s2vVoiceCloneRequirements: { get() { return ttsVoicesRefs.s2vVoiceCloneRequirements.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRequirements.value = v } },
+    s2vVoiceClones: { get() { return ttsVoicesRefs.s2vVoiceClones.value }, set(v) { ttsVoicesRefs.s2vVoiceClones.value = v } },
+    s2vVoiceCloneSelection: { get() { return ttsVoicesRefs.s2vVoiceCloneSelection.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneSelection.value = v } },
+    s2vVoiceCloneLoading: { get() { return ttsVoicesRefs.s2vVoiceCloneLoading.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneLoading.value = v } },
+    s2vVoiceCloneError: { get() { return ttsVoicesRefs.s2vVoiceCloneError.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneError.value = v } },
+    s2vVoiceClonePending: { get() { return ttsVoicesRefs.s2vVoiceClonePending.value }, set(v) { ttsVoicesRefs.s2vVoiceClonePending.value = v } },
+    s2vVoiceCloneRenamingId: { get() { return ttsVoicesRefs.s2vVoiceCloneRenamingId.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRenamingId.value = v } },
+    s2vVoiceCloneRenameDraft: { get() { return ttsVoicesRefs.s2vVoiceCloneRenameDraft.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRenameDraft.value = v } },
+    s2vVoiceProviderExplicitEdge: { get() { return ttsVoicesRefs.s2vVoiceProviderExplicitEdge.value }, set(v) { ttsVoicesRefs.s2vVoiceProviderExplicitEdge.value = v } },
+    // 计算属性：委托到 composable（只读，与迁出前的只读语义一致）。
+    s2vVoiceProviderOptions: { get() { return ttsVoicesComputeds.s2vVoiceProviderOptions.value } },
+    s2vVoiceCatalogRefreshable: { get() { return ttsVoicesComputeds.s2vVoiceCatalogRefreshable.value } },
+    s2vVoiceModelOptions: { get() { return ttsVoicesComputeds.s2vVoiceModelOptions.value } },
+    s2vVoiceModelHidden: { get() { return ttsVoicesComputeds.s2vVoiceModelHidden.value } },
+    s2vVoiceContextModel: { get() { return ttsVoicesComputeds.s2vVoiceContextModel.value } },
+    s2vVoiceOptions: { get() { return ttsVoicesComputeds.s2vVoiceOptions.value } },
     styles() { return STYLES },
     s2vTemplates() {
       const templates = this.s2vTemplateCategory === 'all'
@@ -1233,20 +1229,13 @@ export default {
     s2vImageProviderOptions() {
       return this.s2vImageProviders.map(provider => ({
         ...provider,
-        displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
+        displayName: provider.category === 'multimodal' ? provider.name + this.$t('create.story2video.voice.multimodalSuffix') : provider.name,
       }))
-    },
-    s2vVoiceProviderOptions() {
-      // 首项「自动 Edge TTS」必须带 displayName，否则模板 {{ provider.displayName }} 渲染为空选项（2026-08-10 Bug 反哺）
-      return [{ id: '', name: '自动 Edge TTS', displayName: '自动 Edge TTS' }, ...this.s2vVoiceProviders.map(provider => ({
-        ...provider,
-        displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
-      }))]
     },
     s2vVideoProviderOptions() {
       return this.s2vVideoProviders.map(provider => ({
         ...provider,
-        displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
+        displayName: provider.category === 'multimodal' ? provider.name + this.$t('create.story2video.voice.multimodalSuffix') : provider.name,
       }))
     },
     s2vVideoModelOptions() {
@@ -1259,46 +1248,6 @@ export default {
         return strings.includes(videoModel) ? [videoModel] : [videoModel, ...strings]
       }
       return strings
-    },
-    s2vVoiceCatalogRefreshable() {
-      // 仅瞬时/未知错误提供「刷新音色列表」；配置类/不支持/模型不匹配/身份问题重试无效
-      if (!this.s2vVoiceCatalogError) return false
-      const code = this.s2vVoiceCatalogErrorCode
-      return code === '' || code === 'VOICE_CATALOG_UNAVAILABLE'
-    },
-    s2vVoiceModelOptions() {
-      const provider = this.s2vVoiceProviders.find(item => item?.id === this.s2vConfig.voiceProvider)
-      if (!provider) return []
-      const models = Array.isArray(provider.models) ? provider.models : []
-      const strings = models.filter(model => typeof model === 'string' && model)
-      // MiMo TTS：语音模型下拉隐藏（模型由「语音/音色 ID」区分：预置→mimo-v2.5-tts，克隆→mimo-v2.5-tts-voiceclone）
-      if (provider.id === 'mimo-tts') return []
-      // 多模态：只展示声明支持 TTS 的默认模型（capability_models.tts），
-      // 避免把 image/video/llm 模型混入「语音模型」下拉。
-      if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
-        const ttsModel = provider.capability_models.tts
-        return strings.includes(ttsModel) ? [ttsModel] : [ttsModel, ...strings]
-      }
-      return strings
-    },
-    // MiMo TTS 的「语音模型」下拉隐藏：mimo-v2.5-tts 与 mimo-v2.5-tts-voiceclone
-    // 由「语音 / 音色 ID」下拉区分（预置音色 → tts，克隆音色 → voiceclone）。
-    s2vVoiceModelHidden() {
-      const provider = this.getS2VVoiceProvider()
-      return Boolean(provider && provider.id === 'mimo-tts')
-    },
-    // MiMo TTS 下 catalog 请求使用的模型：预置音色目录用 mimo-v2.5-tts
-    // （克隆音色由 tts-voice-clone-service 单独按 provider:model 管理）。
-    s2vVoiceContextModel() {
-      if (this.s2vVoiceModelHidden) return 'mimo-v2.5-tts'
-      return typeof this.s2vConfig.voiceModel === 'string' ? this.s2vConfig.voiceModel.trim() : ''
-    },
-    s2vVoiceOptions() {
-      const voices = [
-        ...(Array.isArray(this.s2vVoiceCatalog) ? this.s2vVoiceCatalog : []),
-        ...(Array.isArray(this.s2vVoiceClones) ? this.s2vVoiceClones : []),
-      ]
-      return [...new Map(voices.map(voice => [voice.id, voice])).values()]
     },
     story2videoConfigurationTitle() {
       return this.translateWithLocaleFallback(
@@ -1548,6 +1497,36 @@ export default {
         messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_CONFIRM,
         messageParams: { name: target ? target.name : '' },
       }).message
+    },
+    // ── BGM 素材库状态桥接（拆分方案 v3 §2.3）：get/set 双向委托 bgmLibraryRefs，
+    //    旧测试/模板触点（w.vm.s2vBgmLibrary*）不变；整体赋值经 setter 替换 ref.value ──
+    s2vBgmLibrary: {
+      get() { return bgmLibraryRefs.s2vBgmLibrary.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibrary.value = v },
+    },
+    s2vBgmLibraryLoading: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryLoading.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryLoading.value = v },
+    },
+    s2vBgmLibraryDialogOpen: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryDialogOpen.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryDialogOpen.value = v },
+    },
+    s2vBgmLibraryRenamingId: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryRenamingId.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryRenamingId.value = v },
+    },
+    s2vBgmLibraryRenameDraft: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryRenameDraft.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryRenameDraft.value = v },
+    },
+    s2vBgmLibraryDeleteDialogOpen: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryDeleteDialogOpen.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryDeleteDialogOpen.value = v },
+    },
+    s2vBgmLibraryDeleteTargetId: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryDeleteTargetId.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryDeleteTargetId.value = v },
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
@@ -1820,6 +1799,35 @@ export default {
     },
   },
   methods: {
+    // ── TTS 音色域方法代理（同名转发到 useTtsVoices）──────────────────────
+    getS2VVoiceContext(...args) { return ttsVoicesMethods.getS2VVoiceContext(...args) },
+    getS2VVoiceCloneContext(...args) { return ttsVoicesMethods.getS2VVoiceCloneContext(...args) },
+    getS2VVoiceProvider(...args) { return ttsVoicesMethods.getS2VVoiceProvider(...args) },
+    getS2VDefaultVoiceModel(...args) { return ttsVoicesMethods.getS2VDefaultVoiceModel(...args) },
+    isCurrentS2VVoiceRequest(...args) { return ttsVoicesMethods.isCurrentS2VVoiceRequest(...args) },
+    isCurrentS2VVoiceCloneRequest(...args) { return ttsVoicesMethods.isCurrentS2VVoiceCloneRequest(...args) },
+    isCurrentS2VVoiceSelectionRequest(...args) { return ttsVoicesMethods.isCurrentS2VVoiceSelectionRequest(...args) },
+    toS2VVoiceOption(...args) { return ttsVoicesMethods.toS2VVoiceOption(...args) },
+    toS2VVoiceCloneRequirements(...args) { return ttsVoicesMethods.toS2VVoiceCloneRequirements(...args) },
+    friendlyVoiceCatalogError(...args) { return ttsVoicesMethods.friendlyVoiceCatalogError(...args) },
+    s2vVoiceCloneHint(...args) { return ttsVoicesMethods.s2vVoiceCloneHint(...args) },
+    resetS2VVoiceData(...args) { return ttsVoicesMethods.resetS2VVoiceData(...args) },
+    loadS2VVoiceData(...args) { return ttsVoicesMethods.loadS2VVoiceData(...args) },
+    refreshS2VVoiceCatalog(...args) { return ttsVoicesMethods.refreshS2VVoiceCatalog(...args) },
+    handleS2VVoiceProviderChange(...args) { return ttsVoicesMethods.handleS2VVoiceProviderChange(...args) },
+    handleS2VVoiceModelChange(...args) { return ttsVoicesMethods.handleS2VVoiceModelChange(...args) },
+    handleS2VVoiceSelection(...args) { return ttsVoicesMethods.handleS2VVoiceSelection(...args) },
+    selectS2VVoice(...args) { return ttsVoicesMethods.selectS2VVoice(...args) },
+    chooseS2VVoiceCloneSamples(...args) { return ttsVoicesMethods.chooseS2VVoiceCloneSamples(...args) },
+    nextS2VVoiceCloneName(...args) { return ttsVoicesMethods.nextS2VVoiceCloneName(...args) },
+    addS2VVoiceClone(...args) { return ttsVoicesMethods.addS2VVoiceClone(...args) },
+    s2vVoiceCloneStatusText(...args) { return ttsVoicesMethods.s2vVoiceCloneStatusText(...args) },
+    deleteS2VVoiceClone(...args) { return ttsVoicesMethods.deleteS2VVoiceClone(...args) },
+    startS2VVoiceCloneRename(...args) { return ttsVoicesMethods.startS2VVoiceCloneRename(...args) },
+    cancelS2VVoiceCloneRename(...args) { return ttsVoicesMethods.cancelS2VVoiceCloneRename(...args) },
+    renameS2VVoiceClone(...args) { return ttsVoicesMethods.renameS2VVoiceClone(...args) },
+    formatS2VVoiceCloneBytes(...args) { return ttsVoicesMethods.formatS2VVoiceCloneBytes(...args) },
+    formatS2VVoiceCloneDuration(...args) { return ttsVoicesMethods.formatS2VVoiceCloneDuration(...args) },
     // 页面导航箭头
     goBack() { if (this.viewHistoryIndex > 0) { this.viewHistoryIndex--; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
     goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
@@ -1914,7 +1922,7 @@ export default {
           : (this.s2vConfig.videoMode === 'fixed'
             ? `固定 ${this.s2vConfig.videoFixedRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')
             : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')),
-        voice: `${this.s2vConfig.voiceProvider || '自动 Edge TTS'}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
+        voice: `${this.s2vConfig.voiceProvider || this.$t('create.story2video.voice.autoEdgeProvider')}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
         advanced: `${this.s2vConfig.splitLanguage === 'auto' ? '自动识别' : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || '均衡'}`,
         publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
       }
@@ -3201,40 +3209,6 @@ export default {
     refreshS2VTemplates() {
       this.s2vTemplateLibrary = getAllTemplates('all', window.localStorage)
     },
-    getS2VVoiceContext() {
-      const providerId = typeof this.s2vConfig.voiceProvider === 'string' ? this.s2vConfig.voiceProvider.trim() : ''
-      // MiMo TTS：语音模型下拉隐藏，catalog 请求固定用 mimo-v2.5-tts（预置音色目录）
-      const model = this.s2vVoiceModelHidden
-        ? 'mimo-v2.5-tts'
-        : (typeof this.s2vConfig.voiceModel === 'string' ? this.s2vConfig.voiceModel.trim() : '')
-      return providerId && model ? { providerId, model } : null
-    },
-    // MiMo TTS 克隆上下文：克隆 registry/偏好绑定在 voiceclone 模型下
-    getS2VVoiceCloneContext() {
-      const context = this.getS2VVoiceContext()
-      if (!context) return null
-      return this.s2vVoiceModelHidden
-        ? { providerId: context.providerId, model: 'mimo-v2.5-tts-voiceclone' }
-        : context
-    },
-    getS2VVoiceProvider(providerId = this.s2vConfig.voiceProvider) {
-      return this.s2vVoiceProviders.find(provider => provider?.id === providerId) || null
-    },
-    getS2VDefaultVoiceModel(providerId = this.s2vConfig.voiceProvider) {
-      const provider = this.getS2VVoiceProvider(providerId)
-      const models = Array.isArray(provider?.models)
-        ? provider.models.filter(model => typeof model === 'string' && model)
-        : []
-      // MiMo TTS：语音模型下拉隐藏，voiceModel 置空（模型由「语音/音色 ID」区分）
-      if (provider?.id === 'mimo-tts') return ''
-      // 多模态：默认取 capability_models.tts（能力默认模型），models 首项可能是 image/video/llm 模型。
-      if (provider?.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
-        const ttsModel = provider.capability_models.tts
-        return models.includes(ttsModel) ? ttsModel : (ttsModel || models[0] || '')
-      }
-      const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
-      return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
-    },
     getS2VVideoProvider(providerId = this.s2vConfig.videoProvider) {
       return this.s2vVideoProviders.find(provider => provider?.id === providerId) || null
     },
@@ -3256,223 +3230,18 @@ export default {
       this.s2vConfig.videoProvider = nextProviderId
       this.s2vConfig.videoModel = nextProviderId ? this.getS2VDefaultVideoModel(nextProviderId) : ''
     },
-    isCurrentS2VVoiceRequest(requestId, context) {
-      return requestId === this.s2vVoiceRequestId
-        && this.s2vConfig.voiceProvider === context.providerId
-        && this.s2vVoiceContextModel === context.model
-    },
-    isCurrentS2VVoiceCloneRequest(requestId, context) {
-      // MiMo TTS：克隆请求的 context.model 是 mimo-v2.5-tts-voiceclone（与 catalog 的 tts 模型不同）
-      const expectedModel = this.s2vVoiceModelHidden ? 'mimo-v2.5-tts-voiceclone' : this.s2vVoiceContextModel
-      return requestId === this.s2vVoiceCloneRequestId
-        && this.s2vConfig.voiceProvider === context.providerId
-        && expectedModel === context.model
-    },
-    isCurrentS2VVoiceSelectionRequest(requestId, context, voiceId) {
-      // MiMo TTS：克隆音色选择请求的 context.model 是 mimo-v2.5-tts-voiceclone
-      const expectedModel = this.s2vVoiceModelHidden ? 'mimo-v2.5-tts-voiceclone' : this.s2vVoiceContextModel
-      return requestId === this.s2vVoiceSelectionRequestId
-        && this.s2vConfig.voiceProvider === context.providerId
-        && expectedModel === context.model
-        && this.s2vConfig.voiceId === voiceId
-    },
-    toS2VVoiceOption(voice) {
-      const id = typeof voice?.id === 'string' ? voice.id.trim() : ''
-      const name = typeof voice?.name === 'string' ? voice.name.trim() : ''
-      if (!id || !name) return null
-      return { id, name, invalid: voice.invalid === true }
-    },
     isS2VDefaultVoice(voiceId) {
       return typeof voiceId === 'string' && voiceId.length > 0 && this.s2vConfig.voiceId === voiceId
     },
     story2videoKindLabel(kind) {
-      const labels = {
-        image: '图片',
-        audio: '旁白音频',
-        bgm: '背景音乐',
-        video: '视频素材',
+      const labelKeys = {
+        image: 'kindImage',
+        audio: 'kindAudio',
+        bgm: 'kindBgm',
+        video: 'kindVideo',
       }
-      return labels[kind] || ''
-    },
-    toS2VVoiceCloneRequirements(requirements) {
-      if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return null
-      const toFiniteNumber = (value) => Number.isFinite(value) && value >= 0 ? value : null
-      return {
-        allowedExtensions: Array.isArray(requirements.allowedExtensions)
-          ? requirements.allowedExtensions.filter(extension => typeof extension === 'string' && extension)
-          : [],
-        maxSampleCount: toFiniteNumber(requirements.maxSampleCount),
-        maxSampleBytes: toFiniteNumber(requirements.maxSampleBytes),
-        maxTotalBytes: toFiniteNumber(requirements.maxTotalBytes),
-        minSampleDurationSeconds: toFiniteNumber(requirements.minSampleDurationSeconds) || 0,
-        maxSampleDurationSeconds: toFiniteNumber(requirements.maxSampleDurationSeconds),
-        maxTotalDurationSeconds: toFiniteNumber(requirements.maxTotalDurationSeconds),
-      }
-    },
-    friendlyVoiceCatalogError(message) {
-      const raw = String(message || '')
-      const map = {
-        VOICE_CATALOG_UNSUPPORTED: ['当前语音模型暂不支持音色列表与克隆功能，已使用默认音色。', 'This voice model does not support voice lists or cloning yet. Using the default voice.'],
-        VOICE_CATALOG_CONFIG_UNAVAILABLE: ['当前语音服务商配置不可用，请在模型设置中检查并配置后重试。', 'The voice provider configuration is unavailable. Check it in model settings and retry.'],
-        VOICE_CATALOG_UNAVAILABLE: ['暂时无法获取音色列表，已使用默认音色，请稍后重试。', 'The voice list is temporarily unavailable. Using the default voice. Please try again later.'],
-        VOICE_MODEL_MISMATCH: ['所选语音模型与配置不一致，请检查模型设置。', 'The selected voice model does not match the configuration. Check the model settings.'],
-        VOICE_PREFERENCE_STORE_UNAVAILABLE: ['音色偏好保存不可用，请检查本地存储。', 'Voice preference storage is unavailable. Check local storage.'],
-        VOICE_OWNER_UNAVAILABLE: ['登录状态不可用，请重新登录后重试。', 'Sign-in state is unavailable. Sign in again and retry.'],
-        VOICE_NOT_IN_CATALOG: ['所选音色不在当前音色列表中，请重新选择。', 'The selected voice is not in the current voice list. Select another voice.'],
-        VOICE_CLONE_SAMPLE_INVALID: ['上传的音频文件不符合要求，请按提示调整格式、时长或大小后重试。', 'The uploaded audio does not meet the requirements. Adjust format, duration, or size and retry.'],
-        VOICE_CLONE_SAMPLE_DURATION_INVALID: ['上传的音频文件时长不符合要求，请按提示调整时长后重试。', 'The uploaded audio duration does not meet the requirements. Adjust the duration and retry.'],
-        VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED: ['上传的音频文件格式不符合要求，请使用 mp3、m4a 或 wav 格式。', 'The uploaded audio format is not supported. Use mp3, m4a, or wav.'],
-        VOICE_CLONE_SAMPLE_TOO_LARGE: ['上传的音频文件大小超出限制，请压缩或更换文件后重试。', 'The uploaded audio is too large. Compress it or use another file.'],
-        VOICE_CLONE_TOTAL_SIZE_EXCEEDED: ['上传的音频总大小超出限制，请减少文件后重试。', 'The total audio size exceeds the limit. Remove files and retry.'],
-        VOICE_CLONE_TOTAL_DURATION_EXCEEDED: ['上传的音频总时长超出限制，请减少文件后重试。', 'The total audio duration exceeds the limit. Remove files and retry.'],
-        VOICE_CLONE_PROVIDER_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
-        VOICE_CLONE_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
-        VOICE_CLONE_UNSUPPORTED: ['当前语音模型暂不支持音色克隆，已使用默认音色。', 'This voice model does not support voice cloning yet. Using the default voice.'],
-        VOICE_CLONE_DIALOG_UNAVAILABLE: ['无法打开本地音频文件选择窗口，请重试。', 'Could not open the audio file picker. Please try again.'],
-        VOICE_CLONE_DUPLICATE_ID: ['该克隆音色已存在，请更换名称后重试。', 'A cloned voice with this name already exists. Use another name.'],
-        VOICE_CLONE_MODEL_MISMATCH: ['所选语音模型与克隆配置不一致，请检查模型设置。', 'The selected voice model does not match the clone configuration. Check the model settings.'],
-        VOICE_CLONE_NOT_FOUND: ['未找到该克隆音色，请重新选择。', 'The cloned voice was not found. Select it again.'],
-        VOICE_CLONE_REGISTRY_INVALID: ['克隆音色本地记录异常，请重新选择音频文件后重试。', 'The local clone voice record is invalid. Select the audio file again and retry.'],
-        VOICE_CLONE_ROLLBACK_REQUIRED: ['克隆音色保存未完成，请重新选择音频文件后重试。', 'The clone voice save did not finish. Select the audio file again and retry.'],
-        VOICE_CLONE_SELECTION_UNAVAILABLE: ['音频样本暂存不可用，请重新选择音频文件。', 'Audio sample staging is unavailable. Select the audio file again.'],
-        VOICE_CLONE_STORE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
-        VOICE_CLONE_STORAGE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
-        VOICE_CLONE_INVALID_ARGUMENTS: ['克隆音色参数不合法，请重新选择音频文件。', 'Invalid clone voice parameters. Select the audio file again.'],
-      }
-      const found = Object.entries(map).find(([key]) => raw.includes(key))
-      if (found) return this.translateWithLocaleFallback('create.story2video.voice.' + found[0], found[1][0], found[1][1])
-      // 不向用户泄露系统技术错误码
-      return this.translateWithLocaleFallback(
-        'create.story2video.voice.catalogLoadFailed',
-        '无法加载音色列表，已使用默认音色，请稍后重试。',
-        'The voice list could not be loaded. Using the default voice. Please try again later.'
-      )
-    },
-    s2vVoiceCloneHint() {
-      const r = this.s2vVoiceCloneRequirements
-      if (!r) return ''
-      const parts = []
-      if (Array.isArray(r.allowedExtensions) && r.allowedExtensions.length > 0) {
-        const extText = r.allowedExtensions.map(ext => String(ext).replace(/^\./, '')).join('、')
-        parts.push('上传的音频文件格式需为：' + extText + ' 格式')
-      }
-      if (r.minSampleDurationSeconds > 0 && r.maxSampleDurationSeconds > 0) {
-        const maxMinutes = Math.round(r.maxSampleDurationSeconds / 60)
-        parts.push('上传的音频文件的时长最少应不低于 ' + r.minSampleDurationSeconds + ' 秒，最长应不超过 ' + maxMinutes + ' 分钟')
-      } else if (r.maxSampleDurationSeconds > 0) {
-        parts.push('上传的音频文件的时长最长应不超过 ' + this.formatS2VVoiceCloneDuration(r.maxSampleDurationSeconds))
-      }
-      if (r.maxSampleBytes > 0) {
-        parts.push('上传的音频文件大小需不超过 ' + this.formatS2VVoiceCloneBytes(r.maxSampleBytes))
-      }
-      return parts.length > 0 ? parts.join('；') + '。' : ''
-    },
-    resetS2VVoiceData() {
-      this.s2vVoiceCatalog = []
-      this.s2vVoiceCatalogLoading = false
-      this.s2vVoiceCatalogError = ''
-      this.s2vVoiceCatalogErrorCode = ''
-      this.s2vVoiceCapability = null
-      this.s2vPersistedVoiceId = ''
-      this.s2vVoiceCloneRequirements = null
-      this.s2vVoiceClones = []
-      this.s2vVoiceCloneSelection = null
-      this.s2vVoiceClonePending = null
-      this.s2vVoiceCloneLoading = false
-      this.s2vVoiceCloneError = ''
-      this.s2vVoiceCloneRenamingId = ''
-      this.s2vVoiceCloneRenameDraft = ''
-    },
-    async loadS2VVoiceData(options = {}) {
-      // 卸载守卫：弹窗关闭触发的语音目录/能力重载可能跨越组件卸载（2026-08-12 复审 I1）
-      if (this._s2vAlive === false) return
-      const context = this.getS2VVoiceContext()
-      const requestId = ++this.s2vVoiceRequestId
-      this.s2vVoiceSelectionRequestId += 1
-      this.s2vVoiceCloneRequestId += 1
-      this.resetS2VVoiceData()
-      if (!context) return
-
-      this.s2vVoiceCatalogLoading = true
-      const catalogInput = this.cloneForIpc({ ...context, refresh: options.refresh === true })
-      // MiMo TTS：catalog 用 mimo-v2.5-tts（预置音色），capability/克隆用 mimo-v2.5-tts-voiceclone
-      // （音色复刻能力由 voiceclone 模型声明）。语音模型下拉隐藏，模型由音色类型区分。
-      const cloneContext = this.s2vVoiceModelHidden
-        ? { providerId: context.providerId, model: 'mimo-v2.5-tts-voiceclone' }
-        : context
-      const [catalogResult, capabilityResult] = await Promise.allSettled([
-        getTtsVoiceCatalog(catalogInput),
-        getTtsVoiceCapability(this.cloneForIpc(cloneContext)),
-      ])
-      if (!this.isCurrentS2VVoiceRequest(requestId, context)) return
-
-      const catalogResponse = catalogResult.status === 'fulfilled' ? catalogResult.value : null
-      const capabilityResponse = capabilityResult.status === 'fulfilled' ? capabilityResult.value : null
-      const catalogData = catalogResponse?.code === 0 && catalogResponse.data && typeof catalogResponse.data === 'object'
-        ? catalogResponse.data
-        : null
-      const capabilityData = capabilityResponse?.code === 0 && capabilityResponse.data && typeof capabilityResponse.data === 'object'
-        ? capabilityResponse.data
-        : null
-      this.s2vVoiceCatalog = [
-        ...(Array.isArray(catalogData?.voices) ? catalogData.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean) : []),
-        // 失效克隆音色（如旧版生成的非法 voice_id）：仅展示提示，不可选择
-        ...(Array.isArray(catalogData?.invalidVoices) ? catalogData.invalidVoices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean) : []),
-      ]
-      this.s2vVoiceCapability = capabilityData
-        ? {
-            type: capabilityData.type,
-            clone: { enabled: capabilityData.clone?.enabled === true },
-          }
-        : null
-      this.s2vVoiceCatalogLoading = false
-      this.s2vVoiceCatalogErrorCode = catalogData ? '' : String(catalogResponse?.message || '')
-      if (!catalogData) {
-        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(catalogResponse?.message)
-      }
-
-      const cloneEnabled = this.s2vVoiceCapability?.type === 'user_clone'
-        && this.s2vVoiceCapability?.clone?.enabled === true
-      if (cloneEnabled) {
-        const cloneRequestId = ++this.s2vVoiceCloneRequestId
-        this.s2vVoiceCloneLoading = true
-        const [requirementsResult, clonesResult] = await Promise.allSettled([
-          getTtsVoiceCloneRequirements(this.cloneForIpc(cloneContext)),
-          listTtsVoiceClones(this.cloneForIpc(cloneContext)),
-        ])
-        if (!this.isCurrentS2VVoiceRequest(requestId, context)
-          || !this.isCurrentS2VVoiceCloneRequest(cloneRequestId, cloneContext)) return
-
-        const requirementsResponse = requirementsResult.status === 'fulfilled' ? requirementsResult.value : null
-        const clonesResponse = clonesResult.status === 'fulfilled' ? clonesResult.value : null
-        this.s2vVoiceCloneRequirements = requirementsResponse?.code === 0
-          ? this.toS2VVoiceCloneRequirements(requirementsResponse.data)
-          : null
-        this.s2vVoiceClones = clonesResponse?.code === 0 && Array.isArray(clonesResponse.data?.voices)
-          ? clonesResponse.data.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean)
-          : []
-        this.s2vVoiceCloneError = requirementsResponse?.code === 0 && clonesResponse?.code === 0
-          ? ''
-          : (requirementsResponse?.message || clonesResponse?.message || '无法加载克隆音色信息。')
-        this.s2vVoiceCloneLoading = false
-      }
-
-      if (!this.isCurrentS2VVoiceRequest(requestId, context)) return
-      const selectedVoiceId = typeof catalogData?.selectedVoiceId === 'string' ? catalogData.selectedVoiceId : ''
-      const configuredVoiceId = typeof this.s2vConfig.voiceId === 'string' ? this.s2vConfig.voiceId : ''
-      const availableVoiceIds = new Set(this.s2vVoiceOptions.map(voice => voice.id))
-      if (selectedVoiceId && availableVoiceIds.has(selectedVoiceId)) {
-        this.s2vConfig.voiceId = selectedVoiceId
-        this.s2vPersistedVoiceId = selectedVoiceId
-      } else if (configuredVoiceId && availableVoiceIds.has(configuredVoiceId)) {
-        this.s2vPersistedVoiceId = configuredVoiceId
-      } else {
-        this.s2vConfig.voiceId = ''
-      }
-    },
-    async refreshS2VVoiceCatalog() {
-      this.s2vVoiceCatalogError = ''
-      await this.loadS2VVoiceData({ refresh: true })
+      const labelKey = labelKeys[kind]
+      return labelKey ? this.$t(`create.story2video.voice.${labelKey}`) : ''
     },
     async loadS2VProviders() {
       // 卸载守卫：弹窗关闭触发的重拉可能跨越组件卸载，异步恢复后不再写已卸载组件状态（2026-08-12 审查 m3 修复）。
@@ -3551,293 +3320,6 @@ export default {
         if (contextChanged) this.s2vConfig.voiceId = ''
         await this.loadS2VVoiceData()
       }
-    },
-    async handleS2VVoiceProviderChange() {
-      const nextProviderId = this.getS2VVoiceProvider()?.id || ''
-      // 记录「显式选择自动 Edge TTS」：空 id 既是未选择也是显式 Edge，需区分以免被多模态默认覆盖
-      this.s2vVoiceProviderExplicitEdge = !nextProviderId
-      this.s2vConfig.voiceProvider = nextProviderId
-      this.s2vConfig.voiceModel = nextProviderId ? this.getS2VDefaultVoiceModel(nextProviderId) : ''
-      this.s2vConfig.voiceId = ''
-      await this.loadS2VVoiceData()
-    },
-    async handleS2VVoiceModelChange() {
-      const nextModel = this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
-        ? this.s2vConfig.voiceModel
-        : this.getS2VDefaultVoiceModel()
-      this.s2vConfig.voiceModel = nextModel
-      this.s2vConfig.voiceId = ''
-      await this.loadS2VVoiceData()
-    },
-    async handleS2VVoiceSelection() {
-      await this.selectS2VVoice(this.s2vConfig.voiceId)
-    },
-    async selectS2VVoice(voiceId = this.s2vConfig.voiceId) {
-      const context = this.getS2VVoiceContext()
-      // MiMo TTS：克隆音色的偏好持久化到 voiceclone 模型下（与克隆 registry 同键域）
-      const selectContext = this.s2vVoiceModelHidden && typeof voiceId === 'string' && voiceId.startsWith('mimo-clone-')
-        ? { providerId: context?.providerId, model: 'mimo-v2.5-tts-voiceclone' }
-        : context
-      const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
-      if (!selectContext) return false
-      if (!normalizedVoiceId) {
-        const requestId = ++this.s2vVoiceSelectionRequestId
-        const result = await clearTtsVoicePreference(this.cloneForIpc(selectContext))
-        if (!this.isCurrentS2VVoiceSelectionRequest(requestId, selectContext, this.s2vConfig.voiceId)) return false
-        if (result?.code !== 0) {
-          this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
-            ? this.friendlyVoiceCatalogError(result?.message)
-            : '音色默认值恢复失败。'
-          return false
-        }
-        const selectedVoiceId = typeof result.data?.selectedVoiceId === 'string' ? result.data.selectedVoiceId : ''
-        this.s2vConfig.voiceId = selectedVoiceId
-        this.s2vPersistedVoiceId = selectedVoiceId
-        this.s2vVoiceCatalogError = ''
-        return true
-      }
-      if (!this.s2vVoiceOptions.some(voice => voice.id === normalizedVoiceId)) {
-        this.s2vVoiceCatalogError = '所选音色不在当前目录中。'
-        return false
-      }
-      // 显式选择（下拉或克隆列表「设为默认」）先同步下拉框与配置：
-      // 1) 让 isCurrentS2VVoiceSelectionRequest 并发守卫命中本次请求（否则结果被静默丢弃）；
-      // 2) 让下拉框与克隆行「默认」徽标立即反映本次选择。
-      const previousVoiceId = this.s2vConfig.voiceId
-      this.s2vConfig.voiceId = normalizedVoiceId
-
-      const requestId = ++this.s2vVoiceSelectionRequestId
-      const result = await selectTtsVoice(this.cloneForIpc({ ...selectContext, voiceId: normalizedVoiceId }))
-      if (!this.isCurrentS2VVoiceSelectionRequest(requestId, selectContext, normalizedVoiceId)) return false
-      if (result?.code !== 0) {
-        // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
-        this.s2vConfig.voiceId = previousVoiceId
-        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
-          ? this.friendlyVoiceCatalogError(result?.message)
-          : '音色选择保存失败。'
-        return false
-      }
-      this.s2vPersistedVoiceId = typeof result.data?.selectedVoiceId === 'string'
-        ? result.data.selectedVoiceId
-        : normalizedVoiceId
-      this.s2vVoiceCatalogError = ''
-      return true
-    },
-    async chooseS2VVoiceCloneSamples() {
-      const context = this.getS2VVoiceCloneContext()
-      const cloneEnabled = this.s2vVoiceCapability?.type === 'user_clone'
-        && this.s2vVoiceCapability?.clone?.enabled === true
-      if (!context || !cloneEnabled) return
-
-      const requestId = ++this.s2vVoiceCloneRequestId
-      this.s2vVoiceCloneLoading = true
-      this.s2vVoiceCloneError = ''
-      try {
-        const result = await chooseTtsVoiceCloneSamples(this.cloneForIpc(context))
-        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
-        const selectionId = typeof result?.data?.selectionId === 'string' ? result.data.selectionId : ''
-        const sampleCount = Array.isArray(result?.data?.samples) ? result.data.samples.length : 0
-        if (result?.code === 0 && selectionId && sampleCount > 0) {
-          this.s2vVoiceCloneSelection = { selectionId, sampleCount }
-          // 2026-08-12 需求调整：选择本地文件后自动保存为克隆音色（默认名「音色XXX」），
-          // 不再需要手动填写名称并点击「添加克隆音色」；如需改名使用列表中的「重命名」。
-          // 先释放「选择中」加载态，让 addS2VVoiceClone 进入自己的加载流程。
-          if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
-          await this.addS2VVoiceClone(this.nextS2VVoiceCloneName())
-          return
-        }
-        this.s2vVoiceCloneSelection = null
-        if (result?.code !== 0) this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法选择本地音频样本。'
-      } catch (error) {
-        // 异常路径硬化（2026-08-13 审查 W1）：IPC 封装层已将 reject 统一转为错误码，此处兜底
-        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
-          this.s2vVoiceCloneSelection = null
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || '无法选择本地音频样本。'
-        }
-      } finally {
-        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
-      }
-    },
-    nextS2VVoiceCloneName() {
-      // 自动克隆默认名「音色XXX」：以「当前克隆数量」与「现有最大音色序号」较大者 +1（3 位零填充）。
-      // - 首个克隆为 音色001；按创建顺序递增 音色002/003…，重命名后不回退旧序号；
-      // - 用户手动命名为 音色100 后，下一个自动名继续用 音色101。
-      // 序号用 BigInt 解析/比较，避免超长数字名（如 128 位）经 Number 转浮点后污染名称。
-      const clones = Array.isArray(this.s2vVoiceClones) ? this.s2vVoiceClones : []
-      let maxIndex = 0n
-      for (const voice of clones) {
-        const match = /^音色(\d+)$/.exec(String(voice?.name || '').trim())
-        if (match) {
-          try {
-            const index = BigInt(match[1])
-            if (index > maxIndex) maxIndex = index
-          } catch (_) { /* 非数字忽略 */ }
-        }
-      }
-      const count = BigInt(clones.length)
-      const nextIndex = (count > maxIndex ? count : maxIndex) + 1n
-      return '音色' + String(nextIndex).padStart(3, '0')
-    },
-    async addS2VVoiceClone(name = this.nextS2VVoiceCloneName()) {
-      const context = this.getS2VVoiceCloneContext()
-      const selectionId = this.s2vVoiceCloneSelection?.selectionId
-      const normalizedName = String(name || '').trim()
-      if (!context || !selectionId || !normalizedName || this.s2vVoiceCloneLoading) return
-
-      const requestId = ++this.s2vVoiceCloneRequestId
-      this.s2vVoiceCloneLoading = true
-      this.s2vVoiceCloneError = ''
-      // 克隆进行中占位行：选完文件立即反馈「创建中」，避免长时间无响应观感（2026-08-13）
-      this.s2vVoiceClonePending = {
-        id: 'pending-' + requestId,
-        name: normalizedName,
-        sampleCount: this.s2vVoiceCloneSelection?.sampleCount || 1,
-      }
-      try {
-        const result = await addTtsVoiceClone(this.cloneForIpc({
-          ...context,
-          name: normalizedName,
-          selectionId,
-          consent: true,
-        }))
-        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
-        const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
-        if (!voice) {
-          // 自动保存失败：一次性选择令牌已被主进程销毁，清除本地快照避免「已选择 N 个样本」误导
-          this.s2vVoiceCloneSelection = null
-          this.s2vVoiceClonePending = null
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法添加克隆音色。'
-          return
-        }
-        this.s2vVoiceClones = [
-          ...this.s2vVoiceClones.filter(item => item.id !== voice.id),
-          voice,
-        ]
-        this.s2vVoiceCloneSelection = null
-        this.s2vVoiceClonePending = null
-        this.s2vConfig.voiceId = voice.id
-        await this.selectS2VVoice(voice.id)
-        this.showS2VOptionsToast(this.translateWithLocaleFallback(
-          'create.story2video.voice.cloneSuccessToast',
-          '已添加克隆音色「' + voice.name + '」',
-          'Cloned voice "' + voice.name + '" added',
-          { name: voice.name },
-        ))
-      } catch (error) {
-        // 异常路径硬化（2026-08-13 审查 W1）：IPC 封装层已将 reject 统一转为错误码，
-        // 此处兜底保证未知 reject 也不「占位行凭空消失且无提示」。
-        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
-          this.s2vVoiceCloneSelection = null
-          this.s2vVoiceClonePending = null
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || '无法添加克隆音色。'
-        }
-      } finally {
-        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
-          this.s2vVoiceCloneLoading = false
-          this.s2vVoiceClonePending = null
-        }
-      }
-    },
-    s2vVoiceCloneStatusText() {
-      const pending = this.s2vVoiceClonePending
-      if (!pending) return ''
-      const count = Number.isFinite(pending.sampleCount) ? pending.sampleCount : 1
-      return this.translateWithLocaleFallback(
-        'create.story2video.voice.cloneStatusPending',
-        '已选择 ' + count + ' 个样本，正在上传并克隆音色…（通常需要 10~60 秒，请勿重复操作）',
-        'Selected ' + count + ' sample(s). Uploading and cloning the voice... (usually 10-60 s, please wait)',
-        { count },
-      )
-    },
-    async deleteS2VVoiceClone(voiceId) {
-      const context = this.getS2VVoiceCloneContext()
-      const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
-      if (!context || !normalizedVoiceId || this.s2vVoiceCloneLoading) return
-
-      const requestId = ++this.s2vVoiceCloneRequestId
-      this.s2vVoiceCloneLoading = true
-      this.s2vVoiceCloneError = ''
-      try {
-        // 危险操作门禁（docs/frontend-interaction-spec.md §2）：删除克隆音色不可逆，
-        // 确认文案须说明后果并点名受影响音色；取消时直接返回，不调用删除 API。
-        const target = this.s2vVoiceClones.find(item => item.id === normalizedVoiceId)
-        const voiceName = target?.name || normalizedVoiceId
-        const confirmed = await confirmDanger({
-          title: this.$t('create.story2video.voice.cloneDeleteConfirmTitle'),
-          message: this.$t('create.story2video.voice.cloneDeleteConfirmMessage', { name: voiceName }),
-          confirmText: this.$t('create.story2video.voice.cloneDeleteConfirmButton'),
-        })
-        if (!confirmed) return
-
-        const result = await deleteTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
-        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
-        if (result?.code !== 0) {
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法删除克隆音色。'
-          return
-        }
-        this.s2vVoiceClones = this.s2vVoiceClones.filter(voice => voice.id !== normalizedVoiceId)
-        this.s2vVoiceCatalog = this.s2vVoiceCatalog.filter(voice => voice.id !== normalizedVoiceId)
-        if (this.s2vConfig.voiceId === normalizedVoiceId) {
-          const fallbackVoiceId = this.s2vVoiceOptions[0]?.id || ''
-          this.s2vConfig.voiceId = fallbackVoiceId
-          this.s2vPersistedVoiceId = ''
-          if (fallbackVoiceId) await this.selectS2VVoice(fallbackVoiceId)
-        }
-      } finally {
-        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
-      }
-    },
-    startS2VVoiceCloneRename(voiceId) {
-      const voice = this.s2vVoiceClones.find(item => item.id === voiceId)
-      if (!voice || this.s2vVoiceCloneLoading) return
-      this.s2vVoiceCloneRenamingId = voiceId
-      this.s2vVoiceCloneRenameDraft = voice.name || ''
-      this.s2vVoiceCloneError = ''
-    },
-    cancelS2VVoiceCloneRename() {
-      this.s2vVoiceCloneRenamingId = ''
-      this.s2vVoiceCloneRenameDraft = ''
-      this.s2vVoiceCloneError = ''
-    },
-    async renameS2VVoiceClone(voiceId) {
-      const context = this.getS2VVoiceCloneContext()
-      const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
-      const name = String(this.s2vVoiceCloneRenameDraft || '').trim()
-      if (!context || !normalizedVoiceId || !name || this.s2vVoiceCloneLoading) return
-
-      const requestId = ++this.s2vVoiceCloneRequestId
-      this.s2vVoiceCloneLoading = true
-      this.s2vVoiceCloneError = ''
-      try {
-        const result = await renameTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId, name }))
-        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
-        const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
-        if (!voice) {
-          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法重命名克隆音色。'
-          return
-        }
-        // 重命名只更新展示名；保留旧条目的 invalid 标记，避免失效克隆在重命名后被误判为可用
-        const previous = this.s2vVoiceClones.find(item => item.id === voice.id)
-        if (previous?.invalid === true) voice.invalid = true
-        this.s2vVoiceClones = this.s2vVoiceClones.map(item => item.id === voice.id ? voice : item)
-        this.s2vVoiceCloneRenamingId = ''
-        this.s2vVoiceCloneRenameDraft = ''
-      } finally {
-        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
-      }
-    },
-    formatS2VVoiceCloneBytes(value) {
-      if (!Number.isFinite(value) || value < 0) return '—'
-      if (value < 1024) return `${value} B`
-      if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
-      return `${(value / (1024 * 1024)).toFixed(value % (1024 * 1024) === 0 ? 0 : 1)} MB`
-    },
-    formatS2VVoiceCloneDuration(value) {
-      if (!Number.isFinite(value) || value < 0) return '—'
-      const seconds = Math.floor(value)
-      const minutes = Math.floor(seconds / 60)
-      const remainingSeconds = seconds % 60
-      return minutes > 0 ? `${minutes} 分${remainingSeconds ? ` ${remainingSeconds} 秒` : ''}` : `${seconds} 秒`
     },
     saveCurrentS2VTemplate() {
       const name = String(this.s2vCustomTemplateName || '').trim()
@@ -5200,10 +4682,10 @@ export default {
     validateStory2VideoFile(file, kind) {
       const extension = String(file?.name || '').toLowerCase().match(/\.[^.]+$/)?.[0] || ''
       const rules = {
-        image: { extensions: ['.jpg', '.jpeg', '.png', '.webp'], maxBytes: 10 * 1024 * 1024, label: '图片' },
-        audio: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 50 * 1024 * 1024, label: '旁白音频' },
-        bgm: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 15 * 1024 * 1024, label: '背景音乐' },
-        video: { extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi'], maxBytes: 512 * 1024 * 1024, label: '视频素材' },
+        image: { extensions: ['.jpg', '.jpeg', '.png', '.webp'], maxBytes: 10 * 1024 * 1024 },
+        audio: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 50 * 1024 * 1024 },
+        bgm: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 15 * 1024 * 1024 },
+        video: { extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi'], maxBytes: 512 * 1024 * 1024 },
       }
       const rule = rules[kind]
       if (!rule || !rule.extensions.includes(extension)) {
@@ -5212,7 +4694,7 @@ export default {
           messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID,
           messageParams: {
             extension: extension ? extension.toUpperCase() : '该',
-            kindLabel: rule?.label || '',
+            kindLabel: rule ? this.story2videoKindLabel(kind) : '',
             extensions: rule?.extensions || [],
           },
         })
@@ -5320,7 +4802,7 @@ export default {
         : ''
       if (!filePath) {
         this.pipelineVideo = null
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '视频素材' } })
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: this.story2videoKindLabel('video') } })
         return
       }
       const imported = await story2videoImportMediaPath(filePath, 'video')
@@ -5336,119 +4818,19 @@ export default {
       if (!file) return
       await this.addFileToBgmLibrary(file)
     },
-    // 背景音乐素材库（2026-08-14）：添加成功后入库并自动选中；失败沿用媒体细分提示。
-    async addFileToBgmLibrary(file) {
-      if (!file || !this.validateStory2VideoFile(file, 'bgm')) {
-        this.s2vConfig.bgmPath = ''
-        return null
-      }
-      try {
-        const result = await story2videoBgmLibraryAdd(file)
-        if (result?.code === 0 && result.data?.path) {
-          await this.loadS2VBgmLibrary({ silent: true })
-          this.s2vConfig.bgmPath = result.data.path
-          return result.data
-        }
-        this.s2vConfig.bgmPath = ''
-        this.showStory2VideoErrorDialog(this.resolveMediaImportFailure(result, '背景音乐'))
-        return null
-      } catch (_) {
-        this.s2vConfig.bgmPath = ''
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '背景音乐' } })
-        return null
-      }
-    },
-    async loadS2VBgmLibrary(options = {}) {
-      this.s2vBgmLibraryLoading = true
-      try {
-        const result = await story2videoBgmLibraryList()
-        if (result?.code === 0 && Array.isArray(result.data)) {
-          this.s2vBgmLibrary = result.data
-        } else if (!options.silent) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_LOAD_FAILED })
-        }
-      } catch (_) {
-        if (!options.silent) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_LOAD_FAILED })
-        }
-      } finally {
-        this.s2vBgmLibraryLoading = false
-      }
-    },
-    async openBgmLibraryDialog() {
-      this.s2vBgmLibraryDialogOpen = true
-      await this.loadS2VBgmLibrary()
-    },
-    closeBgmLibraryDialog() {
-      this.s2vBgmLibraryDialogOpen = false
-      this.cancelBgmRename()
-      this.closeBgmDeleteDialog()
-    },
-    async handleBgmLibraryAddFile(e) {
-      const file = e.target.files?.[0]
-      if (!file) return
-      const added = await this.addFileToBgmLibrary(file)
-      if (added && this.$refs.s2vBgmLibraryInput) {
-        // 清空 input 允许连续选择同一文件
-        this.$refs.s2vBgmLibraryInput.value = ''
-      }
-    },
-    startBgmRename(item) {
-      this.s2vBgmLibraryRenamingId = item.id
-      this.s2vBgmLibraryRenameDraft = item.name
-    },
-    async saveBgmRename() {
-      const id = this.s2vBgmLibraryRenamingId
-      const name = String(this.s2vBgmLibraryRenameDraft || '').trim()
-      if (!id || !name || this.s2vBgmLibraryLoading) return
-      this.s2vBgmLibraryLoading = true
-      try {
-        const result = await story2videoBgmLibraryRename(id, name)
-        if (result?.code === 0) {
-          await this.loadS2VBgmLibrary({ silent: true })
-          this.cancelBgmRename()
-          return
-        }
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_RENAME_FAILED })
-      } catch (_) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_RENAME_FAILED })
-      } finally {
-        this.s2vBgmLibraryLoading = false
-      }
-    },
-    cancelBgmRename() {
-      this.s2vBgmLibraryRenamingId = ''
-      this.s2vBgmLibraryRenameDraft = ''
-    },
-    requestBgmDelete(item) {
-      this.s2vBgmLibraryDeleteTargetId = item.id
-      this.s2vBgmLibraryDeleteDialogOpen = true
-    },
-    closeBgmDeleteDialog() {
-      this.s2vBgmLibraryDeleteDialogOpen = false
-      this.s2vBgmLibraryDeleteTargetId = null
-    },
-    async confirmBgmDelete() {
-      const id = this.s2vBgmLibraryDeleteTargetId
-      if (!id || this.s2vBgmLibraryLoading) return
-      this.s2vBgmLibraryLoading = true
-      try {
-        const result = await story2videoBgmLibraryDelete(id)
-        if (result?.code === 0) {
-          // 删除当前选中项时回退为「不使用背景音乐」
-          const target = this.s2vBgmLibrary.find(item => item.id === id)
-          if (target && String(this.s2vConfig.bgmPath) === String(target.path)) this.s2vConfig.bgmPath = ''
-          await this.loadS2VBgmLibrary({ silent: true })
-          this.closeBgmDeleteDialog()
-          return
-        }
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_FAILED })
-      } catch (_) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_FAILED })
-      } finally {
-        this.s2vBgmLibraryLoading = false
-      }
-    },
+    // ── BGM 素材库方法代理（拆分方案 v3 §2.3）：实现已迁至 useBgmLibrary composable，
+    //    壳保留同名代理维持旧测试/模板触点不变；代理删除计划见方案 §2.3 映射表 ──
+    async addFileToBgmLibrary(file) { return bgmLibraryMethods.addFileToBgmLibrary(file) },
+    async loadS2VBgmLibrary(options = {}) { return bgmLibraryMethods.loadS2VBgmLibrary(options) },
+    async openBgmLibraryDialog() { return bgmLibraryMethods.openBgmLibraryDialog() },
+    closeBgmLibraryDialog() { return bgmLibraryMethods.closeBgmLibraryDialog() },
+    async handleBgmLibraryAddFile(e) { return bgmLibraryMethods.handleBgmLibraryAddFile(e, this.$refs.s2vBgmLibraryInput) },
+    startBgmRename(item) { return bgmLibraryMethods.startBgmRename(item) },
+    async saveBgmRename() { return bgmLibraryMethods.saveBgmRename() },
+    cancelBgmRename() { return bgmLibraryMethods.cancelBgmRename() },
+    requestBgmDelete(item) { return bgmLibraryMethods.requestBgmDelete(item) },
+    closeBgmDeleteDialog() { return bgmLibraryMethods.closeBgmDeleteDialog() },
+    async confirmBgmDelete() { return bgmLibraryMethods.confirmBgmDelete() },
     handleQuickFiles(e) {
       Array.from(e.target.files || []).forEach(file => {
         const reader = new FileReader()
@@ -5602,6 +4984,24 @@ export default {
     },
   },
   async mounted() {
+    // BGM 素材库 composable（拆分方案 v3 §2.2 第 2 步）：deps 注入跨域依赖，状态桥接见 computed。
+    // 必须在首个 await 之前同步注入——测试 mount 后 await nextTick() 即调方法时，await 之后的注入点尚未执行。
+    setupBgmLibraryDeps({
+      getS2vConfig: () => this.s2vConfig,
+      showStory2VideoErrorDialog: (payload) => this.showStory2VideoErrorDialog(payload),
+      resolveMediaImportFailure: (result, kindLabel) => this.resolveMediaImportFailure(result, kindLabel),
+      validateStory2VideoFile: (file, kind) => this.validateStory2VideoFile(file, kind),
+      story2videoKindLabel: (kind) => this.story2videoKindLabel(kind),
+    })
+    // TTS 音色域 composable：与 BGM 同理，必须在首个 await 之前同步注入。
+    setupTtsVoicesDeps({
+      getS2vConfig: () => this.s2vConfig,
+      t: (key, params) => this.$t(key, params),
+      translate: (key, zh, en, params) => this.translateWithLocaleFallback(key, zh, en, params),
+      cloneForIpc: (value) => this.cloneForIpc(value),
+      isAlive: () => this._s2vAlive !== false,
+      showOptionsToast: (message) => this.showS2VOptionsToast(message),
+    })
     this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.translateWithLocaleFallback('story2video.voicePreviewUnsupported', '当前环境不支持语音合成', 'No speech synthesis'), previewText: this.translateWithLocaleFallback('story2video.voicePreviewText', '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。', 'Voice preview clip'), }))
     this.refreshS2VTemplates()
     this.startStageClock()
@@ -5640,6 +5040,8 @@ export default {
   },
   beforeUnmount() {
     this._s2vAlive = false
+    // BGM 浮层 owner 卸载兜底（QM-2 浮层互斥合同：父组件销毁时不经过 visible=false，必须兜底释放）
+    void bgmLibraryMethods.releaseAllOverlays()
     this.stopPipelinePolling()
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this._settingsDialogUnwatch) { this._settingsDialogUnwatch(); this._settingsDialogUnwatch = null }

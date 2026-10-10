@@ -28,6 +28,7 @@ const settingsMethods = require('./settings-store')
 const callbackMethods = require('./callback-store')
 const batchMethods = require('./batch-store')
 const rateLimitMethods = require('./rate-limit-store')
+const publishDailyMethods = require('./publish-daily-store')
 const modelLogMethods = require('./model-log-store')
 const knowledgeLibraryMethods = require('./knowledge-library-store')
 const viralPatternMethods = require('./viral-pattern-store')
@@ -45,6 +46,7 @@ Object.assign(
   callbackMethods,
   batchMethods,
   rateLimitMethods,
+  publishDailyMethods,
   modelLogMethods,
   knowledgeLibraryMethods,
   viralPatternMethods,

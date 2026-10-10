@@ -1,126 +1,126 @@
 /**
- * Test: publish-interval-guard.js — 发布频率控制
- * 测试: 同账号发布间隔检测、记录、等待时间
+ * Test: publish-interval-guard.js — 发布频率控制（v2）
+ *
+ * 覆盖：两档间隔、日配额、抖动、release 回滚（乐观并发 / prev 缺失 / 防风上限）、
+ * key 构造、未登记平台出声、跨日边界、计数读回容错、可插拔存储。
+ *
+ * ⚠️ v2 起守卫**默认开启抖动**（ratio=0.4，保守方向：宁多等不少等），
+ *    断言精确 remainingMs 的用例必须显式传 `jitterRatio: 0`。
  */
 
 const PublishIntervalGuard = require('../src/publish-interval-guard')
+const { buildKey, InMemoryDailyStore } = require('../src/publish-interval-guard')
 
-// 5 分钟 = 300000ms
 const MIN_INTERVAL = 5 * 60 * 1000
+const T0 = 1_700_000_000_000
+const DAY1 = '2026-10-10'
+const DAY2 = '2026-10-11'
 
-describe('PublishIntervalGuard', () => {
-  describe('canPublish', () => {
+/** 精确值断言用的守卫工厂：抖动默认关闭 */
+function exactGuard (options = {}) {
+  return new PublishIntervalGuard({ jitterRatio: 0, ...options })
+}
+
+describe('PublishIntervalGuard v2', () => {
+  describe('canPublish / 基础两档', () => {
     test('无发布记录时返回 true', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
+      const guard = exactGuard({ minInterval: MIN_INTERVAL })
       expect(guard.canPublish('wechat_mp', 'acc_001')).toBe(true)
     })
 
     test('上次发布不足 5 分钟时返回 false', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
+      const guard = exactGuard({ minInterval: MIN_INTERVAL })
       guard.recordPublish('wechat_mp', 'acc_001')
       expect(guard.canPublish('wechat_mp', 'acc_001')).toBe(false)
     })
 
     test('上次发布超过 5 分钟后返回 true', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
-      // mock: 记录 6 分钟前的时间
+      const guard = exactGuard({ minInterval: MIN_INTERVAL })
       guard.recordPublish('wechat_mp', 'acc_001', Date.now() - MIN_INTERVAL - 60000)
       expect(guard.canPublish('wechat_mp', 'acc_001')).toBe(true)
     })
 
-    test('同平台不同账号受平台档互相约束（D2 决策：跨账号也要错开）', () => {
-      // 本用例断言的是 2026-10-02 之后的语义。旧断言「不同账号同一平台互不影响」把
-      // 单档模型钉成了产品规则，而平台风控常按设备/平台聚合，同平台连换多号连发同样危险。
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
+    test('同平台不同账号受平台档互相约束（跨账号也要错开）', () => {
+      const guard = exactGuard({ minInterval: MIN_INTERVAL })
       guard.recordPublish('wechat_mp', 'acc_001')
       expect(guard.canPublish('wechat_mp', 'acc_002')).toBe(false)
-      // 换平台不受影响
       expect(guard.canPublish('zhihu', 'acc_002')).toBe(true)
     })
 
     test('同一账号不同平台互不影响', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
+      const guard = exactGuard({ minInterval: MIN_INTERVAL })
       guard.recordPublish('wechat_mp', 'acc_001')
       expect(guard.canPublish('zhihu', 'acc_001')).toBe(true)
     })
 
     test('边界情况：恰好 5 分钟时返回 true', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
+      const guard = exactGuard({ minInterval: MIN_INTERVAL })
       guard.recordPublish('wechat_mp', 'acc_001', Date.now() - MIN_INTERVAL)
       expect(guard.canPublish('wechat_mp', 'acc_001')).toBe(true)
     })
   })
 
-  describe('recordPublish', () => {
-    test('记录发布后存储时间戳', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
-      guard.recordPublish('wechat_mp', 'acc_001')
-      const remaining = guard.getRemainingWait('wechat_mp', 'acc_001')
-      expect(remaining).toBeGreaterThan(0)
-      expect(remaining).toBeLessThanOrEqual(MIN_INTERVAL)
+  describe('getRemainingWait / 可插拔存储', () => {
+    test('发布后返回正确剩余等待时间（抖动关闭）', () => {
+      const guard = exactGuard({ minInterval: MIN_INTERVAL, now: () => T0 })
+      guard.recordPublish('wechat_mp', 'acc_001', T0 - 60000)
+      expect(guard.getRemainingWait('wechat_mp', 'acc_001')).toBe(240000)
     })
 
-    test('私有 key 不暴露', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
-      guard.recordPublish('wechat_mp', 'acc_001')
-      // 检查不能通过直接访问对象属性找到存储的时间
-      const keys = Object.keys(guard)
-      expect(keys).not.toContain('wechat_mp:acc_001')
-    })
-  })
-
-  describe('getRemainingWait', () => {
-    test('无发布记录时返回 0', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
-      expect(guard.getRemainingWait('wechat_mp', 'acc_001')).toBe(0)
-    })
-
-    test('发布后返回正确剩余等待时间', () => {
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
-      guard.recordPublish('wechat_mp', 'acc_001', Date.now() - 60000) // 1 分钟前
-      const remaining = guard.getRemainingWait('wechat_mp', 'acc_001')
-      // 应剩余约 4 分钟 (240000ms)，允许 100ms 误差
-      expect(remaining).toBeGreaterThan(230000)
-      expect(remaining).toBeLessThanOrEqual(240000)
-    })
-  })
-
-  describe('自定义 minInterval', () => {
-    test('支持构造函数传入自定义间隔', () => {
-      const guard = new PublishIntervalGuard({ minInterval: 10000 }) // 10 秒
-      guard.recordPublish('wechat_mp', 'acc_001')
-      expect(guard.canPublish('wechat_mp', 'acc_001')).toBe(false)
-      // 1 秒后还在间隔内
-      guard.recordPublish('wechat_mp', 'acc_001', Date.now() - 5000) // 5 秒前
-      expect(guard.canPublish('wechat_mp', 'acc_001')).toBe(false)
-    })
-  })
-
-  describe('可插拔存储', () => {
     test('支持外部 store 实现', () => {
       const externalStore = new Map()
       const store = {
         get: (key) => externalStore.get(key) ?? null,
-        set: (key, value) => { externalStore.set(key, value) }
+        set: (key, value) => { externalStore.set(key, value) },
       }
-      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL, store })
+      const guard = exactGuard({ minInterval: MIN_INTERVAL, store })
       guard.recordPublish('wechat_mp', 'acc_001')
-      // 数据应存储在外部的 store 中
       const storedKey = [...externalStore.keys()].find(k => k.startsWith('wechat_mp'))
       expect(storedKey).toBeTruthy()
       expect(externalStore.get(storedKey)).toBeGreaterThan(0)
+    })
+
+    test('私有 key 不暴露为实例属性', () => {
+      const guard = exactGuard({ minInterval: MIN_INTERVAL })
+      guard.recordPublish('wechat_mp', 'acc_001')
+      expect(Object.keys(guard)).not.toContain('wechat_mp:acc_001')
+    })
+  })
+
+  describe('key 构造（buildKey）', () => {
+    test('平台段与账号段分别 percent-encode，分隔符不产生碰撞', () => {
+      expect(buildKey('weibo', 'a:b')).toBe('weibo:a%3Ab')
+      expect(buildKey('weibo', 'a#b')).toBe('weibo:a%23b')
+      // 分隔符被编码 ⇒ 两段不同组合不会撞成同一 key
+      expect(buildKey('weibo', 'a:b')).not.toBe(buildKey('weibo:a', 'b'))
+    })
+
+    test('账号缺席/空白 ⇒ 平台档哨兵 *，以字面量追加（不参与编码）', () => {
+      for (const missing of [undefined, null, '', '   ']) {
+        expect(buildKey('weibo', missing)).toBe('weibo:*')
+      }
+    })
+
+    test('守卫内部一律用 buildKey（recordPublish 落键与之一致）', () => {
+      const store = new Map()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 1000, platformMinMs: 500 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        now: () => T0,
+      })
+      guard.recordPublish('douyin', 'a:b', T0)
+      expect([...store.keys()].sort()).toEqual(['douyin:*', 'douyin:a%3Ab'])
     })
   })
 
   describe('两档策略（policy 模式，生产装配路径）', () => {
     const ACCOUNT_MIN = 30 * 60 * 1000
     const PLATFORM_MIN = 3 * 60 * 1000
-    const T0 = 1_700_000_000_000
 
     function makeGuard (overrides = {}) {
       const store = new Map()
-      const guard = new PublishIntervalGuard({
-        policy: () => ({ accountMinMs: ACCOUNT_MIN, platformMinMs: PLATFORM_MIN }),
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: ACCOUNT_MIN, platformMinMs: PLATFORM_MIN, accountDailyMax: 0 }),
         store: {
           get: (k) => (store.has(k) ? store.get(k) : null),
           set: (k, v) => { store.set(k, v) },
@@ -131,26 +131,27 @@ describe('PublishIntervalGuard', () => {
       return { guard, store }
     }
 
-    test('check 返回形状精确（allowed/remainingMs/bucket）', () => {
+    test('check 返回形状精确（含 v2 新增字段 reason/daily）', () => {
       const { guard } = makeGuard()
       expect(guard.check('douyin', 'acc_1')).toEqual({
-        allowed: true, remainingMs: 0, bucket: null,
+        allowed: true, remainingMs: 0, bucket: null, reason: null, daily: null,
       })
     })
 
     test('账号档未满时 bucket=account，等待取账号档', () => {
       const { guard } = makeGuard()
-      // 20 分钟前发布过同账号 → 账号档(30min)未满、平台档(3min)已满
       guard.recordPublish('douyin', 'acc_1', T0 - 20 * 60 * 1000)
-      const r = guard.check('douyin', 'acc_1')
-      expect(r).toEqual({ allowed: false, remainingMs: 10 * 60 * 1000, bucket: 'account' })
+      expect(guard.check('douyin', 'acc_1')).toEqual({
+        allowed: false, remainingMs: 10 * 60 * 1000, bucket: 'account', reason: 'interval', daily: null,
+      })
     })
 
     test('只有平台档未满时 bucket=platform（同平台换号连发的形态）', () => {
       const { guard } = makeGuard()
       guard.recordPublish('douyin', 'acc_1', T0 - 2 * 60 * 1000)
-      const r = guard.check('douyin', 'acc_2')
-      expect(r).toEqual({ allowed: false, remainingMs: 1 * 60 * 1000, bucket: 'platform' })
+      expect(guard.check('douyin', 'acc_2')).toEqual({
+        allowed: false, remainingMs: 1 * 60 * 1000, bucket: 'platform', reason: 'interval', daily: null,
+      })
     })
 
     test('两档同时未满时取较大的等待时间，并报告更严的那一档', () => {
@@ -174,34 +175,26 @@ describe('PublishIntervalGuard', () => {
       }
     })
 
-    test('缺席账号之间也互相占用平台档窗口', () => {
-      const { guard } = makeGuard()
-      guard.recordPublish('douyin', 'acc_1')
-      expect(guard.check('douyin', null).allowed).toBe(false)
-      expect(guard.check('douyin', null).bucket).toBe('platform')
-    })
-
     test('档位为 0 表示显式关闭，恒放行', () => {
       const { guard } = makeGuard({
-        policy: () => ({ accountMinMs: 0, platformMinMs: 0 }),
+        policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 0 }),
       })
       guard.recordPublish('douyin', 'acc_1', T0)
-      expect(guard.check('douyin', 'acc_1')).toEqual({ allowed: true, remainingMs: 0, bucket: null })
+      expect(guard.check('douyin', 'acc_1')).toEqual({
+        allowed: true, remainingMs: 0, bucket: null, reason: null, daily: null,
+      })
     })
 
     test('policy 按平台差异化取值（未知平台不得被放行）', () => {
-      const table = {
-        douyin: { accountMinMs: 1000, platformMinMs: 500 },
-      }
+      const table = { douyin: { accountMinMs: 1000, platformMinMs: 500 } }
       const store = new Map()
-      const guard = new PublishIntervalGuard({
+      const guard = exactGuard({
         policy: (p) => table[p] || { accountMinMs: 9999, platformMinMs: 8888 },
         store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
         now: () => T0,
       })
       guard.recordPublish('douyin', 'a', T0 - 600)
       expect(guard.check('douyin', 'a').remainingMs).toBe(400)
-      // 未登记平台回落调用方给的最严档，而不是 0
       guard.recordPublish('mystery', 'a', T0 - 600)
       expect(guard.check('mystery', 'a').allowed).toBe(false)
       expect(guard.check('mystery', 'a').remainingMs).toBe(9999 - 600)
@@ -213,16 +206,404 @@ describe('PublishIntervalGuard', () => {
       expect([...store.keys()].sort()).toEqual(['douyin:*', 'douyin:acc_1'])
     })
 
-    test('minInterval 兼容模式下两档同值（现存测试语义保持）', () => {
+    test('minInterval 兼容模式下两档同值', () => {
       const store = new Map()
-      const guard = new PublishIntervalGuard({
+      const guard = exactGuard({
         minInterval: 1000,
         store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
         now: () => T0,
       })
       guard.recordPublish('douyin', 'acc_1', T0 - 400)
-      expect(guard.check('douyin', 'acc_1')).toEqual({ allowed: false, remainingMs: 600, bucket: 'account' })
-      expect(guard.check('douyin', 'acc_2')).toEqual({ allowed: false, remainingMs: 600, bucket: 'platform' })
+      expect(guard.check('douyin', 'acc_1').remainingMs).toBe(600)
+      expect(guard.check('douyin', 'acc_1').bucket).toBe('account')
+      expect(guard.check('douyin', 'acc_2').remainingMs).toBe(600)
+      expect(guard.check('douyin', 'acc_2').bucket).toBe('platform')
+    })
+  })
+
+  describe('日配额（v2 新维度）', () => {
+    function makeDailyGuard (opts = {}) {
+      const store = new Map()
+      const dailyStore = new InMemoryDailyStore()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 3 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        dailyStore,
+        now: () => T0,
+        today: () => DAY1,
+        ...opts,
+      })
+      return { guard, dailyStore, store }
+    }
+
+    test('未达上限时放行，并回报当日用量', () => {
+      const { guard } = makeDailyGuard()
+      const r = guard.check('douyin', 'acc_1')
+      expect(r.allowed).toBe(true)
+      expect(r.daily).toEqual({ used: 0, max: 3, dayKey: DAY1 })
+    })
+
+    test('达到上限 ⇒ 独立否决：bucket=daily、remainingMs=0、reason=daily_quota', () => {
+      const { guard } = makeDailyGuard()
+      for (let i = 0; i < 3; i++) guard.recordPublish('douyin', 'acc_1')
+      const r = guard.check('douyin', 'acc_1')
+      expect(r.allowed).toBe(false)
+      expect(r.bucket).toBe('daily')
+      expect(r.reason).toBe('daily_quota')
+      expect(r.remainingMs).toBe(0)
+      expect(r.daily).toEqual({ used: 3, max: 3, dayKey: DAY1 })
+    })
+
+    test('日配额优先于间隔（同时命中时报 daily，因为它决定的是「改期」而非「等待」）', () => {
+      const store = new Map()
+      const dailyStore = new InMemoryDailyStore()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 10 * 60 * 1000, platformMinMs: 0, accountDailyMax: 1 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        dailyStore,
+        now: () => T0,
+        today: () => DAY1,
+      })
+      guard.recordPublish('douyin', 'acc_1')
+      const r = guard.check('douyin', 'acc_1')
+      expect(r.bucket).toBe('daily')
+      expect(r.reason).toBe('daily_quota')
+    })
+
+    test('跨日自动重置（day_key 变化即重新计数）', () => {
+      let day = DAY1
+      const { guard } = makeDailyGuard({ today: () => day })
+      for (let i = 0; i < 3; i++) guard.recordPublish('douyin', 'acc_1')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+      day = DAY2
+      const r = guard.check('douyin', 'acc_1')
+      expect(r.allowed).toBe(true)
+      expect(r.daily).toEqual({ used: 0, max: 3, dayKey: DAY2 })
+    })
+
+    test('日配额 0 = 关闭该档（不得误判为「已达上限」）', () => {
+      const { guard } = makeDailyGuard({
+        policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 0 }),
+      })
+      for (let i = 0; i < 10; i++) guard.recordPublish('douyin', 'acc_1')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      expect(guard.check('douyin', 'acc_1').daily).toBe(null)
+    })
+
+    test('accountId 缺席 ⇒ 日配额跳过（无身份即无账号维度配额）', () => {
+      const { guard } = makeDailyGuard()
+      for (let i = 0; i < 5; i++) guard.recordPublish('douyin', null)
+      expect(guard.check('douyin', null).allowed).toBe(true)
+    })
+
+    test('计数读回容错：TEXT 亲和带回 .0 / 非法值按 0', () => {
+      const dailyStore = {
+        getDay: () => ({ count: '3.0', rollback_count: '0.0' }),
+        incrDay: () => 0,
+        decrDay: () => 0,
+      }
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 3 }),
+        dailyStore,
+        now: () => T0,
+        today: () => DAY1,
+      })
+      expect(guard.check('douyin', 'acc_1').bucket).toBe('daily')
+
+      const badStore = {
+        getDay: () => ({ count: 'abc', rollback_count: null }),
+        incrDay: () => 0,
+        decrDay: () => 0,
+      }
+      const g2 = exactGuard({
+        policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 3 }),
+        dailyStore: badStore,
+        now: () => T0,
+        today: () => DAY1,
+      })
+      expect(g2.check('douyin', 'acc_1').allowed).toBe(true)
+    })
+
+    test('dailyStore 抛错时 fail-open 到「无配额信息」并出声（不阻断发布）', () => {
+      const warns = []
+      const dailyStore = {
+        getDay: () => { throw new Error('boom') },
+        incrDay: () => 0,
+        decrDay: () => 0,
+      }
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 3 }),
+        dailyStore,
+        now: () => T0,
+        today: () => DAY1,
+        warn: (m) => warns.push(m),
+      })
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      expect(warns.length).toBe(1)
+    })
+  })
+
+  describe('抖动（v2 新维度）', () => {
+    test('默认开启 0.4：等待落在 [base, base×1.4) 且只增不减', () => {
+      const guard = new PublishIntervalGuard({
+        policy: () => ({ accountMinMs: 100000, platformMinMs: 0, accountDailyMax: 0 }),
+        now: () => T0,
+      })
+      expect(guard.jitterRatio).toBe(0.4)
+      guard.recordPublish('douyin', 'acc_1', T0 - 50000) // base = 50000
+      const base = 50000
+      for (let i = 0; i < 200; i++) {
+        const r = guard.check('douyin', 'acc_1').remainingMs
+        expect(r).toBeGreaterThanOrEqual(base)
+        expect(r).toBeLessThan(base * 1.4)
+      }
+    })
+
+    test('ratio=0 严格退化为 v1 行为（逐值相等）', () => {
+      const store = new Map()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 100000, platformMinMs: 0, accountDailyMax: 0 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        now: () => T0,
+      })
+      guard.recordPublish('douyin', 'acc_1', T0 - 50000)
+      for (let i = 0; i < 20; i++) {
+        expect(guard.check('douyin', 'acc_1').remainingMs).toBe(50000)
+      }
+    })
+
+    test('确定性随机源：random=1 采样上界内，random=0 取下界', () => {
+      const mk = (rand) => {
+        const store = new Map()
+        const g = new PublishIntervalGuard({
+          policy: () => ({ accountMinMs: 100000, platformMinMs: 0, accountDailyMax: 0 }),
+          store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+          now: () => T0,
+          random: () => rand,
+          jitterRatio: 0.4,
+        })
+        g.recordPublish('douyin', 'acc_1', T0 - 50000)
+        return g.check('douyin', 'acc_1').remainingMs
+      }
+      expect(mk(0)).toBe(50000)
+      expect(mk(0.999999)).toBe(70000)
+    })
+
+    test('含抖动系数后仍被钳在 setTimeout 安全值内（防溢出被钳成 1ms 忙循环）', () => {
+      const store = new Map()
+      const guard = new PublishIntervalGuard({
+        policy: () => ({ accountMinMs: 1_800_000_000, platformMinMs: 0, accountDailyMax: 0 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        now: () => T0,
+        random: () => 0.999999,
+        jitterRatio: 0.4,
+      })
+      guard.recordPublish('douyin', 'acc_1', T0 - 1)
+      const r = guard.check('douyin', 'acc_1').remainingMs
+      expect(r).toBeLessThanOrEqual(PublishIntervalGuard.TIMER_SAFE_MS)
+      expect(r).toBeGreaterThan(0)
+    })
+  })
+
+  describe('release 回滚（P0-1 核心）', () => {
+    function makeReleaseGuard (opts = {}) {
+      const store = new Map()
+      const dailyStore = new InMemoryDailyStore()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 10 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 3 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        dailyStore,
+        now: () => T0,
+        today: () => DAY1,
+        ...opts,
+      })
+      return { guard, store, dailyStore }
+    }
+
+    test('回滚未提交尝试：窗口还原 + 配额回补 + 回滚计数 +1', () => {
+      const { guard, dailyStore } = makeReleaseGuard()
+      const hold = guard.recordPublish('douyin', 'acc_1')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+      expect(dailyStore.getDay('douyin:acc_1', DAY1).count).toBe(1)
+
+      const r = guard.release('douyin', 'acc_1', hold)
+      expect(r).toEqual({ released: true, reason: null })
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      expect(dailyStore.getDay('douyin:acc_1', DAY1).count).toBe(0)
+      expect(dailyStore.getDay('douyin:acc_1', DAY1).rollbackCount).toBe(1)
+    })
+
+    test('幂等：同一 hold 重复 release 只回补一次', () => {
+      const { guard, dailyStore } = makeReleaseGuard()
+      const hold = guard.recordPublish('douyin', 'acc_1')
+      expect(guard.release('douyin', 'acc_1', hold).released).toBe(true)
+      const again = guard.release('douyin', 'acc_1', hold)
+      expect(again.released).toBe(false)
+      expect(again.reason).toBe('window_taken')
+      expect(dailyStore.getDay('douyin:acc_1', DAY1).count).toBe(0)
+      expect(dailyStore.getDay('douyin:acc_1', DAY1).rollbackCount).toBe(1)
+    })
+
+    test('窗口已被后续提交覆盖 ⇒ 不回滚（绝不回滚他人窗口）', () => {
+      const { guard, dailyStore } = makeReleaseGuard()
+      const hold = guard.recordPublish('douyin', 'acc_1', T0 - 1000)
+      guard.recordPublish('douyin', 'acc_1', T0) // 后续提交覆盖
+      const r = guard.release('douyin', 'acc_1', hold)
+      expect(r.released).toBe(false)
+      expect(r.reason).toBe('window_taken')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+      // 计数不得被错误回补
+      expect(dailyStore.getDay('douyin:acc_1', DAY1).count).toBe(2)
+    })
+
+    test('prev 缺失/错配 ⇒ no-op 并出声（方向恒为多等）', () => {
+      const warns = []
+      const { guard } = makeReleaseGuard({ warn: (m) => warns.push(m) })
+      guard.recordPublish('douyin', 'acc_1')
+      expect(guard.release('douyin', 'acc_1', undefined)).toEqual({ released: false, reason: 'prev_missing' })
+      expect(guard.release('douyin', 'acc_1', { at: 'not-a-number' }).released).toBe(false)
+      expect(warns.length).toBe(2)
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+    })
+
+    test('防风上限：每账号每日回滚次数达 max(2, dailyMax) 后拒绝回滚', () => {
+      const warns = []
+      const { guard } = makeReleaseGuard({ warn: (m) => warns.push(m) })
+      // dailyMax = 3 ⇒ 上限 3
+      for (let i = 0; i < 3; i++) {
+        const hold = guard.recordPublish('douyin', 'acc_1')
+        expect(guard.release('douyin', 'acc_1', hold).released).toBe(true)
+      }
+      const hold = guard.recordPublish('douyin', 'acc_1')
+      const r = guard.release('douyin', 'acc_1', hold)
+      expect(r.released).toBe(false)
+      expect(r.reason).toBe('rollback_cap')
+      expect(warns.some(m => m.includes('回滚已达上限'))).toBe(true)
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+    })
+
+    test('平台键独立判定：账号键已被覆盖但平台键仍是本次 ⇒ 仍释放平台键', () => {
+      const { guard, store } = makeReleaseGuard()
+      const hold = guard.recordPublish('douyin', 'acc_1') // 写 acc_1 与 *
+      // 另一次发布覆盖账号键（不同时刻），平台键也被覆盖 ⇒ 整体不释放
+      guard.recordPublish('douyin', 'acc_1', T0 + 1)
+      expect(guard.release('douyin', 'acc_1', hold).released).toBe(false)
+      // 直接构造：仅平台键匹配
+      store.set('douyin:*', hold.at)
+      store.set('douyin:acc_1', hold.at + 5)
+      const r = guard.release('douyin', 'acc_1', hold)
+      expect(r.released).toBe(true)
+    })
+
+    test('dailyStore 缺失时 release 不抛（失败路径上抛错会吞掉原错误）', () => {
+      const store = new Map()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 1000, platformMinMs: 0, accountDailyMax: 3 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        now: () => T0,
+      })
+      const hold = guard.recordPublish('douyin', 'acc_1')
+      expect(() => guard.release('douyin', 'acc_1', hold)).not.toThrow()
+      expect(guard.release('douyin', 'acc_1', hold).released).toBe(false)
+    })
+  })
+
+  describe('clearWindow 人为清窗（紧急放行专用）', () => {
+    function makeClearGuard () {
+      const store = new Map()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 10 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 3 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        now: () => T0,
+        today: () => DAY1,
+      })
+      return { guard, store }
+    }
+
+    test('同时清掉账号键与平台键，并回报清掉了哪些键', () => {
+      const { guard } = makeClearGuard()
+      guard.recordPublish('douyin', 'acc_1')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+
+      const r = guard.clearWindow('douyin', 'acc_1')
+      expect(r.cleared).toBe(true)
+      expect(r.clearedKeys.sort()).toEqual(['douyin:*', 'douyin:acc_1'])
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      // 副作用如实：同平台其他账号也不再被平台键拦住（代价由每日上限+冷却+审计约束）
+      expect(guard.check('douyin', 'acc_2').allowed).toBe(true)
+    })
+
+    test('无窗口可清时返回 cleared=false（不得谎报成功）', () => {
+      const { guard } = makeClearGuard()
+      const r = guard.clearWindow('douyin', 'acc_1')
+      expect(r).toEqual({ cleared: false, clearedKeys: [] })
+    })
+
+    test('不影响其他平台', () => {
+      const { guard } = makeClearGuard()
+      guard.recordPublish('douyin', 'acc_1')
+      guard.recordPublish('kuaishou', 'acc_1')
+      guard.clearWindow('douyin', 'acc_1')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      expect(guard.check('kuaishou', 'acc_1').allowed).toBe(false)
+    })
+
+    test('accountId 缺席时只清平台键', () => {
+      const { guard, store } = makeClearGuard()
+      guard.recordPublish('douyin', null)
+      const r = guard.clearWindow('douyin', null)
+      expect(r.clearedKeys).toEqual(['douyin:*'])
+      expect(store.get('douyin:*')).toBe(null)
+    })
+  })
+
+  describe('未登记平台出声（v2 变更：由静默改为一次告警）', () => {
+    test('同平台只出声一次，且内容含平台名与档位', () => {
+      const warns = []
+      const guard = exactGuard({
+        policy: (p) => (p === 'douyin'
+          ? { accountMinMs: 1000, platformMinMs: 500, accountDailyMax: 1, fallback: false }
+          : { accountMinMs: 2000, platformMinMs: 1000, accountDailyMax: 2, fallback: true }),
+        now: () => T0,
+        warn: (m) => warns.push(m),
+      })
+      guard.check('mystery', 'a')
+      guard.check('mystery', 'a')
+      guard.check('mystery', 'a')
+      expect(warns.length).toBe(1)
+      expect(warns[0]).toContain('mystery')
+      expect(warns[0]).toContain('未登记')
+
+      // 另一个未登记平台各自出声一次
+      guard.check('mystery2', 'a')
+      expect(warns.length).toBe(2)
+    })
+
+    test('已登记平台不出声', () => {
+      const warns = []
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 1000, platformMinMs: 500, accountDailyMax: 1, fallback: false }),
+        now: () => T0,
+        warn: (m) => warns.push(m),
+      })
+      guard.check('douyin', 'a')
+      expect(warns).toEqual([])
+    })
+  })
+
+  describe('本机运营日边界与同源时钟', () => {
+    test('msUntilNextDay 与 today() 共用注入时钟', () => {
+      const t = new Date('2026-10-10T23:00:00').getTime()
+      const guard = exactGuard({ now: () => t, jitterRatio: 0 })
+      expect(guard.today()).toBe('2026-10-10')
+      // 距次日 00:00:05 = 1 小时 5 秒
+      expect(guard.msUntilNextDay()).toBe(60 * 60 * 1000 + 5000)
+    })
+
+    test('默认 today() 由 now() 推导（不读真实系统时钟）', () => {
+      const t = new Date('2026-01-02T10:00:00').getTime()
+      const guard = exactGuard({ now: () => t })
+      expect(guard.today()).toBe('2026-01-02')
     })
   })
 })
