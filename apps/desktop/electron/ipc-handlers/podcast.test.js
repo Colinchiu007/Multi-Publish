@@ -54,6 +54,9 @@ function makeService (overrides = {}) {
     buildFeed: vi.fn(() => ({ path: 'C:/tmp/feed.xml', itemCount: 2, bytes: 1234 })),
     verifyFeed: vi.fn(async () => ({ issues: [], checks: [{ name: 'parse', ok: true }], itemCount: 2 })),
     listEndpoints: vi.fn(() => [{ id: 'xiaoyuzhou' }]),
+    episodeCap: vi.fn(() => 1000),
+    readFeedSync: vi.fn(() => null),
+    writeFeedSync: vi.fn((p) => Object.assign({ updatedAt: 'now' }, p)),
     ...overrides,
   }
 }
@@ -71,10 +74,12 @@ function setup (overrides) {
 }
 
 describe('podcast handler · 通道注册', () => {
-  it('八条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
+  it('十三条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
     const { ipcMain } = setup()
     expect([...ipcMain.handlers.keys()].sort()).toEqual([
-      'podcast:channel:get', 'podcast:channel:save',
+      'podcast:channel:create', 'podcast:channel:get', 'podcast:channel:list',
+      'podcast:channel:migrate:resolve', 'podcast:channel:rename',
+      'podcast:channel:save', 'podcast:channel:setDefault',
       'podcast:endpoints:list', 'podcast:episode:list',
       'podcast:episode:remove', 'podcast:episode:save',
       'podcast:feed:build', 'podcast:feed:verify',
@@ -84,7 +89,7 @@ describe('podcast handler · 通道注册', () => {
   it('注册阶段不得触碰 userData：未注入服务时也能完成注册，第一次调用才惰性建服务', () => {
     const ipcMain = makeIpcMain()
     expect(() => registerHandlers(ipcMain, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })).not.toThrow()
-    expect(ipcMain.handlers.size).toBe(8)
+    expect(ipcMain.handlers.size).toBe(13)
   })
 })
 
@@ -92,7 +97,7 @@ describe('podcast handler · 成功信封', () => {
   it('每条通道都回 { code:0, data:{…} }，键名与合同逐字一致', async () => {
     const { ipcMain } = setup()
     expect(await invoke(ipcMain, 'podcast:channel:get')).toEqual({ code: 0, data: { channel: { title: '午间电台' } } })
-    expect(await invoke(ipcMain, 'podcast:episode:list')).toEqual({ code: 0, data: { episodes: [{ id: 'ep-1' }] } })
+    expect(await invoke(ipcMain, 'podcast:episode:list')).toEqual({ code: 0, data: { episodes: [{ id: 'ep-1' }], cap: 1000, count: 1 } })
     expect(await invoke(ipcMain, 'podcast:endpoints:list')).toEqual({ code: 0, data: { endpoints: [{ id: 'xiaoyuzhou' }] } })
     expect(await invoke(ipcMain, 'podcast:feed:build')).toEqual({ code: 0, data: { path: 'C:/tmp/feed.xml', itemCount: 2, bytes: 1234 } })
     const verified = await invoke(ipcMain, 'podcast:feed:verify')

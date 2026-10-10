@@ -63,16 +63,39 @@ async function envelope (pending) {
   return result === undefined ? { available: false } : { available: true, result }
 }
 
-export async function channelGet () {
-  return envelope(() => invokeNamespace(NS, 'channelGet'))
+// 刀 1 起频道是复数：这 5 个方法承载频道目录本身。
+// 每个导出仍各自写死方法名字面量 —— 见本文件头部「为什么不做成 callPodcastIpc(method, …) 转发」，
+// electron/tests/ipc-exposure-contract.test.js 的判据是从调用点抽首参字面量。
+export async function channelList () {
+  return envelope(() => invokeNamespace(NS, 'channelList'))
+}
+
+export async function channelCreate (payload) {
+  return envelope(() => invokeNamespace(NS, 'channelCreate', payload))
+}
+
+export async function channelRename (payload) {
+  return envelope(() => invokeNamespace(NS, 'channelRename', payload))
+}
+
+export async function channelSetDefault (payload) {
+  return envelope(() => invokeNamespace(NS, 'channelSetDefault', payload))
+}
+
+export async function channelMigrateResolve (payload) {
+  return envelope(() => invokeNamespace(NS, 'channelMigrateResolve', payload))
+}
+
+export async function channelGet (payload) {
+  return envelope(() => invokeNamespace(NS, 'channelGet', payload))
 }
 
 export async function channelSave (payload) {
   return envelope(() => invokeNamespace(NS, 'channelSave', payload))
 }
 
-export async function episodeList () {
-  return envelope(() => invokeNamespace(NS, 'episodeList'))
+export async function episodeList (payload) {
+  return envelope(() => invokeNamespace(NS, 'episodeList', payload))
 }
 
 export async function episodeSave (payload) {
@@ -83,12 +106,12 @@ export async function episodeRemove (id) {
   return envelope(() => invokeNamespace(NS, 'episodeRemove', id))
 }
 
-export async function feedBuild () {
-  return envelope(() => invokeNamespace(NS, 'feedBuild'))
+export async function feedBuild (payload) {
+  return envelope(() => invokeNamespace(NS, 'feedBuild', payload))
 }
 
-export async function feedVerify () {
-  return envelope(() => invokeNamespace(NS, 'feedVerify'))
+export async function feedVerify (payload) {
+  return envelope(() => invokeNamespace(NS, 'feedVerify', payload))
 }
 
 export async function endpointList () {

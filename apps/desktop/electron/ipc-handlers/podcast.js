@@ -67,17 +67,49 @@ function registerHandlers (ipcMain, deps) {
 
   // 服务实例惰性解析：注册动作本身不得触碰 userData 目录（测试环境同样走这条注册路径）。
   /** @type {any} */
-  let service = deps && deps.podcastChannelService ? deps.podcastChannelService : null
-  function getService () {
-    if (service) return service
+  // 测试注入的单实例直通：不注入时才走 registry（多频道）
+  let injected = deps && deps.podcastChannelService ? deps.podcastChannelService : null
+  let registry = deps && deps.podcastRegistry ? deps.podcastRegistry : null
+  const servicesByChannel = new Map()
+  function getRegistry () {
+    if (registry) return registry
+    const PodcastChannelRegistry = require('../services/podcast-channel-registry')
+    const root = deps && deps.podcastUserDataDir
+      ? require('path').join(String(deps.podcastUserDataDir).trim(), 'podcast')
+      : undefined
+    registry = new PodcastChannelRegistry({
+      podcastRoot: root,
+      app: deps && deps.podcastApp,
+      logger: log,
+      idFactory: deps && deps.podcastIdFactory,
+    })
+    return registry
+  }
+  function channelOf (payload) {
+    if (!payload || typeof payload !== 'object') return ''
+    return typeof payload.channelId === 'string' ? payload.channelId.trim() : ''
+  }
+  function getService (channelId) {
+    if (injected) return injected
+    const id = String(channelId || '').trim()
+    if (!id) {
+      const e = new Error('PODCAST_CHANNEL_ID_REQUIRED: 缺少 channelId')
+      e.code = 'PODCAST_CHANNEL_ID_REQUIRED'
+      throw e
+    }
+    if (servicesByChannel.has(id)) return servicesByChannel.get(id)
     const PodcastChannelService = require('../services/podcast-channel-service')
-    service = new PodcastChannelService({
-      userDataDir: deps && deps.podcastUserDataDir,
+    const reg = getRegistry()
+    reg.assertChannelExists(id)
+    const svc = new PodcastChannelService({
+      channelDir: reg.channelDir(id),
+      channelId: id,
       logger: log,
       // headImpl 必须由调用方显式注入；缺省即跳过网络检查（禁止默认发真实出站）
       headImpl: deps && deps.podcastHeadImpl,
     })
-    return service
+    servicesByChannel.set(id, svc)
+    return svc
   }
 
   // ⛔ 通道名必须在下方 8 个注册点各自写成字符串字面量，不得收回本 helper
@@ -98,19 +130,26 @@ function registerHandlers (ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('podcast:channel:get', guarded('channel:get', () => ({ channel: getService().getChannel() })))
+  ipcMain.handle('podcast:channel:get', guarded('channel:get', (payload) => ({ channel: getService(channelOf(payload)).getChannel() })))
 
   ipcMain.handle('podcast:channel:save', guarded('channel:save', (payload) => {
     // 缺参同样交给服务判：saveChannel(null) 走引擎的 CHANNEL_MISSING，
     // 于是「没传对象」和「传了但不合格」共用**一份**校验实现，不在本层另写 issue 字面量。
-    return { channel: getService().saveChannel(unwrapObject(payload, 'channel')) }
+    return { channel: getService(channelOf(payload)).saveChannel(unwrapObject(payload, 'channel')) }
   }))
 
-  ipcMain.handle('podcast:episode:list', guarded('episode:list', () => ({ episodes: getService().listEpisodes() })))
+  ipcMain.handle('podcast:episode:list', guarded('episode:list', (payload) => {
+    const svc = getService(channelOf(payload))
+    const episodes = svc.listEpisodes()
+    return { episodes, cap: svc.episodeCap(), count: episodes.length }
+  }))
 
-  ipcMain.handle('podcast:episode:save', guarded('episode:save', (payload) => (
-    { episode: getService().saveEpisode(unwrapObject(payload, 'episode')) }
-  )))
+  ipcMain.handle('podcast:episode:save', guarded('episode:save', (payload) => {
+    const svc = getService(channelOf(payload))
+    // strict 由调用方声明：一键路径要整次拒绝，手工路径保留「先登记、后补直链」的中间态只出声
+    const strict = Boolean(payload && payload.strict === true)
+    return { episode: svc.saveEpisode(unwrapObject(payload, 'episode'), { strict }) }
+  }))
 
   ipcMain.handle('podcast:episode:remove', guarded('episode:remove', (payload) => {
     const id = typeof payload === 'string' ? payload
@@ -121,7 +160,7 @@ function registerHandlers (ipcMain, deps) {
       throw e
     }
     // 必须看服务判定结果：id 不存在时恒回 removed:true 会让 UI 显示「已删除」而库里纹丝不动
-    if (!getService().removeEpisode(id)) {
+    if (!getService(channelOf(payload)).removeEpisode(id)) {
       const e = new Error('单集不存在')
       e.code = 'PODCAST_EPISODE_NOT_FOUND'
       throw e
@@ -129,17 +168,39 @@ function registerHandlers (ipcMain, deps) {
     return { removed: true }
   }))
 
-  ipcMain.handle('podcast:feed:build', guarded('feed:build', () => {
-    const r = getService().buildFeed()
+  ipcMain.handle('podcast:feed:build', guarded('feed:build', (payload) => {
+    const r = getService(channelOf(payload)).buildFeed()
     return { path: r.path, itemCount: r.itemCount, bytes: r.bytes }
   }))
 
-  ipcMain.handle('podcast:feed:verify', guarded('feed:verify', async () => {
-    const r = await getService().verifyFeed()
+  ipcMain.handle('podcast:feed:verify', guarded('feed:verify', async (payload) => {
+    const r = await getService(channelOf(payload)).verifyFeed()
     return { issues: r.issues, checks: r.checks, itemCount: r.itemCount }
   }))
 
+  // 分发端目录是**频道无关**的：给它加 channelId 语义不成立（评审 #4）
   ipcMain.handle('podcast:endpoints:list', guarded('endpoints:list', () => ({ endpoints: getService().listEndpoints() })))
+
+  ipcMain.handle('podcast:channel:list', guarded('channel:list', () => getRegistry().listChannels()))
+
+  ipcMain.handle('podcast:channel:create', guarded('channel:create', (payload) => {
+    const name = payload && typeof payload.name === 'string' ? payload.name : ''
+    return getRegistry().createChannel(name)
+  }))
+
+  ipcMain.handle('podcast:channel:rename', guarded('channel:rename', (payload) => {
+    const name = payload && typeof payload.name === 'string' ? payload.name : ''
+    return getRegistry().renameChannel(channelOf(payload), name)
+  }))
+
+  ipcMain.handle('podcast:channel:setDefault', guarded('channel:setDefault', (payload) =>
+    getRegistry().setDefaultChannel(channelOf(payload))
+  ))
+
+  ipcMain.handle('podcast:channel:migrate:resolve', guarded('channel:migrate:resolve', (payload) => {
+    const direction = payload && typeof payload.direction === 'string' ? payload.direction : ''
+    return getRegistry().resolveMigration(direction)
+  }))
 }
 
 module.exports = registerHandlers

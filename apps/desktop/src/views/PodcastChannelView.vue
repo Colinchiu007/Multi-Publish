@@ -6,6 +6,30 @@
     </header>
 
     <!-- 区块一：频道设置 -->
+    <section class="podcast-section" data-testid="podcast-channel-picker" aria-labelledby="podcast-picker-heading">
+      <h2 id="podcast-picker-heading">{{ t('podcast.picker.sectionTitle') }}</h2>
+      <p v-if="migrationStatus === 'conflict'" class="podcast-error" data-testid="podcast-migration-conflict">
+        {{ t('podcast.picker.migrationConflict') }}
+        <button type="button" data-testid="podcast-migration-keep-existing" @click="resolveMigration('keep_existing')">{{ t('podcast.picker.keepExisting') }}</button>
+        <button type="button" data-testid="podcast-migration-keep-legacy" @click="resolveMigration('keep_legacy')">{{ t('podcast.picker.keepLegacy') }}</button>
+      </p>
+      <p v-else-if="migrationStatus === 'error'" class="podcast-error" data-testid="podcast-migration-error">{{ t('podcast.picker.migrationError') }}</p>
+      <div v-if="channels.length === 0" class="podcast-empty" data-testid="podcast-picker-empty">{{ t('podcast.picker.empty') }}</div>
+      <label v-else class="podcast-field">
+        <span>{{ t('podcast.picker.current') }}</span>
+        <select v-model="activeChannelId" data-testid="podcast-picker-select" :disabled="switchingChannel" @change="onSwitchChannel">
+          <option v-for="c in channels" :key="c.id" :value="c.id">{{ c.name }} · {{ c.count }}/{{ c.cap }}</option>
+        </select>
+      </label>
+      <div class="podcast-picker-actions">
+        <input v-model="newChannelName" data-testid="podcast-picker-new-name" :placeholder="t('podcast.picker.namePlaceholder')" :maxlength="120">
+        <button type="button" data-testid="podcast-picker-create" @click="onCreateChannel">{{ t('podcast.picker.create') }}</button>
+        <button type="button" data-testid="podcast-picker-set-default" :disabled="!activeChannelId" @click="onSetDefault">{{ t('podcast.picker.setDefault') }}</button>
+      </div>
+      <p v-if="pickerError" class="podcast-error" data-testid="podcast-picker-error">{{ pickerError }}</p>
+      <p class="podcast-hint" data-testid="podcast-picker-quota-hint">{{ t('podcast.picker.quotaHint', { cap: channelCap, count: channelCount }) }}</p>
+    </section>
+
     <section class="podcast-section" data-testid="podcast-channel-section" aria-labelledby="podcast-channel-heading">
       <h2 id="podcast-channel-heading">{{ t('podcast.channel.sectionTitle') }}</h2>
       <p class="podcast-hint">{{ t('podcast.channel.sectionHint') }}</p>
@@ -287,6 +311,18 @@ const { t } = useI18n()
 const { notifySuccess, notifyError } = useNotify()
 
 const {
+  channels,
+  activeChannelId,
+  migrationStatus,
+  channelCap,
+  channelCount,
+  switchingChannel,
+  createChannel,
+  renameChannel,
+  setDefaultChannel,
+  resolveMigration,
+  switchChannel,
+  loadChannels,
   channel,
   savingChannel,
   channelError,
@@ -314,6 +350,36 @@ const {
   errorText,
   issueText,
 } = usePodcastChannel()
+
+// 频道目录的本地状态：名字与错误只在这里出现一次，模板不再自造第二份判据
+const newChannelName = ref('')
+const pickerError = ref('')
+
+async function onCreateChannel () {
+  pickerError.value = ''
+  const name = String(newChannelName.value || '').trim()
+  if (!name) { pickerError.value = t('podcast.picker.nameRequired'); return }
+  const res = await createChannel(name)
+  if (res && res.ok === false) { pickerError.value = errorText(res.code); return }
+  newChannelName.value = ''
+  notifySuccess(t('podcast.picker.created'))
+  await loadChannel()
+  await loadEpisodes()
+}
+
+async function onSetDefault () {
+  pickerError.value = ''
+  const res = await setDefaultChannel(activeChannelId.value)
+  if (res && res.ok === false) { pickerError.value = errorText(res.code); return }
+  notifySuccess(t('podcast.picker.defaultSet'))
+}
+
+async function onSwitchChannel () {
+  pickerError.value = ''
+  const res = await switchChannel(activeChannelId.value)
+  if (res && res.ok === false) { pickerError.value = t('podcast.picker.switchFailed'); return }
+  notifySuccess(t('podcast.picker.switched'))
+}
 
 const channelForm = ref(makeChannelDraft())
 const editingEpisode = ref(null)

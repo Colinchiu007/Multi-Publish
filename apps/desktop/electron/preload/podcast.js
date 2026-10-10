@@ -54,6 +54,11 @@ function unwrap(invoke) {
 function createPodcastApi(ipcRenderer) {
   return {
     podcast: {
+      channelList: unwrap(() => ipcRenderer.invoke('podcast:channel:list')),
+      channelCreate: unwrap((payload) => ipcRenderer.invoke('podcast:channel:create', payload)),
+      channelRename: unwrap((payload) => ipcRenderer.invoke('podcast:channel:rename', payload)),
+      channelSetDefault: unwrap((payload) => ipcRenderer.invoke('podcast:channel:setDefault', payload)),
+      channelMigrateResolve: unwrap((payload) => ipcRenderer.invoke('podcast:channel:migrate:resolve', payload)),
       channelGet: unwrap((...a) => ipcRenderer.invoke('podcast:channel:get', ...a)),
       channelSave: unwrap((payload) => ipcRenderer.invoke('podcast:channel:save', payload)),
       episodeList: unwrap(() => ipcRenderer.invoke('podcast:episode:list')),

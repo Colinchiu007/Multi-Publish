@@ -300,6 +300,26 @@ knowledgeBase: {
 
   podcast: {
     pageTitle: 'Podcast RSS Channel',
+    picker: {
+      sectionTitle: 'Podcast channels',
+      current: 'Current channel',
+      empty: 'No channel yet. Create one to get started.',
+      namePlaceholder: 'Channel name',
+      create: 'New channel',
+      setDefault: 'Set as default',
+      created: 'Channel created',
+      renamed: 'Channel renamed',
+      defaultSet: 'Default channel updated',
+      switched: 'Channel switched',
+      switchFailed: 'Could not switch channel. Please try again.',
+      nameRequired: 'Enter a channel name.',
+      quotaHint: 'This channel holds {count} of {cap} episodes; delete some before adding more.',
+      migrationConflict: 'Channel migration is incomplete: two different local channel configs were found. Choose which to keep.',
+      migrationError: 'Channel migration failed midway. Writing is blocked; please retry or contact support.',
+      keepExisting: 'Keep current data',
+      keepLegacy: 'Keep original data',
+      migrationResolved: 'Migration conflict resolved',
+    },
     pageSubtitle: 'Podcast inclusion in RSS aggregators (Xiaoyuzhou / Apple / Spotify): configure the channel once → add episodes one by one → build & self-check the feed → submit the feed URL to each directory',
     channel: {
       sectionTitle: 'Channel Settings',

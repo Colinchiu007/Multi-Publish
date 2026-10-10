@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "id": "podcast-oneclick-publish",
+  "title": "播客 RSS 频道接入一键发布（设计评审）",
+  "status": "escalated",
+  "currentRound": 5,
+  "updatedAt": "2026-10-10T15:06:58.541Z",
+  "escalationReason": "第5轮 critic 基础设施失败无结论；用户已下令按 v5 落地，视为人工裁决放行",
+  "escalatedAt": "2026-10-10T15:12:13.282Z",
+  "objectType": "plan",
+  "proposalSource": "01-docs/DESIGN-PODCAST-ONECLICK-PUBLISH-2026-10-10.md",
+  "config": {
+    "proposer": "claude",
+    "critic": "opencode",
+    "maxRounds": 5,
+    "scoreThreshold": 8,
+    "dimensions": [
+      "completeness",
+      "consistency",
+      "clarity",
+      "feasibility",
+      "security"
+    ],
+    "timeoutMs": 600000,
+    "timeoutNote": "config.example 的 plan 档 120s 不适用：评审对象 23.7KB 且需读仓取证，沿用 code 档 600s 预算",
+    "maxRoundsDeviation": "用户裁决后加轮（第 4 轮为收口轮：只判是否闭合 + 只查新引入的自相矛盾，不开新设计面）；原 config.example 默认 3，如实记录不伪装"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "resolvedFamily": {
+        "proposer": "anthropic",
+        "critic": "deepseek/hy3"
+      },
+      "score": {
+        "completeness": 6,
+        "consistency": 4,
+        "clarity": 6,
+        "feasibility": 6,
+        "security": 6
+      },
+      "minScore": 4,
+      "criticalRemaining": 9,
+      "accepted": 8,
+      "rejected": 0,
+      "rejectedWithEvidence": 0,
+      "rejectedWithoutEvidence": 0,
+      "partiallyAccepted": 1,
+      "retractedByCritic": 0,
+      "l3Rejected": 0,
+      "stalled": false,
+      "note": "criticalRemaining=9 为\"3 Critical + 6 Warning 全部待 v2 修订\"的保守计法；partial 一行的未接受子项已计入"
+    },
+    {
+      "round": 2,
+      "resolvedFamily": {
+        "proposer": "anthropic",
+        "critic": "openai"
+      },
+      "criticBackend": "codex",
+      "score": {
+        "completeness": 7,
+        "consistency": 6,
+        "clarity": 7,
+        "feasibility": 7,
+        "security": 8
+      },
+      "minScore": 6,
+      "retractedByCritic": 9,
+      "newIssues": 9,
+      "criticalRemaining": 1,
+      "accepted": 9,
+      "rejected": 0,
+      "rejectedWithEvidence": 0,
+      "rejectedWithoutEvidence": 0,
+      "partiallyAccepted": 0,
+      "l3Rejected": 0,
+      "stalled": false,
+      "note": "第 1 轮 9 条全部由第 2 轮 critic 独立复核后撤回；第 2 轮 9 条全部 accepted（含 2 处按评审建议方向、1 处出方原条款自相矛盾被重写）；minScore 6 < 8.0 故未收敛，进第 3 轮"
+    },
+    {
+      "round": 3,
+      "resolvedFamily": {
+        "proposer": "anthropic",
+        "critic": "openai"
+      },
+      "criticBackend": "codex",
+      "score": {
+        "completeness": 7,
+        "consistency": 7,
+        "clarity": 8,
+        "feasibility": 7,
+        "security": 8
+      },
+      "minScore": 7,
+      "retractedByCritic": 8,
+      "newIssues": 11,
+      "criticalRemaining": 0,
+      "accepted": 0,
+      "rejected": 0,
+      "rejectedWithEvidence": 0,
+      "rejectedWithoutEvidence": 0,
+      "partiallyAccepted": 0,
+      "l3Rejected": 0,
+      "stalled": false,
+      "note": "minScore 7 < 8.0 且 currentRound>=maxRounds(3)，autoAcceptOnStall=false → escalated 升级人工；曲线 4→6→7 单调上行（非 stall），但每轮仍在发现新的实现级缺陷"
+    },
+    {
+      "round": 4,
+      "resolvedFamily": {
+        "proposer": "anthropic",
+        "critic": "openai"
+      },
+      "criticBackend": "codex",
+      "scope": "closure-only（只判是否闭合 + 只查新引入矛盾）",
+      "score": {
+        "completeness": 7,
+        "consistency": 6,
+        "clarity": 8,
+        "feasibility": 8,
+        "security": 8
+      },
+      "minScore": 6,
+      "retractedByCritic": 6,
+      "newIssues": 9,
+      "criticalRemaining": 0,
+      "accepted": 0,
+      "rejected": 0,
+      "rejectedWithEvidence": 0,
+      "rejectedWithoutEvidence": 0,
+      "partiallyAccepted": 0,
+      "l3Rejected": 0,
+      "stalled": false,
+      "note": "consistency 由 7 降到 6：v4 的 5 条新矛盾全部是「§8.6 宣称已改某节、该节实文未改」同族；v5 逐节落实并加机械自查探针"
+    },
+    {
+      "round": 5,
+      "resolvedFamily": {
+        "proposer": "anthropic",
+        "critic": "openai"
+      },
+      "criticBackend": "codex",
+      "scope": "closure-only",
+      "score": null,
+      "minScore": null,
+      "retractedByCritic": 0,
+      "newIssues": 0,
+      "criticalRemaining": null,
+      "accepted": 0,
+      "rejected": 0,
+      "rejectedWithEvidence": 0,
+      "rejectedWithoutEvidence": 0,
+      "partiallyAccepted": 0,
+      "l3Rejected": 0,
+      "stalled": false,
+      "note": "critic 进程中途异常（自身 Substring 越界），产物停留骨架、五维 null 无结论 —— 属工具失败，非设计未收敛；不自称 converged"
+    }
+  ],
+  "converged": false,
+  "createdAt": "2026-10-10T13:38:41Z",
+  "selfPlay": {
+    "enabled": true,
+    "confidenceWeight": 0.6,
+    "highRiskDomains": [
+      "datamigration",
+      "crypto"
+    ],
+    "note": "本设计含不可逆数据迁移与凭证加密，两域在 highRiskDomains 内，争议项不允许自扮演豁免（须外部复核）"
+  },
+  "externalReviews": {
+    "ccgClaude": {
+      "file": "ccg-claude-v1.json",
+      "findings": 10,
+      "severities": {
+        "Critical": 3,
+        "Warning": 5,
+        "Info": 2
+      }
+    },
+    "criticOpencode": {
+      "file": "critique-v1.md",
+      "issues": 9,
+      "severities": {
+        "Critical": 3,
+        "Warning": 6
+      }
+    }
+  },
+  "attempts": [
+    {
+      "round": 2,
+      "criticAttempted": "opencode",
+      "session": "ses_ed9f65a66ffeXap2FhiLeRaTdd",
+      "outcome": "无产物——resume 长会话连续两次在最终动作前触发自动压缩，返回工作摘要而非 critique",
+      "action": "换 critic=codex 全新会话，并要求尽早写骨架文件（产物在任何时刻都存在且可 JSON.parse）",
+      "familyCheck": "proposer=anthropic vs critic=openai，交集为空，跨家族成立",
+      "deviation": "config.critic 原为 opencode；本次属协议允许的「换模型组合重跑」，如实记录，不伪装成原配置"
+    },
+    {
+      "round": 4,
+      "critic": "codex",
+      "session": "fresh",
+      "outcome": "pending",
+      "note": "全新会话避免第 2-3 轮已复现的 resume 自动压缩"
+    },
+    {
+      "round": 3,
+      "artifact": "rebuttal-v3",
+      "outcome": "违规事后补写",
+      "note": "第 3 轮出方直接产出 proposal-v4，未按配对契约先写 rebuttal-v3；由出方自查发现（第 4 轮评审范围不含配对检查故未捕获）。已补 rebuttal-v3.md 并内含 pairingDeviation 字段。第 4/5 轮严格按 critique→rebuttal→proposal 顺序执行。"
+    },
+    {
+      "round": 5,
+      "critic": "codex",
+      "session": "fresh",
+      "outcome": "pending"
+    }
+  ],
+  "escalationResolvedAt": "2026-10-10T14:54:02.292Z",
+  "escalationResolution": "用户选择：出 v4 + 收口轮（推荐项）；#22/#26 由出方按证据自决（uploadAudio 前可取消；手工路径保存后校验只出声不阻断）",
+  "adjudication": {
+    "decidedBy": "user",
+    "decision": "按 proposal-v5 落地全部刀次",
+    "at": "2026-10-10T15:12:13.285Z",
+    "caveat": "v5 的 9 条 v4 残留项未经独立复核，其闭合改为由实现期测试锁逐条钉死（§7 行为锁⑥⑦⑧⑨ + 结构锁⑩⑪⑫⑬）"
+  }
+}

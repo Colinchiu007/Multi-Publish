@@ -51,6 +51,19 @@ vi.mock('@/utils/clipboard', () => ({
 /** 每个测试文件独立构造 podcast IPC 夹具 */
 function makePodcastApi (overrides = {}) {
   return {
+    channelList: vi.fn(async () => ({
+      ok: true,
+      channels: [{ id: 'ch_test0001', name: '测试频道', cap: 1000, count: 0 }],
+      defaultChannelId: 'ch_test0001',
+      empty: false,
+      migrationStatus: '',
+      migrationConflicts: [],
+      hostingConfigured: false,
+    })),
+    channelCreate: vi.fn(async () => ({ ok: true })),
+    channelRename: vi.fn(async () => ({ ok: true })),
+    channelSetDefault: vi.fn(async () => ({ ok: true })),
+    channelMigrateResolve: vi.fn(async () => ({ ok: true })),
     channelGet: vi.fn(async () => ({ ok: true, channel: null })),
     channelSave: vi.fn(async (channel) => ({ ok: true, channel })),
     episodeList: vi.fn(async () => ({ ok: true, episodes: [] })),
@@ -245,7 +258,8 @@ describe('usePodcastChannel 数据路径（IPC 非空 → 状态真的转发）'
     await api.saveEpisode(proxied)
     const sent = podcastApi.episodeSave.mock.calls[0][0]
     expect(sent.title).toBe('标题')
-    expect(JSON.parse(JSON.stringify(sent))).toEqual(JSON.parse(JSON.stringify(draft)))
+    // 断言里显式写出 channelId：这是刀 1 的核心不变量（写动作必须绑定频道上下文）
+    expect(JSON.parse(JSON.stringify(sent))).toEqual(JSON.parse(JSON.stringify(Object.assign({}, draft, { channelId: 'ch_test0001' }))))
   })
 
   it('removeEpisode 成功后本地列表移除该项', async () => {
@@ -254,7 +268,7 @@ describe('usePodcastChannel 数据路径（IPC 非空 → 状态真的转发）'
     await api.loadEpisodes()
     await api.removeEpisode('ep-1')
     expect(api.episodes.value.map((e) => e.id)).toEqual(['ep-2'])
-    expect(podcastApi.episodeRemove).toHaveBeenCalledWith('ep-1')
+    expect(podcastApi.episodeRemove).toHaveBeenCalledWith({ channelId: 'ch_test0001', id: 'ep-1' })
   })
 
   it('feedBuild 成功 → feedResult 转发 path 与 itemCount', async () => {
@@ -368,7 +382,7 @@ describe('PodcastChannelView 视图行为', () => {
     expect(podcastApi.episodeRemove).not.toHaveBeenCalled()
     await w.find('[data-testid="podcast-episode-delete-yes-ep-1"]').trigger('click')
     await flushPromises()
-    expect(podcastApi.episodeRemove).toHaveBeenCalledWith('ep-1')
+    expect(podcastApi.episodeRemove).toHaveBeenCalledWith({ channelId: 'ch_test0001', id: 'ep-1' })
     expect(w.find('[data-testid="podcast-episode-ep-1"]').exists()).toBe(false)
   })
 

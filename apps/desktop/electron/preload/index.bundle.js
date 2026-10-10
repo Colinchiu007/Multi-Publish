@@ -1270,6 +1270,11 @@ var require_podcast = __commonJS({
     function createPodcastApi2(ipcRenderer2) {
       return {
         podcast: {
+          channelList: unwrap(() => ipcRenderer2.invoke("podcast:channel:list")),
+          channelCreate: unwrap((payload) => ipcRenderer2.invoke("podcast:channel:create", payload)),
+          channelRename: unwrap((payload) => ipcRenderer2.invoke("podcast:channel:rename", payload)),
+          channelSetDefault: unwrap((payload) => ipcRenderer2.invoke("podcast:channel:setDefault", payload)),
+          channelMigrateResolve: unwrap((payload) => ipcRenderer2.invoke("podcast:channel:migrate:resolve", payload)),
           channelGet: unwrap((...a) => ipcRenderer2.invoke("podcast:channel:get", ...a)),
           channelSave: unwrap((payload) => ipcRenderer2.invoke("podcast:channel:save", payload)),
           episodeList: unwrap(() => ipcRenderer2.invoke("podcast:episode:list")),

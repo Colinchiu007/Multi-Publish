@@ -299,6 +299,26 @@ knowledgeBase: {
 
   podcast: {
     pageTitle: '播客 RSS 频道',
+    picker: {
+      sectionTitle: '播客频道',
+      current: '当前频道',
+      empty: '还没有频道，先新建一个。',
+      namePlaceholder: '频道名称',
+      create: '新建频道',
+      setDefault: '设为默认频道',
+      created: '频道已创建',
+      renamed: '频道已重命名',
+      defaultSet: '默认频道已更新',
+      switched: '已切换频道',
+      switchFailed: '切换频道失败，请稍后重试。',
+      nameRequired: '请填写频道名称。',
+      quotaHint: '该频道已收录 {count} 期，上限 {cap} 期；达到上限时须先删除旧期。',
+      migrationConflict: '频道数据迁移未完成：本地已有两份不同的频道配置，请选择保留哪一份。',
+      migrationError: '频道数据迁移中途失败，暂时无法写入；请重试或联系支持。',
+      keepExisting: '保留当前数据',
+      keepLegacy: '保留原有数据',
+      migrationResolved: '迁移冲突已处理',
+    },
     pageSubtitle: '经 RSS 订阅把播客收录进小宇宙 / Apple / Spotify 等聚合端：配置频道一次 → 逐期追加单集 → 生成并自检 Feed → 向分发端提交 Feed 地址',
     channel: {
       sectionTitle: '频道设置',

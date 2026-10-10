@@ -32,6 +32,11 @@ import i18n from '@/i18n'
 // 渲染端 IPC 唯一取用点（单轨制）：本文件任何位置（含注释）都不得直写桌面端暴露面
 // 的属性名——结构锁见 src/composables/usePodcastChannel-ipc.test.js「IPC 单轨制结构锁」
 import {
+  channelList,
+  channelCreate,
+  channelRename,
+  channelSetDefault,
+  channelMigrateResolve,
   channelGet,
   channelSave,
   episodeList,
@@ -144,10 +149,25 @@ function makeChannelDraft () {
   }
 }
 
+// 刀 1 起频道是复数：这 7 个调用必须带 channelId，且**只在这一个出口注入**。
+// 在 7 个调用点各写一份 `channelId: activeChannelId.value` 是本仓反复踩过的「一件事两处写」，
+// 漏一处就是「读 A 频道、写 B 频道」级别的错乱。endpoint 目录与频道无关，故不在表内。
+const CHANNEL_SCOPED = new Set([
+  channelGet, channelSave, episodeList, episodeSave, episodeRemove, feedBuild, feedVerify,
+])
+
 /**
  * @returns 频道状态 / 单集列表 / feed 生成与自检 / 分发端目录 的全部状态与动作
  */
 export function usePodcastChannel () {
+  const channels = ref([])
+  const activeChannelId = ref('')
+  const migrationStatus = ref('')
+  const migrationConflicts = ref([])
+  const channelCap = ref(0)
+  const channelCount = ref(0)
+  const channelError2 = ref('')
+  const switchingChannel = ref(false)
   const channel = ref(null) // null = 未配置
   const channelLoaded = ref(false)
   const savingChannel = ref(false)
@@ -186,6 +206,14 @@ export function usePodcastChannel () {
    * 「按变量名转发」，ipc-exposure-contract 的静态对账就看不见这条路径。
    */
   async function call (invoke, ...args) {
+    if (CHANNEL_SCOPED.has(invoke)) {
+      // 没有频道上下文就先补，而不是带着空串发出去：空串打到主进程会被判
+      // PODCAST_CHANNEL_ID_REQUIRED，用户看到的是一句莫名其妙的失败
+      if (!activeChannelId.value) await ensureChannel()
+      const head = args[0]
+      const base = head && typeof head === 'object' ? head : (typeof head === 'string' ? { id: head } : {})
+      args = [Object.assign({}, base, { channelId: activeChannelId.value }), ...args.slice(1)]
+    }
     let envelope
     try {
       envelope = await invoke(...args)
@@ -203,6 +231,7 @@ export function usePodcastChannel () {
   }
 
   async function loadChannel () {
+    await ensureChannel()
     channelError.value = ''
     const res = await call(channelGet)
     if (res.ok) {
@@ -215,6 +244,7 @@ export function usePodcastChannel () {
   }
 
   async function loadEpisodes () {
+    await ensureChannel()
     episodesError.value = ''
     const res = await call(episodeList)
     if (res.ok) {
@@ -372,8 +402,100 @@ export function usePodcastChannel () {
     return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
   }
 
+  /** 频道目录 + 当前频道 + 迁移状态；未拿到频道前不得再发任何频道作用域调用 */
+  async function loadChannels () {
+    const res = await call(channelList)
+    if (!res.ok) {
+      channelError2.value = res.code || IPC_EXCEPTION
+      return res
+    }
+    const data = res.data || res
+    channels.value = Array.isArray(data.channels) ? data.channels : []
+    migrationStatus.value = data.migrationStatus || ''
+    migrationConflicts.value = Array.isArray(data.migrationConflicts) ? data.migrationConflicts : []
+    if (!activeChannelId.value || !channels.value.some((x) => x.id === activeChannelId.value)) {
+      activeChannelId.value = data.defaultChannelId || (channels.value[0] && channels.value[0].id) || ''
+    }
+    const first = channels.value.find((x) => x.id === activeChannelId.value)
+    channelCap.value = (first && first.cap) || 0
+    channelCount.value = (first && first.count) || 0
+    return res
+  }
+
+  async function ensureChannel () {
+    if (!channels.value.length || !activeChannelId.value) await loadChannels()
+    return activeChannelId.value
+  }
+
+  async function createChannel (name) {
+    const res = await call(channelCreate, { name: String(name == null ? '' : name).trim() })
+    await loadChannels()
+    return res
+  }
+
+  async function renameChannel (id, name) {
+    const res = await call(channelRename, { channelId: id, name: String(name == null ? '' : name).trim() })
+    await loadChannels()
+    return res
+  }
+
+  async function setDefaultChannel (id) {
+    const res = await call(channelSetDefault, { channelId: id })
+    await loadChannels()
+    return res
+  }
+
+  async function resolveMigration (direction) {
+    const res = await call(channelMigrateResolve, { direction })
+    await loadChannels()
+    return res
+  }
+
+  async function switchChannel (id) {
+    if (!id || id === activeChannelId.value) return { ok: true, skipped: true }
+    switchingChannel.value = true
+    activeChannelId.value = id
+    channel.value = null
+    episodes.value = []
+    feedResult.value = null
+    verifyResult.value = null
+    try {
+      await loadChannel()
+      await loadEpisodes()
+      await refreshQuota()
+    } finally {
+      switchingChannel.value = false
+    }
+    return { ok: true }
+  }
+
+  /** 每次发布/写动作前现算，禁止跨动作缓存 count（评审 #17） */
+  async function refreshQuota () {
+    const res = await call(episodeList)
+    if (res.ok) {
+      const data = res.data || res
+      channelCap.value = Number(data.cap) || channelCap.value
+      channelCount.value = Number.isFinite(data.count) ? data.count : (Array.isArray(data.episodes) ? data.episodes.length : 0)
+    }
+    return { cap: channelCap.value, count: channelCount.value }
+  }
+
   return {
     // 状态
+    channels,
+    activeChannelId,
+    migrationStatus,
+    migrationConflicts,
+    channelCap,
+    channelCount,
+    switchingChannel,
+    loadChannels,
+    createChannel,
+    renameChannel,
+    setDefaultChannel,
+    resolveMigration,
+    switchChannel,
+    refreshQuota,
     channel,
     channelLoaded,
     savingChannel,
