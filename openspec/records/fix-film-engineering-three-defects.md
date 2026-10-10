@@ -2,9 +2,6 @@
 record: fix-film-engineering-three-defects
 task: 修影视工程三处静默失真——台账复用只比数量、批次确认看不到本批上下文、LLM 润色开关在出厂构建里永不生效
 date: 2026-10-07
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，回填需在合并后取 git log 证据
-sync_backfill_owner: 合并后的后续 docs PR
 ---
 
 ## 本次执行记录：影视工程三处静默失真修复（fix-film-engineering-three-defects，2026-10-07）
@@ -22,7 +19,7 @@ sync_backfill_owner: 合并后的后续 docs PR
 | QM-4 视觉 | N/A（已确认非跳过） | 该视图**无像素基线**：`apps/desktop/tests/visual-testing/views/` 下无 film 相关用例，无基线可回归。改动为既有列表行内新增一行文本 + 一个 CSS 类（`.fe-vg-shot-meta`），未改布局结构、未新增路由/组件/全局样式，故不触发像素基线失效。CI `QG Visual` job 实跑 success。|
 | locale 成对（Gate 7） | PASS | zh/en `filmEngineering` 命名空间 **204 ↔ 204 键完全对称**（删除 3 键后仍对称）。CI Gate 7 `check-locale-sync.js` 需 git ref，在无 `.git` 的测试副本内不可跑，改以键集直接比对取证 |
 | QM-6 CCG 双模型外部评审 | **未执行（环境不具备）** | `sh scripts/deep-review.sh --check-deps` 实测：`claude`（评审主力）MISS、`opencode`（跨家族校验）MISS、`codeagent-wrapper` 候选路径是 Windows `.exe` 形态与本 Linux 沙箱不匹配；脚本自述「没有任何评审后端可用 —— 深度审查根本起不来」。按 AGENTS.md「CCG 未安装 → 告警并跳过，不阻断任务」处理，如实记「未执行」 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3110)$' --format='%H\|%cI'` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-film-engineering-three-defects` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 合并 commit `c44385bc2e4c5a60ad69c1cd0d9db013e614bc78`（`2026-10-10T16:39:17+08:00`），由 `git log origin/main --grep='(#3110)$' --format='%H|%cI'` 现场取证；`git ls-remote --heads origin fix-film-engineering-three-defects` 返回 **0 行**，证远端分支已删 |
 
 ## 测试证据
 
@@ -56,6 +53,13 @@ PR #3110 开了约两天半后 `mergeable_state` 变 `dirty`——`origin/main` 
 **rebase 后测试全部重跑**（`origin/main` 前进 133 提交，旧结论不作数）：film-engineering 19 文件全绿、composables+views+i18n 9 文件全绿、3 组变异反证重跑（2 红 / 2 红 / 1 红）后还原全绿。
 
 > 运行环境提示：本次沙箱 `/workspace` 为 NFS、`/tmp` 为 overlayfs。装依赖实测 NFS 需 5 小时量级、`/tmp` 需 83 秒，**测试一律在 `/tmp` 的工作树副本上跑**，改动文件逐个同步并在跑前 `diff -q` 验证一致。
+
+### 合并收口
+
+- PR #3110 已 squash 合并，merge commit `c44385bc2e4c5a60ad69c1cd0d9db013e614bc78`（`2026-10-10T16:39:17+08:00`）
+- 远端分支 `fix-film-engineering-three-defects` 已删除（`git ls-remote` 返回 0 行，现场取证）
+- 三个 `sync_*` frontmatter 字段随本次回填删除。本记录**未**在 `scripts/gate-record-debt-ledger.json` 登记欠账——`openspec/records/` 体例的「远程同步」行不由该清单管控，`node scripts/check-gate-record-debt.js` 实测 OK
+- 合并后复核 `origin/main` 上 `locales/zh.js` 仍为 `filmEngineering: { ...filmEngineeringZh }`，**main 的 locales 拆分重构未被本 PR 回退**（这是 rebase 冲突处置的核心验收点）
 
 ## 遗留（不假装已闭合）
 
