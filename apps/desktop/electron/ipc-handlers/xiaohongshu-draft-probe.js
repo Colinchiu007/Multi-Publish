@@ -128,8 +128,9 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     if (!isSafe(accountId)) {
       return { code: EC.VALIDATION_ERROR, message: 'accountId 非法', data: { stage: 'validate' } }
     }
-    // 调试通道只走草稿：draft 锁死 true，调用方传 draft:false 一律忽略（公开发布走产品正式发布通道）
-    const draft = true
+    // 调试通道只走私密语义（2026-10-10 形态切换）：平台无 draft 字段，
+    // 「草稿/私密」= privacy_info.type:1（private）。公开发布走产品正式发布通道。
+    const visibilityType = 1
 
     // ── 阶段 1：解密凭据（只在主进程内，DPAPI 可用）──
     let cookies
@@ -241,7 +242,7 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
         title: article.title,
         content: article.content,
         images: images.map((p) => ({ path: p })),
-        draft,
+        visibilityType,
         tags: Array.isArray(article.tags) ? article.tags : [],
         cookie,
         authorization,
@@ -250,13 +251,13 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
           : (arg && arg.noteHost === 'creator' ? 'https://creator.xiaohongshu.com' : undefined),
         pageInpage,
       })
-      ipcLog('info', 'xiaohongshu:probe-draft-chain', 'ok', `accountId=${accountId} draft=${draft}`)
+      ipcLog('info', 'xiaohongshu:probe-draft-chain', 'ok', `accountId=${accountId} visibilityType=${visibilityType}`)
       return {
         code: 0,
         data: {
           stage: 'publish',
           success: true,
-          draft: result.draft,
+          visibilityType: result.visibilityType,
           // 作品标识是发布产物，不是凭据，可安全回传
           noteId: result.noteId || '',
           draftId: result.draftId || '',
