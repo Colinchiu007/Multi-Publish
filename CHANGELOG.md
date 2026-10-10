@@ -35,6 +35,40 @@
 ## 已知缺口
 
 停止按钮（批间生效）、端到端集成测试（plan → start → 台账 → manifest → 真实 ffmpeg 出 `final.mp4`）、QM-1 打包验证与 CDP 真机长文剧本 E2E、三处补充用例。均已登记在 `openspec/changes/film-auto-mode/tasks.md` 与 PRD §14.7，不装已闭合。
+# [未发布] feat(pubfreq): 发布频率策略 v2 —— 失败语义细分、日配额、抖动、紧急放行与设置页（2026-10-10，publish-frequency-policy-v2）
+
+### 用户感知
+
+**发布节奏变了，且更贴近人工。** 三处直接可感：
+
+1. **失败不再一律罚满窗口。** 以前「登录态失效 / Cookie 缺失 / 风控挂起」这类**请求根本没发到平台**的失败，也会吃掉整个间隔窗口（实测 bilibili 连续 3 次失败被 120/30 分钟钉住）；现在这类失败会**回滚窗口**，进度面板显示「未提交到平台，已恢复可发布」。反之，**已经发到平台**的失败仍然占满窗口（卡片显示「已提交，需等待约 N 分钟」）—— 这条边界是刻意保守的。
+2. **间隔数值下调 + 加抖动。** 账号档 60/30/10 分钟 → **20/10/3 分钟**；跨账号平台档 5/3/1 分钟 → 统一 **2 分钟**；等待时间加入 0–40% 的**只增不减**随机抖动，发布点不再落在精确的整数分钟边界上。
+3. **新增「发布设置」页（设置 → 发布设置）与紧急放行。** 可查看当前档位与实际等待区间，可按账号/平台/日配额/抖动覆盖策略（**保存即生效，无需重启**）；「立即解除本账号等待」可跳过某个等待窗口，带二次确认、每日每账号上限（默认 1 次）、跨账号 10 分钟冷却与**追加式本地审计**（界面不可编辑）。四态全部明确回显：成功 / 已达每日上限 / 冷却中（显示还需等几分钟）/ 当前没有等待中的窗口。
+
+新增/修改的 locale 键：`publishPage.publishProgressPanel.blockedBucketDaily|blockedDailyQuota|releasedNotSubmitted`、`settings.publishFrequency.*`（zh/en **成对**）。
+
+### 变更明细
+
+- **策略单一真源**（`packages/shared-utils/src/publish-frequency-policy.js`）：新增 `tier` 与 `accountDailyMax` 维度（复用既有三档分组，不新增分类器）；新增三档日配额 env（`MP_PUBLISH_DAILY_MAX_LONG|CLIP|SHORT`）与全局覆盖 env（`MP_PUBLISH_ACCOUNT_DAILY_MAX`）、抖动比例 env、回滚退避 env、紧急放行上限 env；间隔源声明上界 7 天（越界钳位并出声，防含抖动系数后逼近 `setTimeout` 上限）；未登记平台由**静默回落**改为**回落 + `fallback` 标记**（由守卫出声，进程内按平台去重）。
+- **守卫 v2**（`publish-interval-guard.js`）：日配额为**独立否决项**（`bucket='daily'`、`reason='daily_quota'`、`remainingMs=0` —— 它是「今天到此为止」而不是「等一会儿」）；新增只增不减的抖动（可注入随机源，`ratio=0` 严格退化为 v1 行为）；`recordPublish()` 返回占位前值；新增 `release()`（乐观并发：仅回滚本次占位；`prev` 缺失即 no-op 并出声；**防风上限** `max(2, dailyMax)`，回滚计数只增不减）；新增 `clearWindow()` 与 `setJitterRatio/setReleaseGraceMs`（非法值 no-op 并出声，不把已生效的保守配置降级成 0）；`buildKey()` 为唯一 key 构造函数（percent-encode；平台档哨兵 `*` 不参与编码）。
+- **队列 v2**（`task-queue.js`）：用**阶段判据**取代错误类型白名单 —— `submitAttempted` / `submittedAt` 双标记；未提交失败回滚窗口并发 `publish:released`，回滚后按最小退避重排（防「回滚即零等待」的重试风暴）；日配额被拒任务进 `_quotaBlocked` 且 `_processNext` 跳过（防紧循环），定时器指向**次日 00:00:05** 且与 `today()` 共用同一注入时钟；新增 `emergencyRelease()`（机制层，上限/冷却/审计刻意留在调用方）；**不变量 I4**：成功而 `submittedAt` 为空 ⇒ `error` + 计数 + 对该平台**停用回滚**（接线缺陷主动告警而非等某次失败被误放行）；失败路径**接线矛盾检测**（已证明会打点的平台持续出现「未发起尝试」⇒ 自动降级为占满窗口）。
+- **桌面传输层打点**（`bootstrap.js`）：分层判据 —— 进入 `publish()` **之前**的失败（风控挂起 / 信号中止 / 进度注册失败）不打点 ⇒ 可回滚；`publish()` **之内**的失败默认按已提交处理，仅当发布器显式声明 `definitelyNotSent === true` 时才可回滚；成功置 `submittedAt`。发布器内部补细粒度打标（`services/publish-not-submitted.js`，**封闭词表** + 每条注明「为什么必然发生在平台写之前」，刻意不收录泛化错误）。
+- **存储**：新增 `publish_daily_count(owner_subject,key,day_key,count,rollback_count,updated_at)`，`store-schema.js` **七处注册表**逐项登记（owner 隔离重建路径要求齐备）；新增 `store/publish-daily-store.js` mixin（字段名白名单防注入、UPSERT 用 `MAX(0,…)` 保下限、无 owner 一律 no-op、保留最近 7 天）。两个计数器**语义分离**：`count` 可幂等回补（一次从未发出的尝试不构成平台负载），`rollback_count` **只增不减**（否则「回滚—回补—再回滚」可无限循环，防风上限形同虚设）。
+- **装配**（`container.setup.js`）：注入 `dailyStore` / 抖动 / 回退退避 / `isKnownPlatform` / `warn`；设置页覆盖改为**每次 check 现取**（构造期快照会让设置页改动只能靠重启生效而 UI 无任何提示）。新增 **3 条装配锁**，其中行为锁**打桩 store 方法**证明「guard → 适配器 → store」链路真的接通（而非只断言「注入了」）。
+- **可观测与文案**：`publish:blocked` 增 `reason`/`daily` 并按原因分流文案；新增 `publish:released`（独立 `phase='released'`，可本地化，不依赖主进程中文串）；渲染层 `PHASE_ENUM`/`STAGE_KEY_ENUM` 增 `released`；进度行归属标签扩到三档、未知 `bucket` 仍不渲染标签。**顺手修掉一个既有渲染缺陷**：日配额 `remainingWait` 恒为 0，而旧分支的 `&& task.remainingWait` 守卫会让该行**完全没有文案**。
+- **IPC**（`ipc-handlers/publish.js`，与 `publishRisk:*` 同约定）：`publishFreq:getPolicy|setPolicy|emergencyRelease|emergencyStatus`；四态如实回报且都不是错误码；`setPolicy` 全有或全无（非法配置整体拒绝且**不写库**，否则界面显示「已保存」而策略没变）；**顺序修正**：先校验 → 服务 → 策略闸 → 队列能力 → 机制（把队列能力检查提前会把「今日已用尽」遮蔽成「任务队列不可用」，测试当场抓到）。操作者由主进程按 identity 解析，**不接受渲染层自报**。
+- **设置页**（`src/components/PublishFrequencySettings.vue` + `SettingsDialog` 的 `publish` tab 由 disabled 转可用）：按档位分组展示当前口径（不逐平台列 15 行噪音）+ 实际等待区间；保存被拒时报错且**不报成功**；恢复默认提交 `null`（清空覆盖）。组件经 `@/api/publisher` 访问 IPC（该文件头明令禁止直连 `window.electronAPI`；`rendererIpcDirect` 基线实测保持 0）。
+- **小坑（P2-3）**：`config/platforms.yaml` 的 `tencent_video` 加命名澄清 —— id 因存量兼容保留，但 `name=视频号`、`publish_url=channels.weixin.qq.com` ⇒ 实际目标是**微信视频号**，不是腾讯视频（其开放平台已关闭）；显式提示「新增代码请勿据 id 推断平台归属」。
+- **校准基础设施（P2-4）**：新增只读取数脚本 `scripts/calibrate-publish-frequency.js`（零依赖、不参与运行时判定），头部写死四条口径（两个数据源回答不同问题：`publish_timeline`=提交时刻 / `publish-history.jsonl`=终态时刻 ⇒ 后者相邻间隔 ≥ 前者，违规数只是下界；一行 ≠ 一次提交；日界按本机运营日；违规判据 = 相邻间隔 < 账号档），输出末尾强制附「局限」段。实测 66 行 / 8 平台，并暴露两条事实：该数据源**无 `accountId` 字段**（分组坍缩，报告里按账号的分析无法从该源复现）、baijiahao 有 4 处 1–5ms 相邻间隔（**在旧档位下也越限** ⇒ 当时并未被守卫拦住，待单独归因）。
+- **既有缺陷修复**：`publisher-router.js` 的 RPA 失败兜底文案原为 `'RPA 鍙戝竷澶辫触'`（「RPA 发布失败」的 GBK 误读）已修并钉进测试；同批次测试夹具里的 `document.body.innerHTML = ''` 改为 `textContent = ''`（旧版 CCG 安全扫描器把 `innerHTML` 赋值判为 XSS 高危；仓库自带 `.ccg/skills` 副本已排除测试文件，门禁实际调用的 home 副本尚未同步该规则）。
+- **与报告的显式偏离**：报告 P1-1 建议「跨账号平台档默认关」，本期改为**默认开 2 分钟**（理由与代价见 PRD §5.1；两轮评审各自独立指出默认关会削弱同平台多账号共档保护，且 1 账号/平台时该档完全惰性）。
+- **未闭合（不冒充）**：变异反证 M1–M14 未执行；QM-1 打包未执行；QM-6 验证层双模型评审因「判定记录以父提交为键」的机制原因首跑未落地（需再提交后用 `--force` 审全分支 diff）。
+
+### 测试
+
+`packages/shared-utils` **800 passed / 10 skipped（39 文件）**；桌面受影响面 **153 passed（7 文件）**；`publish.test.js` **49**（含 12 新增）；`publish-emergency-release.test.js` **15**；`publish-not-submitted.test.js` **27**；`publisher-router.test.js` **68**（含 3 条端到端接线锁）；`PublishFrequencySettings.test.js` **10**；`SettingsDialog.test.js` **6**。
+
+
 
 # [未发布] docs(investigate): 发布限制频率机制严格性与必要性调查报告（2026-10-10，publish-frequency-strictness-report）
 

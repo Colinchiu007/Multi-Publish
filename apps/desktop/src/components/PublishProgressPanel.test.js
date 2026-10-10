@@ -93,7 +93,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
 
   beforeEach(() => {
     vi.useRealTimers()
-    document.body.innerHTML = ''
+    document.body.textContent = ''
     mockElMessage.mockReset()
     store = usePublishProgressStore()
     storeStateRaw.sessions = []
@@ -221,6 +221,81 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     expect(rows[1].textContent).toContain('（本账号间隔）')
     expect(rows[1].textContent).not.toContain('同平台')
     expect(rows[2].querySelector('[data-testid="publish-progress-task-bucket"]')).toBe(null)
+  })
+
+  // ── publish-frequency-policy-v2：日配额 / 未提交回滚两态 ──────────────────────
+  it('日配额用尽：remainingWait 为 0 也必须有行内文案（不是「无等待即无文案」），且带 daily 归因', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: {
+        't-daily': makeTask({
+          taskId: 't-daily',
+          phase: 'blocked',
+          stageKey: 'waiting',
+          percent: null,
+          remainingWait: 0, // 关键：日配额不是「等一会儿」，剩余等待恒为 0
+          bucket: 'daily',
+          reason: 'daily_quota',
+          daily: { used: 3, max: 3, dayKey: '2026-10-10' },
+        }),
+      },
+      taskOrder: ['t-daily'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const row = body().querySelector('[data-testid="publish-progress-task"]')
+    expect(row.querySelector('[data-testid="publish-progress-task-wait"]')).not.toBe(null)
+    expect(row.textContent).toContain('今日已达上限（3/3）')
+    expect(row.textContent).toContain('明日 00:00')
+    expect(row.querySelector('[data-testid="publish-progress-task-bucket"]').textContent)
+      .toContain('（本账号每日上限）')
+  })
+
+  it('未提交失败回滚：released 行显示「已恢复可发布」，不得显示等待分钟数', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: {
+        't-rel': makeTask({
+          taskId: 't-rel',
+          phase: 'released',
+          stageKey: 'released',
+          percent: null,
+          remainingWait: null,
+          bucket: null,
+        }),
+      },
+      taskOrder: ['t-rel'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const row = body().querySelector('[data-testid="publish-progress-task"]')
+    expect(row.querySelector('[data-testid="publish-progress-task-released"]')).not.toBe(null)
+    expect(row.textContent).toContain('未提交到平台，已恢复可发布')
+    expect(row.textContent).not.toContain('分钟后重试')
+  })
+
+  it('bucket 取值未知时不渲染归因标签（不得把未知口径猜成 daily）', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: {
+        't-unknown': makeTask({
+          taskId: 't-unknown',
+          phase: 'blocked',
+          stageKey: 'waiting',
+          percent: null,
+          remainingWait: 120000,
+          bucket: 'mystery',
+        }),
+      },
+      taskOrder: ['t-unknown'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const rows = body().querySelectorAll('[data-testid="publish-progress-task"]')
+    expect(rows[0].querySelector('[data-testid="publish-progress-task-bucket"]')).toBe(null)
   })
 
   it('汇总口径：成功数直给 + 失败/取消单列（failed 不计入「已完成」）', async () => {
@@ -506,7 +581,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
 
   beforeEach(() => {
     vi.useFakeTimers()
-    document.body.innerHTML = ''
+    document.body.textContent = ''
     mockElMessage.mockReset()
     store = usePublishProgressStore()
     storeStateRaw.sessions = []

@@ -55,6 +55,23 @@ function createPublishApi(ipcRenderer, options = {}) {
     readCoverData: (imagePath) => ipcRenderer.invoke('cover:read-data', imagePath),
     listAccounts: () => ipcRenderer.invoke('accounts:list'),
 
+    // 发布频率策略（publish-frequency-policy-v2）：读取 / 覆盖写入 / 紧急放行。
+    // 紧急放行不接受渲染层自报操作者（operator 由主进程按当前 identity 解析），
+    // 故这里只转发 platform/accountId/reason 三项。
+    getPublishFrequencyPolicy: () => ipcRenderer.invoke('publishFreq:getPolicy'),
+    setPublishFrequencyPolicy: (policy) => ipcRenderer.invoke('publishFreq:setPolicy', { policy }),
+    emergencyReleasePublishWait: (payload) => ipcRenderer.invoke('publishFreq:emergencyRelease', {
+      platform: payload && payload.platform,
+      accountId: payload && payload.accountId,
+      reason: payload && payload.reason,
+    }),
+    getPublishEmergencyStatus: () => ipcRenderer.invoke('publishFreq:emergencyStatus'),
+    onPublishEmergencyReleased: (callback) => {
+      const h = (_e, p) => callback(p)
+      ipcRenderer.on('publish:emergencyReleased', h)
+      return () => ipcRenderer.removeListener('publish:emergencyReleased', h)
+    },
+
     // 渲染 API
     renderStart: (data) => ipcRenderer.invoke('render:start', data),
     renderStartAiVideo: (data) => ipcRenderer.invoke('render:start-ai-video', data),

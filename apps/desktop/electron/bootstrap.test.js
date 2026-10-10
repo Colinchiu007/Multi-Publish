@@ -423,7 +423,7 @@ describe('bootstrap — createAppContext', () => {
     expect(mockPublisherRouter.createPublisher).not.toHaveBeenCalled()
   })
 
-  it('taskQueue.on 注册 5 个事件（task:success/failed/blocked/retry/cancelled）', () => {
+  it('taskQueue.on 注册 6 个事件（task:success/failed/blocked/retry/cancelled + publish:released）', () => {
     const events = mockTaskQueue.on.mock.calls.map(function (c) { return c[0] })
     expect(events).toContain('task:success')
     expect(events).toContain('task:failed')
@@ -431,7 +431,9 @@ describe('bootstrap — createAppContext', () => {
     expect(events).toContain('task:retry')
     // publish-progress-panel-refine：取消终态转发（phase:'cancelled'，不落历史不挂风控）
     expect(events).toContain('task:cancelled')
-    expect(mockTaskQueue.on).toHaveBeenCalledTimes(5)
+    // publish-frequency-policy-v2：未提交失败回滚后的放行相位（P0-2 重试放行链路的源头事件）
+    expect(events).toContain('publish:released')
+    expect(mockTaskQueue.on).toHaveBeenCalledTimes(6)
   })
 
   it('systemTray.registerIpcHandlers 被调用', () => {

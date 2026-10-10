@@ -139,25 +139,82 @@ describe('Container setup', () => {
 
   test('装配锁：守卫的间隔按平台策略解析，不得回退成硬编码单一值', () => {
     // 策略模块读 process.env，开发机若恰好设了覆盖值会让精确断言假红 —— 测试自己钉住档位。
-    const ENV_KEYS = ['MP_PUBLISH_MIN_INTERVAL_MS', 'MP_PUBLISH_PLATFORM_MIN_INTERVAL_MS'];
+    const ENV_KEYS = [
+      'MP_PUBLISH_MIN_INTERVAL_MS', 'MP_PUBLISH_PLATFORM_MIN_INTERVAL_MS',
+      'MP_PUBLISH_DAILY_MAX_LONG', 'MP_PUBLISH_DAILY_MAX_CLIP', 'MP_PUBLISH_DAILY_MAX_SHORT',
+      'MP_PUBLISH_ACCOUNT_DAILY_MAX',
+    ];
     const saved = ENV_KEYS.map(function (k) { return process.env[k]; });
     ENV_KEYS.forEach(function (k) { delete process.env[k]; });
     try {
       var guard = createContainer().get('publishIntervalGuard');
 
-      // weibo 属短内容高频容忍档；未登记平台回落最严基线
+      // v2 数值：weibo 属短内容高频容忍档；未登记平台回落最严基线
       expect(guard._intervals('weibo')).toEqual({
-        accountMinMs: 10 * 60 * 1000, platformMinMs: 60 * 1000,
+        accountMinMs: 3 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 20,
       });
       expect(guard._intervals('wechat_mp')).toEqual({
-        accountMinMs: 60 * 60 * 1000, platformMinMs: 5 * 60 * 1000,
+        accountMinMs: 20 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 3,
       });
-      expect(guard._intervals('not_a_registered_platform').accountMinMs)
-        .toBeGreaterThanOrEqual(guard._intervals('weibo').accountMinMs);
+      var unknown = guard._intervals('not_a_registered_platform');
+      expect(unknown.accountMinMs).toBeGreaterThanOrEqual(guard._intervals('weibo').accountMinMs);
+      expect(unknown.accountDailyMax).toBeGreaterThan(0);
     } finally {
       ENV_KEYS.forEach(function (k, i) {
         if (saved[i] !== undefined) process.env[k] = saved[i];
       });
+    }
+  });
+
+  // ── v2 装配锁（openspec/changes/publish-frequency-policy-v2）───────────────────
+  // 事故形态同上一组：日配额逻辑在守卫里实现且有单测，但生产装配漏注入 dailyStore
+  // ⇒ check() 恒返回 daily:null ⇒ 配额维度在运行时完全不存在（静默失效）。
+  test('装配锁 v2：dailyStore 三个方法必须注入（否则日配额静默失效）', () => {
+    const guard = createContainer().get('publishIntervalGuard');
+    expect(guard._dailyStore).toBeTruthy();
+    expect(typeof guard._dailyStore.getDay).toBe('function');
+    expect(typeof guard._dailyStore.incrDay).toBe('function');
+    expect(typeof guard._dailyStore.decrDay).toBe('function');
+  });
+
+  test('装配锁 v2：抖动比例与回滚退避已从策略模块注入（不得回退成硬编码）', () => {
+    const guard = createContainer().get('publishIntervalGuard');
+    expect(typeof guard.jitterRatio).toBe('number');
+    expect(guard.jitterRatio).toBeGreaterThanOrEqual(0);
+    expect(guard.jitterRatio).toBeLessThan(1);
+    expect(guard.releaseGraceMs).toBeGreaterThanOrEqual(10000);
+  });
+
+  test('装配锁 v2 行为锁：日配额用尽时 check() 必须给出 bucket=daily（不只是「注入了」）', () => {
+    // 这里刻意**打桩 store 的方法**而不是写真实库：装配锁要证明的是
+    // 「guard → dailyStore 适配器 → store 方法」这条链路真的接通了。
+    // 依赖真实 DB 会让断言变成「DB 是否 init 过」，与装配正确性无关。
+    const c = createContainer();
+    const guard = c.get('publishIntervalGuard');
+    const store = c.get('store');
+    const max = guard._intervals('douyin').accountDailyMax;
+    expect(max).toBeGreaterThan(0);
+
+    const savedGet = store.getPublishDailyCount;
+    store.getPublishDailyCount = function () { return { count: max, rollback_count: 0 } };
+    try {
+      const verdict = guard.check('douyin', 'acc-lock');
+      expect(verdict.allowed).toBe(false);
+      expect(verdict.bucket).toBe('daily');
+      expect(verdict.reason).toBe('daily_quota');
+      expect(verdict.remainingMs).toBe(0);
+      expect(verdict.daily).toMatchObject({ used: max, max });
+    } finally {
+      store.getPublishDailyCount = savedGet;
+    }
+
+    // 反向：配额未达上限时必须放行（证明不是「永远报 daily」的假锁）
+    const savedGet2 = store.getPublishDailyCount;
+    store.getPublishDailyCount = function () { return { count: 0, rollback_count: 0 } };
+    try {
+      expect(guard.check('douyin', 'acc-lock').bucket).not.toBe('daily');
+    } finally {
+      store.getPublishDailyCount = savedGet2;
     }
   });
 

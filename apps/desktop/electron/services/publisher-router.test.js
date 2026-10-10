@@ -1083,6 +1083,52 @@ describe("ApiPublisher 图文模式（§4.4 百家号 article-only 的桌面接�
 })
 
 describe("RpaVmPublisher 发布方式标记", () => {
+  // ── publish-frequency-policy-v2 P0-1：登录态族的「可确证未送出」接线锁 ──
+  // 锁的是**接线**而不是助手函数：只测 publish-not-submitted.js 无法证明 publisher-router
+  // 真的调了它 —— 把调用点摘掉，助手测试照样全绿。
+  it("RPA 登录态失效 ⇒ 抛出的错误带 definitelyNotSent（P0-1 可回滚窗口的接线锁）", async () => {
+    const rpaViewManager = { publish: vi.fn(async () => ({ success: false, error: "wechat_mp not logged in" })) }
+    const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    await expect(
+      publisher.publish({ id: "t-rpa-login", platform: "wechat_mp", article: { title: "T", content: "C" } }),
+    ).rejects.toMatchObject({ definitelyNotSent: true })
+  })
+
+  it("RPA 泛化失败 ⇒ 不带 definitelyNotSent（宁可多等一个窗口，不冒重复发布风险）", async () => {
+    const rpaViewManager = { publish: vi.fn(async () => ({ success: false, error: "发布失败：内容审核不通过" })) }
+    const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    let caught = null
+    try {
+      await publisher.publish({ id: "t-rpa-generic", platform: "wechat_mp", article: { title: "T", content: "C" } })
+    } catch (e) { caught = e }
+    expect(caught).toBeTruthy()
+    expect(caught.message).toContain("内容审核不通过")
+    expect(caught.definitelyNotSent).toBeUndefined()
+  })
+
+  it("RPA 结果里的中文登录短语**不得**打标（评审 i2：可能是动作之后从页面文本判出的）", async () => {
+    // rpa-view-platforms.js 的失败检测正则含 `登录失效|请登录`——那是**动作之后**判出来的，
+    // 此时内容可能已被平台接收。据此打标会误回滚已提交窗口 ⇒ 早于窗口的重复发布（危险侧）。
+    const rpaViewManager = { publish: vi.fn(async () => ({ success: false, error: "登录失效，请重新登录" })) }
+    const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    let caught = null
+    try {
+      await publisher.publish({ id: "t-rpa-cn-login", platform: "wechat_mp", article: { title: "T", content: "C" } })
+    } catch (e) { caught = e }
+    expect(caught).toBeTruthy()
+    expect(caught.definitelyNotSent).toBeUndefined()
+  })
+
+  it("RPA 失败兜底文案不再出现编码损坏（曾为 'RPA 鍙戝竷澶辫触'）", async () => {
+    const rpaViewManager = { publish: vi.fn(async () => ({ success: false })) }
+    const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    let caught = null
+    try {
+      await publisher.publish({ id: "t-rpa-enc", platform: "wechat_mp", article: { title: "T", content: "C" } })
+    } catch (e) { caught = e }
+    expect(caught.message).toBe("RPA 发布失败")
+  })
+
   it("RPA 成功返回 mode:dom（发布方式徽标三态数据源）", async () => {
     const rpaViewManager = { publish: vi.fn(async () => ({ success: true, url: "https://example.com/post/1" })) }
     const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })

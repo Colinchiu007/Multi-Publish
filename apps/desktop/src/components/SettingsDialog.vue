@@ -26,6 +26,7 @@
         <ModelProviders v-if="activeTab === 'model'" />
         <LogsSettings v-else-if="activeTab === 'general'" />
         <FeishuSettingsTab v-else-if="activeTab === 'feishu'" />
+        <PublishFrequencySettings v-else-if="activeTab === 'publish'" />
         <div v-else class="placeholder-panel">
           <div class="placeholder-icon"><el-icon><Compass /></el-icon></div>
           <p>{{ t('settings.placeholder') }}</p>
@@ -43,6 +44,8 @@ import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
 import LogsSettings from './LogsSettings.vue'
 import FeishuSettingsTab from './FeishuSettingsTab.vue'
+// publish-frequency-policy-v2：发布频率策略（含紧急放行出口）——原 publish tab 由 disabled 转为可用
+import PublishFrequencySettings from './PublishFrequencySettings.vue'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -55,7 +58,7 @@ const { t } = useI18n()
     { key: 'model', label: t('settings.tabModel'), icon: Connection, disabled: false },
     { key: 'general', label: t('settings.tabGeneral'), icon: Setting, disabled: false },
     { key: 'feishu', label: t('knowledgeBase.feishuApi'), icon: Link, disabled: false },
-    { key: 'publish', label: t('settings.tabPublish'), icon: Upload, disabled: true },
+    { key: 'publish', label: t('settings.tabPublish'), icon: Upload, disabled: false },
     { key: 'account', label: t('settings.tabAccount'), icon: User, disabled: true },
   ])
 

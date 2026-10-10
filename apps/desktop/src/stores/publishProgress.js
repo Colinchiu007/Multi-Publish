@@ -30,9 +30,9 @@ export const FIRST_HIDE_TOAST_STORAGE_KEY = 'mp-publish-first-hide-toast-shown'
 
 /** cancelled（publish-progress-panel-refine）：取消终态——主进程 phase4-events
  * 转发 TaskQueue 的 task:cancelled；中性态（非失败红态），计入终态与 aggregate。 */
-const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'cancelled'])
+const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'released', 'cancelled'])
 const STAGE_KEY_ENUM = new Set([
-  'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'done', 'failed', 'detail',
+  'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'released', 'done', 'failed', 'detail',
 ])
 const TERMINAL_PHASES = new Set(['success', 'failed', 'cancelled'])
 
@@ -91,6 +91,8 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
         remainingWait: null,
         retriesLeft: null,
         bucket: null,
+        reason: null,
+        daily: null,
         startedAt: null,
         endedAt: null,
         lastEventAt: null,
@@ -168,6 +170,9 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     if (data.remainingWait !== undefined) task.remainingWait = data.remainingWait || null
     if (data.retriesLeft !== undefined) task.retriesLeft = data.retriesLeft
     if (data.bucket !== undefined) task.bucket = data.bucket || null
+    // v2：阻塞原因与当日用量（日配额文案需要 used/max；字段缺席保持 null，不得猜档）
+    if (data.reason !== undefined) task.reason = data.reason || null
+    if (data.daily !== undefined) task.daily = data.daily || null
     if (phase === 'start' && !task.startedAt) task.startedAt = Date.now()
     if (isTerminalNow && !task.endedAt) task.endedAt = Date.now()
     _appendLog(session, platform + ' · ' + (task.stage || phase), isTerminalNow ? (phase === 'success' ? 'success' : 'danger') : 'primary')

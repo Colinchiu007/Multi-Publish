@@ -364,4 +364,79 @@ describe('Store 多用户隔离', () => {
     expect(store.getPublishTimeline('douyin:shared-account', 'user-a')).toBe('100')
     expect(store.getPublishTimeline('douyin:shared-account', 'user-b')).toBe('200')
   })
+
+  // ── publish-frequency-policy-v2：日配额计数（新表 publish_daily_count）──────────
+  describe('publish_daily_count（日配额计数）', () => {
+    const DAY = '2026-10-10'
+
+    it('无行时返回 null（不是 0 —— 缺席与「0 次」语义不同）', () => {
+      expect(store.getPublishDailyCount('douyin:acc_1', DAY, 'user-a')).toBe(null)
+    })
+
+    it('upsert 累加两个计数器，且读回为数值', () => {
+      store.incrPublishDailyCount('douyin:acc_1', DAY, 'count', 1, 'user-a')
+      store.incrPublishDailyCount('douyin:acc_1', DAY, 'count', 1, 'user-a')
+      store.incrPublishDailyCount('douyin:acc_1', DAY, 'rollback_count', 1, 'user-a')
+
+      const row = store.getPublishDailyCount('douyin:acc_1', DAY, 'user-a')
+      expect(Number(row.count)).toBe(2)
+      expect(Number(row.rollback_count)).toBe(1)
+    })
+
+    it('递减到 0 即止（不得为负 —— 配额的「回补」可能多于已提交次数）', () => {
+      store.incrPublishDailyCount('douyin:acc_1', DAY, 'count', 1, 'user-a')
+      expect(Number(store.decrPublishDailyCount('douyin:acc_1', DAY, 'count', 'user-a'))).toBe(0)
+      expect(Number(store.decrPublishDailyCount('douyin:acc_1', DAY, 'count', 'user-a'))).toBe(0)
+      expect(Number(store.getPublishDailyCount('douyin:acc_1', DAY, 'user-a').count)).toBe(0)
+    })
+
+    it('按 owner 隔离：A 的计数不影响 B', () => {
+      store.incrPublishDailyCount('douyin:shared-account', DAY, 'count', 3, 'user-a')
+      store.incrPublishDailyCount('douyin:shared-account', DAY, 'count', 1, 'user-b')
+
+      expect(Number(store.getPublishDailyCount('douyin:shared-account', DAY, 'user-a').count)).toBe(3)
+      expect(Number(store.getPublishDailyCount('douyin:shared-account', DAY, 'user-b').count)).toBe(1)
+    })
+
+    it('按 day_key 隔离：跨日各自独立计数', () => {
+      store.incrPublishDailyCount('douyin:acc_1', '2026-10-10', 'count', 2, 'user-a')
+      store.incrPublishDailyCount('douyin:acc_1', '2026-10-11', 'count', 1, 'user-a')
+
+      expect(Number(store.getPublishDailyCount('douyin:acc_1', '2026-10-10', 'user-a').count)).toBe(2)
+      expect(Number(store.getPublishDailyCount('douyin:acc_1', '2026-10-11', 'user-a').count)).toBe(1)
+    })
+
+    it('未知字段被拒绝且出声（列名走白名单，防 SQL 注入）', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      expect(store.incrPublishDailyCount('douyin:acc_1', DAY, 'count; DROP TABLE settings', 1, 'user-a')).toBe(0)
+      expect(warn).toHaveBeenCalled()
+      expect(store.getPublishDailyCount('douyin:acc_1', DAY, 'user-a')).toBe(null)
+      warn.mockRestore()
+    })
+
+    it('无 owner 时一律 no-op（不落库、不抛）', () => {
+      const saved = store._resolveOwnerSubject
+      store._resolveOwnerSubject = () => null
+      try {
+        expect(store.getPublishDailyCount('k', DAY)).toBe(null)
+        expect(store.incrPublishDailyCount('k', DAY, 'count', 1)).toBe(0)
+      } finally {
+        store._resolveOwnerSubject = saved
+      }
+    })
+
+    it('prune 只裁剪保留窗口之外的行，且只删本 owner 的', () => {
+      store.incrPublishDailyCount('douyin:acc_1', '2026-10-01', 'count', 5, 'user-a')
+      store.incrPublishDailyCount('douyin:acc_1', '2026-10-09', 'count', 1, 'user-a')
+      store.incrPublishDailyCount('douyin:acc_1', '2026-10-01', 'count', 5, 'user-b')
+
+      const removed = store.prunePublishDailyCount('2026-10-10', 'user-a')
+      expect(removed).toBe(1)
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-10-01', 'user-a')).toBe(null)
+      // 保留窗口内（10-09，窗口 7 天 ⇒ cutoff 10-04）仍在
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-10-09', 'user-a')).not.toBe(null)
+      // 别的 owner 不受影响
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-10-01', 'user-b')).not.toBe(null)
+    })
+  })
 })
