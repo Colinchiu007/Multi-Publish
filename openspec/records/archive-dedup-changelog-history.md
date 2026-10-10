@@ -49,6 +49,12 @@ node -e "const g=require('<repo>/scripts/check-spec-purpose.js');console.log(g.c
 - `openspec validate --all` 那 7 条失败属他人未完成的 change，本次只证明「不是我引入的」，没有认领修复。
 - 归档后 `openspec/changes/archive/2026-10-10-dedup-changelog-history/` 里 `5.5` 的勾是按实况补的；若原执行会话另有口径（例如意图保留该 worktree 以便再跑一次清理），以本条证据为准并提出更正，本记录就是它的现场。
 - **归档打破了 4 处路径引用，逐处按性质分类处置（实测 `grep -rna "changes/dedup-changelog-history"`，排除 archive 目录自身）**：
+- **QM-6 logic 轴实测出两处代码侧欠账，本 PR 只登记不改（改 `scripts/` 会把 docs-only 变成混合 PR，且属另一个变更面）**：
+  ① `check-changelog-growth.js` 的 `collect` **从不读 `ev.retired`** ⇒ 退休授权放行与新鲜授权在 stdout 上长得一模一样（都打印「例外由授权触发…」），
+  真退休时人无法从 CI 输出区分两者。现状：返回值层有 `retiredReason`，且 `check-changelog-growth-retire.test.js` 第一条锁按真 git 祖先关系钉住了它含「已消费」——
+  缺的只是**输出层出声**。主规格把这件事写成**已知缺口**而不是 MUST（不给自己造一条无人检测的要求）。
+  ② `changelog-dedup-reconcile.js:152` 的 OK 文案自称「A1…A5 五项全过」，而实际还跑了 A6（preamble 逐字节不变）⇒ 输出少报一条被检性质。
+  两处一并留给后续那一笔（任务 #30）。同笔已顺带登记 `changelog-dedup-regen.js:75` 的归档后失效路径（任务 #29）。
   ① `scripts/changelog-dedup-regen.js:75` 是**活代码**——它把 `openspec/changes/dedup-changelog-history/` 写进生成授权件的 `reason` 字段，归档后该路径失效。
   **本 PR 不顺手改**：改 `scripts/` 会让 PR 从 docs-only 变成混合 PR（完整门禁 + 强制 QM-6），且 AGENTS.md/质量节拍 Step ③ 明令禁止在一个交付里混两类变更。
   已核实这一行是**零风险改动**——`regen.js` 无自己的测试文件，`check-changelog-growth.test.js:154` 只在**注释**里提到该 change 名（不是钉字符串的断言），

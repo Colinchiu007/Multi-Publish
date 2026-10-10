@@ -19,13 +19,13 @@
 #### Scenario: 无括号形条目不得被任一把锁漏掉
 
 - **WHEN** 台账里存在形如 `# fix(自检门禁): …（#2648）` 的无括号一级标题条目
-- **THEN** 两把锁都必须把它算作条目，删除它都必须能被检测到
+- **THEN** 两把锁都必须把它算作条目，删除它都必须能被检测到。本条的现状：两把锁已**都** `require` `scripts/changelog-entries.js`（`HEADING_RE` / `splitEntries` / `pickKeeper` 等口径各只有一份实现），所以这条场景测的是"接线仍然在"而非"仍有两套口径要收敛"
 
 ### Requirement: 减少副本 MUST 经一次性书面授权，默认判据不得放宽
 
 系统 SHALL 在 `check-changelog-growth.js` 的默认路径上保持「base 标题多重集被 head 包含」这一既有不变量
 逐字不变（含「同题副本删到一份仍报丢」这一档）；仅当被检查的 head **相对 base 新增**了
-`scripts/changelog-dedup-authorization.json`，且其 `applies_to_base` **等于本次 merge-base**（清理形状）**或为其祖先**（那次清理已落 main ⇒ 授权按**已消费**退休，改核消费后形状）时，
+（那次清理已落 main ⇒ 授权按**已消费**退休，改核消费后形状——**退休不放宽任何校核**：`titlesReduced == expected_titles_reduced`、`headEntries == expected_entries_after` 与块级形状判据照旧对**当前 base** 成立，`collect` 对两种 granted 走的是同一段下游核对）时，
 才 MAY 额外接受「清理形状」，且该接受 MUST 同时满足下列全部条件。
 
 #### Scenario: 无授权文件时行为与现状逐字相同
@@ -66,11 +66,11 @@
 #### Scenario: 坐标系被越过（祖先）不叫错位，改核「消费后形状」
 
 - **WHEN** 授权仍是 head 相对 base 的新增，其 `applies_to_base` 与本次 merge-base **不相等**，但**是**本次 merge-base 的祖先（`git merge-base --is-ancestor` 成立）
-- **THEN** 门禁 MUST NOT 报「坐标系错位」，而 MUST 把该授权判为**已消费**（`retired:true`），改为核对消费后形状：head 条目数 MUST 等于授权声明的 `expected_entries_after`，且 MUST 打印退休理由与两个坐标系 sha；此后新增条目只能经正常追加进入台账，不得借退休复活已被清掉的副本（PR #3151 落地）
+- **THEN** 门禁 MUST NOT 报「坐标系错位」，而 MUST 把该授权判为**已消费**（返回值 `{granted:true, retired:true, retiredReason}`，`retiredReason` 里 MUST 含「已消费」与两个坐标系 sha——这条由 `scripts/check-changelog-growth-retire.test.js` 第一条锁按真 git 祖先关系钉住，共 5 条锁覆盖祖先/非祖先/base 已有/同坐标/数字在下游卡五种形态）；随后照旧走同一段额度与形状校核，因此退休分支**不会**让后续 PR 白蹭一份旧授权（它的实际作用是把"误导性的坐标错位红"换成"如实的数字不符红"）；此后新增条目只能经正常追加进入台账，不得借退休复活已被清掉的副本（PR #3151 落地）。**已知出声缺口（不在本规格要求内，登记为欠账）**：`collect` 从不读 `ev.retired`，所以 stdout 那行「例外由授权触发…」对两种 granted 形态**长得一模一样**——真退休时人无法从输出区分它和新鲜授权
 
 ### Requirement: 清理结果 MUST 由一个独立对账器核对，且核对的是「块」而非「行」
 
-系统 SHALL 提供 `scripts/changelog-dedup-reconcile.js`，以 base/head 两个 blob 为输入，独立核对五条**与顺序无关**的性质，
+系统 SHALL 提供 `scripts/changelog-dedup-reconcile.js`，以 base/head 两个 blob 为输入，独立核对**六条**与顺序无关的性质（A1–A5 块级 + **A6「第一条标题之前的 preamble 逐字节不变」**——A6 由 QM-6 后端 MAJOR-3 补上，动因是"块级判据看得见条目、看不见文件头"；它与授权通路的 `checkDedupShape` 里那条 preamble 校核**是同一处审查发现的两处落点**，两条通路各自 fail-closed，文案不同但判据同向），
 并 MUST NOT 复用产生清理的那个脚本（`--dedup`）自己的结论来充当证据。
 判据层面必须承认：去重会把幸存块挪到该标题首次出现的槽位，因此**行级** `+/-` 必然包含重排噪声，
 把"新增行为 0"写成判据是错的（第一版就是这么写的，并被真实数据当场判红）。
@@ -83,7 +83,7 @@
 #### Scenario: 保留块逐字节可溯且必须是 pickKeeper 选定的那份
 
 - **WHEN** 对账器检查 head 里的每一个块
-- **THEN** 该块必须与 base 中同标题的某一块**在原始字节上完全相等**（不得是"剥掉 CR 后相等"），且必须就是 `pickKeeper` 会选定的那一份
+- **THEN** 该块必须与 base 中同标题的某一块**在原始字节上完全相等**（不得是"剥掉 CR 后相等"），且当该标题**被削减到恰好 1 份**时（`base 份数 > 1 ∧ head 份数 == 1`），留下的那一份必须就是 `pickKeeper` 会选定的那一份。两个边界必须写出来，否则这条判据会被读成无条件适用：① A3 **不**对"未削减、head 仍多份并存"的标题生效——拿 `pickKeeper` 去要求每一份会把"什么都没清理"误报成"留错了份"（代码注释记为实测踩过）；② 对被削减的标题，A3 在逻辑上**蕴含** A2（`pickKeeper` 选的那份本身就是 base 的一块），A2 保留不是为了更强而是为了报错可读——"与 base 任何一份都不逐字节相同"比"留下的不是选定那份"更贴近人真正做的事，因此变异反证不能拿"保留份被改写过"当 A2 的隔离用例（A3 会先兜住），它唯一能隔离 A2 的样本是"只差一个 CR"那条
 
 #### Scenario: 幂等
 
@@ -110,7 +110,7 @@ base 坐标系可用 `MP_CHANGELOG_BASE_REF` 注入（反证与本地复现用�
 
 #### Scenario: 已落 main 还被继续携带即红
 
-- **WHEN** base 清单里有 `changelog-dedup-authorization*.json`，head 清单里也有
+- **WHEN** **本次判据坐标系**（CI 用的 `git merge-base HEAD origin/main`，可用 `MP_CHANGELOG_BASE_REF` 注入以便反证与本地复现——**不是** `origin/main` 本身）的清单里有 `changelog-dedup-authorization*.json`，head 的 tracked 清单里也有
 - **THEN** 锁点名红并给出两种出路（本次 PR 删掉它 / 或确认正在借一份已消费的授权混过门禁）
 
 #### Scenario: 退役 PR 形态必须放行
@@ -126,7 +126,7 @@ base 坐标系可用 `MP_CHANGELOG_BASE_REF` 注入（反证与本地复现用�
 #### Scenario: 改名或换目录不放行
 
 - **WHEN** head 清单里的授权件路径不等于规范常量 `AUTH_PATH`
-- **THEN** 锁红（按 `deepEqual(atHead, [AUTH_PATH])` 判定，换位与改名同一条覆盖）
+- **THEN** 锁红。判据按 `assert.deepEqual(atHead, [AUTH_PATH])` 实现——**与实现保持逐字一致，不改成"仅含一项且等于 AUTH_PATH"这种更宽的写法**：head 里只要出现规范路径之外的任何一个授权件形态（改名、换目录、或同时并存多份）就红，这是刻意的 fail-closed，宽松写法会把"并存两份"这种明显异常读成合规
 
 #### Scenario: 退的是授权件，不是通路
 
