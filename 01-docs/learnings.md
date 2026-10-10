@@ -1,3 +1,24 @@
+## CI 的 job 内步骤是串行的——「只报一个错」不等于「只有一个错」（film-auto-mode，2026-10-10）
+
+- **现象**：同一份代码连续三轮被 CI 挡下，每轮只报一个 Gate（Gate 10 → Gate 11 → Gate 14），修完一个又冒一个。
+- **根因**：`quality-gate.yml` 的 `static-gates` job 里各 Gate 是顺序 run 步骤，前一步非零退出即中止该 job，后续 Gate 根本没跑。于是「CI 只红一次」被误读成「只有一处问题」。
+- **正确做法**：拿到失败 job 后，本地按 CI 的**原命令**把该 job 的**所有** Gate 依次跑一遍（`Select-String -Path .github/workflows/quality-gate.yml -Pattern '- name: "Gate'` 拿清单），一次修完再一次推送。
+- **同类坑**：局部 lint ≠ 门禁通过。Gate 11 跑的是 `cd apps/desktop && pnpm exec eslint electron/ src/ --quiet`（全量），只 lint 改动目录会漏掉 `no-useless-assignment` 这类 error。
+- 成本：多两轮 CI（每轮约 20 分钟）+ 两次 rebase 冲突（main 在这期间推进）。判据越便宜越该先跑。
+
+## 批量消解冲突的脚本必须「先全部算完再统一落盘」，否则半消解状态会被当成成功（film-auto-mode，2026-10-10）
+
+- **事故**：一个脚本依次消解 3 个冲突文件；处理第 3 个（账本 JSON）时 `JSON.parse` 抛错（冲突两侧是 JSON 片段，不是可独立解析的完整文档），但前两个文件已写盘、第三个仍是带冲突标记的原文。随后直接 `git add` 三个文件并 `rebase --continue`——**带冲突标记的账本被提交进分支**，它不再是合法 JSON。
+- **发现方式**：不是在脚本输出里看到的，而是在复验门禁时用 `node -e` require 该文件撞到 `SyntaxError: Expected property name or } at position 3`。判据要挂在**消费端**（谁读这个文件），不是生产端。
+- **纪律**：① 消解脚本先在内存里把所有文件算完，再一次性落盘（要么全成要么全不动）；② `git add` 前对每个待暂存文件做格式自证（JSON 用 JSON.parse、Markdown 用「无冲突标记」）；③ 结构性改写完成后必须跑一遍**消费该文件的真实门禁**；④ 修复走**权威源重建**（以 `git show origin/main:<path>` 为基再叠加本分支新增项），不要手工缝合标记。
+- **同族**：`git add -A` 会牵连未跟踪产物——先 `git diff --cached --name-only` 看清暂存集，再 `--continue`。
+
+## 提交消息里的内层直引号会截断 PowerShell 字符串，让 git commit 静默变成失败的 pathspec 命令（film-auto-mode，2026-10-10）
+
+- **事故**：`git commit -m "...不能因为消解脚本"跑过了前几步"就认为..."`——内层直引号提前闭合了 PowerShell 字符串，余下文字被当作**路径参数**，git 报 `pathspec ... did not match any file(s) known to git`。只凭「上一条命令没报错」就会以为提交成功。
+- **发现方式**：核对 `git log --oneline -1` 与 `git rev-parse --short origin/<branch>` 指向不一致（远端推的是上一版 HEAD，工作树里"已提交"的文件其实还在暂存区）。
+- **纪律**：① 提交消息里的引号用「」或《》；② 长消息写文件 + `git commit -F <file>`；③ 每条改动命令后用**产物判据**确认（`git log -1` / `git show --stat HEAD`），不用「命令没报错」当成功。
+
 ## 「用户手册逐行核对」是独立于评审的第三道闸——它倒查出 2 处真缺陷，而同源评审一条都没发现（film-auto-mode，2026-10-10）
 
 - **背景**：影视工程「自动」模式实现完毕，单测 145 条全绿、CCG 双家族决策层评审 4 轮收敛（Critical=0）。随后让子代理**照着代码**（不是照设计）写用户手册，并要求它逐条核对文案与实现。

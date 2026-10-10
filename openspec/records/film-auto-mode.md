@@ -2,9 +2,6 @@
 record: film-auto-mode
 task: 影视工程三标签重组（自动/画布/工程案例）+「自动」模式（输入文案与可选参考图 → 全自动分镜规划、批量出片、片段编辑与收口合成）
 date: 2026-10-10
-sync_reason: 本 PR 尚未合并；合并后由本会话回填 merge SHA 并销账
-sync_backfill_owner: film-auto-mode 会话
-sync_status: PENDING
 ---
 
 ## 本次执行记录：影视工程三标签重组与「自动」模式（film-auto-mode，2026-10-10）
@@ -24,4 +21,4 @@ sync_status: PENDING
 | QM-4 视觉 | ✅ | 有 UI 改动 → 由真机 CDP E2E 截图留证（`%TEMP%\film-auto-e2e\film-auto-preview.png`），三标签与面板在真实 Element Plus 渲染下逐项断言通过 |
 | QM-6 双模型外部评审 | ✅（决策层） | 见「方案与双家族评审」行。实现期又经历两轮**独立核对**（用户手册逐行核对 8 处不一致；真机 E2E 抓 1 处），均已修复并加回归锁 |
 | 真机 CDP E2E | ✅ | 独立已登录 profile + WMI 脱离会话启动（避开他会话持有的共享 profile 单实例锁，全程未触碰他人进程）。**Phase 1（零 provider 调用）22/22 PASS**：三标签（自动/画布/工程案例，`role=tab`，默认自动）、切换与懒挂载、preload 真实暴露 25 方法、空剧本禁用规划、**30 场长文剧本 → 12 镜 / 96 MB / 1.0 h + W2 警告**、确认门槛生效。**Phase 2（真实出片）22/22 PASS**：点击后**立即进入运行态**（修复后）、真实派发到视频模型、失败路径如实回显 provider 原文、收敛到完成态、收口被正确拦下（`AUTO_MANIFEST_INCOMPLETE` 并点名缺镜）、截图留证 |
-| 远程同步 | PENDING | 待 PR 合并后回填 merge SHA 与销账（本行、`.quality-gates.md` 同名行、frontmatter 三字段与 `scripts/gate-record-debt-ledger.json` 登记项将在**同一次提交**收口） |
+| 远程同步 | PASS | PR #3234 于 2026-10-10T06:46:54Z 由 squash 合并，merge SHA `b3ee1579fd64582c44491038ebd548f573017920`。取证：`git log origin/main --grep="(#3234)$" --format=%H|%cI` 与 `git ls-remote --heads origin film-auto-mode`（应为 0 行）双源一致；本行与 `openspec/records/film-auto-mode.md` 的远程同步行、其 frontmatter 三个 sync_* 字段、`scripts/gate-record-debt-ledger.json` 的登记项已在**同一次提交**完成收口。 |
