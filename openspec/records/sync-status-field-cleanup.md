@@ -7,7 +7,7 @@ date: 2026-10-08
 ## 本次执行记录：清理已回填记录里的死字段（sync-status-field-cleanup，2026-10-08）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见下表
-- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PASS（已合并 #3131 → main `d1535e894`，三源取证见同篇权威表格行）
 
 ### 现象：AGENTS.md 说删三个字段，实际有 11 篇只删了两个
 

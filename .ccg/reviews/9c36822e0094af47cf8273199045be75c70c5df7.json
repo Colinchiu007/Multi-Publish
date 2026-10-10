@@ -1,0 +1,36 @@
+{
+  "sha": "9c36822e0094af47cf8273199045be75c70c5df7",
+  "layer": "plan",
+  "mode": "single",
+  "reason": "变更 92 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 92,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "plannedFiles": [
+    ".quality-gates.md",
+    "_TEMPLATE.md",
+    "scripts/check-gate-record-debt.js",
+    "AGENTS.md",
+    "scripts/check-gate-record-debt.test.js",
+    "text.split",
+    "ROW_RE.test",
+    "evaluate-deps-inline-electron.md",
+    "CHANGELOG.md",
+    "openspec/records/gate-record-status-consistency.md",
+    "01-docs/learnings.md",
+    "quality-gate.yml"
+  ],
+  "decidedAt": "2026-10-10T14:25:42.294Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

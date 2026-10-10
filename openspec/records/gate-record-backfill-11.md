@@ -7,7 +7,7 @@ date: 2026-10-08
 ## 本次执行记录：回填三篇记录的远程同步欠账（gate-record-backfill-11，2026-10-08）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见下表「classify-docs-only」行
-- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PASS（已合并 #3128 → main `f74de1d12`，三源取证见同篇权威表格行）
 
 ### 这一批收的是本会话自己留下的账
 

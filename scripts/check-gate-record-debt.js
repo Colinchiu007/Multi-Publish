@@ -38,6 +38,33 @@ const RECORD_FIELD_STATUS = 'sync_status'
 // 已收口的写法。只允许这一侧扩张，新增未收口写法必须走 gate-record-debt-ledger.json。
 const CLOSED_RE = /^(PASS|N\/A|✅|已)/
 
+// 同一篇执行记录把「远程同步」状态写在两个位置：表格行（权威，回填时改它）与 docs-only 模板的
+// 声明式 bullet（`- 保留门禁：… | 远程同步 PENDING`）。既有判据只读前者，于是后者可以永久停在
+// PENDING 而 rc=0（实测 origin/main 8 篇）。锚点必须是「行已闭合 + bullet 以状态词收尾」这个形状
+// 组合，不能用宽式：宽式（含词即判）27 命中里 25 是散文误报，还含一处自指误报——有记录在行内代码
+// 里引用 `| 远程同步 | PENDING |` 来描述这个盲区本身。token 字符类排除 `|` 与括号，散文不以状态词
+// 收尾，因此不会命中。
+// 未收口词表与行侧的 fail-closed 词表同源可查证，但 bullet 侧只认这张表：见上条实测教训。
+const UNCLOSED_WORDS = 'PENDING|OPEN|待\\s*PR\\s*合并后核验|待\\s*合并|待\\s*回填|待\\s*后续|待补|进行中|未收口|未回填|（待填）'
+const CLOSED_WORDS = 'PASS|N\\/A|✅|已\\S*'
+const TAIL = '(?:[^\\S\\r\\n]*[（(][^）)]*[）)])?[^\\S\\r\\n]*$'
+const HEAD = '远程同步[^\\S\\r\\n]*(?:[：:][^\\S\\r\\n]*)?'
+const UNCLOSED_DECL_RE = new RegExp(HEAD + '(' + UNCLOSED_WORDS + ')' + TAIL)
+const CLOSED_DECL_RE = new RegExp(HEAD + '(' + CLOSED_WORDS + ')' + TAIL)
+
+function statusDeclarations(text) {
+  const out = []
+  text.split('\n').forEach((raw, i) => {
+    if (ROW_RE.test(raw)) return
+    const line = raw.replace(/\r$/, '')
+    const open = line.match(UNCLOSED_DECL_RE)
+    if (open) { out.push({ line: i + 1, status: normalize(open[1]), closed: false, text: line.slice(0, 120) }); return }
+    const done = line.match(CLOSED_DECL_RE)
+    if (done) { out.push({ line: i + 1, status: normalize(done[1]), closed: true, text: line.slice(0, 120) }) }
+  })
+  return out
+}
+
 // 重复的同一条 ## 记录标题。置顶型文档最典型的自我损坏就是把同一条记录写两遍
 // （实测踩过：一次补丁把 1MB 的 .quality-gates.md 写成内容翻倍，标题计数 1→2）。
 // 判据本身是单向包含（"每行都还在"）抓不到重复，所以这里显式统计标题出现次数。
@@ -112,10 +139,13 @@ function readRecord(recordsRoot, fileName) {
   const text = fs.readFileSync(path.join(recordsRoot, fileName), 'utf8')
   const name = fileName.replace(/\.md$/, '')
   const { fm } = readFrontmatter(text)
-  const rowLine = text.split('\n').find(l => ROW_RE.test(l))
+  const allLines = text.split('\n')
+  const rowLineIdx = allLines.findIndex(l => ROW_RE.test(l))
+  const rowLine = rowLineIdx >= 0 ? allLines[rowLineIdx] : undefined
   const status = rowLine ? (rowLine.split('|').map(normalize)[2] || '') : null
   const reason = fm[RECORD_FIELD_REASON]
   const owner = fm[RECORD_FIELD_OWNER]
+  const declared = statusDeclarations(text)
   // 「残留」按三字段判（回填即整段删）；「未收口必须登记」仍只要求 reason+owner，
   // 把 sync_status 算进那一侧等于让「只写 sync_status」就能冒充已登记。
   const hasAnyRegistration = [RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS]
@@ -124,6 +154,8 @@ function readRecord(recordsRoot, fileName) {
     name,
     fileName,
     rowPresent: !!rowLine,
+    rowLineNo: rowLineIdx + 1,
+    declared,
     status,
     closed: !!rowLine && CLOSED_RE.test(status),
     hasRegistration: hasAnyRegistration,
@@ -207,6 +239,8 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     }
   }
   const missingRecordRows = []
+  const statusContradictions = []
+  const statusMismatchVisible = []
   const staleRecordFields = []
   let recordsFromFiles = 0
   for (const fn of fileNames) {
@@ -217,9 +251,21 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
       continue
     }
     if (rec.closed) {
+      // 表格行已收口，同篇的声明式 bullet 却仍写着未收口词 ⇒ 门禁只看得见前者、谎话无人检测
+      for (const d of rec.declared.filter(x => !x.closed)) {
+        statusContradictions.push({
+          file: rec.fileName, rowLineNo: rec.rowLineNo, rowStatus: rec.status,
+          bulletLine: d.line, bulletStatus: d.status, text: d.text,
+        })
+      }
       // 回填后必须删掉登记字段：允许两者共存就等于把"记得删登记项"这条人工耦合原样搬进新载体
       if (rec.hasRegistration) staleRecordFields.push(`${rec.fileName}（已 ${rec.status} 却仍留 ${RECORD_FIELD_REASON}/${RECORD_FIELD_OWNER}/${RECORD_FIELD_STATUS}）`)
       continue
+    }
+    // 反向（行未收口、bullet 宣称完成）实测 0 篇 ⇒ 只可见、不进拦截面：该方向无法区分
+    // 「预写尚不存在的证据」与「措辞笔误」，而前者归取证纪律管，不该由本判据扩拦截面。
+    for (const d of rec.declared.filter(x => x.closed)) {
+      statusMismatchVisible.push({ file: rec.fileName, rowStatus: rec.status, bulletLine: d.line, bulletStatus: d.status })
     }
     // 未收口：登记随文件走，两个字段都必须非空，否则就是没登记
     if (rec.reasonMissing || rec.ownerMissing) {
@@ -227,6 +273,19 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
         : rec.reasonMissing ? `缺非空 ${RECORD_FIELD_REASON}` : `缺非空 ${RECORD_FIELD_OWNER}`
       open.push({ line: 0, status: rec.status, heading: `${rec.fileName}（${why}）`, evidence: '', source: 'records' })
     }
+  }
+
+  // 旧载体 .quality-gates.md 的同形态矛盾：只计数打印、不拦截——逐块核对后确认那些块属其他会话
+  // 的执行记录，本仓纪律是不代他人改写其执行记录。新 PR 的记录载体已被 enforce-gate-record-presence
+  // 固定为 openspec/records/<分支>.md，旧载体不再新增，故规避路径不存在。
+  let legacyVisibleContradictions = 0
+  for (const b of blocks) {
+    const blk = lines.slice(b.line, b.end)
+    const row = blk.find(l => ROW_RE.test(l))
+    if (!row) continue
+    const st = normalize((row.split('|').map(normalize)[2] || ''))
+    if (!CLOSED_RE.test(st)) continue
+    legacyVisibleContradictions += statusDeclarations(blk.join('\n')).filter(d => !d.closed).length
   }
 
   const rowCountAll = rowCount + fileNames.length
@@ -241,6 +300,9 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     topRecordMissingRow,
     recordsFromFiles,
     missingRecordRows,
+    statusContradictions,
+    statusMismatchVisible,
+    legacyVisibleContradictions,
     staleRecordFields,
     open,
     stale,
@@ -280,23 +342,44 @@ function format(r) {
     for (const d of r.duplicates) out.push(`  x${d.count} ${d.text}`)
     out.push('  处理：删掉多余那半（逐字节切除、不得整文件统一行尾），并把清理结果写进本次记录')
   }
+  if (r.statusContradictions.length) {
+    out.push(`❌ 同一篇记录的两种形态互相矛盾 ${r.statusContradictions.length} 处（表格行已收口，声明式 bullet 仍写着未收口词）：`)
+    for (const c of r.statusContradictions) {
+      out.push(`  ${c.file} L${c.bulletLine} [bullet=${c.bulletStatus}] ← 权威表格行 L${c.rowLineNo} 已是 [${c.rowStatus}]`)
+    }
+    out.push('  处理：把该 bullet 的状态词改成与权威行一致（无损——证据已在表格行里），或按既有 PASS 口径回填权威行；'
+      + '两种形态都写、且同次改写，是 docs-only 记录的安全写法。')
+  }
+  if (r.statusMismatchVisible.length) {
+    out.push(`（可见项，不拦截：反向矛盾 ${r.statusMismatchVisible.length} 处 — 表格行未收口而 bullet 宣称完成；实测 0 篇故不扩拦截面）`)
+    for (const c of r.statusMismatchVisible) out.push(`   · ${c.file} L${c.bulletLine} [bullet=${c.bulletStatus}] 行=[${c.rowStatus}]`)
+  }
+  if (r.legacyVisibleContradictions) {
+    out.push(`（可见项，不拦截：旧载体 .quality-gates.md 同形态矛盾 ${r.legacyVisibleContradictions} 处 — 属他人会话的记录块，不代改）`)
+  }
   if (!r.open.length && !r.stale.length && !r.duplicates.length && !r.topRecordMissingRow
-    && !r.missingRecordRows.length && !r.staleRecordFields.length) {
+    && !r.missingRecordRows.length && !r.staleRecordFields.length && !r.statusContradictions.length) {
     out.push('OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留')
   }
   return out.join('\n')
+}
+
+// main 与测试共用这一条谓词：判据若被降级成「只打印」，hasBlocking 断言会当场变红。
+function hasBlocking(r) {
+  return !!(r.open.length || r.stale.length || r.duplicates.length || r.topRecordMissingRow
+    || r.missingRecordRows.length || r.staleRecordFields.length || r.statusContradictions.length)
 }
 
 function main() {
   const root = path.resolve(__dirname, '..')
   const r = collect({ root })
   console.log(format(r))
-  if (r.open.length || r.stale.length || r.duplicates.length || r.topRecordMissingRow
-    || r.missingRecordRows.length || r.staleRecordFields.length) process.exit(1)
+  if (hasBlocking(r)) process.exit(1)
 }
 
 module.exports = {
-  collect, format, loadLedger, normalize,
+  collect, format, loadLedger, normalize, hasBlocking, statusDeclarations,
+  UNCLOSED_DECL_RE, CLOSED_DECL_RE,
   listRecordFiles, readRecord, readFrontmatter,
   RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED,
