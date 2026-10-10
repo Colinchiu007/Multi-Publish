@@ -179,7 +179,14 @@ async function createIdentityService(options = {}) {
         // 误报成「测试失败」。故取状态与投递都要有兜底。
         plansCache.load()
           .then(() => pushState(typeof authService.getState === 'function' ? authService.getState() : state))
-          .catch((e) => log.warn('[identity] 价目目录取价后投递失败，已降级: ' + ((e && e.message) || e)))
+          .catch((e) => {
+            // 注意：pushState 内部那个 `const log` 是它的局部变量，这里够不着，
+            // 必须自己按同一约定取 logger（eslint no-undef 会抓到写错的变量名）。
+            const l = options.logger || require('../logger')
+            if (l && typeof l.warn === 'function') {
+              l.warn('[identity] 价目目录取价后投递失败，已降级: ' + ((e && e.message) || e))
+            }
+          })
       }
     })
   }
