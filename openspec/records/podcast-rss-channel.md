@@ -1,8 +1,3 @@
----
-sync_reason: 远程同步 PENDING——PR 开启中（分支 podcast-rss-channel）；合并后在状态列改写 PASS + merge SHA，并同一次提交删除 gate-record-debt-ledger.json 的登记项与本篇 frontmatter 三字段（回填与销账必须同一次发生）
-sync_backfill_owner: agent（PR 自动合并后由回填 PR 收口）
----
-
 # 执行记录：播客 RSS 频道发布（podcast-rss-channel，2026-10-09）
 
 - **分支 / worktree**：裸分支 `podcast-rss-channel` @ `D:\Data\projects\mp-worktrees\mp-podcast-rss-channel`（非 C 盘）；共享根 `D:\Data\projects\mulpub` 保持 `main` 且未被写入。
@@ -73,7 +68,7 @@ sync_backfill_owner: agent（PR 自动合并后由回填 PR 收口）
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 已合并 #3193 = `06737f999abdf6616a1967bdb1b121c9b6aa1bb2`（committer 2026-10-10T15:10:28+08:00）；`git ls-remote --heads origin podcast-rss-channel` = 0 行；`git diff --stat <branch-tip> 06737f999` 为空 |
 |--------|---------|
 | PR | #3193（podcast-rss-channel → main，已开启） |
 | 回填约定 | 合并后本行状态列改写 `PASS` + merge SHA（取证 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI`），并同一次提交删除 frontmatter 三字段与 `scripts/gate-record-debt-ledger.json` 的登记项（回填与销账必须同一次发生） |
