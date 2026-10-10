@@ -56,7 +56,15 @@ function parseCookieHeader (cookieHeader, domain) {
     .map((pair) => {
       const eq = pair.indexOf('=')
       if (eq <= 0) return null
-      return { name: pair.slice(0, eq).trim(), value: pair.slice(eq + 1).trim(), domain, secure: true, url: 'https://' + domain + '/' }
+      const name = pair.slice(0, eq).trim()
+      const value = pair.slice(eq + 1).trim()
+      // 2026-10-10：web_session 等**全站会话 cookie** 的真实域是 .xiaohongshu.com（主站）——
+      // 按 host-only 绑到 creator.xiaohongshu.com 会让 edith.xiaohongshu.com 的请求带不上
+      // 它，导致 note 步 -100「无登录信息」（真机取证 page-cookie-audit）。会话类 cookie
+      // 一律用父域注入（host-only=false），其余仍绑 profile 域。
+      const isSiteWideSession = name === 'web_session' || name === 'webId' || name === 'a1' || name === 'webBuild'
+      const cookieDomain = isSiteWideSession ? '.xiaohongshu.com' : domain
+      return { name, value, domain: cookieDomain, secure: true, url: 'https://' + cookieDomain + '/' }
     })
     .filter(Boolean)
 }
