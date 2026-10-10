@@ -1,9 +1,4 @@
 {
-  "本次执行记录：发布限制频率机制严格性与必要性调查（publish-frequency-strictness-report，2026-10-10）【docs-only】": {
-    "reason": "本 PR 尚未合并，merge SHA 还不存在。回填者＝下一个会话：按 AGENTS.md「合并后收尾清单」第 3 条，在一次提交内改写 .quality-gates.md 与 openspec/records/publish-frequency-strictness-report.md 的远程同步行、删除记录文件 frontmatter 的三个 sync_* 字段、并删除本登记项。",
-    "status": "PENDING",
-    "line": 1
-  },
   "本次执行记录：多语言内容同步机制文档与规划（i18n-content-sync）（2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "记录",

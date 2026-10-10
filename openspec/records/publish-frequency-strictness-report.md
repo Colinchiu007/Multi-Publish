@@ -2,9 +2,6 @@
 record: publish-frequency-strictness-report
 task: 发布限制频率机制的严格性与必要性调查（只读）+ 建议解决方案落 01-docs 调查报告
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填提交改写为 PASS 并删除本行所在的三个 sync_* 字段
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」第 3 条，回填与 ledger 销账必须在同一次提交内完成）
 ---
 
 ## 本次执行记录：发布限制频率机制严格性与必要性调查报告（publish-frequency-strictness-report，2026-10-10）【docs-only】
@@ -30,7 +27,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 执行记录存在性 | PASS | `node scripts/check-pr-exec-record.js --base=origin/main --head-branch=publish-frequency-strictness-report --mode=enforce` ⇒ 新增 `openspec/records/publish-frequency-strictness-report.md`（与分支同名），满足出路① |
 | 欠账登记 | PASS | `node scripts/check-gate-record-debt.js` ⇒ 顶部记录带「远程同步」行（PENDING）；该标题已按本 PR **同一次提交**登记进 `scripts/gate-record-debt-ledger.json`；记录文件自身用 frontmatter 的 `sync_reason` + `sync_backfill_owner` 登记（两个字段均非空），回填时连同 ledger 登记项一并删除 |
 | 豁免门禁（docs-only 通道，与运行时无关） | N/A | QM-1 打包 / QM-2 代码必检项 / QM-4 视觉 / TDD（无代码）/ QM-6 双模型评审（纯文档不强制；本机未执行，**不以自审冒充通过**） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin publish-frequency-strictness-report` 返回 0 行证远端分支已删；回填后删除本文件 frontmatter 的三个 `sync_*` 字段与 ledger 登记项（**同一次提交内完成**） |
+| 远程同步 | PASS | 已合并：#3253 squash 落地 `5e280da64eabf846dc3a9cb468eeea9640100e6a`（committer 2026-10-10T11:42:35+08:00）。取证三源一致：`git log origin/main --grep='(#3253)$' --format=%H\|%cI` 恰好 1 行且 SHA 相同；`gh pr view 3253 --json state,mergeCommit` → `MERGED` + 同一 oid；`git ls-remote --heads origin publish-frequency-strictness-report` 返回 **0 行**（同一次调用里 `refs/heads/main` 返回 1 行作正控）⇒ 远端分支已随 squash 删除。本 PR 的 `gh pr merge` rc=0，但**rc 不作判据**（AGENTS.md 记录本仓两种 rc 都出现过），合并成败只按上述三条产物判定。本文件 frontmatter 的三个 `sync_*` 字段、`.quality-gates.md` 同名记录的「远程同步」行与 `scripts/gate-record-debt-ledger.json` 的登记项已在**同一次提交**内完成回填/删除 |
 
 ### 遗留（不假装已闭合）
 
