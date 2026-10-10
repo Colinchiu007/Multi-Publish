@@ -33,7 +33,7 @@
 - [x] 5.1 写 `openspec/records/changelog-history-dedup.md`（含 QM-5 五步、QM-6 处置、frontmatter 登记 `sync_*`）
 - [x] 5.2 QM-6 双模型外部评审（>200 行 ⇒ 判定器定档 `dual`）；Critical 必修，Warning 逐条处置
 - [x] 5.3 `openspec validate --strict` 通过；`check-docs-sync` / `check-gate-record-debt` / `check-pr-exec-record` / `check-unwired-tests` / `check-step-failfast` / `classify-docs-only` 本地全绿 —— 2026-10-07 在本 worktree 逐条实跑：`validate` 输出 `Change 'dedup-changelog-history' is valid`；`docs-sync` 输出「仅文档/流程变更，无需额外同步」；`gate-record-debt` 输出「远程同步行 248 条 / 已登记欠账 9 条 … OK」；`pr-exec-record` 输出「本 PR 变更文件 19 个（A=13 M=6）… OK」；`unwired-tests`「检查域内测试文件 64 个 … OK」；`step-failfast`「含 ≥2 条测试命令的 run 步骤：6 个 … OK」；`classify-docs-only` **docs-only=false**（files=19，混合 PR，按完整门禁走，不借道）
-- [ ] 5.4 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*`
+- [x] 5.4 PR → CI 全绿 → 按 AGENTS.md 判据自动 squash 合并 → 同一次提交回填远程同步并删 `sync_*` —— 2026-10-09 按 main 实况纠勾：merge SHA `88669579b`（`git log origin/main --grep='(#3059)$' --format=%H|%cI` ⇒ `88669579b…|2026-10-07T18:24:58+08:00`）；`openspec/records/changelog-history-dedup.md` 的「远程同步」行为 `PASS` 且 frontmatter `sync_*` 残留 **0** 条（即回填与销账确实同一次发生）
 - [ ] 5.5 在 #3037 记录最终口径（含「17,891 行是窄口径、canonical 口径需重测」的更正）—— **这半已做**：#3037 第 4 条评论（2026-10-07T08:19:17Z）按最终 merge-base `6fb99307b` 实测写清 `1,187 条 / 346 种 / 冗余 841 → 347 / 347`，并声明本 PR **不改** owner 的两条断言、以及 12 种异构标题副本的遗留。**未做的那半**：worktree 按 R1–R5 收尾（需用户确认后才动，故本条保持未勾）
 
 > 实跑偏差记录：3.6 的「反证驱动」首版因取失败用例名的正则被空格截断，把 M1/M3/M4 误报成"没打中"；
@@ -45,3 +45,13 @@
 - [x] 授权已在 88669579 消费完毕（841 份副本清理，269 个多副本标题各剩 1 份）
 - [x] 授权文件保留在 main 上作为登记证；坐标系随 base 前进而退休
 - [x] 退休条款由 openspec change: retire-changelog-dedup-auth 落地（evaluateAuthorization 新增已消费退休分支，祖先成立且形状匹配时放行）
+
+## 6. 收尾：授权件的生命周期结束（2026-10-09）
+
+- 本 change 的一次性书面授权 `scripts/changelog-dedup-authorization.json`（随 `88669579` 落库）**已随清理完成而作废**，
+  并由 `retire-dedup-auth-file` 这次改动从仓库删除。**授权通路本体与默认判据一字未动**：未来确需再清一次历史副本时，
+  由 `scripts/changelog-dedup-regen.js` 在**同一个清理 PR** 里现生成一份（base 无、head 有 ⇒ 通路成立），用完随该 PR 一起消失。
+- 加了一条**生命周期锁**防它重新变成常驻文件：`check-changelog-growth.test.js` 末尾的「一次性去重授权不得作为常驻文件留在仓库里」，
+  外加配对的结构锁「退的是授权件不是通路」——断言 `AUTH_PATH` 字面量、`regen.regenerate`、`evaluateAuthorization`、`checkDedupShape`
+  四样都还在，防止有人为了消除红而把通路整个删掉。两条反证已实测：把文件放回 ⇒ 前者红；改路径字面量 ⇒ 后者红；还原后全绿。
+- 本 change 的 `5.5` 仍**保持未勾**：那半是「worktree 按 R1–R5 收尾」，归属其原执行会话，不由本次改动代勾。

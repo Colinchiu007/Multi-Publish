@@ -516,3 +516,57 @@ test('CI 接线锁：Gate 2c3 必须以 merge-base 为坐标系，且不得退�
   assert.ok(/node scripts\/check-changelog-growth\.js/.test(step) && /node --test/.test(step),
     '单测与门禁本体都必须接在同一步骤里（只接一个 = 另一半永不执行）');
 });
+
+// 一次性授权的生命周期锁（2026-10-09 决定 A：只退授权件，不改判据）。
+// 动因是实测：授权文件 88669579 合入 main 后一直没退，而它声明的坐标系（expected_entries_after=349）
+// 与今天 main 的台账规模（门禁 HEADING_RE 口径 365 条）已经对不上 —— 它既不再服务任何 PR（进不了通路：
+// base 已含该文件即撞「不是本次新增」防白蹭），又让“一次性”在语义上变成常驻。真正解除死锁的是 re-sync 推 base。
+//
+// 判据形态是 **base ∧ head**，不是"任何地方有就红"（QM-6 前端路命中：无条件存在性断言会把
+// 本文件自己在 527-528 行推荐的合法用法 —— 清理 PR 用 regen 现生成一份 —— 一并打红，
+// 于是通路代码还在、流程层却已死）。四条边界：
+//   base 有 + head 无  ⇒ 绿（这就是本次退役 PR 的形态）
+//   base 无 + head 有  ⇒ 绿（合法的一次性新增，通路照旧可用）
+//   base 有 + head 有  ⇒ 红（已落 main 还在被继承使用 = 常驻未退）
+//   head 有但不在 AUTH_PATH ⇒ 红（改名/换位的常驻逃法）
+test('一次性去重授权的生命周期：不得在已落 main 的情况下继续被携带', () => {
+  const root = path.join(__dirname, '..');
+  const git = (args) => execFileSync('git', ['-C', root].concat(args), { encoding: 'utf8' });
+  const AUTH_RE = /(^|\/)changelog-dedup-authorization[^/]*\.json$/;
+  const listOf = (lines) => lines.split('\n').map((l) => l.trim()).filter(Boolean);
+  const offendersIn = (lines) => listOf(lines).filter((p) => AUTH_RE.test(p));
+
+  // base 坐标系可显式注入（反证与本地复现都要用）；默认退到 merge-base HEAD origin/main；算不出即红，不得静默跳过。
+  let baseRef = (process.env.MP_CHANGELOG_BASE_REF || '').trim();
+  if (!baseRef) {
+    try { baseRef = git(['merge-base', 'HEAD', 'origin/main']).trim(); } catch { baseRef = ''; }
+  }
+  assert.ok(/^[0-9a-f]{40}$/.test(baseRef) || (() => { try { git(['rev-parse', '--verify', baseRef + '^{commit}']); return true; } catch { return false; } })(),
+    `base 坐标系算不出来（得到 ${JSON.stringify(baseRef)}）—— 本锁的判据完全依赖它，取不到必须红，不得当成"没有 base"放行`);
+
+  const atHead = offendersIn(git(['ls-files']));
+  const atBase = offendersIn(git(['ls-tree', '-r', '--name-only', baseRef]));
+  assert.ok(listOf(git(['ls-files'])).length > 1000, 'tracked 清单解析退化 —— 空集合会让本锁恒真');
+  assert.ok(listOf(git(['ls-tree', '-r', '--name-only', baseRef])).length > 1000, 'base 清单解析退化 —— 空集合会让本锁恒真');
+
+  if (atBase.length > 0 && atHead.length > 0) {
+    assert.fail(`一次性授权已随 base（${baseRef.slice(0, 12)}）落进 main，本次 head 仍带着它（${atHead.join(', ')}）= 常驻未退。` +
+      '它声明的坐标系只服务那一次清理；要么在本次 PR 里删掉它（base 有 / head 无 = 退役 PR，本锁放行），' +
+      '要么就是你正在借一份已消费的授权混过 growth 门禁。');
+  }
+  if (atHead.length > 0) {
+    assert.deepEqual(atHead, [AUTH_PATH],
+      `一次性授权只认规范路径 ${AUTH_PATH}；实际出现在 ${JSON.stringify(atHead)} —— 改名或换目录是绕开常驻判据的形态，不放行`);
+  }
+});
+
+test('退的是授权件不是通路：常量/生成器/校验函数三样都必须在', () => {
+  assert.equal(typeof AUTH_PATH, 'string', 'AUTH_PATH 仍是门禁导出的真源常量');
+  assert.equal(AUTH_PATH, 'scripts/changelog-dedup-authorization.json', '路径不得被改名来绕开上一条锁');
+  const regen = require('./changelog-dedup-regen.js');
+  assert.equal(typeof regen.regenerate, 'function', '生成器必须还在（否则一次性授权再也造不出来）');
+  assert.equal(regen.AUTH_PATH, AUTH_PATH, '生成器与门禁必须指向同一个路径（两份口径必然漂移）');
+  const growth = require('./check-changelog-growth.js');
+  assert.equal(typeof growth.evaluateAuthorization, 'function', '授权通路本体不得被顺手删掉');
+  assert.equal(typeof growth.checkDedupShape, 'function', '形状四条判据不得被顺手删掉');
+});

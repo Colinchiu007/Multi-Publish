@@ -1,0 +1,93 @@
+[
+  {
+    "severity": "MAJOR",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 524,
+    "issue": "Q1｜锁 1 与文档化的恢复路径自相矛盾：锁 1（524-539 行）无条件断言授权件既不在工作树（525-526 行 fs.existsSync）也不在 tracked 清单（531-538 行 git ls-files 扫描）；但门禁的一次性豁免通路只在 head 含该文件时才触发（check-changelog-growth.js:335-336——authHeadText 为 null 即早退，直接落回默认判据红），且锁与门禁在 quality-gate.yml:222-227 的同一步骤里执行。于是任何按本文档化流程操作的未来清理 PR（本文件 527-528 行断言消息、openspec/changes/dedup-changelog-history/tasks.md:51-52「由 changelog-dedup-regen.js 在同一个清理 PR 里现生成」、归档 proposal.md:20）运行时工作树与索引必然携带该授权件 ⇒ 锁 1 必红 ⇒ Gate 2c3 步骤必红 ⇒ 该清理 PR 永远无法合并。即：豁免通路的代码一字未动，但在流程层已死——锁自己的断言消息推荐的正是它会打红的操作。两条锁本身不是恒真断言（负存在断言 + tracked 扫描 + tracked.length>1000 规模下界防解析退化，M1/M2/M3 变异反证见 records:21，逻辑上成立）；问题在语义过严：它把『不得常驻』实现成了『任何形态的存在都红』，连合法的一次性形态（base 无、head 有）一并禁止。",
+    "fix": "锁 1 只应红在『授权件已落 main』：把工作树/tracked 存在性断言改为断言 merge-base 上不存在该文件，例如 assert.throws(() => execFileSync('git',['-C',root,'cat-file','-e',`${MB}:${AUTH_PATH}`]))（MB 取 git merge-base HEAD <pr-base>，算不出时 fail closed）——放行『base 无、head 有』的合法一次性形态，仍抓住常驻与换位/改名（tracked 扫描保留）。这样清理 PR 可合并，合并后授权件落 main，后续 PR 因 base 含该文件而红，直到下一次退役——正是本 PR 手动执行的真实生命周期。另：execFileSync('git','ls-files') 在无 git 的环境直接抛错而非干净红，建议 try/catch 后转为点名断言失败。"
+  },
+  {
+    "severity": "MAJOR",
+    "file": "CHANGELOG.md",
+    "line": 8,
+    "issue": "Q3｜用户感知节的宣称超出实际交付：『历史副本清理的一次性豁免通路仍然完整』只在『代码未删』口径下成立；在『可用』口径下为假——任何使用该通路的清理 PR 都会在 Gate 2c3 同一步骤被锁 1 打红（见上条，check-changelog-growth.test.js:524），无法合并。该句是本 PR 用户感知节的唯一实质性宣称（『不做也不该做的用户可见变化』），因此属于对交付效果的失实声明。",
+    "fix": "二选一：(a) 按上条放宽锁 1 后该句成立；(b) 若保留锁 1 现状，把该句改为『判据与通路代码一字未动；一次性使用现受生命周期锁约束——清理 PR 须临时携带授权件（base 无、head 有），该形态需显式豁免锁 1』。"
+  },
+  {
+    "severity": "MAJOR",
+    "file": "openspec/changes/archive/2026-10-09-retire-changelog-dedup-auth/specs/changelog-growth-retirement/spec.md",
+    "line": 5,
+    "issue": "Q4｜归档 delta 规格把从未实施的 3b 判据写成正式 Requirement 且无任何『未实施』标注：第 5-50 行『ADDED Requirements』描述形状判据（判据 1 在 14 行要求『base 与 head 均不存在授权文件』——与实际实现正好相反：check-changelog-growth.js:335-336 要求 head 必须含授权件才进授权通路；59-60 行宣称『默认判据红后、进入授权通路之前』评估退役条款——实际祖先判据在 evaluateAuthorization 内部 187-217 行）；第 30 行『THEN 门禁放行并输出 retired: true』描述的行为不存在。proposal.md 与 tasks.md 顶部都加了『以本节为准』对账横幅，但 spec.md（similarity 100% 原样搬迁）没有。openspec 语义里『归档』即『已实施』，下个会话读归档规格（或 grep retired）会把 3b 当现状规格引用。",
+    "fix": "给 spec.md 顶部加与 proposal.md 同款对账横幅（3b 判据从未实施、仅作历史快照、实际落地判据为 evaluateAuthorization 内祖先分支 check-changelog-growth.js:187-217，触发条件与本文相反），或把 3b 章节整体划线作废；MODIFIED 段（52-60 行）同样需标注。"
+  },
+  {
+    "severity": "MAJOR",
+    "file": "openspec/changes/archive/2026-10-09-retire-changelog-dedup-auth/design.md",
+    "line": 43,
+    "issue": "Q4｜归档 design.md 原样搬迁（similarity 100%），『判定流（改动后）』（36-47 行）仍把 3b 列为设计分支（43 行『3b. base 与 HEAD(merge) 均无授权文件 && base 处于清理前形状…』），『3b 的形状判据』表（54-61 行）与『防滥用推演』（70-78 行）仍以 3b 为既成设计，全文无『从未实施』标注（proposal/tasks 有横幅，design/spec 没有——同一归档内口径分裂）。与归档 spec.md 同源的误读风险：下个会话按 design.md 实现或评审时会以为 3b 已落地。",
+    "fix": "design.md 顶部加同款对账横幅（3b 未实施、实际判据形态与位置、指向 check-changelog-growth.js:187-217 与 scripts/check-changelog-growth-retire.test.js）。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 522,
+    "issue": "Q1/Q3｜锁 1 动因注释仍写『与今天 main 的台账规模（369 条）已经对不上』——369 正是 db60e43c5 提交在 CHANGELOG.md:10、归档 proposal.md:16、records:23 三处纠正掉的错数（369 是 grep -c \"^# \" 的粗数，含 4 个『# CHANGELOG』节标题；门禁 HEADING_RE 口径实测 base 0cee85597=365 条、origin/main=366 条，本评审用 changelog-entries.js 复核一致）。纠正漏了代码注释这一处，且 records:23 已明文记载『本行最初就抄了这个粗数……已由 check-changelog-growth.js 现场输出纠正』——注释与记录自相矛盾。",
+    "fix": "注释改为『与今天 main 的台账规模（365 条，门禁 HEADING_RE 口径；grep -c \"^# \" 会粗数出 370，含 4 处 # CHANGELOG 节标题）』，与 records:23 的口径说明对齐。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "scripts/check-changelog-growth.js",
+    "line": 29,
+    "issue": "Q2｜门禁头注释的『一次性书面授权』块（29-38 行）仍把授权件描述为常态机制，未说明该文件现已被有意删除、其常驻会被 check-changelog-growth.test.js 末尾的生命周期锁判红。读者按注释去 main 找 scripts/changelog-dedup-authorization.json 会扑空且无指针。机制描述本身未错（授权件可再生成），属不完整而非误导。仓库内其余引用点（CHANGELOG.md:626 的 #3059 历史条目、dedup-changelog-history 的 proposal/design/tasks/specs 与 qm6-findings JSON、归档 change 内部引用）均为时点快照，不构成误导。",
+    "fix": "注释块末尾加一行：『授权件按生命周期锁不得常驻仓库（见 check-changelog-growth.test.js 末尾两条锁）；确需清理时由 changelog-dedup-regen.js 在同一清理 PR 内现生成，用完随该 PR 消失』。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "scripts/changelog-dedup-regen.js",
+    "line": 3,
+    "issue": "Q2｜该工具的唯一产出物就是一次性授权件（92 行 writeFileSync 写 AUTH_PATH），但头注释（3-19 行）只讲用法与幂等，不讲『生成件只许活在当次清理 PR、不得随 PR 合并落 main』。生命周期规则目前只存在于测试断言消息（check-changelog-growth.test.js:527-528）里——只查 regen 文档的用户正好能造出锁 1 禁止的常驻态。",
+    "fix": "头注释加一行生命周期警告：生成的授权件是一次性的，清理 PR 合并后必须由后续 PR 删除（先例：retire-dedup-auth-file）；长期留 main 会被 check-changelog-growth.test.js 的生命周期锁判红。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "openspec/records/changelog-history-dedup.md",
+    "line": 10,
+    "issue": "Q2｜『坐标系：唯一真源是 scripts/changelog-dedup-authorization.json 的 applies_to_base』读起来像现行指引，但该文件已随本 PR 从 main 删除，下个会话按图索骥会找不到文件。该记录是 #3059 的时点快照，但『唯一真源』措辞未加退役交叉引用。",
+    "fix": "行内追加：『（该授权件已于 2026-10-09 由 retire-dedup-auth-file 退役，见 openspec/records/retire-dedup-auth-file.md；未来清理由 changelog-dedup-regen.js 在同一清理 PR 内现生成）』。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "openspec/changes/archive/2026-10-09-retire-changelog-dedup-auth/tasks.md",
+    "line": 10,
+    "issue": "Q3｜处置对账表仍写『既有 30 条断言一字未动（32→34 条，两文件合计 35→37）』——括号内『32→34』是错数（实测单文件 30→32；两文件 35→37 正确；三文件 32+5+19=56 也与 records:26 自述一致）。records:26 已写『我误写 \"32→34\"（已改）』，但归档 tasks.md 本体未改，PR 自己的两份产物互相矛盾。",
+    "fix": "括号改为『（30→32 条，两文件合计 35→37）』。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "openspec/records/retire-dedup-auth-file.md",
+    "line": 17,
+    "issue": "Q3｜『（现 518 行，35 条断言）』混搭两个口径：518 行是改动前单文件行数（base 0cee85597 实测 518 行/30 条测试/99 处 assert 调用），35 是改动前两文件测试总数（30+5）；『现』亦不成立（改动后 550 行/32 条测试/108 处断言）。QM-6 行（26 行）已纠正计数，本行未同步。",
+    "fix": "改为『（改动前 518 行、30 条测试；改动后 550 行、32 条测试）』。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "openspec/records/retire-dedup-auth-file.md",
+    "line": 16,
+    "issue": "Q3｜逃逸分析⑤称『grep -c changelog-dedup-authorization 在 scripts/ 有 4 处命中』——base 0cee85597 实测 6 个命中行、跨 3 个文件（changelog-dedup-regen.js:1、check-changelog-growth.js:2、check-changelog-growth.test.js:3）；括号内列的 3 类（真源常量+regen 写点+测试夹具字符串）与『4 处』也对不上。",
+    "fix": "改为『6 处命中（跨 3 个文件：真源常量 2 处含注释、regen 1 处、测试夹具 3 处）』。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "openspec/records/retire-dedup-auth-file.md",
+    "line": 25,
+    "issue": "Q3｜行尾与 diff 对账行引用的『口径纠正提交 ee08a022e50f』在本地（git cat-file -t）与远端（git ls-remote）均不存在——rebase 前修正提交实为 e723ab947，rebase 后为 db60e43c5（正是 3 files changed, 3 insertions(+), 3 deletions(-)，与描述吻合）。该行后半的证据不可离线复现，违背本仓『字段一律可离线取证』的记录纪律；前半（主提交 129422a40 的 numstat 11 文件 167+/45-）可复现。",
+    "fix": "SHA 改为 db60e43c5（如需保留 rebase 前坐标可注明 e723ab947）。"
+  },
+  {
+    "severity": "MINOR",
+    "file": "openspec/records/retire-dedup-auth-file.md",
+    "line": 35,
+    "issue": "Q3/Q4｜遗留节称『openspec/changes/ 仍有 23 个未归档目录』——实测 24 个（ls openspec/changes/ 共 25 项含 archive，grep -v archive 后 24）。差 1，可能按旧快照写就。该行其余内容（delta 能力 changelog-ledger-integrity 未进主规格、归档会新建规格并触发 Gate 12d 的 TBD-Purpose 占位）经核对属实：openspec/specs/ 下确无 changelog 规格（135 项），本 PR 的 git diff 中 openspec/specs/ 命中 0。",
+    "fix": "改为 24，或不写死数字、改为『ls openspec/changes | grep -v archive | wc -l 实测』。"
+  }
+]

@@ -1,3 +1,25 @@
+# [未发布] fix(ci): 退役已消费的一次性 CHANGELOG 去重授权文件，并加"授权件不得常驻"生命周期锁（2026-10-09，retire-dedup-auth-file）
+
+### 用户感知
+
+无（纯 CI 台账卫生）。这次不做也不该做的用户可见变化：CHANGELOG 只可增长门禁的**判据一字未动**，历史副本清理的一次性豁免通路仍然完整 ——
+新增的生命周期锁只禁"授权件已随 base 落进 main、head 还继续携带"这种常驻形态，**不禁**"base 无、head 有"的一次性新增，
+所以未来真要再清一次时，按 `changelog-dedup-regen.js` 现生成一份的用法照旧可用（四条边界各有实测反证，见 `openspec/records/retire-dedup-auth-file.md`）。
+
+### 变更明细
+
+- 删除 `scripts/changelog-dedup-authorization.json`。它是随清理 PR #3059（`88669579`，2026-10-07）落库的一次性书面授权，用完没退；
+  它声明的额度 `expected_entries_after=349` 与今天台账的 **365** 条（门禁 `HEADING_RE` 口径）已不可能重合，即"一次性"在语义上变成了常驻。
+- 新增两条锁（落在**已接线**的 `scripts/check-changelog-growth.test.js`，不新建测试文件）：
+  ①「一次性去重授权不得作为常驻文件留在仓库里」；②「退的是授权件不是通路」——断言 `AUTH_PATH` 字面量、`changelog-dedup-regen.js` 的
+  `regenerate`、门禁的 `evaluateAuthorization` 与 `checkDedupShape` 四样都还在，防止为了消除红而把整条通路删掉。
+- 反证两条均实测变红：把授权件按原字节放回 ⇒ 锁 ① 点名红；把 `AUTH_PATH` 字面量改名 ⇒ 锁 ② 点名红；还原后全绿（37 pass / 0 fail）。
+- `retire-changelog-dedup-auth` 的 change artifacts 与现实对齐后归档：其 3b 设计（"两侧都无授权文件时按清理前后形状放行"）**从未实施**，
+  实际由 PR #3151 落地"祖先坐标系即已消费"判据；同时否证了该案两条前提（"清理后所有早分叉 PR 卡死"——实测 #2992 全绿，
+  因为默认判据卡的是标题丢失而清理保留了每标题一份）。归档走 `git mv` 而非 `openspec archive`，避免把未实施的判据写进主规格。
+- 详见 `openspec/records/retire-dedup-auth-file.md`。
+
+---
 # [未发布] feat(film-engineering): 影视工程三标签重组 + 「自动」模式（2026-10-09，film-auto-mode）
 
 ## 背景
