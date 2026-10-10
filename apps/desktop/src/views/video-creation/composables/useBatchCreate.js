@@ -19,8 +19,7 @@ import {
   story2videoBatchCancel,
 } from '@/api/publisher'
 import { story2videoPickBatchFiles } from '@/api/publisher'
-import { buildStory2VideoTextConfig } from '@multi-publish/story2video-engine'
-import { formatStory2VideoNotification, STORY2VIDEO_NOTIFICATION_KEYS } from '@/utils/user-facing-error'
+import { formatStory2VideoNotification, STORY2VIDEO_NOTIFICATION_KEYS } from '@/story2video/story2video-notifications'
 import { getAppLocale } from '@/i18n'
 
 /** 模块级状态（单例） */
