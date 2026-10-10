@@ -14,6 +14,8 @@
 const path = require('path')
 const { execFile } = require('child_process')
 const logger = require('./logger')
+// publish-frequency-policy-v2 P0-1：把「可确证未送出」的登录态族失败打标，供队列回滚间隔窗口
+const { markDefinitelyNotSent } = require('./publish-not-submitted')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
@@ -582,7 +584,12 @@ class RpaVmPublisher {
         })
         return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, mode: 'dom', ...(diagnostics ? { diagnostics } : {}) }
       }
-      throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
+      // publish-frequency-policy-v2 P0-1：登录态失效族**可确证未送出**（RPA 在发布页导航后
+      // 先判登录态并 early-return，早于任何表单填充/提交）⇒ 打标后由队列回滚间隔窗口。
+      // 词表是封闭的（services/publish-not-submitted.js），未命中一律按已提交处理（保守侧）。
+      const rpaErr = new Error(result.error || 'RPA 发布失败')
+      markDefinitelyNotSent(rpaErr, result.error)
+      throw rpaErr
     } finally {
       signal?.removeEventListener('abort', onAbort)
     }
@@ -619,7 +626,10 @@ class ApiPublisher {
         error: '平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）',
         params: { platform, accountId, mode: 'api' },
       })
-      throw new Error('平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）')
+      // publish-frequency-policy-v2 P0-1：cookie 为空时**尚未发出任何请求** ⇒ 无条件可回滚
+      const cookieErr = new Error('平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）')
+      cookieErr.definitelyNotSent = true
+      throw cookieErr
     }
     const cookie = cookies.map((c) => c.name + '=' + c.value).join('; ')
     const signal = options && options.signal
@@ -657,7 +667,12 @@ class ApiPublisher {
       logger.notify('PublisherRouter', 'publish-cancelled', { level: 'WARN', params: { platform, accountId } })
       throw new Error('任务已取消')
     }
-    if (!result || !result.success) throw new Error((result && result.error) || 'API 发布失败')
+    if (!result || !result.success) {
+      // publish-frequency-policy-v2 P0-1：登录态失效族可确证未送出（见 publish-not-submitted.js）
+      const apiErr = new Error((result && result.error) || 'API 发布失败')
+      markDefinitelyNotSent(apiErr, result && result.error)
+      throw apiErr
+    }
     const postId = typeof result.publishId === 'string' && result.publishId.trim() ? result.publishId.trim() : ''
     if (!postId) throw new Error('发布结果缺少平台作品 ID')
     return { success: true, url: sanitizePublishResultUrl(result.url || ''), postId, platform, mode: 'api' }
