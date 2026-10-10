@@ -70,6 +70,16 @@
 | 分镜视频生成 | Shot video generation | filmEngineering.video.title |
 | 成本确认 | Cost confirmation | filmEngineering.video.confirmTitle |
 | 成片 | Final video | filmEngineering.video.doneTitle |
+| 播客 | Podcast | — |
+| 播客频道 | Podcast channel | podcast.channel |
+| 单集 | Episode | podcast.episode |
+| RSS 订阅源 | RSS feed | podcast.feed |
+| 聚合端 | Aggregator | — |
+| 收录 | Inclusion | — |
+| 托管 | Hosting | — |
+| 音频外链 | Audio direct link | podcast.episode.audioUrl |
+| 分发端目录 | Distribution endpoint catalog | podcast.endpoint |
+| 提交指引 | Submission guide | podcast.endpoint.steps |
 
 ## 维护规则
 

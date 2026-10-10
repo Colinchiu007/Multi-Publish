@@ -1229,6 +1229,46 @@ var require_knowledge_library = __commonJS({
   }
 });
 
+// electron/preload/podcast.js
+var require_podcast = __commonJS({
+  "electron/preload/podcast.js"(exports2, module2) {
+    var IPC_EXCEPTION = "PODCAST_IPC_EXCEPTION";
+    function unwrap(invoke) {
+      return async (...args) => {
+        const res = await invoke(...args);
+        if (res == null || typeof res !== "object") {
+          return { ok: false, code: IPC_EXCEPTION };
+        }
+        if (res.code === 0) {
+          const data = res.data && typeof res.data === "object" ? res.data : {};
+          return { ok: true, ...data };
+        }
+        return {
+          ok: false,
+          code: res.code == null ? IPC_EXCEPTION : res.code,
+          message: typeof res.message === "string" ? res.message : "",
+          issues: Array.isArray(res.issues) ? res.issues : []
+        };
+      };
+    }
+    function createPodcastApi(ipcRenderer2) {
+      return {
+        podcast: {
+          channelGet: unwrap((...a) => ipcRenderer2.invoke("podcast:channel:get", ...a)),
+          channelSave: unwrap((payload) => ipcRenderer2.invoke("podcast:channel:save", payload)),
+          episodeList: unwrap(() => ipcRenderer2.invoke("podcast:episode:list")),
+          episodeSave: unwrap((payload) => ipcRenderer2.invoke("podcast:episode:save", payload)),
+          episodeRemove: unwrap((id) => ipcRenderer2.invoke("podcast:episode:remove", id)),
+          feedBuild: unwrap(() => ipcRenderer2.invoke("podcast:feed:build")),
+          feedVerify: unwrap(() => ipcRenderer2.invoke("podcast:feed:verify")),
+          endpointList: unwrap(() => ipcRenderer2.invoke("podcast:endpoints:list"))
+        }
+      };
+    }
+    module2.exports = { createPodcastApi, unwrap, IPC_EXCEPTION };
+  }
+});
+
 // electron/preload/signer.js
 var require_signer = __commonJS({
   "electron/preload/signer.js"(exports2, module2) {
@@ -1513,6 +1553,7 @@ var require_preload = __commonJS({
     var { createAutoPipelineApi } = require_auto_pipeline();
     var { createAutomationApi } = require_automation();
     var { createKnowledgeLibraryApi } = require_knowledge_library();
+    var { createPodcastApi } = require_podcast();
     var { createSignerApi } = require_signer();
     var {
       ADMIN_ONLY_METHODS,
@@ -1563,6 +1604,8 @@ var require_preload = __commonJS({
       ...createAutoPipelineApi(ipcRenderer2),
       ...createAutomationApi(ipcRenderer2),
       ...createKnowledgeLibraryApi(ipcRenderer2),
+      // 播客 RSS 频道（小宇宙收录链路）：独立实体，不是发布平台，不经 publishMode
+      ...createPodcastApi(ipcRenderer2),
       // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
       ...createSignerApi(ipcRenderer2),
       // P2 限流自检（authenticated，默认受限）

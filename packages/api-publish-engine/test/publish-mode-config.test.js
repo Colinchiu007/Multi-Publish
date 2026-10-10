@@ -7,6 +7,7 @@ const path = require('path')
 const fs = require('fs')
 const yaml = require('js-yaml')
 const router = require('../src/api-router')
+const mode = require('../src/publish/core/publish-mode')
 const CONFIG_PATH = path.resolve(__dirname, '..', '..', '..', 'config', 'platforms.yaml')
 
 const VALID = ['api-only', 'api-then-dom', 'dom-only']
@@ -86,5 +87,25 @@ describe('§5.1 getPublishMode 读取器', function () {
     Object.keys(router.loadConfig()).forEach(function (k) {
       expect(VALID).toContain(router.getPublishMode(k))
     })
+  })
+})
+
+describe('§5.1 ADR-0008：RSS 是协议通道，不是发布平台', function () {
+  test('publishMode 值域仍为三态（未为 RSS 新增第四态）', function () {
+    expect(Object.values(mode.MODES)).toEqual(['api-only', 'api-then-dom', 'dom-only'])
+  })
+
+  test('误配 rss 归一 fail-closed，不静默回落 api-then-dom', function () {
+    // 回落会把 RSS 通道送进 DOM/API 轨调度，去点一个并不存在的选择器——
+    // 静默缺陷的源头，所以这里必须是当场抛出。
+    expect(() => mode.normalizeMode('rss')).toThrow(/unknown publishMode/)
+    expect(() => mode.decideRoute({ mode: 'rss' })).toThrow(/unknown publishMode/)
+  })
+
+  test('platforms.yaml 不含任何分发端 id', function () {
+    const keys = Object.keys(yaml.load(fs.readFileSync(CONFIG_PATH, 'utf8')).platforms)
+    expect(keys).not.toContain('xiaoyuzhou')
+    expect(keys).not.toContain('apple_podcasts')
+    expect(keys).not.toContain('spotify')
   })
 })

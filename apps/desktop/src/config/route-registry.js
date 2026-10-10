@@ -37,6 +37,7 @@ import {
   DataAnalysis,
   Document,
   FolderOpened,
+  Headset,
   HomeFilled,
   MagicStick,
   Search,
@@ -358,6 +359,15 @@ export const ROUTE_REGISTRY = Object.freeze([
     internal: false,
     entryFrom: null,
   },
+  {
+    // 播客 RSS 频道（2026-10）：小宇宙等聚合端不是发布平台，独立"频道"实体走 RSS 订阅链路
+    path: '/podcast',
+    name: 'PodcastChannel',
+    view: 'PodcastChannelView.vue',
+    navEntry: { key: 'podcast', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'podcast.pageTitle', to: '/podcast', icon: Headset },
+    internal: false,
+    entryFrom: null,
+  },
 ])
 
 /**
@@ -391,6 +401,7 @@ export const SIDEBAR_MENU_KEY_ORDER = Object.freeze([
   'knowledge-base',
   'performance-insights',
   'member-center',
+  'podcast',
 ])
 
 /**

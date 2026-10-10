@@ -16963,6 +16963,77 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
   - 同一记录的不同状态 ⇒ **必须重建**，禁止并集。`.quality-gates.md` 顶部记录、`CHANGELOG.md` 未发布段、ledger 同名键属此类。
 - **正确顺序（重建）**：① `git show origin/main:<file>` 取 main 的**整份内容**为底（不是取自己的）；② 只把自己的新增块插回正确位置（`.quality-gates.md`/`CHANGELOG.md` 插到最顶，ledger 插到最后一个键之后并补逗号）；③ 逐行保留 main 那一行原本的结尾，禁止统一回写行尾（本仓这类文件 `i/lf w/crlf`，统一改写会把整文件变成 diff）；④ 提交前用 `git diff --numstat origin/main -- <file>` 断言**删除数为 0**（纯插入），并 grep 关键点确认 main 的回填证据（如 `已合并 #NNNN`）仍在。
 - **配套**：判据不是「冲突解完了」而是「相对 origin/main 是否纯插入 + main 的证据行是否还在」；对「删除数>0」的置顶文件冲突一律重做。**`Auto-merging` 同样不构成证据**——git 自动合并的文件也可能改动 main 的证据行，所以未冲突文件也要跑同一次删除数对账（本次 `01-docs/PRD.md` 之外，`.quality-gates.md` 17/0、`CHANGELOG.md` 14/0、ledger 2/1 全部逐个实测）。另注：ledger 的 `line` 字段是信息性的、不被 `check-gate-record-debt.js` 校验，重建时不必逐字对齐行号，但键必须与记录标题逐字相同。
+---
+
+## 2026-10-09 · 播客 RSS 第三刀：结构锁不剥注释造出的假缺口，与「首跑必然红」的基线回填范式（PR #3193）
+
+### 事件一：我写的告诫注释，被门禁当成了一段真实注册
+
+`QG Static` Gate 6（`.github/scripts/check-ipc-bridge.js`）报「Handler 已注册但 preload.js 未暴露」，点名的通道是 `podcast:…` ——一个**从未存在过**的通道名。
+
+根因不在代码，在注释：为了让后人别把通道名收回 helper，我在 `apps/desktop/electron/ipc-handlers/podcast.js` 顶部写了「通道名必须在注册点写成 `ipcMain.handle('podcast:…', …)` 字面量」。**RE1 是对源码原文做正则、不剥离注释**，于是这句示例被读成一次真实注册。现场取证很干脆：修复前脚本统计 **432 handlers**，修复后 **431**，差的那 1 条正是幽灵通道；`rc` 从 1 变 0。
+
+**教训（可泛化）**：
+1. **结构锁读的是文本，不是 AST**。凡是「用正则扫源码来断言某写法在/不在」的门禁（本仓这类锁很多：IPC harvest、显式声明锁、`getVisibilityState` 禁用锁、href 协议字面量扫描），它的判据域都**天然包含注释和字符串**。往注释里举"错误写法"的例子，等于往判据域里投一条假事实。
+2. **修法方向唯一是改措辞，不是放宽门禁**。这里最容易走的两条歪路：把 RE1 改成"跳过注释行"（本文件其它锁立刻失去对注释的防御，且这条锁存在的目的本来就是抓"写了但没注册"），或把通道改成集中注册表（会让整条通道从 `ipc-contract.test.js` 的双向对账里隐身，表现恰好是它想防的那个症状）。
+3. **处置**：注释改成"本文件注释内禁止出现 `ipcMain.handle(` 紧跟引号的写法"并写明原因——**把这个坑本身写进踩坑的位置**，是这类"注释污染判据域"缺陷唯一便宜的免疫方式。
+
+### 事件二：QM-1 打包红是上一刀的遗留进程，不是构建回归
+
+`pnpm run build:dir` rc=1，`app-builder.exe ... EnsureEmptyDir ... d3dcompiler_47.dll: Access is denied`（`ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`）。第一反应是"新代码把产物结构改坏了"，实际是前两次 QM-1 的**启动验证**留下的 4 个 `Multi-Publish.exe` 仍持有 `dist-electron\win-unpacked`。
+
+**判据**：`Get-Process | Where-Object { $_.Path -like '*<本 worktree 路径>*' }`，kill 后重跑即 rc=0。
+**禁止项**：不要因为"目录被占住"就去递归删 `win-unpacked`——R0 删除守卫拒绝，且即便允许也会把"到底是进程还是代码"这条线索一起删掉。
+**顺带一条工具层坑**：Git Bash 里 `taskkill /PID` 的 `/PID` 会被 MSYS 当路径改写，须写 `//PID` 或改走 PowerShell。
+
+### 事件三：`ERR_VISUAL_BASELINE_MISSING` 不是失败，是一次可闭合的信号
+
+`podcast-channel` 这条新像素用例首次进 CI 必然缺基线（AGENTS QM-4 第 7 条禁止本机截图入库）。关键是当时差点做出"这一刀合不掉、要等两次 run"的错误判断。实际结构是：`quality-gate.yml` Gate 7 的产物上传步骤是 `if: always()`，**所以那次报红的 run 同时就提供了可当基线用的渲染**。一次闭合：
+
+- 下载 run `37840950306` 的 `quality-gate-visual-reports`，选图**复用** `scripts/check-baseline-freshness.js` 导出的 `findRender()`（它优先取 views 域 `<name>.png`，其次才是像素套的 `<name>-current.png`）。这两者不是同一张图——workflow 自己的注释里记着实测：同一次 run 内 dashboard 差 350 px、collection 差 67870 px 且跨 head 逐字相同（确定性差异，不是噪声）。**另写第二份名字映射就会拿错域比错图**。
+- 除新基线外，还须重建 8 张被侧栏「播客」条目位移的视图（`calendar`/`cloud-publish`/`collection`/`create-editor`/`intelligence`/`keyword-monitor`/`model-providers`/`viral-analysis`）。识别法：**多张视图的 diff 量级完全相同（各 473 px）且包围盒落在同一条带**，那是"一个共享元素在每页各渲染一次"的形状，属本次改动；真正的噪声不会这么整齐。
+- 自证用 SHA-256 比「落盘字节 == artifact 渲染字节」，全跑 `check-baseline-freshness` 看违规数 **8 → 0**（不带 `--renders` 时它必然 rc=1，那是它拒绝假绿，不是门禁坏了）。全程不动 `PIXEL_THRESHOLD`、不加 mask、`KNOWN_DYNAMIC` 保持为空。
+
+### 事件四（未闭合，如实登记）：暗色基线在 PR 内拿不到
+
+`test:visual:pixel:dark` 只接在 `.github/workflows/visual-test.yml:100`（main push / workflow_dispatch），PR 侧 `QG Visual` 只跑浅色。因此 `podcast-channel-dark.png` **结构上无法在本 PR 内同源产出**——只能合并后由那次 main 的 Visual Tests artifact 回填。`visual-ci.test.js` 的白名单锁对此是容忍的：它只要求 `.gitignore` 里存在 `!podcast-channel-dark.png` 这条**放行条目**，不要求 PNG 已入库。同族先例见 CHANGELOG 的 `visual-baseline-collection-dark` 条目（那条正是"PR 侧看不见暗档"这个盲区被复发后补的账）。
+
+**登记方式**：把它写进 PRD §十五状态表、openspec tasks §4.5、proposal 未闭合项、执行记录「已知未闭合」四处，明确"这是取不到同源渲染，不是忘了做"。不要为了看起来完整而用本机截图充数——那会把 QM-4 第 7 条换来的确定性一次性花掉。
+
+### 事件五：同一 job 里"下一道门禁"永远不会在同一次 run 里告诉你（第四刀）
+
+`QG Static` 修绿 Gate 6 后推上去，下一次 CI 又红在 **Gate 10**（渲染端 IPC 访问单轨制，`check-frontend-consistency.js`）；而 **Gate 16**（字号标度，`check-font-size-scale.js`）是我本机预跑才发现的第二颗雷。原因不是门禁不稳定，是 GitHub 的步骤语义：**一个步骤失败，后续步骤一律 `skipped`**。所以每次 run 只暴露"当前第一道红"，Gate 16（该 job 第 22 步）在 Gate 10 修好之前**从未被执行过一次**——它不是"新引入的回归"，是"一直没跑过的既有约束第一次被看见"。
+
+**可执行判据**：改动 `QG Static` 覆盖的面（`apps/desktop/src/**`、`packages/shared-utils/**`、styles / locales / preload bundle）时，本机必须把该 job 的**全部**门禁脚本逐个跑一遍（本刀实测 37 个），而不是只跑"与我改动相关的那一个"。跑法有两处会把人骗到：① 各脚本 `--base` 默认值不一致（`sh` 类需显式 `--base=main`）；② 有些脚本**无参必然 rc=1**（`check-baseline-freshness.js` 不带 `--renders` 时是"拒绝假绿"的设计），把它当回归就会去修一个不存在的问题。
+
+### 事件六：同一个仓里，"注释算不算代码"有两种判据——写注释前必须查这道锁剥不剥注释
+
+第四刀新加的结构锁（扫 `usePodcastChannel.js`，断言其中不得出现桌面暴露面的属性名）**第一次运行就红在自己身上**：为了说明"为什么要走 `src/api` 这一层"，我在注释里把这个被禁的字面量原样写了出来。判据按文本抓取，注释里的示例与代码里的真实调用在它眼里没有区别——这是事件一同族缺陷的**第二次**发生，而且这次是我主动给自己埋的。（同一次红还澄清了一件事：`PodcastChannelView.vue` 从来是 0 处命中，违规全部集中在 composable 的 9 处自制探测；写报告前按文件逐个计数，不要把"整条链路都违规"当成默认结论。）
+
+**但本仓两种判据并不一致，不能凭直觉推广**（这条最容易记错）：
+
+| 门禁 | 是否剥注释 | 后果 |
+| --- | --- | --- |
+| `check-ipc-bridge.js` 的 `RE1`（Gate 6，清点 `ipcMain.handle('…')`） | **不剥** | 注释里举反例 = 往判据域投一条假事实（事件一） |
+| `check-frontend-consistency.js`（Gate 10，清点 `window.<暴露面>`） | **剥块注释**（`stripBlockComments(line, blockState)`） | 注释里出现该字面量**不会**变红——但我新写的测试锁不剥，照样红 |
+
+所以口径不是"注释随便写"，而是：**动手前读一眼该锁的实现有没有剥注释**。而最稳的写法是两边都安全——注释里**永远不写被判据命中的那个字面量本身**，改用描述性指称（"桌面端暴露面属性名"）并指向锁的名字与所在文件。本刀最终采用后者，并把这句自解释写进被扫文件顶部，让下一个想"顺手举例子"的人当场看到。
+
+### 事件七：把字号字面量换成设计令牌，是一次**真实的**像素变更，不是无害重构
+
+`check-font-size-scale.js` 禁止新增 `font-size: Npx`（存量按只下棘轮管理）。本刀把新视图的 16 处字面量折进七档标度（xs12 / sm13 / base15 / md17 / lg20 / xl24 / xxl32），而 16px、14px **不在标度上**，只能就近取 md(17) 与 base(15) ⇒ 页面上两处标题各高 1 px。两条结论：
+
+1. **不得**用 `calc(var(--font-size-md) - 1px)` 把 off-scale 值藏回令牌里——那正是该门禁要消灭的形态，锁会因为出现 `var(` 而满意，标度却名存实亡。
+2. 像素基线与源码是**成对**的：改了渲染尺寸，上一刀按 CI artifact 回填的 `podcast-channel.png` 立刻不再等于本次渲染。所以这一刀必须显式登记"浅色基线待下一次 run 重取"，走与事件三完全相同的口径（同一 `findRender()`、逐张 SHA-256 自证、不动 `PIXEL_THRESHOLD`、不加 mask）。**「测试全绿」不等于「视觉证据仍然有效」**——单测断言的是 DOM/class，对 1 px 完全失明，能发现它的只有像素门禁。
+
+### 事件八：为过一道门禁而写的「窄面入口」，会被另一道门禁判成「看不见的路径」
+
+Gate 10（`check-frontend-consistency.js` 的 `rendererIpcDirect`，基线 0）把渲染层直取桌面端暴露面的写法压到 `src/api/**` 之后。第一版把新层写成**一个泛化入口**：`callPodcastIpc(method, ...args) → invokeNamespace(NS, method, ...args)`。Gate 10 当场归零，但全量回归红在另一处：`electron/tests/ipc-exposure-contract.test.js` 报 `生产侧动态取名（1）：podcast-channel.js: invokeNamespace(podcast, method)`，同时该文件还要求新文件先登记进 `SCAN_DOMAIN`（D6 棘轮）。
+
+1. **这两道门禁的方向是相反的，必须同时读**：Gate 10 只看"字面量出现在哪个文件"，`ipc-exposure-contract` 看"调用名能不能被静态抽出来与 preload 暴露面对账"。泛化转发恰好满足前者、破坏后者——而后者破坏的是真问题（C-1 那类"名字运行时才拼出来、账面看不见、缺方法时静默走 undefined 回落"）。**为过一道锁设计的形态，要拿同域的所有锁一起跑一遍**，不是跑那道红掉的锁。
+2. **正解是先读先例的头部注释，不是先读先例的函数名**：`src/api/tts-voice-catalog.js:9-12` 原文就写着"为什么每个导出直接写字面量而不经内部辅助函数转发……经参数转发会变成动态取名，对账就看不见这条路径"。我只 grep 到它用了 `invokeNamespace` 就照抄了接缝、自己发挥了收敛形态，把仓里已经付过学费的结论重新付了一遍。**抄先例要抄到注释**，注释里那种"为什么这样写"的段落通常就是一次事故的墓碑。
+3. **改形的判据是"每条路径都在账上"**：8 个具名导出、每个各自一行 `invokeNamespace(NS, '<方法名>')` 字面量，`SCAN_DOMAIN` 增一行登记。反证做了两条：`toEnvelope` 恒报 available → 行为锁红 3 例；把其中一个导出退回 `forward(name, …)` 变量转发 → **两道锁同时红**（外部门禁的"动态取名" + 本 PR 结构锁的逐条字面量 `toContain`）。后者是关键证据：它说明这条"形"不是靠人记得住，而是内外各守一处。
+4. **顺带纠正自己写下的报告**：Gate 10 那一行原本描述新层为"只调 `invokeNamespace('podcast', method, ...args)`"，这是把**错的形态**当成结论写进了记录。文档描述实现形态时，要在实现**定稿后**再写，不能边写边改——否则下一个会话会照抄一个已被门禁否决的形状。
 
 
 ## 小红书签名代差与页内求签（xhs-xys-signer + note-e2e 复盘，2026-10-10）
@@ -16972,3 +17043,42 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
 - **note 步页内整发 = 绕开头拼装 mismatch 的正解（pattern）**：X-S-Common 页内生成入口被混淆无法直调，本地模板与页内真头混用仍被拒。把整个请求放进签名页执行（`bindSignerCookie` 注入 cookie + 页内 `fetch credentials:"include"`）——登录态、签名、X-S-Common 全部由页内会话自然携带，与真机行为逐字节一致。链层只需 `pageInpage.sendNote` 桥（pageInpage 缺失时零回归）。
 - **跨域 AT 半认可现象（pitfall）**：creator 域的 `access-token-creator` 头打向 edith 域 note 端点会从 406/401 变成 `{code:-1}` 业务响应——看似「过了认证」，实为半认可，业务层仍拒。**不要把认证层打通误判为链路打通**：业务 code:-1（无 msg）与 401 是不同层的问题，排查时先用页内同源 fetch 做对照（同源 401 = 会话不在该域；跨源 code:-1 = AT 半认可）。
 - **端点域不匹配**：edith `/web_api/sns/v2/note` 不接受 creator 会话；creator 域同名端点 404（不存在）。真实草稿保存接口需抓登录后「手动存草稿」的页面交互流量（CDP 拦截）定位——凭参考实现记忆猜端点两次落空（406/401）。
+
+### 事件九：`await` 包不出同步 throw——异常语义要先问「throw 发生在哪个求值帧」，不是「我有没有 try/catch」
+
+第四刀的桥接层写成 `toEnvelope(await invokeNamespace(NS, 'channelGet'))`，注释里自称"命名空间缺失 → 不可用；调用抛错 → 异常"。QM-6 后端评审（claude）实测这条承诺对**最主要的一类抛错**根本不成立：未登录 / 许可证未激活时 preload 的 `createDynamicAccessApi` 直接 **同步 throw** `LicensePermissionError`，而它发生在**实参求值期**——`toEnvelope` 的函数体还没进去、它自己的 `try` 还没进场，所以那个 `try` 结构上不可能接住它。用户看到的是 `PODCAST_IPC_EXCEPTION`（"调用失败"），真实原因是前置条件不满足，于是被引向"重试/报网络故障"的错误排障方向。修法：把调用改成 **thunk** 传入（`envelope(() => invokeNamespace(…))`），在 `try` **体内**才求值。
+
+1. **「有没有 try/catch」不是判据，「求值发生在哪个帧」才是。** 凡是"包装器负责接错"的结构（`envelope(promise)` / `withRetry(promise)` / `fallback(promise)`），如果被包装的表达式在**调用点**就求值了，包装器里的 catch 就是个装饰。同族形态：把 `await` 写在实参位置、把 `Promise` 交给别人再 `.catch()`、以及"先算好再传给守卫函数"。判据写法：**调用必须在 `try` 体内发生**，否则一律传 thunk / 闭包。
+2. **对侧的实现事实会反过来定义这一侧错误码的语义集合。** 主进程 8 个 handler 全部被 `guarded` 包住、领域错误一律以负码**返回**而不 throw ⇒ 真能穿透 IPC 边界抛到渲染层的，**只剩**环境/前置条件这一档。既然这一档就是"权限/未挂载"，把它映射成"调用失败"就是把唯一有意义的分类丢掉。加异常映射前先问：**在这个调用链上，什么样的错误根本不可能走到 throw 这条路？**
+3. **口径要引用仓内既有约定，不要新发明。** 权限不足落进"不可用"、其余原样上抛，是本仓 `electron-bridge.js` 的 `invokeWithFallback`（约定 M-14）早就定下的。判据本身也**只认共享导出** `isPermissionError`：把内联副本 `err.name === 'LicensePermissionError'` 换上去，**行为测试全绿**，只有结构锁单独红 1 条——行为等价的东西永远测不出"两份实现会漂移"，这类只能靠结构锁守。
+4. **注释和文档同样是待证伪对象。** `electron/preload/podcast.js` 头注释白纸黑字写着"未登录会得到 `PODCAST_IPC_EXCEPTION`"，与运行时实际相反，而它正是第四刀那版实现的"依据"。写注释时描述宿主行为要能指到一次实测（d.ts 计数 / 真跑一次打印），不能指到另一句注释。
+
+### 事件十：结构锁的对比对象必须是真源，拿测试自己写的常量当"外部暴露面"就是自证
+
+第四刀回归锁里有一条标题写着「桥接层导出的 8 个名字与 **preload 暴露面**逐字一致」，实际断言比的是**同一个测试文件自己的 `METHODS` 常量**。而 `METHODS` 与桥接层的导出名是同一只手抄的两份——preload 单独改名（或桥接层与 `METHODS` 一起改名）时该断言照绿。QM-6 前端评审（opencode）独立命中这条。正解不是改标题降格声称，而是**让它真读 preload**：`createPodcastApi` 是 CJS 工厂，用一个只记录通道名的假 `ipcRenderer` 实例化，取 `.podcast` 的键当暴露面，再与桥接层导出名比对。
+
+1. **这是"装饰性门禁"的第三种落点**（前两种：断言恒真、`run:` 块不 fail-fast）：**标题声称测 A、判据实际测 B**。B 与实现同源手写 ⇒ 对 A 的漂移完全免疫。凡标题里出现"与 X 一致 / 覆盖 X / 对齐 X"，判据里必须有一处**从 X 取数**的调用（import X、读 X 的源码、实例化 X），而不是出现 X 的同义词常量。
+2. **拿真源比对后必须配规模下界**：`expect(Object.keys(surface)).toHaveLength(8)`。工厂解析退化（命名空间没挂上、返回 `{}`）会让"两边键集合相等"在两边都空时成立——与 AGENTS「宿主 API 归属契约锁」里"解析退化成空集合即假绿"是同一条坑。
+3. **反证要按"锁声称测量的那个变异"来做**，不是按"业务改动会不会红"。这里做的是 preload 侧改名 `endpointList`：新锁**单独红 1 条、其余 13 条全绿**——这个"只红这一条"正是证据本身，说明锁真的在测 preload；而旧形态在同一变异下**不可能红**，所以它从来就不是这条锁。任何"防再犯锁"都应做一次把被测对象改成锁所声称的那个错误、并确认它立刻变红。
+4. **外部双模型评审的价值现场**：这两条（事件九、事件十）都不是自审发现的，也不是任何一道机械门禁发现的——本地 6 文件 / 88 测试全绿躺了一整刀。自审看得见"写错的代码"，看不见"写对的测试但测错了东西"。
+
+### 事件十一：基线截图里烙着"无宿主降级分支"的文案，而单测对文案内容天生无感（2026-10-09，播客 RSS 第五刀）
+
+改一条 `PODCAST_IPC_UNAVAILABLE` 的 locale 文案（删掉「请稍后重试」，改为点名三种前置条件），本来看是"纯文案刀"。核过一次判据链才发现它同时让一张**已入库的像素基线**过期：
+
+1. **本仓的像素基线不是 Electron 里抓的，是 Playwright chromium 打 Vite dev server 抓的**（`run-pixel-tests.js` 的 `TEST_URL` + `test-runner.js` 的 `chromium.launch()`）。⇒ 那个环境里**没有 `window.electronAPI`**，于是所有「无宿主即降级」的界面分支**必然**走到降级态，把降级文案（错误条、空态提示）原样烙进基线。推论很硬：**改这类文案 = 改像素**，哪怕一个 CSS 字节都没动。
+2. **单测挡不住这个，而且方向恰好相反**：`PodcastChannelView.test.js` 那条断言写的是 `expect(api.errorText(IPC_UNAVAILABLE)).toBe(zh.podcast.errors.PODCAST_IPC_UNAVAILABLE)` —— 它拿的是 locales 的**实时值**（这是对的，硬编码字面量会在改文案时假红）。于是文案改了它照绿，既不报错，也**不构成**"渲染面没变"的证据。这类"跟随实现的断言"是必要的，但要清楚它的盲区：**它对内容变化恒不敏感**，能判"接线对不对"，不能判"像素变没变"。
+3. **可复用的判据写法**：动任何错误态/空态/降级态文案之前，先答三问 —— ① 这段文案在**捕获环境**（不是生产环境）里会不会被渲染出来？② 渲染它的出口有没有 `v-if` 挂在"宿主缺席"这条路径上？③ 该视图有没有已入库基线？三问皆是 ⇒ 同一条 PR 里必须登记"基线再取一次"，且不得因为"反正 CI 的 `QG Visual` 报绿"就跳过（全页容差对局部文本变化失明，权威判据是同一 job 里的基线新鲜度门禁）。
+4. **"纯注释刀"的证据形式**：改注释不改代码，这种说法的可信度取决于有没有测过产物。本轮做的是三方对同一文件算 SHA-256：**重建前工作区 / 跑完 `build:preload` 后 / 解包交付产物内**，三个值同值（86010 B 不变），机制由构建脚本的 `legalComments: 'none'` 解释。只写"这是注释改动所以产物不变"是把结论当论据——**注释会不会进产物是构建配置决定的事实，不是语义推论**（本仓 esbuild 剥，别处 webpack 不剥就变了）。同一轮里还有一条反向事实值得写下来防误读：包内 preload bundle 里 grep 新错误码 = 0 命中，因为该码按设计只存在于渲染侧；不写明这条，下一个会话会把它当成"新码没进包"的 Bug 再查一遍。
+
+
+### 事件十二：后台 agent 跨压缩周期继续写同一 worktree，把两个文件写回了旧版本（2026-10-09，播客 RSS 第五刀收尾时撞上）
+
+第五刀代码写完、文档写完、QM-1 跑完，就差一次 `git status` 复核。结果清单里多出一个**我从未打开过的文件** `apps/desktop/electron/ipc-handlers/index.js`（+2/−0，把播客 handler 重复注册了一遍），而 `electron/preload/podcast.js` 的 diff 从预期的 **5/2（纯注释）** 变成 **21/54**。写入方是一个更早派发、跨越上下文压缩仍在跑、最终以「当日额度用尽」失败收场（63 次工具调用 / 约 9 小时）的后台 agent：它把 preload 桥**整体退回早期没有 envelope 的版本**（删掉 `unwrap` 与 `IPC_EXCEPTION` 导出、给单集删除的入参再包一层 `{ id }`）。
+
+1. **这不是"协作冲突"，是提交前的静默回归**。真被一次广义 `git add` 带走的话，渲染层会收到 `{code,data}` 而不是 `{ok,…}`（信封契约断裂），并且同一通道二次注册会在启动期抛 `Attempted to register a second handler`——而这两件事**都不会**在我当时的自审里出现，因为我自审的是"我改了什么"，不是"工作区现在是什么"。
+2. **`status` 的一个 `M` 字样的代价可以是 21/54 vs 5/2**。所以收尾核对必须是**逐文件行数**：把 `git diff --numstat` 与开工/编辑时记录的值逐条对照，对不上的那一行才是要去读 diff 的地方。只看"有没有意外文件"会漏掉"预期文件被改成意外内容"这一类——本次两个文件里，恰恰**第二个是预期内的文件**（我确实改了它，只是改成了 5/2）。
+3. **回滚范围必须精确到文件**：`git checkout HEAD -- <file1> <file2>`，不做目录级恢复（AGENTS R2）；恢复后当场复核可数的产物（`unwrap` 出现次数、注册行计数）而不是只看 `status` 干净。
+4. **回滚后旧证据一律重验才允许引用**。本刀的 QM-1 记录里有一条"preload 产物三方 SHA-256 同值"，而那次构建发生在被写回**之前**。恢复后复跑 `build:preload`，`index.bundle.js` 的哈希**回到同一个值** `34533fa7b4…a167b`，播客相关 5 文件 / 66 测试复跑 rc=0 —— 这才让那条记录对"现在这份要提交的状态"成立。否则就是拿一次已经不存在的构建给现在的代码背书。
+5. **为什么机械门禁没先抓到**：CI 的 preload / ipc 契约测试确实会把它判红，但那是**推送之后**；本仓自动合并判据第 5 条（agent 自查争议）就是为这个窗口留的，本次是它第一次在提交前命中，值得记下来它不是摆设。
+6. **给派发后台 agent 的纪律**：AGENTS 的隔离条款禁止「多个会话并行写同一 git 状态」，没覆盖「派发方在派发者自己已经改口径之后继续写」。所以：**派发出去就得把它的产出当外部输入**——在它运行期间不要假设工作区只由自己写；它失败终止（额度耗尽、超时）时**不会回收已落盘的编辑**；收尾必须做一次全量 `git status` + `git diff --numstat` 与派发前清单逐条对照，且**不得只在它"成功返回"时对照**（成功返回只说明它自述做了什么，不说明它没碰别的）。更省事的替代做法：落地类任务不派后台 agent，或派只读探子。
