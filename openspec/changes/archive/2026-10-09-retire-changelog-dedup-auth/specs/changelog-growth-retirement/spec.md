@@ -1,6 +1,14 @@
 # Spec Delta：CHANGELOG growth 门禁的授权退役条款
 
 ## ADDED Requirements
+> **⚠️ 本文件描述的另一套判据（3b）从未实施，全文仅作写案时的历史快照。**（2026-10-09 对账，与 `proposal.md` / `tasks.md` 顶部同源）
+> 实际落地的是 PR #3151（merge `a3565726`）在 `evaluateAuthorization` 内部加的**祖先坐标系判据**
+> （`scripts/check-changelog-growth.js` 约 187-217 行）：`applies_to_base` 是本次 base 的祖先 ⇒ 视为已消费；
+> 形状四条与额度数字仍由 `collect`（约 340-372 行）核对。触发条件与本文正相反：**它要求 head 必须携带授权文件**，
+> 而本文 3b 要求"两侧都无授权文件"。回归锁见 `scripts/check-changelog-growth-retire.test.js`。
+> 把本文当现状引用会得出反向结论（本仓实测：`openspec/records/retire-dedup-auth-file.md` 与 PR #3225 都因此被 QM-6 纠过一次）。
+
+
 
 ### Requirement：已消费授权的退役放行（retire-consumed-authorization）
 

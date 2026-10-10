@@ -1,0 +1,41 @@
+[
+  {
+    "severity": "Warning",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 525,
+    "issue": "锁1（一次性去重授权不得作为常驻文件留在仓库里）仅检查 `scripts/changelog-dedup-authorization.json` 这一固定路径是否存在。存在以下绕过路径：① 改名文件（如 `changelog-dedup-authorization-v2.json`）——锁2可拦截；② 将文件移至其他位置（如 `config/changelog-dedup-authorization.json` 或 `scripts/old/changelog-dedup-authorization.json`）——锁1因路径不存在而判通过，锁2也不检查文件唯一性，仅验证常量与函数未变；③ 让测试文件不被 CI 执行——但已验证 quality-gate.yml 的 changes job（第221-222行）显式运行 `check-changelog-growth.test.js` 与 `check-changelog-growth-retire.test.js`，且 changes job 不受 docs-only 短路影响，CI 层面无静默绕过路径。",
+    "fix": "在锁1或锁2中新增一条全仓扫描断言：`git ls-files | grep -E 'changelog-dedup-authorization\\.json$' | wc -l` 必须等于 0，或显式断言 `scripts/` 目录下仅允许该文件在清理 PR 期间存在，且不得出现在其他位置。"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-changelog-growth.js",
+    "line": 335,
+    "issue": "删除 `scripts/changelog-dedup-authorization.json` 对生产行为无任何影响。生产门禁通过 `readBlobOrNullText(runGit, head, AUTH_PATH)` 与 `readBlobOrNullText(runGit, base, AUTH_PATH)` 从 **git blob（特定提交）** 读取授权内容，而非工作目录文件系统。该文件在工作树存在与否不改变门禁判据。`changelog-dedup-regen.js` 仅在清理 PR 中主动调用时写入该文件。测试均使用内联夹具与临时仓库，不依赖工作树实体文件。",
+    "fix": "无需代码修复。建议在 PR 描述或执行记录中明确记录：该文件仅为历史副本，删除纯属台账卫生，不改变任何运行时行为。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/changes/archive/2026-10-09-retire-changelog-dedup-auth/proposal.md",
+    "line": 48,
+    "issue": "归档后的 proposal.md 称「3b 设计（'两侧都无授权文件时按清理前后形状放行'）从未实施」，与仓库实际一致。检查 `check-changelog-growth.js` 的 `evaluateAuthorization`（第165-219行）与 `collect`（第308-383行）：唯一退休逻辑是第192-210行的「祖先坐标系判据」（PR #3151 落地），即 `applies_to_base` 是当前 base 的祖先 ⇒ 视为已消费退休，随后在 collect 下游核对形状与额度数字。**不存在**「双方均无授权文件时按形状放行」的代码路径。原 tasks.md 的 1.2/1.3（在默认判据红后、授权通路前接入 3b）也未实现。对账陈述准确。",
+    "fix": "无需修复。归档对账已如实记录实现偏差。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/records/retire-dedup-auth-file.md",
+    "line": 236,
+    "issue": "执行记录中的测试通过数存在轻微计数偏差，但方向正确。记录称：删前「31 pass / 1 fail」、删后「37 pass / 0 fail」；tasks.md 称「既有 30 条断言一字未动（32→34 条，两文件合计 35→37）」。实际：`check-changelog-growth.test.js` 原有 ~35 个 test()，`check-changelog-growth-retire.test.js` 有 5 个 test()，合计 ~40 条。删前锁1失败（1 条），其余 ~39 条通过；删后全通过。数字 31/37 与 35/37 存在 4-8 条的计数差异，属非关键度量偏差，不影响结论有效性。",
+    "fix": "建议在后续回填记录时用实测输出修正具体数字（如 `tests 40 pass / 0 fail`），或改为定性描述「新增锁全部通过、既有断言零回归」。"
+  }
+]
+
+实际读取的文件：
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/.ccg/reviews/retire-dedup-auth.diff
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/scripts/check-changelog-growth.js
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/scripts/changelog-dedup-regen.js
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/scripts/check-changelog-growth.test.js
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/scripts/check-changelog-growth-retire.test.js
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/.github/workflows/quality-gate.yml
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/openspec/changes/archive/2026-10-09-retire-changelog-dedup-auth/proposal.md
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/openspec/changes/archive/2026-10-09-retire-changelog-dedup-auth/tasks.md
+- D:/Data/projects/mp-worktrees/mp-retire-dedup-auth-file/openspec/records/retire-dedup-auth-file.md

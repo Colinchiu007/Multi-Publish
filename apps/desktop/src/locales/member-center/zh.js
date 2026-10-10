@@ -7,6 +7,12 @@ import identityDiagnosticsZh from '../identity-diagnostics/zh'
 
 export default {
     ...identityDiagnosticsZh,
+    plansTitle: '会员套餐',
+    plansUnavailable: '价格暂时无法获取，请稍后重试',
+    plansEmpty: '暂无可购买的套餐',
+    planCurrentSuffix: '{label}（当前）',
+    perMonth: '月',
+    perYear: '年',
     title: '会员中心',
     menuEntry: '会员中心',
     subtitle: '账号、版本与会员权益一站式管理',
