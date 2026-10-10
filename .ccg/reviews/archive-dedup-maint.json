@@ -1,0 +1,37 @@
+[
+  {
+    "severity": "Critical",
+    "file": "openspec/specs/changelog-ledger-integrity/spec.md",
+    "line": 27,
+    "issue": "Requirement 2 的判据句被 3d2166527 的编辑打断：『仅当被检查的 head **相对 base 新增**了』的宾语被替换成扩写的退休校核括号，原句中『`scripts/changelog-dedup-authorization.json`，且其 `applies_to_base` **等于本次 merge-base**（清理形状）**或为其祖先**』整段从句消失（git show 3d2166527 的 diff 可证：一行删、一行增，删的正是该宾语从句）。结果 normative 句变成『新增了（那次清理已落 main ⇒ …）时』——括号不是『新增』的宾语，规格的核心 Requirement 不再说明例外通路的触发条件（新增什么文件、坐标满足什么条件）。同 PR 内归档副本 openspec/changes/archive/2026-10-10-dedup-changelog-history/specs/changelog-ledger-integrity/spec.md:27-29 仍保留完整句，两份同源文本互相矛盾；全规格 grep 『changelog-dedup-authorization.json』只剩场景 1（line 33）一处，Requirement 正文已不点名该文件。后续会话按本规格（其 Purpose 自称是未来清理/退役 PR 的引用真源）读 Requirement 2 将无法确定例外何时生效。",
+    "fix": "把被删宾语从句接回：『仅当被检查的 head **相对 base 新增**了 `scripts/changelog-dedup-authorization.json`，且其 `applies_to_base` **等于本次 merge-base**（清理形状）**或为其祖先**（那次清理已落 main ⇒ 授权按**已消费**退休，改核消费后形状——**退休不放宽任何校核**：`titlesReduced == expected_titles_reduced`、`headEntries == expected_entries_after` 与块级形状判据照旧对**当前 base** 成立，`collect` 对两种 granted 走的是同一段下游核对）时，才 MAY 额外接受「清理形状」』——即 3d2166527 想补的退休校核说明应挂在『或为其祖先』之后的括号内，而不是顶替宾语从句。"
+  },
+  {
+    "severity": "Warning",
+    "file": "openspec/specs/changelog-ledger-integrity/spec.md",
+    "line": 38,
+    "issue": "Scenario『授权清理形状被接受』的 WHEN 只列三条台账条件（剩 1 份 / 逐字节等于某一块 / 标题集包含），但门禁实际通过条件远不止这些：collect 还交叉核对授权声明的 `expected_titles_reduced` 与 `expected_entries_after` 同实测值（任一不符即 FAIL(授权)，scripts/check-changelog-growth.test.js:332-335 钉住『数字对不上时不得判过』）；checkDedupShape 还含『head 独有标题最多 1 份』（QM-6 F-E，check-changelog-growth.js:256-258）、preamble 逐字节不变（QM-6 后端 MAJOR-3，本规格 line 73 自述 checkDedupShape 也有此校核）、保留份必须是 pickKeeper 选定的**具体那一份**而非任意『某一块』（check-changelog-growth.js:270-273）。场景把 THEN 写成『门禁通过』，条件集不完整——按本场景审计的会话无法预测『声明数字造假仍红』『head 独有多份仍红』两档，会把应红的 PR 误判为合规。",
+    "fix": "在场景 WHEN 末尾补齐其余通过条件，或明示『本场景只列台账侧三条，完整通过条件另含：授权声明的 expected_titles_reduced/expected_entries_after 与实测交叉相等、head 独有标题最多 1 份、preamble 逐字节不变、保留份为 pickKeeper 选定那份（后三条见 Requirement 3 场景 2 与 checkDedupShape 注释）』。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/specs/changelog-ledger-integrity/spec.md",
+    "line": 69,
+    "issue": "该场景 THEN 的两处覆盖声明强于实测：①『retiredReason 里 MUST 含「已消费”与两个坐标系 sha——这条由 check-changelog-growth-retire.test.js 第一条锁按真 git 祖先关系钉住』——第一条锁（check-changelog-growth-retire.test.js:41）只断言 `r.retiredReason.includes('已消费')`，两个 sha 无任何断言（仅靠 check-changelog-growth.js:209 字符串拼接构造，真值未被钉住）；②『共 5 条锁覆盖祖先/非祖先/base 已有/同坐标/数字在下游卡五种形态』——第 5 条（负控二，retire.test.js:55-65）用例名写『仍走原 fatal 路径』，但其断言是 `granted === true`（evaluateAuthorization 层放行），退休路径下游 collect 的 fatal 无断言（同坐标路径的共享下游有测试，check-changelog-growth.test.js:332-335，但退休分支专属的『数字不符红』组合未被钉住）。规格把实测强度写成了更强的『钉住』。",
+    "fix": "把覆盖声明收到实测强度：『第一条锁断言 retiredReason 含「已消费”（两个 sha 由 retiredReason 拼接携带、无独立断言）』；『共 5 条锁覆盖五种形态，其中「数字在下游卡」在退休路径只钉住 evaluateAuthorization 层放行（其用例名与断言相反），下游 fatal 由同坐标路径的共享下游测试覆盖』；或补一条断言两个 12 位 sha 的测试使声明为真。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/specs/changelog-ledger-integrity/spec.md",
+    "line": 73,
+    "issue": "Requirement 3 称独立对账器核对『六条与顺序无关的性质（A1–A5 块级 + A6）』，但 A1–A5 没有一条在规格中被定义：场景 1 覆盖 A5、场景 2 覆盖 A2+A3、场景 3 覆盖 A4，而 A1（标题守恒：base 每个标题在 head 至少剩一份、head 独有标题最多一份、副本数不变多）既无定义也无专属场景——其失效形态虽被场景 1 的两个等式（块数==标题数、标题数==base+新增）子集化，但读者无法从规格得知 A1 是什么、是否被判定。且场景 4（line 96）称『被判定的是上面三条块级性质』，与正文『六条』计数并置，同一 Requirement 内口径不一致（三条 vs 六条）。",
+    "fix": "在 Requirement 3 正文给 A1 一句定义（『A1 标题守恒：base 每个标题在 head 至少剩一份、head 独有标题最多一份、已有标题副本数不变多；其失效形态被场景 1 的两个等式子集化，故无专属场景』），并把场景 4 的『上面三条块级性质』改为『上面三条场景（覆盖 A5/A2+A3/A4；A1 无专属场景、A6 见本 Requirement 正文）』，使『六条』与场景清单自洽。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/specs/changelog-ledger-integrity/spec.md",
+    "line": 21,
+    "issue": "『无括号形条目』是未定义术语，且字面读法与同场景自带示例矛盾：示例 `# fix(自检门禁): …（#2648）` 明明含圆括号与全角括号，『无括号』不可能指它们；该词实指『不带 `# [类型]` 方括号前缀』（旧判据 `/^# \\[/` 只认方括号形、对其余一级标题失明的历史，provenance 在 openspec/records/changelog-growth-gate.md:22-23），但规格本身不给出这一定义。后续会话按字面读法会把示例里的条目排除在『无括号形』之外，场景的 WHEN 无法被准确判定。",
+    "fix": "在场景 WHEN 内补定义：『形如 `# fix(自检门禁): …（#2648）` 的无括号一级标题条目（「无括号形」指不带 `# [类型]` 方括号前缀的一级标题——旧判据 `/^# \\[/` 认不出的形态；示例中的圆括号/全角括号不是此处所指的括号）』。"
+  }
+]
