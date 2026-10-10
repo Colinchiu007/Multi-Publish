@@ -112,14 +112,14 @@ async function pickS2VBatchFiles() {
       if (!file || typeof file.path !== 'string' || !file.path) continue
       if (merged.some(existing => existing.path === file.path)) continue
       if (merged.length >= state.S2V_BATCH_MAX_FILES) {
-        state.s2vBatchError = d.translate('create.story2video.batch.fileLimitError', '最多选择 20 个文件，超出部分已忽略。', 'Up to 20 files; extra selections were ignored.')
+        state.s2vBatchError = d.t('create.story2video.batch.fileLimitError')
         break
       }
       merged.push({ name: file.name || String(file.path).split(/[\\/]/).pop(), path: file.path })
     }
     state.s2vBatchFiles = merged
   } catch (_) {
-    state.s2vBatchError = d.translate('create.story2video.batch.pickFailed', '打开文件选择窗口失败，请重试。', 'Failed to open the file picker. Please retry.')
+    state.s2vBatchError = d.t('create.story2video.batch.pickFailed')
   }
 }
 
@@ -158,22 +158,22 @@ function batchSummaryText(batch) {
   const summary = batch && batch.summary ? batch.summary : null
   if (!summary) return ''
   const parts = []
-  if (summary.running > 0) parts.push(d.translate('create.story2video.batch.summaryRunning', summary.running + ' 运行中', summary.running + ' running', { count: summary.running }))
-  if (summary.pending > 0) parts.push(d.translate('create.story2video.batch.summaryPending', summary.pending + ' 排队中', summary.pending + ' queued', { count: summary.pending }))
-  if (summary.completed > 0) parts.push(d.translate('create.story2video.batch.summaryCompleted', summary.completed + ' 已完成', summary.completed + ' completed', { count: summary.completed }))
-  if (summary.failed > 0) parts.push(d.translate('create.story2video.batch.summaryFailed', summary.failed + ' 失败', summary.failed + ' failed', { count: summary.failed }))
-  if (summary.cancelled > 0) parts.push(d.translate('create.story2video.batch.summaryCancelled', summary.cancelled + ' 已取消', summary.cancelled + ' cancelled', { count: summary.cancelled }))
-  return parts.join(' · ') || d.translate('create.story2video.batch.summaryTotal', '共 ' + summary.total + ' 个任务', summary.total + ' tasks', { total: summary.total })
+  if (summary.running > 0) parts.push(d.t('create.story2video.batch.summaryRunning', { count: summary.running }))
+  if (summary.pending > 0) parts.push(d.t('create.story2video.batch.summaryPending', { count: summary.pending }))
+  if (summary.completed > 0) parts.push(d.t('create.story2video.batch.summaryCompleted', { count: summary.completed }))
+  if (summary.failed > 0) parts.push(d.t('create.story2video.batch.summaryFailed', { count: summary.failed }))
+  if (summary.cancelled > 0) parts.push(d.t('create.story2video.batch.summaryCancelled', { count: summary.cancelled }))
+  return parts.join(' · ') || d.t('create.story2video.batch.summaryTotal', { total: summary.total })
 }
 
 function s2vBatchItemStatusText(item) {
   const d = requireDeps()
   const statusMap = {
-    pending: ['create.story2video.batch.statusPending', '排队中', 'Queued'],
-    running: ['create.story2video.batch.statusRunning', '运行中', 'Running'],
-    completed: ['create.story2video.batch.statusCompleted', '已完成', 'Completed'],
-    failed: ['create.story2video.batch.statusFailed', '失败', 'Failed'],
-    cancelled: ['create.story2video.batch.statusCancelled', '已取消', 'Cancelled'],
+    pending: ['create.story2video.batch.statusPending', 'Queued', 'Queued'],
+    running: ['create.story2video.batch.statusRunning', 'Running', 'Running'],
+    completed: ['create.story2video.batch.statusCompleted', 'Completed', 'Completed'],
+    failed: ['create.story2video.batch.statusFailed', 'Failed', 'Failed'],
+    cancelled: ['create.story2video.batch.statusCancelled', 'Cancelled', 'Cancelled'],
   }
   const entry = statusMap[item && item.status] || ['', String(item && item.status || ''), String(item && item.status || '')]
   return d.translate(entry[0], entry[1], entry[2])
@@ -199,14 +199,14 @@ async function startS2VBatch() {
   if (state.s2vBatchTab === 'text') {
     const texts = state.s2vBatchTexts.map(text => String(text || '').trim()).filter(Boolean)
     if (!texts.length) {
-      state.s2vBatchError = d.translate('create.story2video.batch.noTextError', '请至少输入 1 条文案。', 'Enter at least 1 text.')
+      state.s2vBatchError = d.t('create.story2video.batch.noTextError')
       return
     }
     payload = { mode: 'text', texts, story2videoTextConfigTemplate: template, uiLocale: getAppLocale() }
   } else {
     const files = state.s2vBatchFiles.map(file => ({ path: file.path, name: file.name }))
     if (!files.length) {
-      state.s2vBatchError = d.translate('create.story2video.batch.noFileError', '请至少选择 1 个文件。', 'Choose at least 1 file.')
+      state.s2vBatchError = d.t('create.story2video.batch.noFileError')
       return
     }
     payload = { mode: 'files', files, story2videoTextConfigTemplate: template, uiLocale: getAppLocale() }
@@ -223,22 +223,12 @@ async function startS2VBatch() {
       const failedLabel = failedItems.length > 0
         ? '（' + failedItems.map(item => item.label).join('、') + '）'
         : ''
-      const message = (res?.message || '未知错误') + failedLabel
-      state.s2vBatchError = d.translate(
-        'create.story2video.batch.createFailed',
-        '启动失败：' + message,
-        'Start failed: ' + message,
-        { message }
-      )
+      const message = (res?.message || d.t('create.story2video.batch.createFailedUnknown')) + failedLabel
+      state.s2vBatchError = d.t('create.story2video.batch.createFailed', { message })
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    state.s2vBatchError = d.translate(
-      'create.story2video.batch.createFailed',
-      '启动失败：' + message,
-      'Start failed: ' + message,
-      { message }
-    )
+    state.s2vBatchError = d.t('create.story2video.batch.createFailed', { message })
   } finally {
     state.s2vBatchStarting = false
   }

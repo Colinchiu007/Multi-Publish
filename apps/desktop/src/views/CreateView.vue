@@ -4832,7 +4832,9 @@ export default {
     if (!this._s2vModelsRequiredShownItemIds) this._s2vModelsRequiredShownItemIds = new Set()
     setupBatchCreateDeps({
       getS2vConfig: () => this.s2vConfig,
-      t: (key, params) => this.$t(key, params),
+      // 防御：UiModal 的 leave-transition 期间组件可能在全局 deps 被下一实例覆盖后仍渲染
+      // （batchSummaryText 走全局 deps），此时 this.$t 需按壳既有模式做存在性防御（L1876 同款）
+      t: (key, params) => (typeof this.$t === 'function' ? this.$t(key, params) : key),
       translate: (key, zh, en, params) => this.translateWithLocaleFallback(key, zh, en, params),
       cloneForIpc: (value) => this.cloneForIpc(value),
       showOptionsToast: (message) => this.showS2VOptionsToast(message),
