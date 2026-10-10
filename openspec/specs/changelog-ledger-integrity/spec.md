@@ -18,14 +18,14 @@
 
 #### Scenario: 无括号形条目不得被任一把锁漏掉
 
-- **WHEN** 台账里存在形如 `# fix(自检门禁): …（#2648）` 的无括号一级标题条目
+- **WHEN** 台账里存在形如 `# fix(自检门禁): …（#2648）` 的**无方括号前缀**一级标题条目（「无括号形」是本仓历史叫法，指的是**不带 `# [类型]` 方括号前缀**——旧判据 `/^# \[/` 对这种一级标题完全失明，见 `openspec/records/changelog-growth-gate.md`；示例里的圆括号 `(自检门禁)` 与全角括号 `（#2648）` **不是**此处所指的括号）
 - **THEN** 两把锁都必须把它算作条目，删除它都必须能被检测到。本条的现状：两把锁已**都** `require` `scripts/changelog-entries.js`（`HEADING_RE` / `splitEntries` / `pickKeeper` 等口径各只有一份实现），所以这条场景测的是"接线仍然在"而非"仍有两套口径要收敛"
 
 ### Requirement: 减少副本 MUST 经一次性书面授权，默认判据不得放宽
 
 系统 SHALL 在 `check-changelog-growth.js` 的默认路径上保持「base 标题多重集被 head 包含」这一既有不变量
 逐字不变（含「同题副本删到一份仍报丢」这一档）；仅当被检查的 head **相对 base 新增**了
-（那次清理已落 main ⇒ 授权按**已消费**退休，改核消费后形状——**退休不放宽任何校核**：`titlesReduced == expected_titles_reduced`、`headEntries == expected_entries_after` 与块级形状判据照旧对**当前 base** 成立，`collect` 对两种 granted 走的是同一段下游核对）时，
+`scripts/changelog-dedup-authorization.json`，且其 `applies_to_base` **等于本次 merge-base**（清理形状）**或为其祖先**（那次清理已落 main ⇒ 授权按**已消费**退休，改核消费后形状——**退休不放宽任何校核**：`titlesReduced == expected_titles_reduced`、`headEntries == expected_entries_after` 与块级形状判据照旧对**当前 base** 成立，`collect` 对两种 granted 走的是同一段下游核对）时，
 才 MAY 额外接受「清理形状」，且该接受 MUST 同时满足下列全部条件。
 
 #### Scenario: 无授权文件时行为与现状逐字相同
@@ -36,7 +36,7 @@
 #### Scenario: 授权清理形状被接受
 
 - **WHEN** head 新增授权文件且 `applies_to_base` 等于本次 merge-base，并且台账满足：每个被减少的标题在 head 恰好剩 1 份、该份逐字节等于 base 中同标题的某一块、head 的不同标题集合包含 base 的全部不同标题
-- **THEN** 门禁通过，并在输出中打印「例外由授权触发」以及被减少的标题数与份数
+- **THEN** 门禁通过，并在输出中打印「例外由授权触发」以及被减少的标题数与份数。**本场景只列台账侧三条，完整通过条件还包括**（缺任一条一律 `FAIL(授权)`，不得读成"上面三条过了就过"）：实测的 `titlesReduced` 与 `headEntries` MUST 分别等于授权声明的 `expected_titles_reduced` / `expected_entries_after`；head 独有（base 没有）的标题 MUST 最多 1 份；preamble MUST 逐字节不变；被削减标题的保留份 MUST 是 `pickKeeper` 选的那一份。后三条的判据出处见 `checkDedupShape`，本 change 的 R4 与下一条 Requirement 各覆盖一部分
 
 #### Scenario: 借授权之名改写内容仍须报红
 
@@ -66,11 +66,11 @@
 #### Scenario: 坐标系被越过（祖先）不叫错位，改核「消费后形状」
 
 - **WHEN** 授权仍是 head 相对 base 的新增，其 `applies_to_base` 与本次 merge-base **不相等**，但**是**本次 merge-base 的祖先（`git merge-base --is-ancestor` 成立）
-- **THEN** 门禁 MUST NOT 报「坐标系错位」，而 MUST 把该授权判为**已消费**（返回值 `{granted:true, retired:true, retiredReason}`，`retiredReason` 里 MUST 含「已消费」与两个坐标系 sha——这条由 `scripts/check-changelog-growth-retire.test.js` 第一条锁按真 git 祖先关系钉住，共 5 条锁覆盖祖先/非祖先/base 已有/同坐标/数字在下游卡五种形态）；随后照旧走同一段额度与形状校核，因此退休分支**不会**让后续 PR 白蹭一份旧授权（它的实际作用是把"误导性的坐标错位红"换成"如实的数字不符红"）；此后新增条目只能经正常追加进入台账，不得借退休复活已被清掉的副本（PR #3151 落地）。**已知出声缺口（不在本规格要求内，登记为欠账）**：`collect` 从不读 `ev.retired`，所以 stdout 那行「例外由授权触发…」对两种 granted 形态**长得一模一样**——真退休时人无法从输出区分它和新鲜授权
+- **THEN** 门禁 MUST NOT 报「坐标系错位」，而 MUST 把该授权判为**已消费**（返回值 `{granted:true, retired:true, retiredReason}`，`retiredReason` 里 MUST 含「已消费」，并把两个坐标系 sha 带在文案里。按**实测强度**写清谁被钉住：`scripts/check-changelog-growth-retire.test.js` 第一条锁断言的是 `retiredReason.includes('已消费')`（按真 git 祖先关系 `23822b73` → `f210f191` 构造），**两个 sha 只是被字符串拼接携带、没有独立断言**——这是一条欠账（补断言即能让本句升级为已证）。该文件共 5 条锁，覆盖：祖先⇒`granted+retired`、非祖先⇒维持坐标错位 fatal、base 已存在同名授权⇒维持防白蹭 fatal、同坐标⇒`granted` 且 MUST NOT 标 `retired`，以及「额度数字对不上时仍在下游卡」——注意最后这条**只钉到 `evaluateAuthorization` 层放行**（其用例名暗示下游 fatal，实际断言是 `granted:true`，下游 fatal 由同坐标通路共享的那组 collect 级用例覆盖，不是退休路径专属））；随后照旧走同一段额度与形状校核，因此退休分支**不会**让后续 PR 白蹭一份旧授权（它的实际作用是把"误导性的坐标错位红"换成"如实的数字不符红"）；此后新增条目只能经正常追加进入台账，不得借退休复活已被清掉的副本（PR #3151 落地）。**已知出声缺口（不在本规格要求内，登记为欠账）**：`collect` 从不读 `ev.retired`，所以 stdout 那行「例外由授权触发…」对两种 granted 形态**长得一模一样**——真退休时人无法从输出区分它和新鲜授权
 
 ### Requirement: 清理结果 MUST 由一个独立对账器核对，且核对的是「块」而非「行」
 
-系统 SHALL 提供 `scripts/changelog-dedup-reconcile.js`，以 base/head 两个 blob 为输入，独立核对**六条**与顺序无关的性质（A1–A5 块级 + **A6「第一条标题之前的 preamble 逐字节不变」**——A6 由 QM-6 后端 MAJOR-3 补上，动因是"块级判据看得见条目、看不见文件头"；它与授权通路的 `checkDedupShape` 里那条 preamble 校核**是同一处审查发现的两处落点**，两条通路各自 fail-closed，文案不同但判据同向），
+系统 SHALL 提供 `scripts/changelog-dedup-reconcile.js`，以 base/head 两个 blob 为输入，独立核对**六条**与顺序无关的性质：A1「标题守恒——base 里每个标题在 head 至少还剩一份、head 独有标题最多一份、已有标题的副本数不得变多」（它没有专属场景，因为三种失效形态都被下面场景 1 的两个等式子集化），A2「逐字节同源」、A3「留的是 `pickKeeper` 那份」、A4「幂等」、A5「每标题恰好一块且标题集闭合」五块级性质 + **A6「第一条标题之前的 preamble 逐字节不变」**——A6 由 QM-6 后端 MAJOR-3 补上，动因是"块级判据看得见条目、看不见文件头"；它与授权通路的 `checkDedupShape` 里那条 preamble 校核**是同一处审查发现的两处落点**，两条通路各自 fail-closed，文案不同但判据同向），
 并 MUST NOT 复用产生清理的那个脚本（`--dedup`）自己的结论来充当证据。
 判据层面必须承认：去重会把幸存块挪到该标题首次出现的槽位，因此**行级** `+/-` 必然包含重排噪声，
 把"新增行为 0"写成判据是错的（第一版就是这么写的，并被真实数据当场判红）。
@@ -93,7 +93,7 @@
 #### Scenario: 行级规模只作信息打印
 
 - **WHEN** 对账器输出结果
-- **THEN** 必须打印 `added_lines` / `deleted_lines` / 字节变化，但它们**不参与**通过与否的判定；被判定的是上面三条块级性质
+- **THEN** 必须打印 `added_lines` / `deleted_lines` / 字节变化，但它们**不参与**通过与否的判定；被判定的是 A1–A6（本 Requirement 上面各场景分别覆盖 A5、A2+A3、A4；A1 无专属场景、A6 见本 Requirement 正文）
 
 #### Scenario: 取数失败不得读成"没问题"
 
