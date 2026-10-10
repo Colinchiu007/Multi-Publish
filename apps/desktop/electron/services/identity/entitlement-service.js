@@ -46,6 +46,24 @@ function normalizeEntitlement(value) {
   }
 }
 
+// 单条套餐的规范化：id 必填字符串，价格必须是**非负整数（单位：分）**。
+// 价格用整数分而非元，避免浮点误差；非整数（如字符串 '2900'）一律判非法，
+// 宁可丢弃该条也不要显示错价。
+function normalizePlanEntry(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null
+  const { id, label, currency, priceMonthlyCents, priceYearlyCents } = entry
+  if (typeof id !== 'string' || !id) return null
+  if (!Number.isInteger(priceMonthlyCents) || priceMonthlyCents < 0) return null
+  if (!Number.isInteger(priceYearlyCents) || priceYearlyCents < 0) return null
+  return {
+    id,
+    label: typeof label === 'string' && label ? label : id,
+    currency: typeof currency === 'string' && currency ? currency : 'CNY',
+    priceMonthlyCents,
+    priceYearlyCents,
+  }
+}
+
 class EntitlementService {
   constructor(options = {}) {
     this._apiUrl = normalizeApiUrl(options.apiUrl)
@@ -133,6 +151,47 @@ class EntitlementService {
       graceExpiresAt: snapshot.exp + ENTITLEMENT_GRACE_SECONDS,
     }
     return this.getState()
+  }
+
+  /**
+   * 取服务端价目目录（`GET /api/v1/plans`，需 `profile:read`）。
+   *
+   * 2026-10-07 新增：此前 UI 完全不显示价格，营销文档里的金额是手写的。
+   * 「凭记忆写死价格」与「从服务端取价」在测试视角下等价，因此没有测试覆盖
+   * 价格的来源——这是本方法要消除的盲区。`plan-matrix.js` 是定价唯一真源。
+   *
+   * 契约（**故意不返回空数组**）：任何失败（网络/非 2xx/结构非法）都抛错，
+   * 由调用方（`plans-catalog.js`）降级为 `null`。返回 `[]` 会让 UI 渲染出
+   * 「无套餐」的空目录，与「取价失败」混淆。只丢弃单条非法条目并保留其余，
+   * 全部非法时抛错。
+   */
+  async fetchPlans({ accessToken } = {}) {
+    if (typeof accessToken !== 'string' || !accessToken) {
+      throw new IdentityError('ENTITLEMENT_REQUEST_INVALID', '获取价目目录参数无效')
+    }
+    let response
+    try {
+      response = await this._fetcher(`${this._apiUrl}/api/v1/plans`, {
+        headers: { Authorization: `Bearer ${accessToken}`, 'X-Device-Id': this._deviceId },
+      })
+    } catch (error) {
+      throw new IdentityError('ENTITLEMENT_PLANS_FAILED', '价目服务暂时不可用', error)
+    }
+    if (!response || response.ok !== true) {
+      throw new IdentityError('ENTITLEMENT_PLANS_FAILED', '价目服务拒绝请求')
+    }
+    let body
+    try { body = await response.json() } catch (error) {
+      throw new IdentityError('ENTITLEMENT_PLANS_FAILED', '价目响应格式无效', error)
+    }
+    if (!body || !Array.isArray(body.plans)) {
+      throw new IdentityError('ENTITLEMENT_PLANS_FAILED', '价目响应缺少 plans 列表')
+    }
+    const plans = body.plans.map(normalizePlanEntry).filter(Boolean)
+    if (plans.length === 0) {
+      throw new IdentityError('ENTITLEMENT_PLANS_FAILED', '价目响应无有效套餐')
+    }
+    return plans
   }
 
   async sync({ subject, accessToken } = {}) {

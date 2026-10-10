@@ -45,6 +45,8 @@ describe('createIdentityService', () => {
     let listener
     const authService = {
       restore: vi.fn(async () => ({ status: 'signed_out' })),
+        // 价目取价分支在 .then 里回读状态；缺这个方法会让 promise 回调抛错
+        getState: () => ({ status: 'authenticated' }),
       onStateChanged: vi.fn((fn) => { listener = fn; return () => {} }),
     }
     const win = { isDestroyed: () => false, webContents: { send: vi.fn() } }
@@ -60,7 +62,10 @@ describe('createIdentityService', () => {
     expect(result).toBe(authService)
     expect(authService.restore).toHaveBeenCalledTimes(1)
     listener({ status: 'authenticated', user: { sub: 'sub-1' } })
-    expect(win.webContents.send).toHaveBeenCalledWith('identity:state-changed', { status: 'authenticated', user: { sub: 'sub-1' } })
+    // 价目目录随权益一起走同一条 state 投递（2026-10-07）：首推必带 plans: null
+    // 表示「尚未取到」，UI 据此显示「价格暂不可用」而非渲染空目录。
+    // 这是精确对象断言——新增字段必须同步到这里，否则广播契约会漂移。
+    expect(win.webContents.send).toHaveBeenCalledWith('identity:state-changed', { status: 'authenticated', user: { sub: 'sub-1' }, plans: null })
   })
 
   it('生产客户端获得受限认证窗口并在打开时解析主窗口', async () => {
@@ -93,6 +98,8 @@ describe('createIdentityService', () => {
     let listener
     const authService = {
       restore: vi.fn(async () => ({ status: 'signed_out' })),
+        // 价目取价分支在 .then 里回读状态；缺这个方法会让 promise 回调抛错
+        getState: () => ({ status: 'authenticated' }),
       onStateChanged: vi.fn((fn) => { listener = fn; return () => {} }),
     }
     const win = {

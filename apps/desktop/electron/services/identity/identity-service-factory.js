@@ -1,3 +1,4 @@
+const { createPlansCache } = require('./plans-catalog')
 const crypto = require('crypto')
 const path = require('path')
 const SecureTokenStorage = require('./secure-token-storage')
@@ -139,24 +140,56 @@ async function createIdentityService(options = {}) {
     }),
   })
   if (typeof authService.onStateChanged === 'function') {
-    authService.onStateChanged((state) => {
-      // 审计 P2·性能税：身份状态决定 authenticated/public，先让所有窗口的 preload 级别缓存失效，
-      // 再投递业务事件——主窗口不可用也不能跳过广播（否则其他窗口要等一个 TTL 才收敛）。
+  if (typeof authService.onStateChanged === 'function') {
+    // 2026-10-07：价目目录挂在**投递层**，不放进 auth-service。
+    // 原因：auth-service.js 在 main 上已 498 行、上限 500，只剩 2 行余量；
+    // 把取价塞进去必然触发 check-max-lines 的 NEW_OVER_LIMIT（新代码不得引入
+    // 超限文件），而拆分 auth-service 属结构性重构，不该由取价功能承担。
+    // 详细的「先空后实」与降级契约见 plans-catalog.js。
+    const plansCache = createPlansCache({
+      entitlementService,
+      authService,
+      logger: options.logger || require('../logger'),
+    })
+    const pushState = (state) => {
+      // 审计 P2·性能税：身份状态决定 authenticated/public，先让所有窗口的 preload
+      // 失效级别缓存，再投递业务事件——主窗口不可用也不能跳过广播。
       emitAccessLevelInvalidated('identity-state-changed')
       const win = options.getMainWin && options.getMainWin()
       if (!win || win.isDestroyed()) return
       const webContents = win.webContents
       if (!webContents || (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed())) return
       try {
-        webContents.send('identity:state-changed', state)
+        webContents.send('identity:state-changed', { ...state, plans: plansCache.current })
       } catch (e) {
-        // 有意降级但必须留痕：renderer 投递失败不能让身份状态机中断（诊断日志含底层 cause）。
+        // 有意降级但必须留痕：renderer 投递失败不能让身份状态机中断。
         const log = options.logger || require('../logger')
         if (log && typeof log.warn === 'function') {
           log.warn('[identity] 状态变更投递失败: ' + ((e && e.message) || e))
         }
       }
+    }
+    authService.onStateChanged((state) => {
+      pushState(state)
+      // 取价是异步的（要打服务端），拿到后需**再推一次** UI 才能看到价格。
+      // 不走 onStateChanged 回调，避免自触发循环。
+      if (state && state.status === 'authenticated' && plansCache.current === null && !plansCache.loading) {
+        // 这条链上任何异常都**不能冒泡**：它落在 .then 回调里，一旦抛出会变成
+        // unhandled rejection，让 vitest 以 exit 1 收场——把「取价降级」
+        // 误报成「测试失败」。故取状态与投递都要有兜底。
+        plansCache.load()
+          .then(() => pushState(typeof authService.getState === 'function' ? authService.getState() : state))
+          .catch((e) => {
+            // 注意：pushState 内部那个 `const log` 是它的局部变量，这里够不着，
+            // 必须自己按同一约定取 logger（eslint no-undef 会抓到写错的变量名）。
+            const l = options.logger || require('../logger')
+            if (l && typeof l.warn === 'function') {
+              l.warn('[identity] 价目目录取价后投递失败，已降级: ' + ((e && e.message) || e))
+            }
+          })
+      }
     })
+  }
   }
   authServiceRef = authService
   // 组合式挂载：会员侧 API 不侵入 AuthService 职责，IPC 层经 instance 直接取用。

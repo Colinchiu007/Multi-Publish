@@ -60,10 +60,25 @@ function normalizeState(value) {
           : {}),
       }
     : null
+  // 价目目录（2026-10-07）：来自服务端 /api/v1/plans，随权益一并同步。
+  // **null 有明确语义**——取价失败或尚未取到，UI 应显示「价格暂不可用」，
+  // 而不是渲染一个空目录。绝不在这里兜硬编码金额：那正是本次要消除的盲区。
+  const plans = Array.isArray(state.plans)
+    ? state.plans
+        .filter((p) => p && typeof p.id === 'string' && p.id)
+        .map((p) => ({
+          id: p.id,
+          label: typeof p.label === 'string' && p.label ? p.label : p.id,
+          currency: typeof p.currency === 'string' && p.currency ? p.currency : 'CNY',
+          priceMonthlyCents: Number.isInteger(p.priceMonthlyCents) ? p.priceMonthlyCents : null,
+          priceYearlyCents: Number.isInteger(p.priceYearlyCents) ? p.priceYearlyCents : null,
+        }))
+    : null
   return {
     status: allowed.has(state.status) ? state.status : 'signed_out',
     user,
     entitlement,
+    plans,
     error: normalizeError(state.error),
   }
 }
@@ -72,6 +87,8 @@ export const useIdentityStore = defineStore('identity', () => {
   const status = ref('signed_out')
   const user = ref(EMPTY_USER)
   const entitlement = ref(null)
+  /** 价目目录：null = 未取到/取价失败（UI 显示不可用，不显示空目录）。 */
+  const plans = ref(null)
   const error = ref(null)
   const loading = ref(false)
   let unsubscribe = null
@@ -82,6 +99,7 @@ export const useIdentityStore = defineStore('identity', () => {
     status.value = next.status
     user.value = next.user
     entitlement.value = next.entitlement
+    plans.value = next.plans
     error.value = next.error
   }
 
@@ -210,7 +228,7 @@ export const useIdentityStore = defineStore('identity', () => {
   const displayName = computed(() => user.value?.name || user.value?.username || (isAuthenticated.value ? '已登录用户' : '登录'))
 
   return {
-    status, user, entitlement, error, loading, isAuthenticated, subject, displayName,
+    status, user, entitlement, plans, error, loading, isAuthenticated, subject, displayName,
     load, signIn, switchAccount, signOut, signInOrSwitch, dispose,
   }
 })
