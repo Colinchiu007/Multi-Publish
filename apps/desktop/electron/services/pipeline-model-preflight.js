@@ -76,8 +76,11 @@ const STATIC_PIPELINE_REQUIREMENTS = Object.freeze({
   'framework-smoke': [],
   // screen-demo：屏幕录制流水线（PIPELINES 注册、无编排 stageDefs），纯本地
   'screen-demo': [],
-  // film-engineering-stages.js:80 读取 params.llmEnabled（默认关）→ 开启时 +llm；
-  // 注：当前 adaptScript 硬编码 llmEnabled=false（:88/:95），开关属前瞻契约，
+  // film-engineering-stages.js 读取 params.llmEnabled（默认关）→ 开启时 +llm。
+  // 2026-10-07 起该开关已从 UI 整体下线（ScriptAdapter 唯一生产构造点传 llm: null，
+  // 启用判定要求 this.llm 非空，出厂构建恒 false）。本分支保留仅为 IPC 契约兼容：
+  // 外部调用方仍可传 llmEnabled=true，此时仍会按老口径申报 LLM 能力依赖。
+  // 若将来真接线，需同步撤销本行与 stages.js 的硬编码 llmEnabled=false。
   // 开启即要求 LLM，避免增强真正接入后缺少默认模型。
   'film-engineering': [],
 })

@@ -40,7 +40,6 @@ export function useFilmCanvas (opts = {}) {
   const form = reactive({
     script: '',
     characterMap: { ROKO: '', JAXX: '', LULU: '', REIN: '' },
-    llmEnabled: false,
   })
 
   function nextFreePosition () {
@@ -89,7 +88,7 @@ export function useFilmCanvas (opts = {}) {
     if (!a) return { ok: false, errorCode: 'filmEngineering.canvas.noDesktop' }
     adaptLoading.value = true
     try {
-      const res = await a.adaptScript(cloneJson({ script, characterMap, llmEnabled: form.llmEnabled === true }))
+      const res = await a.adaptScript(cloneJson({ script, characterMap }))
       if (!res || res.code !== 0 || !res.data || !Array.isArray(res.data.adaptedShots)) {
         return { ok: false, errorCode: 'filmEngineering.canvas.adapt.failed' }
       }

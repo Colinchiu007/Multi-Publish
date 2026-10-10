@@ -103,37 +103,58 @@ const mountView = async () => {
   return wrapper
 }
 
-async function adaptWithLLM (w, { llmEnabled, llmEnhanced }) {
-  apiMock.filmEngineering.adaptScript.mockResolvedValueOnce({
-    code: 0,
-    data: { adaptedShots: [{ shotId: 'adapt-001', sceneId: 's1', prompt: 'p' }], llmEnhanced, warnings: [] },
-  })
-  w.vm.form.script = '第一场\n\n剧情。'
-  w.vm.form.llmEnabled = llmEnabled
-  await w.vm.onAdapt()
-  await flushPromises()
-}
-
-describe('FilmCanvasView 3.3 LLM 降级提示', () => {
-  it('勾选润色但 llmEnhanced=false：warning 回显 llmFallback locale key（非阻断）', async () => {
+/**
+ * 回归锁（2026-10-07）：「LLM 润色」开关已下线。
+ *
+ * 背景：该开关在出厂构建里**永远不生效**——ScriptAdapter 的唯一生产构造点传
+ * `llm: null`（core/container.setup.js:453），而启用判定要求 `this.llm` 非空
+ * （script-adapt.js:168），故 useLlm 恒 false。界面上却摆着可勾选的复选框，
+ * 用户勾了、点了「拆分镜」，什么都没变。经典视图更彻底——连降级提示都没有。
+ *
+ * 本组锁的是「开关确实不在了」：UI 无复选框、composable 无该状态、
+ * adaptScript 请求不带 llmEnabled、拆分镜成功不再弹任何 llm 相关提示。
+ *
+ * 反证纪律：把复选框或 form.llmEnabled 加回去，本组必须变红。
+ */
+describe('FilmCanvasView LLM 润色开关已下线（2026-10-07）', () => {
+  it('form 上不再有 llmEnabled 状态', async () => {
     const w = await mountView()
-    await adaptWithLLM(w, { llmEnabled: true, llmEnhanced: false })
+    expect(Object.prototype.hasOwnProperty.call(w.vm.form, 'llmEnabled')).toBe(false)
+    w.unmount()
+  })
+
+  it('拆分镜请求体不带 llmEnabled', async () => {
+    const w = await mountView()
+    apiMock.filmEngineering.adaptScript.mockResolvedValueOnce({
+      code: 0,
+      data: { adaptedShots: [{ shotId: 'adapt-001', sceneId: 's1', prompt: 'p' }], llmEnhanced: false, warnings: [] },
+    })
+    w.vm.form.script = '第一场\n\n剧情。'
+    await w.vm.onAdapt()
+    await flushPromises()
+    const payload = apiMock.filmEngineering.adaptScript.mock.calls.at(-1)[0]
+    expect(Object.prototype.hasOwnProperty.call(payload, 'llmEnabled')).toBe(false)
+    w.unmount()
+  })
+
+  it('引擎即便回传 llmEnhanced=false 也不弹任何 llm 相关提示', async () => {
+    const w = await mountView()
+    apiMock.filmEngineering.adaptScript.mockResolvedValueOnce({
+      code: 0,
+      data: { adaptedShots: [{ shotId: 'adapt-001', sceneId: 's1', prompt: 'p' }], llmEnhanced: false, warnings: [] },
+    })
+    w.vm.form.script = '第一场\n\n剧情。'
+    await w.vm.onAdapt()
+    await flushPromises()
     expect(ElMessage.success).toHaveBeenCalledWith('filmEngineering.canvas.adapt.done')
-    expect(ElMessage.warning).toHaveBeenCalledWith('filmEngineering.canvas.adapt.llmFallback')
+    const warned = ElMessage.warning.mock.calls.map((c) => String(c[0]))
+    expect(warned.some((s) => /llm/i.test(s))).toBe(false)
     w.unmount()
   })
 
-  it('llmEnhanced=true：不出现降级提示', async () => {
+  it('模板里不再渲染 fcv-llm 复选框', async () => {
     const w = await mountView()
-    await adaptWithLLM(w, { llmEnabled: true, llmEnhanced: true })
-    expect(ElMessage.warning).not.toHaveBeenCalledWith('filmEngineering.canvas.adapt.llmFallback')
-    w.unmount()
-  })
-
-  it('未勾选润色：引擎 llmEnhanced=false 属预期，不提示', async () => {
-    const w = await mountView()
-    await adaptWithLLM(w, { llmEnabled: false, llmEnhanced: false })
-    expect(ElMessage.warning).not.toHaveBeenCalledWith('filmEngineering.canvas.adapt.llmFallback')
+    expect(w.find('[data-testid="fcv-llm"]').exists()).toBe(false)
     w.unmount()
   })
 })
