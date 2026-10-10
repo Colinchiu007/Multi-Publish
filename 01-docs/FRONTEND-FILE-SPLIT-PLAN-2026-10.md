@@ -158,6 +158,17 @@ node .github/scripts/check-locale-sync.js --cjk
 
 **与 §2.5 坑 3 的关系**：坑 3 记录的是「**新写**的 composable 不要让 CJK 进入」；发现 T1 是它的**镜像**——「**搬迁**含既有 CJK 的代码同样会撞基线」。两条合起来构成 composable 抽取的完整 CJK 前置检查。
 
+**T1 处置结果（2026-10-10，tts-i18n-migrate）**：用户选定路径 **(a) 先迁 i18n**，已执行完毕：
+
+- 21 个新键（zh/en 成对）加入 `create.story2video.voice.*`；52 行 CJK 字面量改为 locale 取值。
+- **关键发现（显著降低成本）**：`friendlyVoiceCatalogError` 的 26 条消息**键早已存在于 locales**（zh/en 值与原字面量逐字相同），且该函数本就是「locale 优先 + 内嵌兜底」双轨——故这块是**纯机械的删除冗余**，无需新写英文文案。`cloneStatusPending` / `cloneSuccessToast` 亦然（原为 `'已选择 ' + count + '…'` 拼接，改用既有占位符键）。
+- **顺带收敛**：`validateStory2VideoFile` 的 `rules[].label` 是**第二处** kind 标签表（与 `story2videoKindLabel` 重复），一并收敛到同一数据源。
+- **实测收益**：CI Gate 7 `--cjk` 基线 **1489 → 1274**（净还债），`CreateView.test.js` **288/288 零改动全绿**（zh 文案逐字不变的证据）。
+- **行为影响面（如实声明）**：zh 用户文案逐字不变；en 用户 3 处改善（音色类别宾语随 locale、克隆默认名前缀 `音色NNN`→`VoiceNNN`、素材要求与时长格式随 locale）。「键缺失」防御路径由中文兜底改英文兜底（键均存在，路径不可达）。
+- **残留项**：`s2vVoiceCloneHint` 的拼接分隔符 `'；'` 与句末 `'。'`（U+FF1B / U+3002）不在 CJK 判定区间，仍在代码中（英文界面会显示中文标点），留待后续 i18n 清理。
+
+**下一步**：`useTtsVoices` 抽取可开工（新文件应零 CJK）；§2.2 第 3–5 步仍须按同口径预检。
+
 ---
 
 ## 三、里程碑 1（P0-2）：locales/zh.js · en.js（各 ~3800 行，51 命名空间）
