@@ -13,6 +13,7 @@ P0 播客 RSS 频道（PR #3193）交付了引擎与独立页面，但每一期�
 - **契约**：6 条既有通道改为必填 `channelId`，`podcast:endpoints:list` 保持频道无关无参并**直取共享层目录**（早前借道按频道构造的 service 会让该通道在生产路径恒抛 `PODCAST_CHANNEL_ID_REQUIRED`，注入假 service 的单测抓不到）；失败信封新增 `subCode`（领域码），渲染层在 `call()` 单点优先用它取文案，否则新增校验码只能落到「调用失败，请重试」；新增 `channel:list|create|rename|setDefault|migrate:resolve`；`episode:list` 回 `{episodes, cap, count}`；preload 与两个 bundle 重生成；渲染层在 composable 单点注入 channelId（不在 7 个调用点各写一份）。
 - **迁移可读性**：冲突/硬失败必须在**发现它的那一次** `channel:list` 就返回可读状态（返回错误上挂的 `index`），不得让首访 reject——读路径一抛错，界面渲染不出横幅与处置按钮，用户只剩反复重启排障；读写分档判据只在 registry 一处（`assertChannelExists` / `assertChannelWritable`）。
 - **界面可达性**：`channelRename` 此前有 IPC、有服务、有测试但界面不可达 ⇒ 频道切换器补重命名入口；迁移处置成功必须 `notifySuccess` 出声（不可逆动作静默收口等于让用户以为没生效）；频道目录读取失败横幅与冲突文件名清单接上（两处错误位此前无人渲染 = 界面静默）；9 条领域码补 zh/en 成对文案，两处死键（`renamed`/`migrationResolved`）转为被消费。
+- **单元划分**：`usePodcastChannel.js`（534 行）拆出频道目录域 `usePodcastChannelPicker.js`，`PodcastChannelView.vue`（567 行）拆出页面动作与表单态 `usePodcastChannelActions.js` —— CI 的逐文件行数门禁把两处「新代码引入超大文件」判红（NEW_OVER_LIMIT），拆分后 481 / 440 行。分界按**各自持有的不变量**而非按行数硬切：目录域管「activeChannelId 必须指向目录里存在的频道」，页面域管「切换频道必须连列表与 feed 产物一起清」，后者由页面域经 `onChannelActivated` 注入。模板与 `scoped` 样式逐字未动 ⇒ 像素基线不因这次拆分漂移。
 
 ## 评审与门禁
 

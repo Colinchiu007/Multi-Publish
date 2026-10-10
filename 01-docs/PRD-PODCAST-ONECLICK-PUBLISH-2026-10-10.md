@@ -49,6 +49,12 @@
 | `podcast:episode:publishFromSource` | IPC | 编排上述三层，幂等 | — |
 
 ---
+**单元划分（实现态，逐文件行数门禁 NEW_OVER_LIMIT 逼出来的一次真拆分，不是为拆而拆）**：
+
+- `usePodcastChannel.js`（页面态：频道元信息 / 单集列表 / feed 产物 / 分发端目录）与 `usePodcastChannelPicker.js`（频道目录域：当前频道是谁、目录里有什么、迁移处于什么态、配额现算）分家。分界判据是**各自持有的不变量不同**：目录域的不变量是「activeChannelId 必须指向目录里存在的频道」，页面域的不变量是「切换频道必须把列表与 feed 产物一起清掉」。后者由页面域通过 `onChannelActivated` 注入 —— 目录模块不知道也不该知道列表与 feed 的存放形状。
+
+- `PodcastChannelView.vue`（排版与绑定）与 `usePodcastChannelActions.js`（表单态 + 提交动作）分家。判据是可测性：留在 `.vue` 里时「保存失败要把哪一批校验码留在界面上」只能靠 mount 整页覆盖；拆出后可直接对行为断言。**模板与 `<style scoped>` 一行未动** ⇒ 像素基线不因这次拆分漂移。
+
 
 ## 4. 数据模型（存储层）
 

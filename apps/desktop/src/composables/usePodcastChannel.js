@@ -28,6 +28,7 @@
  * - 全程零真实网络请求；feed 可达性自检由主进程注入 headImpl 完成。
  */
 import { ref, computed } from 'vue'
+import { createPodcastChannelPicker } from './usePodcastChannelPicker'
 import i18n from '@/i18n'
 // 渲染端 IPC 唯一取用点（单轨制）：本文件任何位置（含注释）都不得直写桌面端暴露面
 // 的属性名——结构锁见 src/composables/usePodcastChannel-ipc.test.js「IPC 单轨制结构锁」
@@ -160,14 +161,6 @@ const CHANNEL_SCOPED = new Set([
  * @returns 频道状态 / 单集列表 / feed 生成与自检 / 分发端目录 的全部状态与动作
  */
 export function usePodcastChannel () {
-  const channels = ref([])
-  const activeChannelId = ref('')
-  const migrationStatus = ref('')
-  const migrationConflicts = ref([])
-  const channelCap = ref(0)
-  const channelCount = ref(0)
-  const channelListError = ref('')
-  const switchingChannel = ref(false)
   const channel = ref(null) // null = 未配置
   const channelLoaded = ref(false)
   const savingChannel = ref(false)
@@ -405,83 +398,38 @@ export function usePodcastChannel () {
     return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
   }
 
-  /** 频道目录 + 当前频道 + 迁移状态；未拿到频道前不得再发任何频道作用域调用 */
-  async function loadChannels () {
-    const res = await call(channelList)
-    if (!res.ok) {
-      channelListError.value = res.code || IPC_EXCEPTION
-      return res
-    }
-    const data = res.data || res
-    channels.value = Array.isArray(data.channels) ? data.channels : []
-    migrationStatus.value = data.migrationStatus || ''
-    migrationConflicts.value = Array.isArray(data.migrationConflicts) ? data.migrationConflicts : []
-    if (!activeChannelId.value || !channels.value.some((x) => x.id === activeChannelId.value)) {
-      activeChannelId.value = data.defaultChannelId || (channels.value[0] && channels.value[0].id) || ''
-    }
-    const first = channels.value.find((x) => x.id === activeChannelId.value)
-    channelCap.value = (first && first.cap) || 0
-    channelCount.value = (first && first.count) || 0
-    return res
-  }
-
-  async function ensureChannel () {
-    if (!channels.value.length || !activeChannelId.value) await loadChannels()
-    return activeChannelId.value
-  }
-
-  async function createChannel (name) {
-    const res = await call(channelCreate, { name: String(name == null ? '' : name).trim() })
-    await loadChannels()
-    return res
-  }
-
-  async function renameChannel (id, name) {
-    const res = await call(channelRename, { channelId: id, name: String(name == null ? '' : name).trim() })
-    await loadChannels()
-    return res
-  }
-
-  async function setDefaultChannel (id) {
-    const res = await call(channelSetDefault, { channelId: id })
-    await loadChannels()
-    return res
-  }
-
-  async function resolveMigration (direction) {
-    const res = await call(channelMigrateResolve, { direction })
-    await loadChannels()
-    return res
-  }
-
-  async function switchChannel (id) {
-    if (!id || id === activeChannelId.value) return { ok: true, skipped: true }
-    switchingChannel.value = true
-    activeChannelId.value = id
-    channel.value = null
-    episodes.value = []
-    feedResult.value = null
-    verifyResult.value = null
-    try {
+  // 频道目录域拆到 usePodcastChannelPicker.js（逐文件行数门禁 + 「目录态与页面态各有各的不变量」）；
+  // 本文件只留页面态与它的清理责任，切换频道时要清什么由这里说，不由目录模块猜。
+  const picker = createPodcastChannelPicker({
+    call,
+    ipcException: IPC_EXCEPTION,
+    onChannelActivated: async () => {
+      channel.value = null
+      episodes.value = []
+      feedResult.value = null
+      verifyResult.value = null
       await loadChannel()
       await loadEpisodes()
-      await refreshQuota()
-    } finally {
-      switchingChannel.value = false
-    }
-    return { ok: true }
-  }
-
-  /** 每次发布/写动作前现算，禁止跨动作缓存 count（评审 #17） */
-  async function refreshQuota () {
-    const res = await call(episodeList)
-    if (res.ok) {
-      const data = res.data || res
-      channelCap.value = Number(data.cap) || channelCap.value
-      channelCount.value = Number.isFinite(data.count) ? data.count : (Array.isArray(data.episodes) ? data.episodes.length : 0)
-    }
-    return { cap: channelCap.value, count: channelCount.value }
-  }
+    },
+  })
+  const {
+    channels,
+    activeChannelId,
+    migrationStatus,
+    migrationConflicts,
+    channelCap,
+    channelCount,
+    channelListError,
+    switchingChannel,
+    loadChannels,
+    ensureChannel,
+    createChannel,
+    renameChannel,
+    setDefaultChannel,
+    resolveMigration,
+    switchChannel,
+    refreshQuota,
+  } = picker
 
   return {
     // 状态
