@@ -23,6 +23,10 @@ import ScriptInputNode from '@/components/film-canvas/ScriptInputNode.vue'
 import ReferenceNode from '@/components/film-canvas/ReferenceNode.vue'
 import ShotNode from '@/components/film-canvas/ShotNode.vue'
 
+// embedded=true 时作为 Hub 第 2 标签内嵌：隐藏品牌块，跳转按钮改为派发 open-classic（由 Hub 切标签）。
+// 默认 false 时渲染与本次变更前逐字一致（FilmCanvasView.actions.test.js 以此为准）。
+defineProps({ embedded: { type: Boolean, default: false } })
+
 const { t } = useI18n()
 const router = useRouter()
 const { onNodeDragStop } = useVueFlow()
@@ -143,7 +147,7 @@ function gotoClassic () { router.push('/film-engineering/classic') }
 <template>
   <div class="film-canvas-view">
     <header class="fcv-topbar">
-      <div class="fcv-brand">
+      <div v-if="!embedded" class="fcv-brand">
         <span class="fcv-title">{{ t('filmEngineering.canvas.title') }}</span>
         <span class="fcv-subtitle">{{ t('filmEngineering.canvas.subtitle') }}</span>
       </div>
@@ -159,7 +163,7 @@ function gotoClassic () { router.push('/film-engineering/classic') }
         <el-button size="small" :disabled="!engineReady" data-testid="fcv-upload-scene" @click="pickFile('scene')">{{ t('filmEngineering.canvas.upload.scene') }}</el-button>
         <el-button size="small" type="primary" :disabled="!engineReady || busy" data-testid="fcv-generate" @click="onGenerate(selectedShotIds.length ? selectedShotIds : allShotIds)">{{ t('filmEngineering.canvas.generate.btn') }}</el-button>
         <el-button size="small" data-testid="fcv-clear" @click="clearCanvas()">{{ t('filmEngineering.canvas.toolbar.clear') }}</el-button>
-        <el-button size="small" link data-testid="fcv-classic" @click="gotoClassic">{{ t('filmEngineering.canvas.toolbar.classic') }}</el-button>
+        <el-button size="small" link data-testid="fcv-classic" @click="embedded ? $emit('open-classic') : gotoClassic()">{{ t('filmEngineering.canvas.toolbar.classic') }}</el-button>
       </div>
       <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" class="fcv-file" data-testid="fcv-file" @change="onFileChosen" />
     </header>

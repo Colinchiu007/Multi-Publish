@@ -1,3 +1,29 @@
+## 「用户手册逐行核对」是独立于评审的第三道闸——它倒查出 2 处真缺陷，而同源评审一条都没发现（film-auto-mode，2026-10-10）
+
+- **背景**：影视工程「自动」模式实现完毕，单测 145 条全绿、CCG 双家族决策层评审 4 轮收敛（Critical=0）。随后让子代理**照着代码**（不是照设计）写用户手册，并要求它逐条核对文案与实现。
+- **倒查结果**：8 处不一致，其中 **2 处是真缺陷**：
+  1. **续跑不可达**：计划在首次启动即被标记 `consumed`（防重放的刻意设计），而续跑路径仍要求 `readPlan` ⇒ 任何真实中断后都无法续跑，而文案承诺"重新打开可续跑"。
+  2. **停止缺失**：文案承诺"中途可停止"，但既无通道也无按钮。
+- **为什么同源评审看不见**：评审读的是**设计文档**，问的是"设计是否自洽"；手册核对读的是**代码 + 用户可见文案**，问的是"**代码是否兑现了对用户的承诺**"。前者是设计审查，后者是**履约审查**——两类缺陷的分布完全不同（前者抓逻辑漏洞，后者抓"说了没做"）。
+- **可复用做法**：写手册时强制两条——① 每条用户可见文案必须在代码里找到出处（`locales/*` 与后端 message），② 每个"你可以做什么"必须能在模板里找到对应控件（testid）。凡找不到的，要么补实现，要么改文案；**不允许保留**。
+- **同类风险面**：任何"文案/提示语由 A 处维护、能力由 B 处实现"的功能（进度提示、按钮说明、错误引导语）。本次把这条写进了 PRD §14.4 作为纪律。
+
+## 长任务 IPC 必须「派发即返回」——同步等待整轮会让界面永远升不到运行态（film-auto-mode，2026-10-10）
+
+- **症状**：真机点「开始生成」后**面板停在确认卡**、进度不动、看起来"点了没反应"。
+- **现场取证**（这一步是定位的全部）：服务端 `auto-status` 报 `running:true, doneCount:0`（任务确实在跑），而 DOM 里只有 `fa-preview`、**没有** `fa-run` ⇒ 分歧在渲染端，不在执行端。
+- **根因**：`film-engineering:auto-start` 处理器 `await driver(...)`——**整轮跑完才 return**。渲染端 `await api.autoStart()` 因而被挂住（4 镜约 20 分钟、12 镜约 1 小时），`startRun()` 里"设 phase=running"的代码根本没机会执行。
+- **修法**：派发后立刻回初始投影（`dispatched:true, ok:null`），进度与收口一律经事件 + 状态查询汇总。**`ok` 回 `null` 而不是 `false`**：回 false 会让界面把"刚开始"误判成"失败"。
+- **为什么单测没抓住**：单测用假 driver（立即 resolve），"同步等待"与"立即返回"在假对象上不可区分。**只有真机 E2E（真 provider、真耗时）能暴露**。
+- **推广判据**：任何 IPC 处理器里若出现"`await` 一个可能跑几分钟以上的任务"，先问"渲染端拿到返回值要等多久"；答案若是"整轮"，就该改成派发即返回 + 事件/查询汇总。
+
+## 集成「locales 拆域」这类结构性重构时，往装配文件里加键必然冲突——正确姿势是从既有提交程序化提取再注入域模块（film-auto-mode，2026-10-10）
+
+- **场景**：本分支在整体式 `src/locales/zh.js` 里加了 `filmEngineering.hub/auto`；期间 main 由 #3224 把 locales 拆成按域目录，`zh.js` 变成 275 行装配文件（`filmEngineering: { ...filmEngineeringZh }`），命名空间迁到 `locales/film-engineering/{zh,en}.js`。rebase 时三处冲突。
+- **错误做法**：手工把键重抄一遍（易漏、易错、review 时看不出漏没漏）。
+- **正确做法**：① 冲突一律**取 main 的装配版本**（我的改动语义上应当迁走而非保留）；② 在 rebase **之前**把文案块从既有提交里**程序化提取**到临时文件（`git show <sha>:<path>` + 按边界切片，边界取相邻命名空间名如 `"stats"`）；③ rebase 后用脚本把块注入域模块的 `export default {` 之后；④ **用 main 自带的结构锁验证**（`locales/structure-lock.test.js` 断言"域模块键集合 == 装配后命名空间键集合"）。
+- **推广**：凡"目标结构变了、而两侧都在同一文件里加内容"的重构（locales 拆域、路由表拆分、CI workflow 拆分），都适用"提取 → 取上游版 → 注入新位置 → 用上游的锁验证"四步，而不是在冲突标记里手工缝合。
+
 ## 跨页交接缺参数是「静默空表单」：跳转载荷必须被断言，不能只断言写了草稿（hot-topics-publish-handoff，2026-10-09）
 
 - **事故形状**：热门选题页「一键发布 → 直接发图文」把 5 条选题改写成功（进度区如实显示「改写完成，已生成 5 条草稿」），点「去发布」后发布页表单**恒为空**（标题 0 字、正文 0/10000 字、8 个输入框全空）。根因是两处各自「看起来都对」的实现组合：发送端 `router.push('/publish')` 不带草稿参数，接收端只在 `route.query.draft` 存在时才 `loadDraft`。两边都没有 bug，链路却是断的。
@@ -2547,7 +2573,7 @@ esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analy
 ## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
 
 - **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是
-  `C:\Users\RUNNER~1\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\runneradmin\...`（长名）。
+  `C:\Users\<RUNNER~1>\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\<runneradmin>\...`（长名）。
 - **根因**：`os.tmpdir()` 在 CI 返回 8.3 短路径（`RUNNER~1`），业务代码 `resolveReadableMediaFile` 经
   `fs.realpathSync.native()` 归一化为长路径（`runneradmin`）——同一文件两种字符串。任何「测试直接比较本地路径字符串」的断言在 CI 都会炸。
 - **教训**：按 AGENTS.md「Windows 路径身份断言」合同，比较生产代码返回的 canonical 路径时，期望值与实际值**必须同时**过
@@ -6345,7 +6371,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 1. **第一性原因**：`e1b46eb` 同时引入了 Story2Video 媒体摄取的 canonical 路径安全合同和音频阶段测试，
    但测试把 `importUserSelectedMedia()` 返回的原始目标字符串直接与阶段输出比较。生产路径会经过
    `resolveReadableMediaFile()` 并返回 `fs.realpathSync.native()`；GitHub Windows Runner 的临时目录环境值使用
-   `C:\Users\RUNNER~1`，真实路径返回 `C:\Users\runneradmin`，二者指向同一文件却被断言误判。
+   `C:\Users\<RUNNER~1>`，真实路径返回 `C:\Users\<runneradmin>`，二者指向同一文件却被断言误判。
 2. **测试逃逸链**：单元测试只在本机长路径临时目录运行；集成和 E2E 不构造 Windows 8.3 别名；视觉测试不检查
    文件路径；代码审查关注受控根和 symlink 防护，没有核对测试断言是否匹配 canonical 输出合同。两个并行
    Quality Gate 在同一断言上稳定 RED，证明这不是 30 分钟 watchdog 超时。
@@ -6755,8 +6781,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 - `e1b46eba` 同时引入 Story2Video 受控媒体目录加固和对应阶段测试。生产读取链通过
   `fs.realpathSync.native()` 返回 canonical 路径，测试却把结果与 `importUserSelectedMedia()` 返回的原始
   目标路径字符串直接比较。
-- GitHub Windows runner 的临时目录可表示为 `C:\Users\RUNNER~1`，而 `realpath` 返回
-  `C:\Users\runneradmin`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
+- GitHub Windows runner 的临时目录可表示为 `C:\Users\<RUNNER~1>`，而 `realpath` 返回
+  `C:\Users\<runneradmin>`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
 
 ### 测试逃逸链与系统性漏洞
 1. **单元测试**：本地临时目录的原始路径与 canonical 路径文本相同，旧断言无法暴露 8.3 别名差异。
@@ -8666,7 +8692,7 @@ esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analy
 ## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
 
 - **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是
-  `C:\Users\RUNNER~1\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\runneradmin\...`（长名）。
+  `C:\Users\<RUNNER~1>\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\<runneradmin>\...`（长名）。
 - **根因**：`os.tmpdir()` 在 CI 返回 8.3 短路径（`RUNNER~1`），业务代码 `resolveReadableMediaFile` 经
   `fs.realpathSync.native()` 归一化为长路径（`runneradmin`）——同一文件两种字符串。任何「测试直接比较本地路径字符串」的断言在 CI 都会炸。
 - **教训**：按 AGENTS.md「Windows 路径身份断言」合同，比较生产代码返回的 canonical 路径时，期望值与实际值**必须同时**过
@@ -12464,7 +12490,7 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 1. **第一性原因**：`e1b46eb` 同时引入了 Story2Video 媒体摄取的 canonical 路径安全合同和音频阶段测试，
    但测试把 `importUserSelectedMedia()` 返回的原始目标字符串直接与阶段输出比较。生产路径会经过
    `resolveReadableMediaFile()` 并返回 `fs.realpathSync.native()`；GitHub Windows Runner 的临时目录环境值使用
-   `C:\Users\RUNNER~1`，真实路径返回 `C:\Users\runneradmin`，二者指向同一文件却被断言误判。
+   `C:\Users\<RUNNER~1>`，真实路径返回 `C:\Users\<runneradmin>`，二者指向同一文件却被断言误判。
 2. **测试逃逸链**：单元测试只在本机长路径临时目录运行；集成和 E2E 不构造 Windows 8.3 别名；视觉测试不检查
    文件路径；代码审查关注受控根和 symlink 防护，没有核对测试断言是否匹配 canonical 输出合同。两个并行
    Quality Gate 在同一断言上稳定 RED，证明这不是 30 分钟 watchdog 超时。
@@ -12874,8 +12900,8 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 - `e1b46eba` 同时引入 Story2Video 受控媒体目录加固和对应阶段测试。生产读取链通过
   `fs.realpathSync.native()` 返回 canonical 路径，测试却把结果与 `importUserSelectedMedia()` 返回的原始
   目标路径字符串直接比较。
-- GitHub Windows runner 的临时目录可表示为 `C:\Users\RUNNER~1`，而 `realpath` 返回
-  `C:\Users\runneradmin`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
+- GitHub Windows runner 的临时目录可表示为 `C:\Users\<RUNNER~1>`，而 `realpath` 返回
+  `C:\Users\<runneradmin>`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
 
 ### 测试逃逸链与系统性漏洞
 1. **单元测试**：本地临时目录的原始路径与 canonical 路径文本相同，旧断言无法暴露 8.3 别名差异。

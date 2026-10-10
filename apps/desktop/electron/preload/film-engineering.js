@@ -5,7 +5,12 @@
  *   copyText, copyTexts, adaptScript, exportPrompts, generateSelected, uploadReference, retryShot,
  *   downloadRecycled, productionPlan, productionRunBatch, productionStatus,
  *   onProductionUpdate }（production-update 事件返回 unsubscribe 函数）
- * 所有方法返回主进程统一信封 { code, data?, message? }（code === 0 为成功）。
+ *
+ * 「自动」模式（film-auto-mode）：autoPlan, autoStart, autoStatus, autoUpdateShot,
+ *   autoRegenerateShot, autoCompose, onAutoUpdate（film-engineering:auto-update 事件，返回 unsubscribe）。
+ * 契约：auto-start **不接受**分镜/参考图负载（服务端以自己落盘的计划重建），只收 { planId, taskId, confirmed, overwrite }；
+ * 写入前若需重新确认（编辑晚于确认 / 载荷哈希变化），返回 data.needsReconfirm，渲染端弹确认卡后带 confirmed:true 重试。
+ * 所有方法返回主进程统一信封 { code, data?, message?, errorCode? }（code === 0 为成功）。
  */
 const { ipcRenderer } = require('electron')
 
@@ -29,6 +34,15 @@ function createFilmEngineeringApi (ipcRendererRef = ipcRenderer) {
       productionRunBatch: (payload) => ipcRendererRef.invoke('film-engineering:production-run-batch', payload),
       productionStatus: (payload) => ipcRendererRef.invoke('film-engineering:production-status', payload),
       onProductionUpdate: (callback) => { const h = (_e, p) => callback(p); ipcRendererRef.on('film-engineering:production-update', h); return () => ipcRendererRef.removeListener('film-engineering:production-update', h) },
+      // ── 自动模式 ──────────────────────────────────────────────────────
+      autoPlan: (payload) => ipcRendererRef.invoke('film-engineering:auto-plan', payload),
+      autoStart: (payload) => ipcRendererRef.invoke('film-engineering:auto-start', payload),
+      autoStop: (payload) => ipcRendererRef.invoke('film-engineering:auto-stop', payload),
+      autoStatus: (payload) => ipcRendererRef.invoke('film-engineering:auto-status', payload),
+      autoUpdateShot: (payload) => ipcRendererRef.invoke('film-engineering:auto-update-shot', payload),
+      autoRegenerateShot: (payload) => ipcRendererRef.invoke('film-engineering:auto-regenerate-shot', payload),
+      autoCompose: (payload) => ipcRendererRef.invoke('film-engineering:auto-compose', payload),
+      onAutoUpdate: (callback) => { const h = (_e, p) => callback(p); ipcRendererRef.on('film-engineering:auto-update', h); return () => ipcRendererRef.removeListener('film-engineering:auto-update', h) },
     },
   }
 }

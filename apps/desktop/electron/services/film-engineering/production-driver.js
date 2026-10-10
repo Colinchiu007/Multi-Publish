@@ -41,9 +41,15 @@ function planBatches (shotIds, batchSize = PRODUCTION_BATCH_SIZE) {
   return batches
 }
 
+/** 默认批次 runId（既有全量出片语义：prod-<taskId>-b<N>，产物落 <mediaRoot>/<runId>/） */
+function defaultRunIdFor (taskId, batchIndex) {
+  return 'prod-' + taskId + '-b' + batchIndex
+}
+
 /** 新建台账（确定性 runId；重复调用同输入产出一致批次结构） */
-function createLedger ({ taskId, shotIds, batchSize }) {
+function createLedger ({ taskId, shotIds, batchSize, runIdFor }) {
   const size = Number.isInteger(batchSize) && batchSize > 0 ? batchSize : PRODUCTION_BATCH_SIZE
+  const makeRunId = typeof runIdFor === 'function' ? runIdFor : defaultRunIdFor
   const plan = planBatches(shotIds, size)
   return {
     schemaVersion: 1,
@@ -52,7 +58,7 @@ function createLedger ({ taskId, shotIds, batchSize }) {
     createdAt: new Date().toISOString(),
     batches: plan.map((b) => ({
       batchIndex: b.batchIndex,
-      runId: 'prod-' + taskId + '-b' + b.batchIndex,
+      runId: String(makeRunId(String(taskId), b.batchIndex)),
       shotIds: b.shotIds.slice(),
       shots: b.shotIds.map((sid) => ({ shotId: sid, status: 'pending', error: null })),
       status: 'pending',
@@ -150,6 +156,7 @@ function buildRenderManifest (ledger, { mediaRoot = getFilmMediaRoot(), probe })
  *   emit?: (event: object) => void, now?: () => number,
  *   mediaRoot?: string, batchSize?: number,
  *   runOnlyBatch?: number|null,
+ *   runIdFor?: (taskId: string, batchIndex: number) => string,   // 默认 prod-<taskId>-b<N>；自动模式传 'auto/<taskId>/b<N>'
  * }} opts
  */
 async function runProduction (opts) {
@@ -157,7 +164,7 @@ async function runProduction (opts) {
     taskId, shotIds, ledgerDir, runBatch, probe,
     emit = () => {}, now = Date.now,
     mediaRoot = getFilmMediaRoot(), batchSize = PRODUCTION_BATCH_SIZE,
-    runOnlyBatch = null,
+    runOnlyBatch = null, runIdFor, shouldStop,
   } = opts || {}
   if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
     throw new Error('production-driver: taskId 必须为非空且路径安全的字符串')
@@ -180,7 +187,7 @@ async function runProduction (opts) {
     && ledger.batches.length === planShape.length
     && ledger.batches.every((b, i) => b.shotIds.length === planShape[i].shotIds.length)
   if (!sameShape) {
-    ledger = createLedger({ taskId, shotIds, batchSize })
+    ledger = createLedger({ taskId, shotIds, batchSize, runIdFor })
     saveLedger(ledgerDir, ledger)
   }
 
@@ -200,10 +207,25 @@ async function runProduction (opts) {
   }
 
   const failedBatches = []
+  let stopped = false
   for (const p of plan) {
     const batch = ledger.batches[p.batchIndex]
     // D9 逐批确认语义：runOnlyBatch 只执行指定批，其余待跑批保持 pending 不执行
     if (runOnlyBatch !== null && runOnlyBatch !== undefined && p.batchIndex !== runOnlyBatch && p.needRun) continue
+    // 停止（批间生效）：只看**开始一批之前**的标志，已开始的批必然跑完；
+    // 未开始的批保持 pending（不写 failed），因此停下来的任务天然可续跑。
+    if (typeof shouldStop === 'function' && p.needRun) {
+      // 不要写成 `let stop = false`：try 与 catch 都会赋值，初始值必被覆盖
+      // （ESLint no-useless-assignment 判 error，Gate 11 阻断）；两条路径都不留 undefined
+      let stop
+
+      try { stop = shouldStop() === true } catch { stop = false }
+      if (stop) {
+        stopped = true
+        emit({ type: 'production:stopped', doneCount, totalCount, batchIndex: p.batchIndex })
+        break
+      }
+    }
     if (!p.needRun) {
       // 磁盘复核通过：台账态归一为 done（含上次崩溃在写盘前的场景）
       if (batch.status !== 'done') {
@@ -257,9 +279,10 @@ async function runProduction (opts) {
 
   const manifest = buildRenderManifest(ledger, { mediaRoot, probe })
   const ok = failedBatches.length === 0 && manifest.ok
-  emit({ type: 'production:complete', ok, doneCount, totalCount, failedBatchCount: failedBatches.length })
+  emit({ type: 'production:complete', ok, stopped, doneCount, totalCount, failedBatchCount: failedBatches.length })
   return {
     ok,
+    stopped,
     ledger,
     renderManifest: manifest.ok ? manifest : null,
     manifestError: manifest.ok ? null : manifest.error,
@@ -270,6 +293,7 @@ async function runProduction (opts) {
 module.exports = {
   planBatches,
   createLedger,
+  defaultRunIdFor,
   saveLedger,
   loadLedger,
   resolveResumePlan,
