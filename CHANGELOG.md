@@ -1,3 +1,31 @@
+# [未发布] docs(openspec): 归档 dedup-changelog-history 并把台账完整性规格同步进主规格——先对账、按实况纠正规格（2026-10-10，archive-dedup-changelog-history）
+
+### 用户感知
+
+无。这是规格与工件的收口，不改任何运行时代码，也不改任何门禁判据：`check-changelog-growth.js` 的默认判据、
+授权通路代码与额度校核在本次交付中**一字未动**（归档后重跑两把锁与门禁本体，结论与合并前一致）。
+
+### 变更明细
+
+- **先对账再同步**：归档前把该 change 自己的 delta 规格与今天的实现逐条核对，抓到两处偏差并按「规格服从实现」写回：
+  ① 规格原写「`applies_to_base` **等于**本次 merge-base」才放行，实际自 PR #3151 起还有「**祖先**坐标系 ⇒ 授权按已消费退休、
+  改核消费后形状」这条出口 ⇒ 补一条同名 Scenario；② #3225 退役常驻授权件并加了生命周期锁，delta 里完全没有 ⇒ 新增第 4 条
+  Requirement「一次性授权 MUST 有生命周期」，把四条边界逐个写成场景（含**「退役形态必须绿」「未来合规一次性必须绿」两条**——
+  只写「有就红」的规格会把锁自己的恢复路径钉死，这是 #3225 里 QM-6 抓到的同族教训）。规格由 3 条 Requirement / 14 个 Scenario
+  变为 **4 / 20**；`openspec validate --strict` valid。
+- `openspec archive dedup-changelog-history -y` ⇒ 新建主规格 `openspec/specs/changelog-ledger-integrity/spec.md`（4 Requirement / 20 Scenario，
+  无残留 `## ADDED Requirements` 头），change 移入 `openspec/changes/archive/2026-10-10-dedup-changelog-history/`。tasks `5.5` 按实况纠勾
+  （其 worktree `mp-changelog-history-dedup` 现 **未注册且目录不存在**；如实声明该删除非本会话执行）。
+- **否证并精确化一条旧结论**：旧记录写「占位句的活体场景仍未构造（需要一次真正新增能力的 change）」。本次确实新增了一份主规格，
+  但 Gate 12d 报 **153 份 / 违规 0** —— 因为 openspec 1.8.0 会把 **delta 自带的 `## Purpose` 原样同步**进主规格。用 `%TEMP%` 里的最小 openspec
+  探针复现另一半：delta **不带** Purpose 时归档确实写出 `TBD - created by archiving change <name>. …`，且 12d 注入该 root 后 `ok:false` 并点名文件。
+  ⇒ 触发条件是「delta 没写 Purpose」，不是「新增能力」。这条锁不是死代码，但它的触发面比旧记录描述的窄，已在执行记录里更正（历史记录不改写）。
+- `openspec validate --all` 前后对照（从 `origin/main` 单独抽出 `openspec/` 树跑基线）：两侧均 **173 passed / 7 failed**，失败集合逐条同名
+  （`collect-video-platforms` 等 7 个他人未完成的 change）⇒ 本次归档**没有新增**校验失败，也没有认领别人的红。
+- 详见 `openspec/records/archive-dedup-changelog-history.md`。
+
+---
+
 # [未发布] fix(ci): 退役已消费的一次性 CHANGELOG 去重授权文件，并加"授权件不得常驻"生命周期锁（2026-10-09，retire-dedup-auth-file）
 
 ### 用户感知
