@@ -98,6 +98,19 @@ function Invoke-GuardCases([hashtable]$fx) {
     Assert (Test-Path -LiteralPath (Join-Path $fx.Repo 'docs/new.md')) "[$eol] docs directory write is allowed"
     Remove-Item -LiteralPath (Join-Path $fx.Repo 'docs/new.md') -Force
 
+    # 对抗评审产物（.adversarial）必须在放行名单内，且与 classify-docs-only.js 的
+    # docs 白名单一致。回归背景：名单漏项导致评审产物每写一次被隔离一次
+    # （实测一轮评审 11 个文件全被移走）。
+    New-Item -ItemType Directory -Force -Path (Join-Path $fx.Repo '.adversarial/ccg-plan-x-claude') | Out-Null
+    Write-RepoFile $fx '.adversarial/ccg-plan-x-claude/critique-v1.md' '{"schemaVersion":1}'
+    Invoke-Guard $fx '.adversarial/ccg-plan-x-claude/critique-v1.md'
+    Assert (Test-Path -LiteralPath (Join-Path $fx.Repo '.adversarial/ccg-plan-x-claude/critique-v1.md')) "[$eol] .adversarial review artifact write is allowed"
+    # 自清理：不放行名单测试留下的 untracked 会污染后续「status clean」断言
+    Remove-Item -LiteralPath (Join-Path $fx.Repo '.adversarial/ccg-plan-x-claude') -Recurse -Force
+    if ((Get-ChildItem -LiteralPath (Join-Path $fx.Repo '.adversarial') -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+        Remove-Item -LiteralPath (Join-Path $fx.Repo '.adversarial') -Force
+    }
+
     Write-RepoFile $fx 'node_modules/pkg/new.js' 'module.exports = 2'
     Invoke-Guard $fx 'node_modules/pkg/new.js'
     Assert (Test-Path -LiteralPath (Join-Path $fx.Repo 'node_modules/pkg/new.js')) "[$eol] gitignored artifact is allowed"
@@ -127,7 +140,7 @@ try {
     }
     # 规模锁：两档 EOL 各 17 条。少跑一格（EOL 档位被删掉、或某条 Assert 被摘）都必须在这里变红，
     # 否则"第二格其实没在跑"这种退化在日志里完全看不出来。
-    Assert ($passed -eq 34) "both EOL cells ran to completion (expect 34 checks, got $passed)"
+    Assert ($passed -eq 36) "both EOL cells ran to completion (expect 36 checks, got $passed)"
     Write-Host "PASS: $passed session write guard checks" -ForegroundColor Green
 } finally {
     Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
