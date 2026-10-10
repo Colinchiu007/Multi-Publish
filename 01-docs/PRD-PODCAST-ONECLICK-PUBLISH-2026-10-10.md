@@ -163,6 +163,108 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 
 ---
 
+### 8.1 频道目录域与错误码的提示文字（逐字表，脚本生成）
+
+> ⛔ 本节由 `node openspec/changes/podcast-oneclick-publish/tools/gen-picker-copy-table.js` 从 `apps/desktop/src/locales/{zh,en}.js` 解析生成，**改文案必须重新生成，不得手工维护**（手工抄录会被后续文案/术语改动打旧；判据同 `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md` §11.5）。脚本可重复执行：已有本节则整节替换。
+
+键路径 `podcast.picker.*`（19 键，zh/en 双向差集为空）：
+
+| 键 | zh（界面逐字） | en |
+| --- | --- | --- |
+| `sectionTitle` | 播客频道 | Podcast channels |
+| `current` | 当前频道 | Current channel |
+| `empty` | 还没有频道，先新建一个。 | No channel yet. Create one to get started. |
+| `namePlaceholder` | 频道名称 | Channel name |
+| `create` | 新建频道 | New channel |
+| `setDefault` | 设为默认频道 | Set as default |
+| `rename` | 重命名当前频道 | Rename current channel |
+| `created` | 频道已创建 | Channel created |
+| `renamed` | 频道已重命名 | Channel renamed |
+| `defaultSet` | 默认频道已更新 | Default channel updated |
+| `switched` | 已切换频道 | Channel switched |
+| `switchFailed` | 切换频道失败，请稍后重试。 | Could not switch channel. Please try again. |
+| `nameRequired` | 请填写频道名称。 | Enter a channel name. |
+| `quotaHint` | 该频道已收录 {count} 期，上限 {cap} 期；达到上限时须先删除旧期。 | This channel holds {count} of {cap} episodes; delete some before adding more. |
+| `migrationConflict` | 频道数据迁移未完成：本地已有两份不同的频道配置，请选择保留哪一份。 | Channel migration is incomplete: two different local channel configs were found. Choose which to keep. |
+| `migrationError` | 频道数据迁移中途失败，暂时无法写入；请重试或联系支持。 | Channel migration failed midway. Writing is blocked; please retry or contact support. |
+| `keepExisting` | 保留当前数据 | Keep current data |
+| `keepLegacy` | 保留原有数据 | Keep original data |
+| `migrationResolved` | 迁移冲突已处理 | Migration conflict resolved |
+
+键路径 `podcast.errors.*`（66 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）：
+
+| 键 | zh（界面逐字） | en |
+| --- | --- | --- |
+| `PODCAST_IPC_UNAVAILABLE` | 播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载） | Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted) |
+| `PODCAST_IPC_EXCEPTION` | 播客服务调用失败，请重试 | Podcast service call failed, please retry |
+| `PODCAST_PAYLOAD_NOT_SERIALIZABLE` | 表单数据无法序列化，请检查后重试 | Form data could not be serialized, please check and retry |
+| `PODCAST_FEED_INVALID` | Feed 校验未通过，请先按下列问题解决 | Feed validation failed. Fix the issues below first |
+| `PODCAST_CHANNEL_ID_REQUIRED` | 未选择播客频道，请先在上方新建或选择一个频道 | No podcast channel selected. Create or pick one above first. |
+| `PODCAST_CHANNEL_ID_INVALID` | 频道标识形态非法，请重新选择频道 | The channel id format is invalid. Please select the channel again. |
+| `PODCAST_CHANNEL_NOT_FOUND` | 频道不存在，可能已被删除，请重新选择 | Channel not found, it may have been deleted. Please select another one. |
+| `PODCAST_MIGRATION_CONFLICT` | 旧的播客频道数据与新建的频道内容不一致，已停止写入以免覆盖，请在上方选择保留哪一份 | The legacy podcast data and the new channel differ. Writes are blocked to avoid overwriting. Choose which copy to keep above. |
+| `PODCAST_MIGRATION_IO_FAILED` | 播客频道数据迁移未完成，已停止写入，可重试；已有内容仍可读取 | Podcast channel migration did not finish. Writes are blocked; existing content stays readable and you can retry. |
+| `PODCAST_MIGRATION_DIRECTION_INVALID` | 未知的迁移处置方式，请重新选择 | Unknown migration resolution. Please choose again. |
+| `PODCAST_LOCK_WAIT_TIMEOUT` | 播客数据正在被其他操作占用，请稍后重试 | Podcast data is busy with another operation. Please retry shortly. |
+| `PODCAST_CHANNEL_BUSY` | 该频道正在一键发布，请等本次发布结束后再修改单集 | This channel is publishing right now. Wait for it to finish before editing episodes. |
+| `PODCAST_EPISODE_NOT_FOUND` | 单集不存在，可能已被删除，请刷新列表 | Episode not found, it may have been deleted. Refresh the list. |
+| `CHANNEL_MISSING` | 缺少频道配置 | Channel configuration is missing |
+| `CHANNEL_TITLE_REQUIRED` | 频道标题不能为空 | Channel title is required |
+| `CHANNEL_TITLE_TOO_LONG` | 频道标题超出长度上限 | Channel title exceeds the length limit |
+| `CHANNEL_DESC_REQUIRED` | 频道简介不能为空 | Channel description is required |
+| `CHANNEL_DESC_TOO_LONG` | 频道简介超出长度上限 | Channel description exceeds the length limit |
+| `CHANNEL_SUBTITLE_TOO_LONG` | 频道副标题超出长度上限 | Channel subtitle exceeds the length limit |
+| `CHANNEL_LANGUAGE_INVALID` | 语言需形如 zh-CN / en-US | Language must look like zh-CN / en-US |
+| `CHANNEL_COVER_REQUIRED` | 封面地址不能为空 | Cover URL is required |
+| `CHANNEL_COVER_NOT_HTTPS` | 封面必须使用 https 绝对地址 | Cover must be an absolute https URL |
+| `CHANNEL_COVER_SIZE_UNKNOWN` | 需填写封面尺寸（形如 3000x3000）以便校验 | Cover size (e.g. 3000x3000) is required for validation |
+| `CHANNEL_COVER_NOT_SQUARE` | 封面必须为正方形 | Cover must be square |
+| `CHANNEL_COVER_SIZE_OUT_OF_RANGE` | 封面边长超出允许范围（1400~3000） | Cover side length is out of the allowed range (1400–3000) |
+| `CHANNEL_LINK_NOT_HTTPS` | 站点地址必须使用 https 绝对地址 | Site URL must be an absolute https URL |
+| `CHANNEL_AUTHOR_REQUIRED` | 作者/主播名不能为空 | Author / host name is required |
+| `CHANNEL_OWNER_EMAIL_INVALID` | 所有者邮箱格式不正确 | Owner email format is invalid |
+| `CHANNEL_EXPLICIT_INVALID` | 频道分级取值不合法（yes/no/clean） | Channel rating must be yes / no / clean |
+| `CHANNEL_FEED_TYPE_INVALID` | feed 类型取值不合法（episodic/serial） | Feed type must be episodic / serial |
+| `CHANNEL_CATEGORY_REQUIRED` | 必须选择顶级分类 | A top-level category is required |
+| `CHANNEL_CATEGORY_UNKNOWN` | 未知顶级分类 | Unknown top-level category |
+| `CHANNEL_SUBCATEGORY_UNKNOWN` | 未知子分类 | Unknown subcategory |
+| `CHANNEL_CATEGORY_TOO_DEEP` | 分类最多两级 | Category supports at most two levels |
+| `EPISODE_MISSING` | 缺少单集数据 | Episode data is missing |
+| `EPISODE_TITLE_REQUIRED` | 单集标题不能为空 | Episode title is required |
+| `EPISODE_TITLE_TOO_LONG` | 单集标题超出长度上限 | Episode title exceeds the length limit |
+| `EPISODE_DESC_TOO_LONG` | 单集简介超出长度上限 | Episode description exceeds the length limit |
+| `EPISODE_SUBTITLE_TOO_LONG` | 单集副标题超出长度上限 | Episode subtitle exceeds the length limit |
+| `EPISODE_AUDIO_REQUIRED` | 缺少音频地址：请填写 https 直链，或先配置托管直传 | Audio is missing: provide an https URL or configure hosting |
+| `EPISODE_AUDIO_NOT_HTTPS` | 音频必须使用 https 绝对地址 | Audio must be an absolute https URL |
+| `EPISODE_HOSTING_NOT_CONFIGURED` | 仅有本地文件，尚未配置托管直传，无法生成公开音频地址 | Only a local file exists; managed upload is not configured, so no public audio URL can be produced |
+| `EPISODE_DURATION_INVALID` | 时长须为规定范围内的整数秒 | Duration must be an integer number of seconds within the allowed range |
+| `EPISODE_SIZE_INVALID` | 字节数须为正整数 | Size in bytes must be a positive integer |
+| `EPISODE_SIZE_REQUIRED` | 必须填写音频字节数（enclosure length） | Audio size in bytes (enclosure length) is required |
+| `EPISODE_EXPLICIT_INVALID` | 单集分级取值不合法（yes/no/clean） | Episode rating must be yes / no / clean |
+| `EPISODE_TYPE_INVALID` | 单集类型取值不合法（full/trailer/bonus） | Episode type must be full / trailer / bonus |
+| `EPISODE_PUBDATE_INVALID` | 发布时间无法解析 | Publish date could not be parsed |
+| `EPISODE_COVER_NOT_HTTPS` | 单集封面必须使用 https 绝对地址 | Episode cover must be an absolute https URL |
+| `EPISODE_MIME_INVALID` | 音频 MIME 类型不受支持 | Audio MIME type is not supported |
+| `EPISODE_GUID_TOO_LONG` | GUID 过长 | GUID is too long |
+| `EPISODE_NUMBER_INVALID` | 期号须为正整数 | Episode number must be a positive integer |
+| `EPISODE_SEASON_INVALID` | 季号须为正整数 | Season number must be a positive integer |
+| `EPISODES_EMPTY` | 还没有单集：feed 至少需要一个单集 | No episodes yet: the feed requires at least one episode |
+| `EPISODES_TOO_MANY` | 单集数量超过上限 | Episode count exceeds the limit |
+| `EPISODE_DUPLICATE` | 存在重复的 guid 或音频地址 | Duplicate guid or audio URL exists |
+| `FEED_NO_ITEMS` | Feed 中没有任何单集 | The feed contains no episodes |
+| `FEED_MISSING_ITUNES_NS` | Feed 缺少 itunes 命名空间 | The feed is missing the itunes namespace |
+| `FEED_MISSING_XML_DECL` | Feed 缺少 XML 声明 | The feed is missing the XML declaration |
+| `ENCLOSURE_MISSING` | 存在缺少 enclosure 的单集 | An episode has no enclosure |
+| `ENCLOSURE_NOT_HTTPS` | 存在非 https 的 enclosure | An enclosure is not an https URL |
+| `ENCLOSURE_UNREACHABLE` | 音频地址不可达，请检查托管或直链是否过期 | Audio URL is unreachable; check the hosting or whether the link expired |
+| `ENCLOSURE_TYPE_MISMATCH` | enclosure 指向的资源不是音频 | The enclosure does not point to an audio resource |
+| `ENCLOSURE_LENGTH_MISMATCH` | 声明的字节数与实际大小不一致 | Declared byte size does not match the actual length |
+| `DURATION_MISSING` | 有单集缺少时长 | An episode is missing its duration |
+| `fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
+
+成对校验：`node .github/scripts/check-locale-sync.js --pair-base origin/main` PASS；`apps/desktop/src/i18n/glossary.test.js` 绿（口径是 **UI 采用词典 canonical 术语**，不是把词典削到已有裸词）。
+
+
 ## 9. 数据校验（三层）
 
 | 层 | 判据 | 备注 |
