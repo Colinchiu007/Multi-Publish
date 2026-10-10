@@ -19311,6 +19311,109 @@ PR1 骨架 + 首批 8 小域（signer/tabs/common/loginGate/providerCrud/publish
 | L4 | locales + 4 改造测试 + i18n 消费方抽样全绿 | ✅ 66 测 |
 | L5 | 键名/键值零变更（结构锁 ①② + Gate 7 key 校验双重保证） | ✅ |
 
+---
+
+## 附录：CreateView 结构拆分（2026-10-10，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 里程碑 2 第 1 批）
+
+> 背景：`apps/desktop/src/views/CreateView.vue` 为 5586 行 Options API 单文件（data :1034 / computed :1207 / watch :1790 / methods :1822+），承载 10+ 功能域（流水线启动、快速渲染、历史记录、BGM 素材库、配置 Profile、批量创作、TTS 音色克隆、分镜素材确认）。本批把 **BGM 背景音乐素材库域**的状态与方法拆出为 composable，其余域后续按方案 §2.2 顺序推进。
+>
+> **本批范围（如实声明，勿误读为「弹窗组件化已完成」）**：只做「BGM 域状态逻辑拆出 + 两个浮层的 owner 登记」；**弹窗模板仍在 CreateView.vue**（未抽成 .vue 子组件）；`useTtsVoices` / `SceneAsset` 未做。
+
+### 结构
+
+```
+apps/desktop/src/views/
+├── CreateView.vue                                    # 壳：方法代理 + 状态桥接（5586→5518 行）
+└── video-creation/
+    └── composables/
+        ├── useBgmLibrary.js                          # BGM 域状态域（模块级单例 + 无实例依赖）
+        └── useBgmLibrary.test.js                     # 独立测试（9 例）
+```
+
+`useBgmLibrary.js` 导出：
+
+| 导出 | 类型 | 说明 |
+|---|---|---|
+| `bgmLibraryRefs` | `toRefs(reactive)` | 7 个状态的 ref（供壳 computed get/set 桥接） |
+| `bgmLibraryMethods` | object | 11 个方法（CRUD + 弹窗开合 + `releaseAllOverlays`） |
+| `setupBgmLibraryDeps(deps)` | function | 壳注入 5 个跨域依赖（见下） |
+| `resetBgmLibraryForTest()` | function | 测试复位（模块级单例状态隔离） |
+| `BGM_LIBRARY_OVERLAY_OWNER` | const | `'create-bgm-library-dialog'` |
+| `BGM_LIBRARY_DELETE_OVERLAY_OWNER` | const | `'create-bgm-library-delete-dialog'` |
+
+### 数据校验
+
+- **文件类型门禁（复用壳既有 `validateStory2VideoFile(file, 'bgm')`）**：BGM 仅接受 `.wav / .m4a / .mp3`（`audio/wav, audio/x-m4a, audio/mpeg`），单文件 ≤ **15MB**；校验不通过即把 `s2vConfig.bgmPath` 清空并返回 `null`，**不发送不可用文件名给主进程**。
+- **主进程返回码校验**：`story2videoBgmLibraryAdd/Rename/Delete` 一律以 `result?.code === 0` 为成功判据；失败时按 `result.message` 走 `resolveMediaImportFailure` 细分（不存在不可读 / 路径解析失败 / 格式不支持 / 大小超限 / 其他），并清空已选路径。
+- **重命名输入校验**：`s2vBgmLibraryRenameDraft` 经 `String(...).trim()`，空串或加载中不提交（`if (!id || !name || loading) return`）；输入框 `maxlength=60`；确认按钮在空值或加载中禁用。
+- **删除目标校验**：`s2vBgmLibraryDeleteTargetId` 必须非空且非加载中才执行；删除后若删除项正是当前选中背景音乐（`String(s2vConfig.bgmPath) === String(target.path)`），**回退为「不使用背景音乐」**（清空 `bgmPath`），避免残留失效路径。
+- **列表加载容错**：`story2videoBgmLibraryList` 返回非 `code===0` 或非数组时不覆盖既有列表；`silent` 模式（挂载期预载、CRUD 后刷新）失败不弹窗，非 silent（用户主动打开弹窗）失败才提示。
+
+### 流程（功能逻辑）
+
+1. **挂载期预载**：`mounted()` 内 `loadS2VBgmLibrary({ silent: true })`，失败静默（不打扰创作主流程），弹窗打开时才提示。
+2. **打开素材库**：`openBgmLibraryDialog()` → 置 `s2vBgmLibraryDialogOpen=true` → **挂起内嵌视图 owner** → `loadS2VBgmLibrary()`（非 silent，失败弹提示）。
+3. **添加音乐**：隐藏 `<input type=file>` → `handleBgmLibraryAddFile(e, fileInputRef)` → 取 `e.target.files[0]` → `addFileToBgmLibrary(file)`：
+   - 校验 → 调主进程 → 成功则**静默刷新列表**并**自动选中该音乐**（`s2vConfig.bgmPath = result.data.path`）→ 清空 input value（允许连续选同一文件）；
+   - 失败则清空 `bgmPath` + 细分提示。
+4. **重命名**：点编辑 → `startBgmRename(item)`（进入行内编辑态，草稿=原名）→ 回车/对勾 `saveBgmRename()`（成功刷新列表并退出编辑态，失败提示）｜Esc/叉 `cancelBgmRename()`。
+5. **删除**：点删除 → `requestBgmDelete(item)`（记录目标 id + **挂起删除确认浮层 owner**）→ 二次确认弹窗 → 确认 `confirmBgmDelete()`（成功后按上述校验回退逻辑处理 + 刷新列表 + 关闭弹窗）｜取消 `closeBgmDeleteDialog()`。
+6. **关闭素材库**：`closeBgmLibraryDialog()` → 关闭标志 + 级联取消重命名态 + 级联关闭删除确认弹窗 + **释放素材库 owner**。
+7. **卸载兜底**：壳 `beforeUnmount()` 无条件调 `releaseAllOverlays()`（双 owner 全释放）。
+
+### 交互逻辑
+
+| 交互 | 行为 |
+|---|---|
+| 点「管理背景音乐」 | 打开素材库弹窗并加载列表（带 loading 骨架） |
+| 点「添加音乐」 | 触发隐藏 file input；加载中按钮禁用 + 显示行内骨架 |
+| 选同一文件两次 | 允许（成功后清空 input value） |
+| 重命名回车 / Esc | 保存 / 取消 |
+| 重命名空值 | 确认按钮禁用（`:disabled="loading \|\| !draft.trim()"`） |
+| 删除 | 必经二次确认（危险操作门禁），确认按钮 `variant="danger"` |
+| 弹窗打开期间 | 挂起内嵌 WebContentsView（防原生图层遮盖弹窗） |
+| 快速开合 | suspend 先同步登记 owner 再 await；release 对未知/已释放 owner 幂等返回 false → 双路径（watch + unmount）重复释放安全 |
+
+**浮层互斥合同（QM-2）**：`useEmbeddedViewSuspension.js` 实测导出为**两个普通 async 函数**（非 composable），Options API 壳可直接在 methods 调用，无需 `setup()`。两个 owner 逐个枚举、禁止模式匹配式命名；释放为「状态出口」形态（由 visible 驱动），故监听开合 + `beforeUnmount` 兜底。
+
+### 显示项与提示文字
+
+- **弹窗标题**：`create.story2video.bgmLibrary.dialogTitle`（背景音乐素材库 / Music library）。
+- **工具栏**：添加按钮 `bgmLibrary.add`（添加音乐 / Add music）；提示 `bgmLibrary.addHint`（添加后将自动选中该音乐）；加载中显示行内文本骨架。
+- **列表项**：音乐图标 + 名称（`title` 属性显示完整路径）；行内按钮重命名/删除（`title` 原生提示）；空列表时显示 `bgmLibrary.empty`（素材库为空。点击「添加音乐」导入本地音频文件，将自动加入素材库。）。
+- **重命名态**：输入框占位 `bgmLibrary.renamePlaceholder`（输入音乐名称）；对勾/叉按钮。
+- **删除确认**：标题/正文/按钮文案由 `BGM_LIBRARY_DELETE_CONFIRM` 通知模板生成为 `story2videoBgmLibraryDeleteConfirmMessage`（带入 `name`），按钮文案取 `story2videoErrorDialogUiText.cancel / confirmDelete`。
+- **失败提示**（经 `showStory2VideoErrorDialog`，键值走 locales）：
+  - 列表加载失败 `BGM_LIBRARY_LOAD_FAILED`
+  - 重命名失败 `BGM_LIBRARY_RENAME_FAILED`
+  - 删除失败 `BGM_LIBRARY_DELETE_FAILED`
+  - 文件不可读 `MEDIA_UNREADABLE`（带 `kindLabel` 宾语，经壳 `story2videoKindLabel('bgm')` → 「背景音乐」/「Background music」）
+  - 其余按主进程 message 细分（格式/大小/路径）
+
+**i18n 纪律**：composable 内**不得**出现 CJK 字面量（CI Gate 7 `--cjk` 拦渲染端非 locales 文件的新增中文）；错误消息用英文技术文本，用户可见宾语经 deps 注入壳的 locale 口径。
+
+### 不变式（回归保护）
+
+| # | 不变式 | 锁定位置 |
+|---|---|---|
+| C1 | 旧测试零改动全绿（方法代理 + 状态桥接等价） | `CreateView.test.js` 288/288 |
+| C2 | 两个浮层各有唯一 owner 且 open/close 成对 + 卸载兜底 | `overlay-view-suspension.test.js`（17/17，含 2 条新登记断言） |
+| C3 | `deps` 未注入时 fail-closed 抛错（不静默） | `useBgmLibrary.test.js` |
+| C4 | 删除当前选中项回退为不使用背景音乐 | `useBgmLibrary.test.js` + `CreateView.test.js` |
+| C5 | 模块级单例状态可复位（防跨用例泄漏） | `resetBgmLibraryForTest` + 2 处 describe `beforeEach` |
+
+### 验收
+
+| # | 判据 | 结果 |
+|---|------|------|
+| S1 | CreateView.test.js 零改动全绿（证明代理/桥接等价性） | ✅ 288/288 |
+| S2 | 新 composable 独立测试 | ✅ 9/9 |
+| S3 | 浮层 owner 登记 | ✅ 17/17 |
+| S4 | Gate 7 成对 + `--cjk` 基线 | ✅ PASS（基线 1489，当前 1330 无新增） |
+| S5 | QM-4 像素回归 | ✅ 18/19（collection 1.5986% 红在 main 基线同样复现，非本批引入） |
+| S6 | 行为零变更（测试零改动 + 像素无新增回归） | ✅ |
+
+
 ## 附录：快手图文封面 tofu 乱码修复（2026-10-09，fix-kuaishou-tuwen-tofu）
 
 > 完整规格见 `01-docs/PRD-KUAISHOU-TUWEN-TOFU-2026-10-09.md`。本节只登记主文档必须常驻的口径。

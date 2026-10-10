@@ -111,6 +111,7 @@ import CreateView from "./CreateView.vue";
 import CreateViewHistory from './CreateViewHistory.vue'
 import { settingsDialogRevision } from "@/stores/settings-dialog";
 import { PipelineSelector, StageProgress } from './video-creation'
+import { resetBgmLibraryForTest } from './video-creation/composables/useBgmLibrary'
 import i18n from "@/i18n";
 
 // Production renders the progress modal through Teleport. Page tests keep the
@@ -125,6 +126,8 @@ describe("CreateView", () => {
     window.localStorage.clear();
     // 设置弹窗 revision 是模块级单例：复位避免跨用例 watcher 触发（2026-08-12 审查 m4）
     settingsDialogRevision.value = 0;
+    // BGM 素材库 composable 同为模块级单例：复位防跨用例状态泄漏（拆分方案 v3 §2.2）
+    resetBgmLibraryForTest();
   });
 
   it("renders page header", async () => {
@@ -5894,6 +5897,9 @@ describe("CreateView 流水线「保存配置」（s2v-pipeline-config-profiles�
     window.electronAPI = {};
     window.localStorage.clear();
     settingsDialogRevision.value = 0;
+    // BGM 素材库 composable 为模块级单例：本 describe 不复位会残留前序 BGM 用例的条目/弹窗态，
+    // 使 .bgm-library-item 计数类断言（如配置管理弹窗）拿到 BGM 残留节点（拆分方案 v3 §2.2 实测）
+    resetBgmLibraryForTest();
   });
 
   function makeProfile(overrides = {}) {

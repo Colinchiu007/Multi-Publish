@@ -99,6 +99,36 @@ CreateView 全文 0 处 `useEmbeddedViewSuspension`，`overlay-view-suspension.t
 
 **这是第 1/3/5 步（所有含弹窗的步）的硬门禁，漏做即合同违规。** 第 1 步风险因此维持「中」。
 
+### 2.5 执行记录（里程碑 2 第 1 批实测，2026-10-10，PR #3236）
+
+**实际范围（与 §2.2 计划有偏离，如实记录——不得被误读为「第 1 步已完成」）**：
+
+| §2.2 计划 | 本批实际 | 说明 |
+|---|---|---|
+| 第 1 步：抽 BGM + SceneAsset **弹窗组件**（.vue） | ❌ 未抽组件；✅ BGM 两浮层 **owner 登记**完成 | 弹窗模板仍在 CreateView.vue，仅状态与方法迁出；组件化留待后续批次 |
+| 第 2 步：抽 `useTtsVoices` + `useBgmLibrary` | ⚠️ 仅 `useBgmLibrary` | `useTtsVoices` 未做 |
+
+**为什么先做 composable 而非组件**：组件化必然引入 props/emits 重接线（§五-1「受控行为重接线」），而 composable + 代理/桥接可做到**旧测试零改动全绿**——先用零行为变更的一步验证 §2.3 过渡机制本身成立，再在同一机制上做组件化，风险更可控。
+
+**结果（实测证据）**：
+
+| 项 | 结果 |
+|---|---|
+| CreateView.test.js | **288/288 零改动全绿** —— §2.3「方法代理 + 状态桥接」机制经实测成立 |
+| 新增 useBgmLibrary.test.js | 9/9 |
+| overlay-view-suspension.test.js | 17/17（含两新 owner 登记断言） |
+| CreateView.vue | 5586 → 5518 行（净 -68；迁出 BGM 域约 123 行，新增代理与桥接 36 行 + 1 处 deps 注入） |
+| 新增 composable | `src/views/video-creation/composables/useBgmLibrary.js`（231 行）+ 独立测试 |
+
+**本批新实测坑（已固化进代码与测试）**：
+
+1. **deps 注入必须在首个 `await` 之前同步执行**：`setupBgmLibraryDeps` 初版放在 `mounted()` 的 `await Promise.all(...)` **之后**，测试 `mount` 后 `await nextTick()` 即调方法时注入点尚未执行 → 9 个 BGM 测试全红（`deps not injected`）。正解：注入置于 `mounted()` 首行（首个 await 前），并同步写 `window.__bgmLibraryDeps` 兜底跨实例/早调用时序（`requireDeps()` 二级兜底）。
+2. **模块级单例 composable 的跨用例状态泄漏**：`reactive` 置于模块作用域（单例，因 BGM 素材库是设备级资源）导致 BGM 条目/弹窗态在 vitest 用例间残留——配置管理弹窗的 `.bgmLibrary-item` 计数断言拿到 BGM 残留节点（实测 `expected 3 to be 2`）。正解：导出 `resetBgmLibraryForTest()` 并**在每个相关 describe 的 `beforeEach`** 复位；只放顶层 `beforeEach` 不够——嵌套 describe 有自己的 `beforeEach`，会整体覆盖外层。
+3. **拆出的 composable 不得引入 CJK 字面量**：CI Gate 7 的 `--cjk` 基线扫描拦截渲染端非 locales 文件的新增中文字符串（本仓只豁免 locales 与 `utils/user-facing-error.js`）。初版 composable 含错误消息与 `'背景音乐'` 宾语 → `--cjk` 红（CI QG Static 抓到）。正解：错误消息改英文技术文本；用户可见宾语（kindLabel）改经 deps 注入壳的 `story2videoKindLabel(kind)`（走 locale）。
+4. **`closeXxxDialog` 级联释放的幂等前提**：素材库弹窗关闭会级联调 `closeBgmDeleteDialog()`，后者无条件 release 删除弹窗 owner。其安全性依赖 `releaseEmbeddedViewsForOverlay` 对未知/已释放 owner **幂等返回 false**（该行为已有 `overlay-view-suspension.test.js` 锁定），故无需在级联路径加条件判断——但这条依赖必须在方案里写明，否则后来者会把「无条件 release」当 bug 改掉。
+
+**方法论校验点（供后续批次参考）**：§2.3 的「方法代理 + 状态桥接」经本批实测**成立**（288/288 零改动全绿是最硬的证据）；§2.3-5 的「工期按测试改写量翻倍计」在本批**未发生**（因代理/桥接无需改写测试），该估算仍待第 5 步（s2vConfig 重域）验证。
+
 ---
 
 ## 三、里程碑 1（P0-2）：locales/zh.js · en.js（各 ~3800 行，51 命名空间）

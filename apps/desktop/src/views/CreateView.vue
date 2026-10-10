@@ -906,12 +906,11 @@ import {
   storeGetSetting, storeSetSetting,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects, story2videoGetThumbnail,
   story2videoDeleteProject,
-  story2videoBgmLibraryList, story2videoBgmLibraryAdd,
-  story2videoBgmLibraryRename, story2videoBgmLibraryDelete,
   story2videoConfigProfileList, story2videoConfigProfileCreate,
   story2videoConfigProfileRename, story2videoConfigProfileDelete,
   story2videoBatchCreate, story2videoBatchStatus, story2videoBatchCancel, story2videoPickBatchFiles
 } from '@/api/publisher'
+import { bgmLibraryRefs, bgmLibraryMethods, setupBgmLibraryDeps } from './video-creation/composables/useBgmLibrary'
 import { modelProviderList } from '@/api/model-providers'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
@@ -1135,14 +1134,6 @@ export default {
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       story2videoBatchDeleteDialog: { visible: false, items: [] },
       deleting: false,
-      // 背景音乐素材库（2026-08-14）：设备级持久化，添加/重命名/删除后自动刷新
-      s2vBgmLibrary: [],
-      s2vBgmLibraryLoading: false,
-      s2vBgmLibraryDialogOpen: false,
-      s2vBgmLibraryRenamingId: '',
-      s2vBgmLibraryRenameDraft: '',
-      s2vBgmLibraryDeleteDialogOpen: false,
-      s2vBgmLibraryDeleteTargetId: null,
       // 流水线「保存配置」（2026-08-28 s2v-pipeline-config-profiles）：设备级命名组合配置
       s2vConfigProfiles: [],
       s2vConfigProfilesLoading: false,
@@ -1548,6 +1539,36 @@ export default {
         messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_CONFIRM,
         messageParams: { name: target ? target.name : '' },
       }).message
+    },
+    // ── BGM 素材库状态桥接（拆分方案 v3 §2.3）：get/set 双向委托 bgmLibraryRefs，
+    //    旧测试/模板触点（w.vm.s2vBgmLibrary*）不变；整体赋值经 setter 替换 ref.value ──
+    s2vBgmLibrary: {
+      get() { return bgmLibraryRefs.s2vBgmLibrary.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibrary.value = v },
+    },
+    s2vBgmLibraryLoading: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryLoading.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryLoading.value = v },
+    },
+    s2vBgmLibraryDialogOpen: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryDialogOpen.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryDialogOpen.value = v },
+    },
+    s2vBgmLibraryRenamingId: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryRenamingId.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryRenamingId.value = v },
+    },
+    s2vBgmLibraryRenameDraft: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryRenameDraft.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryRenameDraft.value = v },
+    },
+    s2vBgmLibraryDeleteDialogOpen: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryDeleteDialogOpen.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryDeleteDialogOpen.value = v },
+    },
+    s2vBgmLibraryDeleteTargetId: {
+      get() { return bgmLibraryRefs.s2vBgmLibraryDeleteTargetId.value },
+      set(v) { bgmLibraryRefs.s2vBgmLibraryDeleteTargetId.value = v },
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
@@ -5336,119 +5357,19 @@ export default {
       if (!file) return
       await this.addFileToBgmLibrary(file)
     },
-    // 背景音乐素材库（2026-08-14）：添加成功后入库并自动选中；失败沿用媒体细分提示。
-    async addFileToBgmLibrary(file) {
-      if (!file || !this.validateStory2VideoFile(file, 'bgm')) {
-        this.s2vConfig.bgmPath = ''
-        return null
-      }
-      try {
-        const result = await story2videoBgmLibraryAdd(file)
-        if (result?.code === 0 && result.data?.path) {
-          await this.loadS2VBgmLibrary({ silent: true })
-          this.s2vConfig.bgmPath = result.data.path
-          return result.data
-        }
-        this.s2vConfig.bgmPath = ''
-        this.showStory2VideoErrorDialog(this.resolveMediaImportFailure(result, '背景音乐'))
-        return null
-      } catch (_) {
-        this.s2vConfig.bgmPath = ''
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '背景音乐' } })
-        return null
-      }
-    },
-    async loadS2VBgmLibrary(options = {}) {
-      this.s2vBgmLibraryLoading = true
-      try {
-        const result = await story2videoBgmLibraryList()
-        if (result?.code === 0 && Array.isArray(result.data)) {
-          this.s2vBgmLibrary = result.data
-        } else if (!options.silent) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_LOAD_FAILED })
-        }
-      } catch (_) {
-        if (!options.silent) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_LOAD_FAILED })
-        }
-      } finally {
-        this.s2vBgmLibraryLoading = false
-      }
-    },
-    async openBgmLibraryDialog() {
-      this.s2vBgmLibraryDialogOpen = true
-      await this.loadS2VBgmLibrary()
-    },
-    closeBgmLibraryDialog() {
-      this.s2vBgmLibraryDialogOpen = false
-      this.cancelBgmRename()
-      this.closeBgmDeleteDialog()
-    },
-    async handleBgmLibraryAddFile(e) {
-      const file = e.target.files?.[0]
-      if (!file) return
-      const added = await this.addFileToBgmLibrary(file)
-      if (added && this.$refs.s2vBgmLibraryInput) {
-        // 清空 input 允许连续选择同一文件
-        this.$refs.s2vBgmLibraryInput.value = ''
-      }
-    },
-    startBgmRename(item) {
-      this.s2vBgmLibraryRenamingId = item.id
-      this.s2vBgmLibraryRenameDraft = item.name
-    },
-    async saveBgmRename() {
-      const id = this.s2vBgmLibraryRenamingId
-      const name = String(this.s2vBgmLibraryRenameDraft || '').trim()
-      if (!id || !name || this.s2vBgmLibraryLoading) return
-      this.s2vBgmLibraryLoading = true
-      try {
-        const result = await story2videoBgmLibraryRename(id, name)
-        if (result?.code === 0) {
-          await this.loadS2VBgmLibrary({ silent: true })
-          this.cancelBgmRename()
-          return
-        }
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_RENAME_FAILED })
-      } catch (_) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_RENAME_FAILED })
-      } finally {
-        this.s2vBgmLibraryLoading = false
-      }
-    },
-    cancelBgmRename() {
-      this.s2vBgmLibraryRenamingId = ''
-      this.s2vBgmLibraryRenameDraft = ''
-    },
-    requestBgmDelete(item) {
-      this.s2vBgmLibraryDeleteTargetId = item.id
-      this.s2vBgmLibraryDeleteDialogOpen = true
-    },
-    closeBgmDeleteDialog() {
-      this.s2vBgmLibraryDeleteDialogOpen = false
-      this.s2vBgmLibraryDeleteTargetId = null
-    },
-    async confirmBgmDelete() {
-      const id = this.s2vBgmLibraryDeleteTargetId
-      if (!id || this.s2vBgmLibraryLoading) return
-      this.s2vBgmLibraryLoading = true
-      try {
-        const result = await story2videoBgmLibraryDelete(id)
-        if (result?.code === 0) {
-          // 删除当前选中项时回退为「不使用背景音乐」
-          const target = this.s2vBgmLibrary.find(item => item.id === id)
-          if (target && String(this.s2vConfig.bgmPath) === String(target.path)) this.s2vConfig.bgmPath = ''
-          await this.loadS2VBgmLibrary({ silent: true })
-          this.closeBgmDeleteDialog()
-          return
-        }
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_FAILED })
-      } catch (_) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_FAILED })
-      } finally {
-        this.s2vBgmLibraryLoading = false
-      }
-    },
+    // ── BGM 素材库方法代理（拆分方案 v3 §2.3）：实现已迁至 useBgmLibrary composable，
+    //    壳保留同名代理维持旧测试/模板触点不变；代理删除计划见方案 §2.3 映射表 ──
+    async addFileToBgmLibrary(file) { return bgmLibraryMethods.addFileToBgmLibrary(file) },
+    async loadS2VBgmLibrary(options = {}) { return bgmLibraryMethods.loadS2VBgmLibrary(options) },
+    async openBgmLibraryDialog() { return bgmLibraryMethods.openBgmLibraryDialog() },
+    closeBgmLibraryDialog() { return bgmLibraryMethods.closeBgmLibraryDialog() },
+    async handleBgmLibraryAddFile(e) { return bgmLibraryMethods.handleBgmLibraryAddFile(e, this.$refs.s2vBgmLibraryInput) },
+    startBgmRename(item) { return bgmLibraryMethods.startBgmRename(item) },
+    async saveBgmRename() { return bgmLibraryMethods.saveBgmRename() },
+    cancelBgmRename() { return bgmLibraryMethods.cancelBgmRename() },
+    requestBgmDelete(item) { return bgmLibraryMethods.requestBgmDelete(item) },
+    closeBgmDeleteDialog() { return bgmLibraryMethods.closeBgmDeleteDialog() },
+    async confirmBgmDelete() { return bgmLibraryMethods.confirmBgmDelete() },
     handleQuickFiles(e) {
       Array.from(e.target.files || []).forEach(file => {
         const reader = new FileReader()
@@ -5602,6 +5523,15 @@ export default {
     },
   },
   async mounted() {
+    // BGM 素材库 composable（拆分方案 v3 §2.2 第 2 步）：deps 注入跨域依赖，状态桥接见 computed。
+    // 必须在首个 await 之前同步注入——测试 mount 后 await nextTick() 即调方法时，await 之后的注入点尚未执行。
+    setupBgmLibraryDeps({
+      getS2vConfig: () => this.s2vConfig,
+      showStory2VideoErrorDialog: (payload) => this.showStory2VideoErrorDialog(payload),
+      resolveMediaImportFailure: (result, kindLabel) => this.resolveMediaImportFailure(result, kindLabel),
+      validateStory2VideoFile: (file, kind) => this.validateStory2VideoFile(file, kind),
+      story2videoKindLabel: (kind) => this.story2videoKindLabel(kind),
+    })
     this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.translateWithLocaleFallback('story2video.voicePreviewUnsupported', '当前环境不支持语音合成', 'No speech synthesis'), previewText: this.translateWithLocaleFallback('story2video.voicePreviewText', '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。', 'Voice preview clip'), }))
     this.refreshS2VTemplates()
     this.startStageClock()
@@ -5640,6 +5570,8 @@ export default {
   },
   beforeUnmount() {
     this._s2vAlive = false
+    // BGM 浮层 owner 卸载兜底（QM-2 浮层互斥合同：父组件销毁时不经过 visible=false，必须兜底释放）
+    void bgmLibraryMethods.releaseAllOverlays()
     this.stopPipelinePolling()
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this._settingsDialogUnwatch) { this._settingsDialogUnwatch(); this._settingsDialogUnwatch = null }
