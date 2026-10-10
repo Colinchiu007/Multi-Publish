@@ -9,11 +9,12 @@
     <section class="podcast-section" data-testid="podcast-channel-picker" aria-labelledby="podcast-picker-heading">
       <h2 id="podcast-picker-heading">{{ t('podcast.picker.sectionTitle') }}</h2>
       <p v-if="migrationStatus === 'conflict'" class="podcast-error" data-testid="podcast-migration-conflict">
-        {{ t('podcast.picker.migrationConflict') }}
-        <button type="button" data-testid="podcast-migration-keep-existing" @click="resolveMigration('keep_existing')">{{ t('podcast.picker.keepExisting') }}</button>
-        <button type="button" data-testid="podcast-migration-keep-legacy" @click="resolveMigration('keep_legacy')">{{ t('podcast.picker.keepLegacy') }}</button>
+        {{ t('podcast.picker.migrationConflict') }}<span v-if="migrationConflicts.length" class="podcast-migration-files" data-testid="podcast-migration-files">{{ migrationConflicts.join(' / ') }}</span>
+        <button type="button" data-testid="podcast-migration-keep-existing" @click="onResolveMigration('keep_existing')">{{ t('podcast.picker.keepExisting') }}</button>
+        <button type="button" data-testid="podcast-migration-keep-legacy" @click="onResolveMigration('keep_legacy')">{{ t('podcast.picker.keepLegacy') }}</button>
       </p>
       <p v-else-if="migrationStatus === 'error'" class="podcast-error" data-testid="podcast-migration-error">{{ t('podcast.picker.migrationError') }}</p>
+      <p v-if="channelListError" class="podcast-error" data-testid="podcast-picker-list-error">{{ errorText(channelListError) }}</p>
       <div v-if="channels.length === 0" class="podcast-empty" data-testid="podcast-picker-empty">{{ t('podcast.picker.empty') }}</div>
       <label v-else class="podcast-field">
         <span>{{ t('podcast.picker.current') }}</span>
@@ -25,6 +26,8 @@
         <input v-model="newChannelName" data-testid="podcast-picker-new-name" :placeholder="t('podcast.picker.namePlaceholder')" :maxlength="120">
         <button type="button" data-testid="podcast-picker-create" @click="onCreateChannel">{{ t('podcast.picker.create') }}</button>
         <button type="button" data-testid="podcast-picker-set-default" :disabled="!activeChannelId" @click="onSetDefault">{{ t('podcast.picker.setDefault') }}</button>
+        <input v-model="renameName" data-testid="podcast-picker-rename-name" :placeholder="t('podcast.picker.namePlaceholder')" :maxlength="120">
+        <button type="button" data-testid="podcast-picker-rename" :disabled="!activeChannelId" @click="onRenameChannel">{{ t('podcast.picker.rename') }}</button>
       </div>
       <p v-if="pickerError" class="podcast-error" data-testid="podcast-picker-error">{{ pickerError }}</p>
       <p class="podcast-hint" data-testid="podcast-picker-quota-hint">{{ t('podcast.picker.quotaHint', { cap: channelCap, count: channelCount }) }}</p>
@@ -314,6 +317,8 @@ const {
   channels,
   activeChannelId,
   migrationStatus,
+  migrationConflicts,
+  channelListError,
   channelCap,
   channelCount,
   switchingChannel,
@@ -353,6 +358,7 @@ const {
 
 // 频道目录的本地状态：名字与错误只在这里出现一次，模板不再自造第二份判据
 const newChannelName = ref('')
+const renameName = ref('')
 const pickerError = ref('')
 
 async function onCreateChannel () {
@@ -372,6 +378,24 @@ async function onSetDefault () {
   const res = await setDefaultChannel(activeChannelId.value)
   if (res && res.ok === false) { pickerError.value = errorText(res.code); return }
   notifySuccess(t('podcast.picker.defaultSet'))
+}
+
+async function onRenameChannel () {
+  pickerError.value = ''
+  const name = renameName.value.trim()
+  if (!name) { pickerError.value = t('podcast.picker.nameRequired'); return }
+  const res = await renameChannel(activeChannelId.value, name)
+  if (res && res.ok === false) { pickerError.value = errorText(res.code); return }
+  notifySuccess(t('podcast.picker.renamed'))
+  renameName.value = ''
+}
+
+// 处置迁移冲突是**不可逆**动作（一份留、一份丢），成功必须出声：静默收口让用户以为没生效
+async function onResolveMigration (direction) {
+  pickerError.value = ''
+  const res = await resolveMigration(direction)
+  if (res && res.ok === false) { pickerError.value = errorText(res.code); return }
+  notifySuccess(t('podcast.picker.migrationResolved'))
 }
 
 async function onSwitchChannel () {

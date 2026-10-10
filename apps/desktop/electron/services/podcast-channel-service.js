@@ -101,6 +101,8 @@ function resolveDefaultLogger () {
   return noopLogger()
 }
 
+const { channelBusyGate, CHANNEL_BUSY_ERROR } = require('./podcast-channel-locks')
+
 class PodcastChannelService {
   /**
    * @param {object} [options]
@@ -249,6 +251,7 @@ class PodcastChannelService {
 
   /** 写发布同步元数据：**保留 meta 原值**（本方法与 saveChannel 是两个方向的写者，谁都不许抹掉对方）。 */
   writeFeedSync (patch0) {
+    this._assertNoPublishInFlight('feed:sync')
     const prev = this._readJson(CHANNEL_FILE, null)
     const meta = (prev && (prev.meta || prev.channel)) || null
     const feedSync = Object.assign({}, (prev && prev.feedSync) || {}, patch0 || {}, { updatedAt: new Date().toISOString() })
@@ -261,7 +264,21 @@ class PodcastChannelService {
    * @param {object} channel
    * @returns {object} 已落盘的频道对象
    */
+  /**
+   * 手工写者与一键发布互斥的唯一判据：该频道此刻有发布在飞即拒绝（PRD 降级矩阵 busy 行）。
+   * ⛔ 不得改成排队等待：一键发布跨 await、可达分钟级，把同步的手工写拖进等待队列只会让
+   *    用户点一次「保存」看到转圈超时；同步写互相之间的串行由事件循环本身保证。
+   */
+  _assertNoPublishInFlight (section) {
+    const key = this._channelId || this._root || ''
+    if (!key || !channelBusyGate.isBusy(key)) return
+    const e = new Error(CHANNEL_BUSY_ERROR + ': ' + section + ' 频道正在发布，请稍候')
+    e.code = CHANNEL_BUSY_ERROR
+    throw e
+  }
+
   saveChannel (channel) {
+    this._assertNoPublishInFlight('channel:save')
     if (!channel || typeof channel !== 'object' || Array.isArray(channel)) {
       throw serviceError(SERVICE_ERRORS.CHANNEL_INVALID, '频道数据必须是对象', {
         issues: [engineIssue('CHANNEL_MISSING', 'channel', '频道配置缺失')],
@@ -311,6 +328,7 @@ class PodcastChannelService {
    *        strict=false（手工路径）落盘照旧、只出声——「先登记本地文件、尚未拿到直链」的中间态是既有合法状态。
    */
   saveEpisode (episode, options = {}) {
+    this._assertNoPublishInFlight('episode:save')
     if (!episode || typeof episode !== 'object' || Array.isArray(episode)) {
       throw serviceError(SERVICE_ERRORS.EPISODE_INVALID, '单集数据必须是对象')
     }
@@ -376,6 +394,7 @@ class PodcastChannelService {
    * @returns {boolean} false = 该 id 不存在（调用方必须如实透传，不得恒回 true）
    */
   removeEpisode (id) {
+    this._assertNoPublishInFlight('episode:remove')
     const key = typeof id === 'string' ? id.trim() : ''
     if (!key) return false
     const list = this.listEpisodes()
@@ -392,6 +411,7 @@ class PodcastChannelService {
    * @returns {{path:string, itemCount:number, bytes:number}} 不回传 xml 正文
    */
   buildFeed () {
+    this._assertNoPublishInFlight('feed:build')
     const channel = this.getChannel()
     const episodes = this.listEpisodes()
     let xml

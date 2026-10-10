@@ -48,18 +48,18 @@ function unwrapObject (payload, key) {
 
 /** 领域错误 → IPC envelope。不同排查方向的错误不得合并成一句话。 */
 function toIpcError (err) {
+  const code = err && err.code
   const issues = err && Array.isArray(err.issues) ? err.issues : null
   if (issues) {
-    return { code: EC.VALIDATION_ERROR, message: (err && err.message) || '校验未通过', issues }
+    return { code: EC.VALIDATION_ERROR, subCode: code || '', message: (err && err.message) || '校验未通过', issues }
   }
-  const code = err && err.code
   if (code === 'PODCAST_EPISODE_NOT_FOUND') {
-    return { code: EC.NOT_FOUND, message: (err && err.message) || '单集不存在' }
+    return { code: EC.NOT_FOUND, subCode: code || '', message: (err && err.message) || '单集不存在' }
   }
   if (code === 'PODCAST_STORE_CORRUPT' || code === 'PODCAST_STORE_UNAVAILABLE' || code === 'PODCAST_EPISODES_FULL' || code === 'PODCAST_EPISODE_INVALID') {
-    return { code: EC.VALIDATION_ERROR, message: (err && err.message) || '频道数据不可写' }
+    return { code: EC.VALIDATION_ERROR, subCode: code || '', message: (err && err.message) || '频道数据不可写' }
   }
-  return { code: EC.REQUEST_ERROR, message: (err && err.message) || '操作失败' }
+  return { code: EC.REQUEST_ERROR, subCode: code || '', message: (err && err.message) || '操作失败' }
 }
 
 function registerHandlers (ipcMain, deps) {
@@ -89,7 +89,7 @@ function registerHandlers (ipcMain, deps) {
     if (!payload || typeof payload !== 'object') return ''
     return typeof payload.channelId === 'string' ? payload.channelId.trim() : ''
   }
-  function getService (channelId) {
+  function getService (channelId, options) {
     if (injected) return injected
     const id = String(channelId || '').trim()
     if (!id) {
@@ -100,7 +100,8 @@ function registerHandlers (ipcMain, deps) {
     if (servicesByChannel.has(id)) return servicesByChannel.get(id)
     const PodcastChannelService = require('../services/podcast-channel-service')
     const reg = getRegistry()
-    reg.assertChannelExists(id)
+    if (options && options.writable) reg.assertChannelWritable(id)
+    else reg.assertChannelExists(id)
     const svc = new PodcastChannelService({
       channelDir: reg.channelDir(id),
       channelId: id,
@@ -135,7 +136,7 @@ function registerHandlers (ipcMain, deps) {
   ipcMain.handle('podcast:channel:save', guarded('channel:save', (payload) => {
     // 缺参同样交给服务判：saveChannel(null) 走引擎的 CHANNEL_MISSING，
     // 于是「没传对象」和「传了但不合格」共用**一份**校验实现，不在本层另写 issue 字面量。
-    return { channel: getService(channelOf(payload)).saveChannel(unwrapObject(payload, 'channel')) }
+    return { channel: getService(channelOf(payload), { writable: true }).saveChannel(unwrapObject(payload, 'channel')) }
   }))
 
   ipcMain.handle('podcast:episode:list', guarded('episode:list', (payload) => {
@@ -145,7 +146,7 @@ function registerHandlers (ipcMain, deps) {
   }))
 
   ipcMain.handle('podcast:episode:save', guarded('episode:save', (payload) => {
-    const svc = getService(channelOf(payload))
+    const svc = getService(channelOf(payload), { writable: true })
     // strict 由调用方声明：一键路径要整次拒绝，手工路径保留「先登记、后补直链」的中间态只出声
     const strict = Boolean(payload && payload.strict === true)
     return { episode: svc.saveEpisode(unwrapObject(payload, 'episode'), { strict }) }
@@ -160,7 +161,7 @@ function registerHandlers (ipcMain, deps) {
       throw e
     }
     // 必须看服务判定结果：id 不存在时恒回 removed:true 会让 UI 显示「已删除」而库里纹丝不动
-    if (!getService(channelOf(payload)).removeEpisode(id)) {
+    if (!getService(channelOf(payload), { writable: true }).removeEpisode(id)) {
       const e = new Error('单集不存在')
       e.code = 'PODCAST_EPISODE_NOT_FOUND'
       throw e
@@ -169,7 +170,7 @@ function registerHandlers (ipcMain, deps) {
   }))
 
   ipcMain.handle('podcast:feed:build', guarded('feed:build', (payload) => {
-    const r = getService(channelOf(payload)).buildFeed()
+    const r = getService(channelOf(payload), { writable: true }).buildFeed()
     return { path: r.path, itemCount: r.itemCount, bytes: r.bytes }
   }))
 
@@ -178,8 +179,9 @@ function registerHandlers (ipcMain, deps) {
     return { issues: r.issues, checks: r.checks, itemCount: r.itemCount }
   }))
 
-  // 分发端目录是**频道无关**的：给它加 channelId 语义不成立（评审 #4）
-  ipcMain.handle('podcast:endpoints:list', guarded('endpoints:list', () => ({ endpoints: getService().listEndpoints() })))
+  // 分发端目录是**频道无关**的：给它加 channelId 语义不成立（评审 #4），也不得借用需要 channelId 的
+  // service 构造——那会让本通道在生产路径上恒抛 PODCAST_CHANNEL_ID_REQUIRED（评审 i2）。
+  ipcMain.handle('podcast:endpoints:list', guarded('endpoints:list', () => ({ endpoints: require('@multi-publish/shared-utils/src/podcast-endpoints').listPodcastEndpoints() })))
 
   ipcMain.handle('podcast:channel:list', guarded('channel:list', () => getRegistry().listChannels()))
 

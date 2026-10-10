@@ -132,6 +132,19 @@ describe('usePodcastChannel：桥接结果到用户可见错误码的映射', ()
     expect(s.channelError.value).toBe(IPC_UNAVAILABLE)
     expect(s.channelLoaded.value).toBe(true)
   })
+  // 评审 i7：EC 数字只区分「往哪查」，用户可见文案必须按领域码取 —— subCode 存在时优先
+  it('失败信封带 subCode → composable 用领域码顶替 EC 数字（否则新增校验码只能落到兜底文案）', async () => {
+    vi.stubGlobal('window', {
+      electronAPI: { podcast: { episodeList: vi.fn(async () => ({ ok: false, code: -3, subCode: 'PODCAST_CHANNEL_BUSY', message: 'PODCAST_CHANNEL_BUSY: episode:save' })) } },
+    })
+    const { usePodcastChannel } = await import('./usePodcastChannel')
+    const s = usePodcastChannel()
+
+    const res = await s.loadEpisodes()
+
+    expect(res.code).toBe('PODCAST_CHANNEL_BUSY')
+    expect(s.episodesError.value).toBe('PODCAST_CHANNEL_BUSY')
+  })
 
   it('handler 抛错 → PODCAST_IPC_EXCEPTION 并保留原始 message', async () => {
     vi.stubGlobal('window', {

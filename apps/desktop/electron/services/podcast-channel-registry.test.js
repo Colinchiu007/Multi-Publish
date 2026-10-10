@@ -120,7 +120,12 @@ describe('podcast-channel-registry · 存量迁移', () => {
     })
     write(path.join('channels', otherId, 'episodes.json'), { version: 1, episodes: [] })
     const reg = mk({ idFactory: () => otherId })
-    await expect(reg.ensureMigratedOnce()).rejects.toMatchObject({ code: REGISTRY_ERRORS.MIGRATION_CONFLICT })
+    // 评审 i3：冲突在**首次被发现**的那一次调用上就必须返回可读状态，读路径不得抛错
+    const conflicted = await reg.listChannels()
+    expect(conflicted.migrationStatus).toBe('conflict')
+    expect(conflicted.migrationConflicts.length).toBeGreaterThan(0)
+    // 写路径仍然 fail-closed：不得带着半成品继续（评审 i4 的另一半）
+    await expect(reg.createChannel('再开一个')).rejects.toMatchObject({ code: REGISTRY_ERRORS.MIGRATION_CONFLICT })
     expect((await reg.listChannels()).migrationStatus).toBe('conflict')
     const resolved = await reg.resolveMigration('keep_existing')
     expect(resolved.migrationStatus).toBe('resolved:keep_existing')
@@ -138,7 +143,9 @@ describe('podcast-channel-registry · 存量迁移', () => {
       },
     }
     const reg = new PodcastChannelRegistry({ podcastRoot: root, fs: broken, logger: { info () {}, warn () {}, error () {} } })
-    await expect(reg.listChannels()).rejects.toMatchObject({ code: REGISTRY_ERRORS.MIGRATION_IO_FAILED })
+    // 评审 i3 同族：硬失败首次也要「读得到」，否则界面渲染不出横幅、用户只能反复重启排障
+    const firstList = await reg.listChannels()
+    expect(firstList.migrationStatus).toBe('error')
     // 读通道仍在：状态必须能被看见，否则界面渲染不出横幅
     const listed = await reg.listChannels()
     expect(listed.migrationStatus).toBe('error')
@@ -181,5 +188,31 @@ describe('podcast-channel-registry · cap 与 hosting', () => {
     ])
     expect(results).toHaveLength(3)
     expect(reg.readHosting().bucket).toBe('c')
+  })
+})
+
+
+describe('podcast-channel-registry · 评审 i4/i6 处置', () => {
+  it('迁移待处置态下读路径放行、写路径拒绝（不得把两者挤进同一个判据）', async () => {
+    write('channel.json', { version: 1, channel: { title: '旧节目', description: 'd', link: 'https://example.com', authorName: 'a', authorEmail: 'a@e.com', categoryId: 'arts' } })
+    write('episodes.json', { version: 1, episodes: [{ id: 'ep-1', title: '第一期', url: 'https://cdn.example.com/a.mp3', sizeBytes: 1000, durationSeconds: 120, pubDate: '2026-01-02T00:00:00.000Z', guid: 'g-1' }] })
+    const otherId = 'ch_rwpair'
+    write(path.join('channels', otherId, 'channel.json'), {
+      version: 1, meta: { title: '另一个节目', description: 'd', link: 'https://example.com', authorName: 'a', authorEmail: 'a@e.com', categoryId: 'arts' }, feedSync: null,
+    })
+    write(path.join('channels', otherId, 'episodes.json'), { version: 1, episodes: [] })
+    const reg = mk({ idFactory: () => otherId })
+    expect((await reg.listChannels()).migrationStatus).toBe('conflict')
+    expect(reg.assertChannelExists(otherId)).toBe(otherId)
+    expect(() => reg.assertChannelWritable(otherId)).toThrow(/PODCAST_MIGRATION_CONFLICT/)
+  })
+
+  it('托管配置落盘层自清洗 pathPrefix/endpoint，跨前缀逃逸写不进去（不依赖输入层）', async () => {
+    const reg = mk()
+    await reg.writeHosting({ provider: 'oss', endpoint: 'https://oss-cn-hangzhou.aliyuncs.com/', bucket: 'pod', pathPrefix: '../../etc/passwd' })
+    const h = reg.readHosting()
+    expect(h.pathPrefix).not.toMatch(/\.\./)
+    expect(h.pathPrefix.startsWith('/')).toBe(false)
+    expect(h.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com')
   })
 })

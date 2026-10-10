@@ -232,3 +232,13 @@ pickChannel → extractMix(ffmpeg 抽全混音) → probe(ffprobe 实测 duratio
 4. **feed 公网 URL 的稳定承诺**：`{pathPrefix}/{channelId}/feed.xml` 一旦提交给聚合端就不可改路径——是否在 UI 上把该 URL 标为"已提交地址，改动会导致订阅失效"。
 5. **是否输出 `podcast:transcript`**：文字稿是本项目强项，一期带字幕/文字稿是 Podcasting 2.0 域；本期是否做。
 6. **刀 3 与刀 4 的先后**：当前按"最便宜先做"排为 3→4，但刀 3 依赖刀 2（托管），意味着首期用户可见价值要等三刀完成。是否存在可先行的、只依赖刀 1 的中间价值（例如"多频道 + 只挂外链单集"）。
+
+## 10. 实现后修正（刀 1 落地实测，不改写上文历史口径）
+
+上文是按设计评审定稿的原始口径，保留不删；以下为实测后的现状锚点，冲突处以本节为准（PRD §11「并发与锁」是口径唯一出处）。
+
+1. **§5.1.3 的「按 channelId 异步锁收口 episodes.json 全部写者」已被实测否证并修正。** 手工单集增删是**同步**读改写，同一事件循环内两条 IPC 不可能互相交错；会交错的只有跨 await 的一键发布。于是互斥判据收敛为一个问题（该频道此刻有没有发布在飞），实现为 `podcast-channel-locks.js` 的模块级 `channelBusyGate`，registry 与频道服务读同一实例。`withPodcastChannelLock` 在刀 1 没有任何生产消费者 —— 留着就是「只被自身单测覆盖」的死机制，已删除；刀 2/3 若出现确实需要排队的频道级异步临界区，再按「等待有上限、超时者不得执行临界区、前人抛错必须放行后来者」三条重新引入并与忙标记共键。
+2. **`podcast:endpoints:list` 不得借道按频道构造的服务。** 设计评审未覆盖此点：`getService()` 缺 channelId 即抛 `PODCAST_CHANNEL_ID_REQUIRED`，注入假 service 的单测对该缺陷结构性免疫，而生产路径上这条通道会恒失败。现由 handler 直取共享层 `listPodcastEndpoints()`（同一份实现，无第二份）。
+3. **迁移冲突必须在发现它的那一次调用就可读。** 设计说「报 `PODCAST_MIGRATION_CONFLICT` 交用户处置」，实现若让首访 `channel:list` 直接 reject，界面就渲染不出横幅与处置按钮，用户只剩反复重启排障。现 `ensureMigratedOnce` 捕获冲突/硬失败后返回错误上挂的 `index`；读写分档判据只在 registry 一处（`assertChannelExists` / `assertChannelWritable`）。
+4. **领域码必须能到达文案层。** `toIpcError` 的 `code` 是 EC 数字（决定往哪查），新增校验码若只带它，用户永远看到「调用失败，请重试」。现失败信封统一带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点归一为领域码后取文案。
+5. **落盘层不得只信输入层。** `writeHosting` 在写盘这一站清洗 `pathPrefix`（复用 `normalizePathPrefix` 唯一实现）与 `endpoint`，因为刀 2 会用它派生 OSS 对象 key；防跨前缀逃逸的判据放在输入层等于给下一个入口留洞。

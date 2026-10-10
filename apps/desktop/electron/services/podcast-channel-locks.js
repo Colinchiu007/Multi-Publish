@@ -7,7 +7,7 @@
  * 「读整份 → 改 → 写整份」，两个写者交错时后写者会静默覆盖先写者。本仓在登录态真源上
  * 已经付过一次这笔学费（account-state-lock 的七条口径），这里沿用同一套语义，
  * 但按播客的实际形态拆成三件事，缺一不可：
- *   1) 两把不同键的锁（index 是跨频道全局态，channel 是单频道）；
+ *   1) 一把按 index 键的串行锁（跨频道全局态）+ 一个进程内共享、按 channelId 键的发布忙标记；
  *   2) 唯一的加锁顺序与「两个持有期不得重叠」；
  *   3) 发布防重入用进程内标记，而不是把锁改成分钟级长持 —— 长持会把用户手工编辑
  *      一起挡在门外，且崩溃后留下无人清理的锁。
@@ -115,9 +115,18 @@ function createPublishGate () {
   }
 }
 
+/**
+ * 进程内共享的「该频道有发布在飞」标记 —— registry 与 service 必须读同一个实例。
+ * Why: 手工单集增删是**同步**的读-改-写，同一事件循环内不可能互相交错，需要防的是它落进
+ * 一键发布那条跨 await 的长临界区；判据本来只需要一问（此刻有没有发布在飞），
+ * 用异步锁去串行同步写只会把 IPC 拖进等待队列。键空间与 registry 的 channelId 同源。
+ */
+const channelBusyGate = createPublishGate()
+
 module.exports = {
   createKeyedLocks,
   createPublishGate,
+  channelBusyGate,
   LOCK_WAIT_ERROR,
   CHANNEL_BUSY_ERROR,
   INDEX_BUSY_ERROR,

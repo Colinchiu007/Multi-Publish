@@ -78,7 +78,8 @@
 - 落在 `ensureMigratedOnce()`，由**首个需要频道数据的调用**（读或写均可）触发；**恰好一次**靠 `index.lock` 文件锁 + `migratedAt` 双保险。
 - `registerHandlers` 仍**绝不触碰 userData**（守 `ipc-handlers/podcast.js:69` 既有约束；v2 的"注册期单飞"已撤销）。
 - **完整性按内容哈希三态判定**（§3 与 §8.6 同一判据，出现第二套即结构锁⑬变红）：全量一致=已完成；不一致且**来源仍完整**=静默续传；来源与目标各为不同合法内容才落 `migrationStatus:"conflict"`。复制中途 IO 失败落 `migrationStatus:"error"` + `PODCAST_MIGRATION_IO_FAILED`。
-- 冲突/错误态：**只读通道保留**，写路径与一键入口 fail-closed；`podcast:channel:migrate:resolve`（`keep_legacy | keep_existing`，两分支均幂等）。
+- 冲突/错误态：**只读通道保留**，写路径与一键入口 fail-closed；读写分档的判据只在 registry 一处 —— `assertChannelExists()`（读：id 形态 + 频道存在）与 `assertChannelWritable()`（写：再查 `migrationStatus`），IPC 的 `getService(channelId, { writable })` 按入口声明二选一，禁止在 handler 里另写第三判据；`podcast:channel:migrate:resolve`（`keep_legacy | keep_existing`，两分支均幂等）。
+- ⚠️ 冲突/硬失败必须在**发现它的那一次调用**就返回可读状态（`ensureMigratedOnce` 捕获 `PODCAST_MIGRATION_CONFLICT` / `PODCAST_MIGRATION_IO_FAILED` 后返回错误上挂的 `index`），不得让首访 `podcast:channel:list` 直接 reject：读路径一抛错，界面就渲染不出横幅与两个处置按钮，用户只剩「反复重启应用排障」一条路（QM-6 评审 i3，高危域 datamigration，外部复核后成立）。
 - legacy `channel.json` 与旧文件**一律不删**（R0 删除守卫 + 回滚依据）。
 
 ---
@@ -91,7 +92,7 @@
 |---|---|---|
 | 频道 | `podcast:channel:list`（返 `channels/defaultChannelId/empty/migrationStatus`）/ `:create`（只分配 id 与骨架）/ `:rename` / `:setDefault` / `:migrate:resolve` | 无参 / 各自见参数 |
 | 既有 8 | `channel:get` / `episode:list` / `episode:save` / `episode:remove` / `feed:build` / `feed:verify` | **必填**，主进程不猜默认 |
-| 既有 8 | `endpoints:list` | **保持无参**（分发端目录与频道无关） |
+| 既有 8 | `endpoints:list` | **保持无参**，且 handler 直取共享层 `listPodcastEndpoints()`——不得借用需要 channelId 的 service 构造，否则该通道在生产路径恒抛 `PODCAST_CHANNEL_ID_REQUIRED`（QM-6 评审 i2：注入假 service 的单测对此结构性免疫） |
 | 托管 | `podcast:hosting:get` / `:save` / `:check` | 全局 |
 | 发布 | `podcast:feed:publish` / `podcast:episode:publishFromSource` | 必填 channelId |
 | 事件 | `podcast:publish:progress`（`start`/`done` 双边界）；`onPodcastPublishProgress(cb)` 返回取消函数 | — |
@@ -102,9 +103,10 @@
 ### 6.2 错误体契约
 
 ```
-{ code, message, issues?: [{ code, path, message }] }
+{ code, subCode?, message, issues?: [{ code, path, message }] }
 ```
-`PODCAST_FEED_INVALID` **必须透传** `err.issues`（`podcast-rss.js:273` 已挂载，`path` 形如 `episodes[3].audioUrl`）。现 `toIpcError:55-62` 只回 `{code,message}` 且白名单无此码 ⇒ 落 `REQUEST_ERROR` 丢 issues，**刀 1 必须扩白名单并同步 preload**。
+`PODCAST_FEED_INVALID` **必须透传** `err.issues`（`podcast-rss.js:273` 已挂载，`path` 形如 `episodes[3].audioUrl`）。刀 1 已落：`toIpcError` 白名单含 issues 透传并统一带 `subCode`；改 preload ⇒ 重打 `index.bundle.js` 与 `home-shell-preload.bundle.js`（`pnpm run build:preload`），并由「失败信封带 subCode 必须原样透出」的行为锁钉住（`preload/podcast.test.js` 与 `usePodcastChannel-ipc.test.js` 各一条）。
+- `code` 是 EC 数字（决定「往哪查」：未找到 / 校验 / 请求错误），`subCode` 是领域码（决定「给用户哪句话」）。两者不得互相顶替：`toIpcError` 一律带 `subCode: err.code || ''`，preload 原样透出，`usePodcastChannel.call()` **只在 `ok === false` 且带 `subCode` 时**把 `code` 换成领域码——归一发生在这一处，视图与其余分支继续看 EC 数字。没有这一步，新增校验码只能落到兜底文案，用户看到的永远是「调用失败，请重试」。
 
 ### 6.3 托管 `:save` 的分区合并
 
@@ -115,7 +117,7 @@
 ## 7. 功能逻辑（按刀次）
 
 ### 刀 1 多频道 + 迁移 + 锁 + 契约
-registry（index.json + 两段 channel.json）、迁移三态、`withPodcastIndexLock()` / `withPodcastChannelLock(channelId)` 收口 `episodes.json` **全部写者**（一键 + 手工增删）、`{cap,count}` 透出、8→6 通道加必填 channelId、`toIpcError` 透传 issues、播客页频道切换器与迁移横幅。
+registry（index.json + 两段 channel.json）、迁移三态（首访即可读）、`withPodcastIndexLock()` 收口 `index.json` 全部写者、`episodes.json` 手工写者由**进程内共享的发布忙标记**挡在发布窗口外（`channelBusyGate`，命中即 `PODCAST_CHANNEL_BUSY` 立即拒绝；口径唯一出处是 §11「并发与锁」）、`{cap,count}` 透出、8→6 通道加必填 channelId、`endpoints:list` 改走频道无关路径、`toIpcError` 透传 issues 并带 `subCode`、播客页频道切换器 + 重命名 + 迁移横幅与处置反馈、`{cap,count}` 透出、8→6 通道加必填 channelId、`toIpcError` 透传 issues、播客页频道切换器与迁移横幅。
 
 ### 刀 2 托管直传接线
 凭证加密落盘（`credential-store`，`index.json` 只存 `credentialRef`）→ `podcast:hosting:*` → `putObject`（`podcast-hosting-upload.js:201-226`，返回 `{status,size}`）→ `podcast:feed:publish` 覆盖上传 **feed.xml**（含本地 `feed.prev.xml` + OSS 时间戳副本）→ 页面入口与【回滚上一版 feed】。独立价值：手工加的单集也能一键托管出去。
@@ -148,8 +150,10 @@ registry（index.json + 两段 channel.json）、迁移三态、`withPodcastInde
 - **取消按相位**：`uploadAudio` 之前任一相位可取消（零出站零计费）；之后不可取消并明示原因；关闭浮层**不**取消（浮层内明示）。
 - `{cap,count}` 与迁移状态**每次发布动作发起前现算**，禁止跨动作缓存（行为锁⑦）。
 - 崩溃/退出中断：启动时以 `feedSync.attemptedAt` 与 episodes 现状对账，**只提示不自动修复**。
+- 处置迁移冲突是**不可逆**动作（一份留、一份丢），成功必须出声：`podcast.picker.migrationResolved` 走 `notifySuccess`。静默收口等于让用户以为没生效并重复点击。
+- 手工写与发布在飞冲突时**立即拒绝不排队**（`podcast.errors.PODCAST_CHANNEL_BUSY`）：一键发布跨 await 可达分钟级，把同步的「保存单集」拖进等待队列只会让一次点击变成转圈超时。
 
-**显示项**：频道切换器（名称 + `ch_` 短 id）、迁移状态横幅（conflict/error 各一句 + 处置按钮）、每期 `compliance` 徽标（手工路径保存后即时校验，只出声不阻断）、`feedSync` 横幅（partial = 「公网 feed 未同步」+【只重试上传 feed】）、`backupCreated:false` 时标注「本次未建立回滚点」、hosted feed 公网地址标注「已提交地址，改路径会使订阅失效」、`cap` 计数与事前禁用。
+**显示项**：频道切换器（名称 + `ch_` 短 id）、重命名入口（作用于当前频道，名称为空即前置拒绝并给 `podcast.picker.nameRequired`）、频道目录读取失败横幅（`data-testid="podcast-picker-list-error"`，走 `errorText(channelListError)`——该错误位此前无人渲染，等于「读目录失败时界面静默」）、迁移冲突横幅附**冲突文件名清单**（`data-testid="podcast-migration-files"`，取 `index.json` 的 `migrationConflicts`，用户要靠它判断该保留哪一份）、迁移状态横幅（conflict/error 各一句 + 处置按钮）、每期 `compliance` 徽标（手工路径保存后即时校验，只出声不阻断）、`feedSync` 横幅（partial = 「公网 feed 未同步」+【只重试上传 feed】）、`backupCreated:false` 时标注「本次未建立回滚点」、hosted feed 公网地址标注「已提交地址，改路径会使订阅失效」、`cap` 计数与事前禁用。
 
 ---
 
@@ -158,10 +162,10 @@ registry（index.json + 两段 channel.json）、迁移三态、`withPodcastInde
 | 层 | 判据 | 备注 |
 |---|---|---|
 | 输入 | `validateChannel` / `validateEpisode`（白名单逐字不变，作用域限 `meta` 段）；`validateHosting` **直接复用** `podcast-hosting-upload.js:47`，禁止第二份 | 手工路径新增**保存后即时校验**（只出声不阻断） |
-| 落盘 | registry 写前校验 `channelId` 形态与目录存在性；一键路径**预校验合并结果**（§7 刀 3 步骤 6） | 只校验传入对象会被合并语义放过旧脏字段（#24） |
+| 落盘 | registry 写前校验 `channelId` 形态与目录存在性；`writeHosting` 在**落盘这一站**清洗 `pathPrefix`（复用 `normalizePathPrefix` 唯一实现，拒绝 `..` 与前导 `/`）与 `endpoint`（剥协议与尾斜杠），不依赖刀 2 输入层（QM-6 评审 i6）；一键路径**预校验合并结果**（§7 刀 3 步骤 6） | 只校验传入对象会被合并语义放过旧脏字段（#24） |
 | 出站 | `validateFeed` 前置于 `uploadFeed`（引擎 `buildFeed:269` 已内含）；不过即阻断，公网 feed 永不变脏 | `EPISODE_SIZE_REQUIRED`（`sizeBytes` 非空正整数）与时长整数判据在此层兜住 `length="NaN"` |
 
-新增错误码（zh/en 成对 + 术语进 `i18n-glossary.md`）：`PODCAST_MIGRATION_IO_FAILED`、`EPISODE_MIME_UNDETERMINED`（`audioMimeFromUrl` 未命中改返回 `null`，默认回退仅留给存量一次性固化）、`PODCAST_AUDIO_DEGRADED_SOURCE`、`PODCAST_AUDIO_MEASURE_FAILED`、`PODCAST_CHANNEL_BUSY`、`PODCAST_INDEX_BUSY`、`PODCAST_CHANNEL_ID_INVALID`、`PODCAST_HOSTING_PREFIX_UNSAFE`（`pathPrefix` 不得空/不得以 `/` 开头/不得含 `..`）。
+新增错误码（zh/en 成对 + 术语进 `i18n-glossary.md`；刀 1 已落 9 条：`PODCAST_CHANNEL_ID_REQUIRED`、`PODCAST_CHANNEL_ID_INVALID`、`PODCAST_CHANNEL_NOT_FOUND`、`PODCAST_MIGRATION_CONFLICT`、`PODCAST_MIGRATION_IO_FAILED`、`PODCAST_MIGRATION_DIRECTION_INVALID`、`PODCAST_LOCK_WAIT_TIMEOUT`、`PODCAST_CHANNEL_BUSY`、`PODCAST_EPISODE_NOT_FOUND`，其余随对应刀次落地时补齐）：`PODCAST_MIGRATION_IO_FAILED`、`EPISODE_MIME_UNDETERMINED`（`audioMimeFromUrl` 未命中改返回 `null`，默认回退仅留给存量一次性固化）、`PODCAST_AUDIO_DEGRADED_SOURCE`、`PODCAST_AUDIO_MEASURE_FAILED`、`PODCAST_CHANNEL_BUSY`、`PODCAST_INDEX_BUSY`、`PODCAST_CHANNEL_ID_INVALID`、`PODCAST_HOSTING_PREFIX_UNSAFE`（`pathPrefix` 不得空/不得以 `/` 开头/不得含 `..`）。
 
 ---
 
@@ -169,6 +173,7 @@ registry（index.json + 两段 channel.json）、迁移三态、`withPodcastInde
 
 - **行为锁**：① partial 不报成功；② 摘 degraded 判定必红；③ 锁超时排队者不得补写；④ `validateFeed` 不过则 `uploadFeed` 一次都不被调用；⑤ `durationSec` 不得来自常量或 LLM 估计；⑥ **改名不得抹掉 `feedSync`**；⑦ **重启后 partial 横幅仍在** + 删除一期不刷新列表不得解除禁用；⑧ **旧脏字段 + 新合法对象 → 合并产物非法时不落盘**；⑨ **`issues[]` 逐条到达渲染层**（非仅错误码出现过）。每条配"把锁本身改成 no-op 必须立刻变红"的变异反证。
 - **结构锁**：字面量注册、`envelope` thunk 负向、浮层 owner 登记、`channelId` 传递链单一实现、`validateHosting` 单一实现、⑩ 发布期内不二次读 hosting、⑪ 相位枚举与矩阵测试同 PR、⑫ `toIpcError` 白名单含 `PODCAST_FEED_INVALID` 且透传、⑬ 迁移判据唯一。
+- **行为锁（QM-6 处置新增；每条都做过「把守卫改成 no-op 必须立刻变红」的变异）**：⑭ `endpoints:list` 在**不注入任何替身**的注册路径下也必须返回非空目录；⑮ 写入口只走 `assertChannelWritable`、读入口只走 `assertChannelExists`（按调用序列逐字断言，不是「源码里出现过某个方法名」）；⑯ 发布在飞时四个手工写入口一律 `PODCAST_CHANNEL_BUSY` 且**库里纹丝不动**，`end` 后立即恢复，别的频道不受影响；⑰ 冲突/硬失败在**首次** `listChannels()` 就返回 `migrationStatus`（不得第一次 reject、第二次才可读）。⑯⑰ 的夹具纪律：忙标记必须用 `require` 取——主进程全链 CJS，测试用 ESM `import` 会拿到另一份模块实例，该判据在这类夹具下结构性不可表示（本仓「双模块实例」同源事故）。
 - **单元**：registry 真实 fs（`os.tmpdir()` 隔离）；assembler 注入假 tts/ffmpeg/ffprobe；hosting 注入假 client；guid 派生表含跨频道不撞车负例；迁移含**从非空 legacy 出发** + 幂等重跑 + 三态 + 硬失败。
 - **视觉 QM-4**：新浮层用例浅 + 暗各一张，**必须同时登记 `views/all-views.visual.test.js` 的 `viewTests` 与 `scripts/run-pixel-tests.js` 的 `pixelTests`（:10-55）**，通过证据 = CI 日志该用例名出现次数 > 0；首跑必红 → 同一次 run 的 `quality-gate-visual-reports` artifact 回填并逐张 SHA-256 自证；未触碰视图 0 px；不动 `PIXEL_THRESHOLD`、不加 mask、`KNOWN_DYNAMIC` 保持空。
 - **QM-1**：改 `electron/` ⇒ 完整打包 + 启动 8 秒 + asar 清单 + `verify-worktree-deps.js`；`Access is denied` 先按命令行定位本 worktree 遗留进程逐个 kill（前后 `Get-Process electron` 计数必须相等）。
@@ -195,10 +200,19 @@ registry（index.json + 两段 channel.json）、迁移三态、`withPodcastInde
 | 关闭浮层/切走页面 | 无新终态 | 「关闭不会取消本次发布」 |
 | 崩溃/退出中断 | `reconcile` | 「上次发布疑似中断（第 N 期状态未知）」只提示 |
 | 已达 `ITEMS_MAX` | `blocked` | 「已达上限 {cap} 期，请先删除」（不挤出） |
-| 同频道已有发布在跑 | `busy` | `PODCAST_CHANNEL_BUSY`「该频道有一次发布正在进行，请等它结束」——立即拒绝不排队 |
+| 一键发布期间同频道再次点击 | `busy` | `PODCAST_CHANNEL_BUSY`「该频道有一次发布正在进行，请等它结束」——立即拒绝不排队 |
+| 发布在飞时提交手工增删单集 / 改频道 / 重建 feed | `busy` | 同一码同一句话（`PODCAST_CHANNEL_BUSY`），并明确「等本次发布结束后再修改」；拒绝必须留痕——库里纹丝不动，不得显示「已保存」 |
 | 备份失败 | `success` + 标注 | `backupCreated:false` → 「本次未建立回滚点」（不阻断但必须可见） |
 
-**并发与锁**：`episodes.json` 全部写者共用 `withPodcastChannelLock(channelId)`；`index.json` 用 `withPodcastIndexLock()`；两把锁均 try-acquire，顺序 index → channel，channel 取不到**立即释放 index** 再拒绝，**两个持有期不得重叠**；`index.lock`（迁移文件锁）与运行时内存锁是两套机制、不得跨持。防重入靠 `publishInFlight` 进程内标记（try-acquire / `finally` 必清 / 崩溃随进程消失），**不是长持锁**，且不挡手工写路径。临界区抛错必须放行后来者；超时排队者不得补写。
+**并发与锁（刀 1 实况口径；v5 设计的「按 channelId 异步锁收口全部写者」已按实测修正）**
+
+- `index.json` 的每一次读改写都在 `withPodcastIndexLock()` 内（`createChannel` / `renameChannel` / `setDefaultChannel` / `writeHosting` / 迁移落状态）——它是跨频道全局态，按 channelId 加键根本盖不住。
+- `episodes.json` 的手工写者（`saveChannel` / `saveEpisode` / `removeEpisode` / `writeFeedSync` / `buildFeed`）本身是**同步**读改写：同一事件循环内两条 IPC 不可能互相交错，所以它们之间不需要锁。真正会交错的是**跨 await 的一键发布**（读列表 → await 上传/TTS → 写列表）。于是互斥判据只需一问：该频道此刻有没有发布在飞。
+- 该判据的唯一实现是 `podcast-channel-locks.js` 的模块级 `channelBusyGate`（键 = channelId），**registry 与 service 读同一个实例**：发布侧 `tryBeginPublish / endPublish`，手工侧 `_assertNoPublishInFlight(section)` 命中即 `PODCAST_CHANNEL_BUSY` 立即拒绝、不排队。
+- ⛔ 刀 1 **不留**没有生产消费者的按频道异步锁：`withChannelLock` / `_channelLocks` 已删除——留着就是「只被自身单测覆盖」的死机制（QM-6 评审 i1 的第二半）。刀 2/3 若出现确实需要排队的频道级异步临界区，再按「等待有上限、超时者不得执行其临界区、前人抛错必须放行后来者」三条重新引入，并与本条共用同一个键。
+- 锁的等待上限 `MP_PODCAST_LOCK_WAIT_MS`（默认 250ms）只作用于 index 键；**不得**复用登录态锁的 30s 默认（发布级临界区不在它的服务范围内）。`index.lock`（迁移文件锁）与运行时内存锁是两套机制、不得跨持。
+- Windows 原子替换退避 `[0, 20, 60]`（最坏同步自旋 80ms）由 `REGISTRY_RENAME_RETRY_DELAYS_MS` 单点导出：它是短暂 delete-share 的有界重试，不是排队预算，**不得**放大到秒级——同步自旋冻结的是整个主进程事件循环，量级一变大就变成用户可见的全应用卡死（QM-6 评审 i5 的处置口径）。
+- 临界区抛错必须放行后来者；超时排队者不得补写。
 
 ---
 

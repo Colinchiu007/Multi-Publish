@@ -166,7 +166,7 @@ export function usePodcastChannel () {
   const migrationConflicts = ref([])
   const channelCap = ref(0)
   const channelCount = ref(0)
-  const channelError2 = ref('')
+  const channelListError = ref('')
   const switchingChannel = ref(false)
   const channel = ref(null) // null = 未配置
   const channelLoaded = ref(false)
@@ -227,6 +227,9 @@ export function usePodcastChannel () {
     if (res == null || typeof res !== 'object') {
       return { ok: false, code: IPC_EXCEPTION }
     }
+    // 领域码优先：EC 数字只区分「往哪查」，用户可见文案必须按领域码取（PRD §6 每码成对）。
+    // 只在这一处归一，视图与 composable 的其余分支继续看 EC，避免把两种码混成第三种。
+    if (res && res.ok === false && res.subCode) return Object.assign({}, res, { code: res.subCode })
     return res
   }
 
@@ -406,7 +409,7 @@ export function usePodcastChannel () {
   async function loadChannels () {
     const res = await call(channelList)
     if (!res.ok) {
-      channelError2.value = res.code || IPC_EXCEPTION
+      channelListError.value = res.code || IPC_EXCEPTION
       return res
     }
     const data = res.data || res
@@ -524,6 +527,7 @@ export function usePodcastChannel () {
     makeChannelDraft,
     durationText,
     errorText,
+    channelListError,
     issueText,
   }
 }

@@ -45,6 +45,18 @@
 - [ ] 5.2 PRD 提示文字逐字表由脚本从 locales 生成（禁止手工维护）
 - [ ] 5.3 三处记忆同步 + `01-docs/i18n-glossary.md` 术语收口
 
+## 6. 刀 1 收口：QM-6 双模型评审处置（2026-10-10）
+
+- [x] 6.1 i1｜`episodes.json` 手工写者与一键发布的互斥改为共享忙标记（`channelBusyGate`），删除无生产消费者的 `withChannelLock`；新增 `podcast-channel-write-guard.test.js`（4 例，含键隔离与「库里纹丝不动」）
+- [x] 6.2 i2｜`podcast:endpoints:list` 不再经按频道构造的 service；加「不注入任何替身也必须返回非空目录」的行为锁
+- [x] 6.3 i3｜迁移冲突/硬失败在**首次**调用即返回可读状态（`ensureMigratedOnce` 捕获后返回 `err.index`）；registry 行为锁改为「第一次就 conflict / error 可读」
+- [x] 6.4 i4｜读写分档：`assertChannelExists`（读）与 `assertChannelWritable`（写）；IPC 写入口声明 `{ writable: true }`，按调用序列逐字断言
+- [x] 6.5 i5｜Windows 原子替换退避预算单点导出 `REGISTRY_RENAME_RETRY_DELAYS_MS`（最坏 80ms 同步自旋），并注明不得放大到秒级（冻结的是整个主进程事件循环）
+- [x] 6.6 i6｜`writeHosting` 在落盘这一站清洗 `pathPrefix`（复用 `normalizePathPrefix` 唯一实现）与 `endpoint`；加跨前缀逃逸负例
+- [x] 6.7 i7｜9 条 `PODCAST_*` 领域码补 zh/en 成对文案，并打通 `subCode` 链路（`toIpcError` → preload → `call()` 单点归一），否则新码只能落到兜底文案；同时收掉前端模型报出的两处死键（`podcast.picker.renamed` / `migrationResolved` 现均由界面消费）
+- [x] 6.8 i8｜删除 `_indexCache` 死状态；`channelListError`（原 `channelError2`）与 `migrationConflicts` 落到界面（频道目录读取失败横幅、冲突文件名清单）
+- [x] 6.9｜重命名入口落到频道切换器（`channelRename` 此前有 IPC、有服务、有测试，但界面不可达）
+
 ## 明确不做
 
 - 平台登记面（platforms.yaml / publish-capabilities / platform-definitions / rpa selectors）与 `publishMode` 第四态

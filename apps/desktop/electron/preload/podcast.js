@@ -40,6 +40,7 @@ function unwrap(invoke) {
     return {
       ok: false,
       code: res.code == null ? IPC_EXCEPTION : res.code,
+      subCode: res.subCode == null ? '' : res.subCode,
       message: typeof res.message === 'string' ? res.message : '',
       issues: Array.isArray(res.issues) ? res.issues : [],
     };

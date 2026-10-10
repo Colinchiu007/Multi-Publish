@@ -82,8 +82,33 @@
 
 #### Scenario: 分发端目录仍是唯一的全局频道无关通道
 - **WHEN** 渲染层请求 `podcast:endpoints:list`
-- **THEN** 该调用不需要 channelId（它是全局目录），而 6 条频道作用域通道缺 channelId 一律被拒
+- **THEN** 该调用不需要 channelId（它是全局目录），而 6 条频道作用域通道缺 channelId 一律被拒；且该 handler **不得**经按频道构造的服务取目录——在没有注入任何替身的生产注册路径上调用它必须返回非空目录
 
 #### Scenario: 平台契约面零污染
 - **WHEN** CI 运行 `podcast-endpoints.test.js` 的「与平台契约面隔离」判据
 - **THEN** 播客分发端 id 不出现在任何平台表中，`publishMode` 仍为三态闭集
+
+
+### Requirement: 迁移状态必须在发现它的那一次调用上可读，写路径单独 fail-closed
+
+系统 SHALL 把「能不能看见迁移状态」与「能不能写」拆成两条判据，且唯一实现落在 registry：`assertChannelExists()`（读：id 形态 + 频道存在）与 `assertChannelWritable()`（写：再查 `migrationStatus`）。`ensureMigratedOnce()` SHALL NOT 因发现冲突或硬失败而使**本次读调用** reject——它必须返回带着 `migrationStatus` 的索引。
+
+#### Scenario: 首次访问即撞见冲突
+- **WHEN** 存在 legacy 数据且迁移目标已是另一份合法内容，用户第一次请求 `podcast:channel:list`
+- **THEN** 该请求成功返回 `migrationStatus="conflict"` 与冲突文件清单，界面渲染出横幅与两个处置按钮；不得返回错误、不得要求用户重开应用第二次才看得见
+
+#### Scenario: 冲突态下读写分档
+- **WHEN** 迁移处于 `conflict` 或 `error` 态
+- **THEN** 读通道（`channel:get` / `episode:list` / `feed:verify`）照常返回数据，写通道（`channel:save` / `episode:save` / `episode:remove` / `feed:build`）与建频道/改默认一律被拒，且拒绝原因是迁移待处置而不是频道不存在
+
+### Requirement: 手工写者与一键发布之间只有一个互斥判据
+
+系统 SHALL 用进程内、按 channelId 键的「发布在飞」标记作为手工写者与一键发布之间的唯一互斥判据，该标记的实例在 registry 与频道服务之间共享（同一份，禁止第二实例）。手工写者 SHALL NOT 为等待发布而排队。
+
+#### Scenario: 发布在飞时提交手工编辑
+- **WHEN** 某频道有发布正在进行，用户保存/删除单集、改频道元信息或重建 feed
+- **THEN** 调用立即得到 `PODCAST_CHANNEL_BUSY`，`episodes.json` 与 `channel.json` 逐字未变，界面给出「等本次发布结束后再修改」而不是「保存成功」
+
+#### Scenario: 发布结束后立即恢复
+- **WHEN** 上一次发布结束（成功、失败或取消均含）
+- **THEN** 同一频道的手工写入口立即恢复可用；该拒绝不是粘滞态，且不依赖应用重启

@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "external-critic-then-proposer-fix",
+  "confidenceWeight": 1,
+  "reason": "critic=claude（anthropic）与出方案方（本 agent）跨家族，8 条 finding 均为外部产出；高危域 i3（datamigration）由外部评审直接命中并据其修复，未使用自扮演豁免。",
+  "highRiskNote": "高危域争议项不允许自扮演豁免：i3 的处置依据是外部 critique + 代码实测双向核实，不是自评。",
+  "requiresExternalReview": [
+    { "id": "i3", "severity": "Critical", "domains": ["datamigration"], "resolution": "已由外部 critique 命中并修复；修复后行为锁：首次 listChannels 即返回 migrationStatus=conflict" }
+  ],
+  "critiqueFingerprint": "133a55243927265d",
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "episodes.json 串行锁未接线：写者直调 service，locks 模块只被自身单测覆盖",
+      "highRiskDomains": [],
+      "prosecution": "ipc-handlers/podcast.js 的 channel:save / episode:save / episode:remove / feed:build 直接 getService(...).xxx()，无任何 withChannelLock 包裹；registry.withChannelLock 的唯一调用者是 podcast-channel-locks.test.js。一键发布落地后，手工写会落进它跨 await 的读改写窗口，后写者静默覆盖先写者。",
+      "defense": "手工写者本身是同步读改写，JS 单线程内两条 IPC 不可能互相交错；把同步写塞进异步锁队列只会把 IPC 拖进等待预算，而互斥真正需要的判据是「该频道有没有发布在飞」。",
+      "verdict": "upheld",
+      "rationale": "指控成立且修法换形：不补异步锁，而是把互斥判据收敛为进程内共享的 channelBusyGate（registry 与 service 读同一实例），手工写者命中即 PODCAST_CHANNEL_BUSY 立即拒绝；同时删除零生产消费者的 withChannelLock/_channelLocks，消除「只被自身单测覆盖」的死机制。行为锁 podcast-channel-write-guard.test.js 4 例（含库里纹丝不动、end 后恢复、跨频道隔离、registry 与 service 同实例）。夹具教训：忙标记必须 require 取，ESM import 会拿到另一份模块实例，首跑即因该接缝假失败暴露。"
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "finding": "podcast:endpoints:list 生产必失败：handler 调 getService() 无 channelId 即抛 PODCAST_CHANNEL_ID_REQUIRED",
+      "highRiskDomains": [],
+      "prosecution": "getService 的 guard 是 `if (!id) throw PODCAST_CHANNEL_ID_REQUIRED`，且 `if (injected) return injected` 只在注入时短路；生产不注入 ⇒ 该通道恒返回错误，分发端目录在真实应用里永远取不到。既有单测全部注入假 service，对该缺陷结构性免疫。",
+      "defense": null,
+      "verdict": "upheld",
+      "rationale": "逐行核实成立（ipc-handlers/podcast.js:182 → getService() 无参）。改为 handler 直取共享层 listPodcastEndpoints()（同一实现，不开第二份），并补一条「不注入任何替身的注册路径也必须返回非空目录」的行为锁；同一条信封合同测试新增「注入的假 service 的 listEndpoints 一次都不该被调用」的反向断言，防止退回借道 service。"
+    },
+    {
+      "id": "i3",
+      "severity": "Critical",
+      "finding": "迁移冲突首遇即抛：首个 channel:list reject，冲突横幅与处置按钮首访不出现，用户无出口",
+      "highRiskDomains": ["datamigration"],
+      "prosecution": "_runMigration 在冲突分支 throw MIGRATION_CONFLICT，ensureMigratedOnce 不捕获 ⇒ listChannels 首次调用 reject；composable 把 res.code 写进无人渲染的 channelError2 ⇒ 界面既无横幅也无按钮。冲突态虽已落盘（第二次调用可读），但首访用户看不到任何可操作出口，只能反复重启应用排障。",
+      "defense": "状态已被持久化，第二次进入页面就能看到横幅，并非永久不可推进。",
+      "verdict": "upheld",
+      "rationale": "辩护不足以推翻：设计的契约是「读路径返回状态」，把同一件事写成「第一次报错、第二次正常」是把不可逆处置的入口藏在隐式重试里；且首访 reject 时错误位无人渲染，用户侧表现就是「点了没反应」。修复：ensureMigratedOnce 捕获 MIGRATION_CONFLICT / MIGRATION_IO_FAILED 后返回错误上挂的 index；channelError2 更名 channelListError 并接上横幅；冲突横幅附 migrationConflicts 文件清单（用户靠它判断保留哪一份）；处置成功走 notifySuccess。行为锁改为「首次 listChannels 即 conflict / error 可读」，写路径仍 fail-closed。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "assertChannelExists→_assertWritable 在 conflict/error 下连读路径一起拒绝，违反只读通道保留",
+      "highRiskDomains": [],
+      "prosecution": "getService 对所有通道都调 assertChannelExists，而它内部无条件 _assertWritable ⇒ 迁移待处置态下连 channel:get / episode:list / feed:verify 都被拒，与错误文案「只读通道保留」自相矛盾，处置流程也读不到现状。",
+      "defense": null,
+      "verdict": "upheld",
+      "rationale": "修复为两个入口：assertChannelExists（读：id 形态 + 存在性）与 assertChannelWritable（写：再查 migrationStatus），IPC 按 getService(channelId, { writable }) 声明二选一，判据仍只在 registry 一处。行为锁按调用序列逐字断言（feed:build 记 write:<id>、episode:list 记 read:<id>），不是「源码里出现过某个方法名」的记录性断言。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "atomicWriteJson 的 while(Date.now()<until) 同步自旋阻塞主进程事件循环",
+      "highRiskDomains": [],
+      "prosecution": "renameSync 遇 EPERM/EACCES/EBUSY 时同步忙等，期间主进程所有 IPC 冻结。",
+      "defense": "L2：AGENTS.md「Windows 原子文件替换重试」要求对这三类错误做**短且有界**的退避，且回归必须用真实文件句柄制造 delete-share 冲突；本处预算 [0,20,60] ⇒ 最坏同步自旋 80ms，而临界区本身是同步文件 IO，改成 await 会把 index 的读改写拆成跨 tick 的两段，正好制造本锁要消灭的交错。",
+      "verdict": "partially_accepted",
+      "rationale": "接受「必须显式命名并锁住预算」，拒绝「改异步」：把 [0,20,60] 提为单点导出的 REGISTRY_RENAME_RETRY_DELAYS_MS 并在注释写明「放大到秒级即变成用户可见的全应用卡死」；未接受部分为异步化——它会破坏同步读改写的不可交错性（i1 的整个论证前提）。"
+    },
+    {
+      "id": "i6",
+      "severity": "Warning",
+      "finding": "writeHosting 原样持久化未校验 pathPrefix/endpoint，防跨前缀逃逸只在输入层",
+      "highRiskDomains": [],
+      "prosecution": "pathPrefix 含 ../ 或前导 / 会原样进 index.json，刀 2 用它派生 OSS 对象 key 时可越出频道前缀；落盘层无兜底意味着「下一个不经输入层的写入口」必然漏掉。",
+      "defense": null,
+      "verdict": "upheld",
+      "rationale": "修复为在 writeHosting 落盘前复用 podcast-hosting-upload 的 normalizePathPrefix（唯一实现，禁止第二份清洗规则）并剥 endpoint 的协议与尾斜杠；行为锁用跨前缀负例（../../etc/passwd）断言落盘值不含 .. 且不以 / 开头。"
+    },
+    {
+      "id": "i7",
+      "severity": "Info",
+      "finding": "新增 PODCAST_* 错误码无 zh/en 文案键，errorText 全落 fallback",
+      "highRiskDomains": [],
+      "prosecution": "PRD §6 要求每码成对；缺键时用户看到「播客服务调用失败，请重试」而不是「该频道正在一键发布」。",
+      "defense": null,
+      "verdict": "upheld",
+      "rationale": "比补缺键更根本的是链路：toIpcError 的 code 是 EC 数字，领域码从未到达渲染层，补了键也取不到。故同时打通 subCode（toIpcError 统一携带 → preload 原样透出 → call() 单点归一），并补 9 条 zh/en 成对文案；两条行为锁分别锁「透出」与「归一」。前端模型那一路的 prose 观察同时暴露 podcast.picker.renamed / migrationResolved 两处死键，已核实成立并转为被界面消费（重命名入口 + 处置成功提示），未新增无人消费的键。"
+    },
+    {
+      "id": "i8",
+      "severity": "Info",
+      "finding": "_indexCache 只写不读为死状态；migrationConflicts、channelError2 无消费点",
+      "highRiskDomains": [],
+      "prosecution": "写而不读的缓存与无人渲染的错误位都是「看起来有、实际没用」的假完成。",
+      "defense": null,
+      "verdict": "upheld",
+      "rationale": "删除 _indexCache（写点与声明一并移除，不留注释壳）；migrationConflicts 接进冲突横幅、channelError2 更名 channelListError 接进独立错误段落。"
+    }
+  ]
+}

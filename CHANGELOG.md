@@ -8,9 +8,11 @@ P0 播客 RSS 频道（PR #3193）交付了引擎与独立页面，但每一期�
 
 - **多频道**：`index.json`（频道目录 + 默认频道 + 全局托管配置 + 迁移状态）+ `channels/<ch_id>/{channel.json,episodes.json,feed.xml}`；`channelId` 为不可变短 id `^ch_[a-z0-9]{4,16}$`（托管路径含它，改它等于改掉已提交给 Apple/小宇宙的 feed URL），改名只改显示名。
 - **迁移**：`ensureMigratedOnce()` 在注册期不触盘的前提下单飞执行；完整性按内容哈希三态判定（等值 / 静默续传 / 真冲突）；冲突与 IO 失败落**持久化状态**，读路径可见（渲染处置入口）、写路径 fail-closed；legacy 文件不删；**绝不改写既有 guid**（补写新形态会让聚合端把每期认成新节目，听众看到节目单重复）。
-- **并发**：`episodes.json` 全部写者（一键 + 手工增删）按 channelId 串行，`index.json` 另用全局单键；同键不可重入（迁移收在锁外），等待超时者不得补写且仍推进后序序位；发布防重入用进程内标记，被占即 `PODCAST_CHANNEL_BUSY`（不借用登录态锁的 30s 预算与文案）。
+- **并发**：`index.json` 的每次读改写在 `withPodcastIndexLock()` 内；`episodes.json` 的手工写者是**同步**读改写（同一事件循环内不可能互相交错），它们与跨 await 的一键发布之间用**进程内共享、按 channelId 键的发布忙标记**互斥（`channelBusyGate`，registry 与频道服务读同一实例），命中即 `PODCAST_CHANNEL_BUSY` 立即拒绝、不排队，且库里纹丝不动。同键不可重入（迁移收在锁外），等待超时者不得补写且仍推进后序序位；不借用登录态锁的 30s 预算与文案。⚠️ 设计稿 v5 的「按 channelId 异步锁收口全部写者」在实测后被否证并修正——该异步锁在刀 1 没有任何生产消费者，属「只被自身单测覆盖」的死机制，已删除（`withChannelLock`）。
 - **校验**：`channel.json` 拆 `meta`/`feedSync` 两段，改名不再抹掉发布状态；`saveEpisode` 的预校验打在**合并结果**上（严格模式整次拒绝，手工路径保留"先登记后补直链"中间态、落盘后即时校验只出声）。
-- **契约**：6 条既有通道改为必填 `channelId`，`podcast:endpoints:list` 保持频道无关无参；新增 `channel:list|create|rename|setDefault|migrate:resolve`；`episode:list` 回 `{episodes, cap, count}`；preload 与两个 bundle 重生成；渲染层在 composable 单点注入 channelId（不在 7 个调用点各写一份）。
+- **契约**：6 条既有通道改为必填 `channelId`，`podcast:endpoints:list` 保持频道无关无参并**直取共享层目录**（早前借道按频道构造的 service 会让该通道在生产路径恒抛 `PODCAST_CHANNEL_ID_REQUIRED`，注入假 service 的单测抓不到）；失败信封新增 `subCode`（领域码），渲染层在 `call()` 单点优先用它取文案，否则新增校验码只能落到「调用失败，请重试」；新增 `channel:list|create|rename|setDefault|migrate:resolve`；`episode:list` 回 `{episodes, cap, count}`；preload 与两个 bundle 重生成；渲染层在 composable 单点注入 channelId（不在 7 个调用点各写一份）。
+- **迁移可读性**：冲突/硬失败必须在**发现它的那一次** `channel:list` 就返回可读状态（返回错误上挂的 `index`），不得让首访 reject——读路径一抛错，界面渲染不出横幅与处置按钮，用户只剩反复重启排障；读写分档判据只在 registry 一处（`assertChannelExists` / `assertChannelWritable`）。
+- **界面可达性**：`channelRename` 此前有 IPC、有服务、有测试但界面不可达 ⇒ 频道切换器补重命名入口；迁移处置成功必须 `notifySuccess` 出声（不可逆动作静默收口等于让用户以为没生效）；频道目录读取失败横幅与冲突文件名清单接上（两处错误位此前无人渲染 = 界面静默）；9 条领域码补 zh/en 成对文案，两处死键（`renamed`/`migrationResolved`）转为被消费。
 
 ## 评审与门禁
 

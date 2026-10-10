@@ -8,7 +8,7 @@
  *   已经提交给 Apple/小宇宙的 feed URL，那是对外不可逆承诺；
  * - 因此 `default` 这类"频道名"绝不能当 id 用，迁移出来的频道同样分配合规 ch_ 短 id；
  * - index.json 自己是**跨频道全局态**（hosting + defaultChannelId 的读改写），
- *   按 channelId 加键根本盖不住它，所以这里有两把不同键的锁；
+ *   按 channelId 加键根本盖不住它，所以 index 用自己的键锁、频道级互斥用发布忙标记；
  * - 迁移落在 ensureMigratedOnce，由首个需要频道数据的调用触发（读或写均可），
  *   注册路径绝不触盘 —— ipc-handlers/podcast.js 的惰性构造约束优先于此。
  */
@@ -18,7 +18,7 @@ const fs = require('fs')
 const crypto = require('crypto')
 
 const { ITEMS_MAX } = require('@multi-publish/shared-utils/src/podcast-rss')
-const { createKeyedLocks, createPublishGate } = require('./podcast-channel-locks')
+const { createKeyedLocks, channelBusyGate } = require('./podcast-channel-locks')
 
 const PODCAST_DIR_NAME = 'podcast'
 const INDEX_FILE = 'index.json'
@@ -26,6 +26,27 @@ const LEGACY_CHANNEL_FILE = 'channel.json'
 const LEGACY_EPISODES_FILE = 'episodes.json'
 const CHANNELS_DIR = 'channels'
 const CHANNEL_ID_RE = /^ch_[a-z0-9]{4,16}$/
+
+// Windows 短暂 delete-share 的有界退避；总自旋上界 = 各档之和，超过即原样抛出（AGENTS.md 原子替换约束）。
+// 允许同步自旋是因为临界区本身是同步文件 IO —— 改成 await 会把 index 的读改写拆成跨 tick 的两段。
+const REGISTRY_RENAME_RETRY_DELAYS_MS = [0, 20, 60]
+
+/**
+ * 落盘层兜底：hosting.pathPrefix / hosting.endpoint 会被刀 2 用来派生 OSS 对象 key 与公网 URL，
+ * 所以防跨前缀逃逸的判据必须在**写盘这一站**就把关，不能只待在输入层（评审 i6）。
+ * 唯一实现复用 podcast-hosting-upload 的 normalizePathPrefix，禁止在本地再抄一份清洗规则。
+ */
+const { normalizePathPrefix } = require('./podcast-hosting-upload')
+
+function normalizeObjectPathPrefix (raw) {
+  const s = String(raw == null ? '' : raw)
+  if (s.trim() === '') return ''
+  return normalizePathPrefix(s)
+}
+
+function normalizeHostingEndpoint (raw) {
+  return String(raw == null ? '' : raw).trim().replace(/^https?:\/\//, '').replace(/\/+$/, '')
+}
 
 const REGISTRY_ERRORS = {
   CHANNEL_ID_INVALID: 'PODCAST_CHANNEL_ID_INVALID',
@@ -111,16 +132,14 @@ class PodcastChannelRegistry {
     this._fs = options.fs || fs
     this._app = options.app || null
     this._logger = options.logger || null
-    this._retry = Array.isArray(options.renameRetryDelaysMs) ? options.renameRetryDelaysMs : [0, 20, 60]
+    this._retry = Array.isArray(options.renameRetryDelaysMs) ? options.renameRetryDelaysMs : REGISTRY_RENAME_RETRY_DELAYS_MS
     this._idFactory = typeof options.idFactory === 'function' ? options.idFactory : newChannelId
     this._rootOverride = typeof options.podcastRoot === 'string' && options.podcastRoot.trim()
       ? options.podcastRoot.trim() : null
     this._rootResolved = null
-    this._indexCache = null
     const waitTimeoutMs = Number(process.env.MP_PODCAST_LOCK_WAIT_MS) || undefined
     this._indexLocks = createKeyedLocks({ waitTimeoutMs: Number.isFinite(waitTimeoutMs) ? waitTimeoutMs : 250 })
-    this._channelLocks = createKeyedLocks({ waitTimeoutMs: Number.isFinite(waitTimeoutMs) ? waitTimeoutMs : 250 })
-    this._gate = createPublishGate()
+    this._gate = channelBusyGate
     this._migratedOnce = false
   }
 
@@ -164,7 +183,6 @@ class PodcastChannelRegistry {
 
   _saveIndex (index) {
     atomicWriteJson(this._fs, this.indexPath(), index, this._retry)
-    this._indexCache = index
     return index
   }
 
@@ -179,7 +197,16 @@ class PodcastChannelRegistry {
       // 冲突/硬失败态必须**可读**：读路径若继续抛错，界面就渲染不出横幅，用户既看不到冲突
       // 也点不到处置按钮，只能反复重启应用排障。写路径的拦截另有 _assertWritable。
       if (current.migrationStatus) return current
-      const migrated = this._runMigration(current)
+      let migrated
+      try {
+        migrated = this._runMigration(current)
+      } catch (e) {
+        // 冲突/硬失败在**首次被发现**的那一次调用上就必须返回可读状态：读路径若抛错，界面渲染不出
+        // 横幅，用户既看不到冲突也点不到处置按钮，只能反复重启应用排障（写路径另有 assertChannelWritable）。
+        const idx = e && e.index
+        if (idx && (idx.migrationStatus === 'conflict' || idx.migrationStatus === 'error')) return idx
+        throw e
+      }
       this._migratedOnce = true
       return migrated
     })
@@ -374,8 +401,14 @@ class PodcastChannelRegistry {
     const id = String(channelId || '').trim()
     if (!CHANNEL_ID_RE.test(id)) throw err(REGISTRY_ERRORS.CHANNEL_ID_INVALID, '频道 id 形态非法：' + id)
     const index = this._loadIndex()
-    this._assertWritable(index)
     if (!index.channels.some((c) => c.id === id)) throw err(REGISTRY_ERRORS.CHANNEL_NOT_FOUND, '频道不存在：' + id)
+    return id
+  }
+
+  /** 写路径专用：先确认频道存在，再确认迁移不处于待处置态；读路径不得走这里（评审 i4）。 */
+  assertChannelWritable (channelId) {
+    const id = this.assertChannelExists(channelId)
+    this._assertWritable(this._loadIndex())
     return id
   }
 
@@ -402,9 +435,9 @@ class PodcastChannelRegistry {
       const prev = index.hosting || {}
       const next = {
         provider: patch.provider != null ? String(patch.provider).trim() : prev.provider || 'oss',
-        endpoint: patch.endpoint != null ? String(patch.endpoint).trim() : prev.endpoint || '',
+        endpoint: normalizeHostingEndpoint(patch.endpoint != null ? patch.endpoint : prev.endpoint),
         bucket: patch.bucket != null ? String(patch.bucket).trim() : prev.bucket || '',
-        pathPrefix: patch.pathPrefix != null ? String(patch.pathPrefix).trim() : prev.pathPrefix || '',
+        pathPrefix: normalizeObjectPathPrefix(patch.pathPrefix != null ? patch.pathPrefix : prev.pathPrefix),
         credentialRef: patch.credentialRef != null ? String(patch.credentialRef).trim() : prev.credentialRef || '',
         updatedAt: new Date().toISOString(),
       }
@@ -416,7 +449,6 @@ class PodcastChannelRegistry {
   // ---- 锁与防重入的对外出口（服务层与编排层共用，禁止第二份） ----
 
   withIndexLock (section, task) { return this._indexLocks.withKey('index', section, task) }
-  withChannelLock (channelId, section, task) { return this._channelLocks.withKey(String(channelId || ''), section, task) }
   tryBeginPublish (channelId, meta) { return this._gate.tryBegin(channelId, meta) }
   endPublish (channelId) { return this._gate.end(channelId) }
   isPublishing (channelId) { return this._gate.isBusy(channelId) }
