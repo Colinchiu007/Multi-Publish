@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "domains": [
+        "datamigration"
+      ]
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "domains": [
+        "auth",
+        "datamigration"
+      ]
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "domains": [
+        "datamigration"
+      ]
+    }
+  ],
+  "critiqueFingerprint": "b5054d11919998e7",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "adjudicationNote": "裁决在提交 6e6bf7961 之后填写。i1/i2/i3/i6 四条**已在代码里修掉**（故对「指控成立」这一点无争议，不需要自扮演豁免来压掉它）；i5 判 dismissed 并**顺手实现了它提的审计要求**；i4 判 dismissed 且依据是可机械复核的两处事实（见 rationale）。⚠️ 如实声明：本轮仅 critic=claude 单家族运行，**i4 的 dismissed 未取得跨家族外部复核**（i1/i2 因已修而不存在「被自扮演压掉」的问题）。",
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "矛盾检测误伤 P0-1 核心：`_maybeRollback` 的 `!attempted` 分支把 `definitelyNotSent`（词表确认的登录失效）也计入缺失接线；平台一旦有过成功发布即被判定接线矛盾并永久停用回滚（要到重启/手动解除），登录失效族首次出现回滚即自毁。",
+      "highRiskDomains": [
+        "datamigration"
+      ],
+      "prosecution": "场景可逐步复现且**恰好打在本变更的靶心上**：①某平台成功发布过一次 ⇒ `_platformsProvenSubmit` 命中该平台；②用户登录态失效（`publisher-router` 在 RPA 登录态早退处打标 `definitelyNotSent = true`）；③该任务失败进入 `_maybeRollback`：`attempted` 为 false（因为执行器见 `definitelyNotSent` 就不再 `markSubmitAttempted`）⇒ 进入 `if (!attempted)` 分支 ⇒ 计数器 +1 ⇒ 因 `_platformsProvenSubmit.has(platform)` 为真而判「接线矛盾」⇒ `_disableRollbackForPlatform` ⇒ 该平台回滚被**永久停用**（直到重启或手动解除）。结果：P0-1 对**最该生效**的那一族（登录态失效）在第一次触发时就把自己关掉；而且用户看不到任何提示，只会觉得「这个功能时灵时不灵」。指控成立。",
+      "defense": "可辩护的只有「方向安全」：永久停用回滚的后果是**多等一个窗口**（fail-closed），不会造成重复发布；且 `getProbeCounts()` 与 `log.error` 会留下痕迹，可人工恢复。但这条辩护无法否认功能自毁这一事实 —— 一个只在第一次生效的 P0-1 等于没有 P0-1。",
+      "verdict": "upheld",
+      "rationale": "已在提交 6e6bf7961 修复：探针判据由 `if (!attempted)` 改为 `if (!attempted && !definitelyNotSent)` —— 词表确认的未提交是**合法未提交**，不是接线缺陷，不得计入缺失接线计数。回归证据：`packages/shared-utils` 全量 806 passed / 10 skipped；`task-queue-guard-integration.test.js` 16 passed（含未提交回滚、已提交占窗、矛盾 fail-closed、I4 探针、日配额三条）。复核方式（可机械重跑）：把 `&& !definitelyNotSent` 摘掉后，「I4 探针」用例仍绿但「未提交回滚」用例会红 —— 该判据与「词表打标」是一对联锁，任一侧退化都会被其中一条抓到。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "登录态词表在 publisher-router 的 `!result.success` 分支对任何命中文本打标；若平台在已收到内容后返回『登录超时/登录失效』响应，已提交窗口被误回滚，会早于窗口重复发布（危险侧），违背『可确证未送出』须先于平台写的要求。",
+      "highRiskDomains": [
+        "auth",
+        "datamigration"
+      ],
+      "prosecution": "两条独立证据支持「打标面过宽」：①**结构性**：`ApiPublisher.publish` 走到 `if (!result || !result.success)` 时，`publishViaApi(...)` **已经返回**，即已经历一次完整网络往返 —— 请求是发出去过的；平台响应里出现「登录失效」恰恰**证明请求到达了平台**，据此判「未送出」在语义上就是错的。②**词表选词**：`rpa-view-platforms.js:874` 的失败检测正则为 `/(发布失败|提交失败|上传失败|登录失效|请登录)/`，即 `登录失效`/`请登录` 这些中文短语是**动作之后**从页面文本判出来的，完全可能出现在内容已被接收之后。危险侧后果：早于窗口的重复发布。指控成立。",
+      "defense": "原设计有「封闭词表 + 每条注明机制理由」的纪律，且方向性后果（误标 ⇒ 危险侧）已写进文件头；`not logged in` 这一条本身是 RPA 登录态早退的确切措辞，确实早于平台写。可以辩护的只有「英文那条是对的」，无法辩护「中文那些也是可确证的」。",
+      "verdict": "upheld",
+      "rationale": "已在 6e6bf7961 修复两处：①API 轨 `!result.success` 分支**撤掉打标**（源码注释写明理由：已发生网络往返 ⇒ 不打标）；②词表删掉 `未登录|登录失效|登录超时|请重新登录|请先登录`，只保留 RPA 登录态早退的 `<platform> not logged in` 与发出请求前的凭证缺失（`Cookie 缺失|凭证不可用|凭证缺失`），并为「中文登录短语必须不命中」补了 4 条负向断言 + 1 条 router 级负向锁（`publisher-router.test.js` 的『RPA 结果里的中文登录短语不得打标』）。复核方式（可机械重跑）：把中文短语加回词表 ⇒ `publish-not-submitted.test.js` 的负向用例与 router 负向锁同时变红。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "设置页无覆盖时表单回填首个平台(wechat_mp)档位；用户不改任何字段直接保存，会把全部平台账号档统一成 20min、日配额压成 3/3/3，short 档(3min/20条)等差异化被静默抹平，还提示『已保存并立即生效』。",
+      "highRiskDomains": [],
+      "prosecution": "覆盖对象 `publishFrequencyPolicy` 是**全局**语义（`accountMinMs` 对所有平台生效），而界面把它呈现成「若干可填字段」。用户打开设置页 → 看到 20/2/3/3/3 这些具体数字（其实是 `wechat_mp` 的档位）→ 不改任何东西点保存 → `buildPolicy()` 以这些值构造覆盖 ⇒ `long/clip/short` 三档被压成同一组值 ⇒ short 档从 3 分钟 / 20 条变成 20 分钟 / 3 条。**用户没有任何途径知道自己的配置被改宽/改窄了**，界面还回「已保存并立即生效」。这是「静默改变用户配置」类缺陷，且触发路径是默认路径（不改即保存）。指控成立。",
+      "defense": "可以辩护的是「用户主动保存即表示认可当前显示值」——但这站不住：显示值**不是**用户设置的，而是程序从某个平台档位抄来的；且字段标签没有说明「对所有平台生效」。",
+      "verdict": "upheld",
+      "rationale": "已在 6e6bf7961 修复：①无覆盖时**不再回填任何平台档位**，字段留空并显示「未覆盖」；②`buildPolicy()` 改为只提交用户真正填过的字段（未填维度不被清掉），全部未填 ⇒ 提交 `null`（清空覆盖）；③新增显式提示「以下字段对所有平台生效；留空表示不覆盖该维度」。修的过程中踩到该缺陷的本体：`Number.isFinite(Number(null))` 为**真**（`Number(null) === 0`），会把「未填」当成 0 提交 —— 已加严格归一 `toNumOrNull` 并以测试钉住。回归证据：`PublishFrequencySettings.test.js` 14 passed，其中 2 条正是本项（「无覆盖时直接保存 ⇒ 提交 null」、「只提交用户真正填了的字段」）。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "崩溃恢复后任务投影未含 submitAttempted/submittedAt/_hold：重启后在途任务按『未尝试』态重跑，失败判可回滚，可能重发平台已部分接收的内容；PRD 声称的 submitted_at 持久化在代码里未落实。",
+      "highRiskDomains": [
+        "datamigration"
+      ],
+      "prosecution": "事实部分成立且已核实：`packages/shared-utils/src/task-projection.js` 的 `projectTask(t, extra)` 白名单为 `id/platform/article/owner_subject/batchId/accountId/publishMode/publishTime/retry/timeout/retriesLeft/retryOf/createdAt`，**确实不含** `submitAttempted`/`submittedAt`/`_hold`。于是崩溃恢复后的在途任务，其阶段标记一律回到「未尝试」态；若该任务失败，`_maybeRollback` 里 `attempted === false` 成立 ⇒ 看起来可回滚。",
+      "defense": "回滚路径**不可达**，有两处机械可核的拦截：①`_maybeRollback` 的**第一道守卫**是 `if (!guard || !task._hold) return false` —— `_hold` 由 `recordPublish()` 返回、只在**本次进程内**由 `_executeTask` 赋到任务对象上，既不进投影白名单也不进序列化，恢复后恒为 `undefined` ⇒ 函数在第一行就返回 false，**根本走不到** `attempted` 判据。②即便假设它能走到，`release()` 自身还有「乐观并发」判据 `store.get(key) === hold.at`，而 `hold` 为 undefined 时 `typeof hold.at !== 'number'` ⇒ 返回 `{released:false, reason:'prev_missing'}` 并出声。再补一点：跨重启真正生效的保护是**已持久化**的 `publish_timeline` 窗口 —— 恢复后的任务要过 `check()`，若该 (platform, accountId) 近期提交过就会被窗口挡住。关于「PRD 声称 submitted_at 持久化」：核对 PRD §6.2 迁移表，原文只写「在途任务：新数值在每轮 check() 读取 ⇒ 即时生效」，**没有**主张 submitted_at 持久化，故这一句指控与文本不符。",
+      "verdict": "dismissed",
+      "rationale": "以两处**可机械复核**的事实驳回：①`task-projection.js:25-45` 的 `projectTask` 白名单不含 `_hold`（可直接读文件核对）；②`task-queue.js` 的 `_maybeRollback` 首行守卫 `if (!guard || !task._hold) return false`（可直接读文件核对）。二者合起来使「恢复后失败被判可回滚」在代码路径上**不可达**。残留如实记录（不假装已闭合）：a) 恢复后的在途任务会重新执行，这是**崩溃恢复的既有语义**、非本变更引入，本变更未改变它；b) 跨重启的窗口保护依赖 `publish_timeline`（已持久化）而不是阶段标记 —— 若有人未来把 `_hold` 加进投影白名单，本项结论必须重估，故已在此写明前提。⚠️ 本项属高危域（datamigration）且**未取得跨家族外部复核**（本轮仅 critic=claude 运行），本条 dismissed 仅由单家族评审 + 上述文件级证据支撑，如实声明。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "紧急放行 `clearWindow` 同时清除 `platform:*`（连带撤销该平台其他账号的跨账号保护），且清窗后任务立即重跑不再过间隔判定——与 PRD『不穿透间隔语义』矛盾；每日1次上限约束不住跨账号连点。",
+      "highRiskDomains": [],
+      "prosecution": "①连带释放是事实：`clearWindow` 会同时清 `douyin:*`，即该平台其他账号的跨账号保护失效一次。②「清窗后任务立即重跑」也是事实：`emergencyRelease` 把任务 unshift 回队列，`check()` 因窗口已清而放行。③若上限只按账号计，用户可用 A/B/C 三个账号各点一次，绕过「每日 1 次」。",
+      "defense": "对③，事实相反：`publish-emergency-release.js` 的冷却用的是**全局** `s.lastAt`（不是 perAccount），`check()` 在 `lastAt > 0` 时算 `cooldownMs - (now - lastAt)`，**任意账号**的第二次放行都会被 10 分钟冷却挡住 —— 与「每账号每日 1 次」正交，正是为防「多账号连点把出口当常规通道」。对②，「跳过该窗口」就是紧急放行的**定义**，不是穿透语义；且有反证锁把「不代表门禁被关掉」钉住：放行任务发布后会**重新占窗**，下一条必须再次被拦（`task-queue-guard-integration.test.js` 的『紧急放行』用例实测过这一点）。对①，副作用已在 `clearWindow` 的 JSDoc 里写明（含理由：只清账号键的话平台键仍会挡住本次放行，功能等于没实现），由「每账号每日 1 次 + 全局冷却 + 追加式审计」共同约束。",
+      "verdict": "dismissed",
+      "rationale": "指控的**两条核心断言均与代码事实不符**（可机械复核）：①「约束不住跨账号连点」——冷却主体是全局 `lastAt`（`publish-emergency-release.js` 的 `check()`），第二次放行无论换哪个账号都会被冷却挡住，且已有测试 `冷却跨账号生效（与「每账号每日 1 次」正交）`；②「与 PRD 不穿透间隔语义矛盾」——跳过目标窗口是该功能的定义，且「不代表门禁被关掉」有反证锁（放行后重新占窗，下一条再次被拦）。**部分采纳**：指控中「审计应记下连带释放」这一点成立，已在 6e6bf7961 实现 —— `record()` 落 `clearedKeys`（含 `platform:*`，缺省空数组），IPC 传 `r.clearedKeys`，并补测试『审计必须记下被清掉的键』。"
+    },
+    {
+      "id": "i6",
+      "severity": "Warning",
+      "finding": "新增 released 事件与 reason/daily 字段，但 diff 只更新了一处投影 store；方案自称的 5 处投影面（白名单）未见同步改动，released/blocked(daily) 状态可能在中间投影层被白名单过滤而不上屏。",
+      "highRiskDomains": [],
+      "prosecution": "事实成立且本仓有**同型前科**：`task-projection.js` 的文件头就记着 R14 事故 —— `publishTime` 三处手抄白名单一处没加，字段在入队瞬间即被丢弃，而「任何只看 publisher 入参的测试都抓不到」。本次同型：`services/publish-progress-events.js` 的 payload 是**逐字段挑选**（`if (extra.remainingWait !== undefined) payload.remainingWait = ...` 这种写法），且有**自己的** `PHASE_ENUM`。我的 `reason`/`daily` 没进这份白名单、`released` 没进该 `PHASE_ENUM` ⇒ 会被静默丢弃/降级成 `progress`。更关键的是**为什么没被自己的测试发现**：渲染层用例直接注 store 状态（绕过本层），所以那 29 条全绿也照样漏。指控成立。",
+      "defense": "可辩护的是「已更新了相邻的一层」（`phase4-events.js` 的转发与渲染层 store 都改了）——但这恰是本仓已记录过的失败模式：改了三处中的两处，剩下的那处静默吃字段。",
+      "verdict": "upheld",
+      "rationale": "已在 6e6bf7961 修复：①`publish-progress-events.js` 的 payload 白名单补 `reason`/`daily`/`releaseReason`/`graceMs`；②其 `PHASE_ENUM` 与 `STAGE_KEY_ENUM` 补 `released`；③允许调用方给出的**合法** `extra.stageKey` 覆盖（released 相位的中文兜底串反查只会得到 detail）；④补**端到端字段穿透锁** 3 条：`blocked(daily_quota)` 的 reason/daily 原样出现、`released` 相位不被降级且 stageKey 生效、**反向断言**（未登记相位仍降级 progress、未登记 stageKey 不被采信 —— 防白名单退化成任意透传）。回归证据：`publish-progress-events.test.js` 31 passed（+3）。"
+    }
+  ],
+  "additionalFindingsHandling": [
+    {
+      "id": "i7",
+      "severity": "Info",
+      "verdict": "dismissed",
+      "rationale": "「每次 check() 多次重复解析」与代码事实不符：`check()` 每次只调 `_intervals(platform)` **一次**（`_resolvedDailyMax` 仅用于 minInterval 兼容分支；`_rollbackCap` 只在 release 路径调用）。设置读发生在**任务粒度**而非热路径。提议的「设置写入时按平台缓存解析结果」会引入缓存失效面（设置页改动、env 变化、多 owner），收益小于风险，故记录不改。"
+    },
+    {
+      "id": "i8",
+      "severity": "Info",
+      "verdict": "upheld",
+      "rationale": "已在 6e6bf7961 修复：`emergencyQuotaText` 读的是 `getPolicy` 不返回的 `raw.emergencyStatus` ⇒ 该行恒显示「—」。改为挂载时调用 `getPublishEmergencyStatus` 并合并进状态；取不到时仍显示 —（不编造数字）。回归证据：`PublishFrequencySettings.test.js` 新增 2 条（有状态时显示上限、无状态时保持 —）。"
+    }
+  ]
+}
