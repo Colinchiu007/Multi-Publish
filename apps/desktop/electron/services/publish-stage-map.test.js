@@ -11,9 +11,9 @@
 const { mapStageToKey, STAGE_KEY_ENUM, KNOWN_STAGE_MAP } = require('./publish-progress-events')
 
 describe('publish-stage-map — 阶段串映射', () => {
-  it('stageKey 枚举封闭为 9 值', () => {
+  it('stageKey 枚举封闭为 10 值', () => {
     expect(STAGE_KEY_ENUM).toEqual([
-      'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'done', 'failed', 'detail',
+      'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'released', 'done', 'failed', 'detail',
     ])
   })
 
