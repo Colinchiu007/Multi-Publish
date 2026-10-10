@@ -2,9 +2,6 @@
 record: fix-agents-safe-delete-filename
 task: 把 AGENTS.md 删除守卫铁律（R0）里的命令名从 scripts/safe-delete.cjs 更正为脚本真实文件名 scripts/safe-delete.js
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: "本 PR 尚未合并，merge SHA 还不存在，无法按 PASS 口径取证；合并后由回填 PR 在同一次提交内把本行改写为 PASS + merge SHA，并删除 frontmatter 的 sync_status / sync_reason / sync_backfill_owner 三字段。"
-sync_backfill_owner: "下一个会话（分支 fix-agents-safe-delete-filename；`git ls-remote --heads origin fix-agents-safe-delete-filename` 返回 0 行即证远端分支已删）"
 ---
 
 ## 本次执行记录：删除守卫 R0 的文档命令名更正为脚本真名（fix-agents-safe-delete-filename，2026-10-10）【docs-only】
@@ -23,7 +20,7 @@ sync_backfill_owner: "下一个会话（分支 fix-agents-safe-delete-filename�
 | PRD / 数据校验 / 交互 / 显示项 / 提示文字 | N/A（含理由，非漏写） | 本 PR 不产生任何用户可见行为：不改功能定义 ⇒ 无 PRD 条目需改；不改数据流与校验判据 ⇒ 无数据校验口径需写；不改控件、文案、i18n ⇒ 无 locale 键新增（zh/en 成对约束 Gate 7 不适用），`apps/desktop/src` 新增中文字面量为零。需求侧的「尽量写详细」在本 PR 的落点是**流程文档**，因此详细度全部体现在 `AGENTS.md` 该行、`CHANGELOG.md` 条目与本记录三处 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 纯文档/流程变更，按 AGENTS.md「纯文档/流程变更不强制 QM-6」；本机亦未执行，不以自审冒充双模型外部评审。评审面留给下一个读 `AGENTS.md` 的会话：R0 铁律的其余断言是否仍与实现一致（本次只核了 CI 接线与 mavis-trash/审计日志两项） |
 
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在，故无法按 PASS 口径取证。回填判据（三源一致）：`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 恰好 1 行、`gh pr view NNNN --json state,mergeCommit` 给出 `MERGED` + `mergeCommit.oid`、`git ls-remote --heads origin fix-agents-safe-delete-filename` 返回 0 行（同次调用 `main` 返回 1 行作正控，证「0 行」是分支确已删除而非命令静默失败）。回填与销账必须**同一次提交**：本行与 `.quality-gates.md` 对应行改 PASS + merge SHA，删除本 frontmatter 三 `sync_*` 字段，删除 `scripts/gate-record-debt-ledger.json` 中键为本条标题的登记项。本条不走 ledger 之外的登记——历史标题键与本文件名不同形（`check-gate-record-debt.js` 的两源键重叠判据会当场报错） |
+| 远程同步 | PASS | 已合并：#3247 squash 落地 `8c0d9f062cb0e079211118e0c0fc1626cc57f9fd`（committer 2026-10-10T10:38:38+08:00；`gh pr view` 的 `mergedAt` = 2026-10-10T02:38:38Z，同一时刻的两种时区写法）。三源一致：`git log origin/main --grep='(#3247)$' --format='%H|%cI'` 恰好 1 行、`gh pr view 3247 --json state,mergeCommit` = `MERGED` + 上述 oid、`git ls-remote --heads origin fix-agents-safe-delete-filename` 返回 0 行。销账与回填同次发生：ledger 本条登记项已删、本文件 frontmatter 三个 `sync_*` 字段已删。合并性状的判据取**树**不取祖先（squash 后分支 tip 不是 `origin/main` 的祖先，`git merge-base --is-ancestor` 判「已合并」必然为假）：`git diff --stat cde5ae89b2 8c0d9f062c` 输出为空 ⇒ 本次内容已完整进主干 |
 
 ### 遗留（不假装已闭合）
 
