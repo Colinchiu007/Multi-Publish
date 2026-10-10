@@ -44,6 +44,15 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 - 标准通道不可用：`sh scripts/plan-review.sh <PRD>` 报 `✗ 找不到 ccg-deep-review.js（引擎驱动）`（其 wrapper 路径在本机写死为他人用户目录），按既有替代通道直跑 `opencode run --agent plan --auto --model opencode/nemotron-3-ultra-free`，结论逐字读自该模型自己的 stdout 段。
 - 1 Critical + 5 Major + 4 Minor，逐条对源码/实测核实后：**采纳 4 条**（反向改为只可见、存量必须补归属取证、范围依据改归属、验收标准里"无出处证据"改成结构断言）、**否证 4 条**（尾随空格由 `\s*$` 覆盖、两方向天然互斥、`PASS（…）` 不匹配未收口词表、frontmatter 字段名它记错了）、**转成测试 3 条**（T10 尾随空白、T11 互斥性、T12 `task:` 行形状）。完整处置表在 PRD §9.1。
 
+### 验证层（实现 diff）本轮未完成 —— 如实登记，不谎称跑过
+
+| 尝试 | 模型 | 结果 |
+| --- | --- | --- |
+| 1 | `opencode/ling-3.1-flash-free` | 300 s 超时（rc=124），`Error: Transport: The socket connection was closed unexpectedly`。被切断前它**自己独立跑了** `node --test scripts/check-gate-record-debt.test.js` 并把输出留在 transcript 里：`ℹ tests 43 / pass 43 / fail 0` —— 这是它自证的，不是它的评审结论 |
+| 2 | `opencode/nemotron-3-ultra-free`（收窄任务书，只读 diff 不跑命令） | 仍 rc=124，只完成 `→ Read .qm6b/impl.diff` 一步，零结论 |
+
+所以本 PR 的外部审查证据链是：**决策层（方案 diff）1 Critical + 5 Major + 4 Minor 已逐条处置并收敛**（上表），实现层的**模型评审缺失**，代之以本地 43 例 + 10 条变异 + 真仓自证 + 消费者并集（`check-max-lines` 27、`check-changelog-growth` 30、`check-pr-exec-record` 35 全绿）。**不得把上面这些当成双模型评审的替代来宣称 QM-6 已完成**；该轴留给下一个能跑通通道的会话或人工抽查。
+
 ### 反证（10 条变异逐个实测变红，收尾断言与备份逐字节相同）
 
 M1 摘掉矛盾 push（3 红）｜M2 只放宽邻接（**没红——证明这条变异测不到它声称的东西，已作废并由 M9 取代**）｜M3 忽略行是否闭合（6 红，含"在飞 PR 不得红"）｜M4 从 `hasBlocking` 摘掉矛盾（1 红）｜M5 旧载体接入拦截面（2 红）｜M6 反向接入拦截面（1 红）｜M7 去掉尾随空白容忍（1 红）｜M8 去掉括注容忍（2 红）｜M9 真宽式（去 `$` 又去邻接，4 红含 T5/T6）｜M10 退化成任意词分类（4 红含 T12）。`restored_identical=true`。
