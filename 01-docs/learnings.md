@@ -16917,3 +16917,11 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
 - **正确顺序（重建）**：① `git show origin/main:<file>` 取 main 的**整份内容**为底（不是取自己的）；② 只把自己的新增块插回正确位置（`.quality-gates.md`/`CHANGELOG.md` 插到最顶，ledger 插到最后一个键之后并补逗号）；③ 逐行保留 main 那一行原本的结尾，禁止统一回写行尾（本仓这类文件 `i/lf w/crlf`，统一改写会把整文件变成 diff）；④ 提交前用 `git diff --numstat origin/main -- <file>` 断言**删除数为 0**（纯插入），并 grep 关键点确认 main 的回填证据（如 `已合并 #NNNN`）仍在。
 - **配套**：判据不是「冲突解完了」而是「相对 origin/main 是否纯插入 + main 的证据行是否还在」；对「删除数>0」的置顶文件冲突一律重做。**`Auto-merging` 同样不构成证据**——git 自动合并的文件也可能改动 main 的证据行，所以未冲突文件也要跑同一次删除数对账（本次 `01-docs/PRD.md` 之外，`.quality-gates.md` 17/0、`CHANGELOG.md` 14/0、ledger 2/1 全部逐个实测）。另注：ledger 的 `line` 字段是信息性的、不被 `check-gate-record-debt.js` 校验，重建时不必逐字对齐行号，但键必须与记录标题逐字相同。
 
+
+## 小红书签名代差与页内求签（xhs-xys-signer + note-e2e 复盘，2026-10-10）
+
+- **「本地仿制签名曾通过」≠「签名仍被接受」（pitfall）**：XYW_ AES 短签名在登录巡检/permit 等轻接口长期绿灯，据此在 signer-local.js 写下「XYS_ 已被 406 拒、只有 XYW_ 可用」——两周后 note 端点实测恰好相反（XYS_ 才被接受）。**验证面 ≠ 全部攻击面**：轻接口与核心写入端点的风控等级不同，签名形态升级只会在最严格处暴露。教训：涉及平台签名的结论必须标注「验证到哪一层」，避免把一次观测当定律。
+- **签名代差的正解是页内求签，不是逆向算法（pattern）**：`window._webmsxyw(url, data)` 页内函数直出真签名，随平台升级自动跟随；逆向 XYS_（Base64 JSON 信封 + 环境指纹）成本高且会重演过时命运。项目已有「隐藏页 + extractor」基建（kuaishou 在用），新平台接入优先复用该模式。
+- **note 步页内整发 = 绕开头拼装 mismatch 的正解（pattern）**：X-S-Common 页内生成入口被混淆无法直调，本地模板与页内真头混用仍被拒。把整个请求放进签名页执行（`bindSignerCookie` 注入 cookie + 页内 `fetch credentials:"include"`）——登录态、签名、X-S-Common 全部由页内会话自然携带，与真机行为逐字节一致。链层只需 `pageInpage.sendNote` 桥（pageInpage 缺失时零回归）。
+- **跨域 AT 半认可现象（pitfall）**：creator 域的 `access-token-creator` 头打向 edith 域 note 端点会从 406/401 变成 `{code:-1}` 业务响应——看似「过了认证」，实为半认可，业务层仍拒。**不要把认证层打通误判为链路打通**：业务 code:-1（无 msg）与 401 是不同层的问题，排查时先用页内同源 fetch 做对照（同源 401 = 会话不在该域；跨源 code:-1 = AT 半认可）。
+- **端点域不匹配**：edith `/web_api/sns/v2/note` 不接受 creator 会话；creator 域同名端点 404（不存在）。真实草稿保存接口需抓登录后「手动存草稿」的页面交互流量（CDP 拦截）定位——凭参考实现记忆猜端点两次落空（406/401）。
