@@ -26,7 +26,7 @@
 
 系统 SHALL 在 `check-changelog-growth.js` 的默认路径上保持「base 标题多重集被 head 包含」这一既有不变量
 逐字不变（含「同题副本删到一份仍报丢」这一档）；仅当被检查的 head **相对 base 新增**了
-`scripts/changelog-dedup-authorization.json` 且其 `applies_to_base` 等于本次 merge-base 时，
+`scripts/changelog-dedup-authorization.json`，且其 `applies_to_base` **等于本次 merge-base**（清理形状）**或为其祖先**（那次清理已落 main ⇒ 授权按**已消费**退休，改核消费后形状）时，
 才 MAY 额外接受「清理形状」，且该接受 MUST 同时满足下列全部条件。
 
 #### Scenario: 无授权文件时行为与现状逐字相同
@@ -64,6 +64,11 @@
 - **WHEN** 授权文件的 `applies_to_base` 与本次 merge-base 不相等，或其 JSON 不可解析 / 缺必填字段
 - **THEN** 门禁以非零码失败并点名原因，MUST NOT 退化成"当作没有授权"后静默通过
 
+#### Scenario: 坐标系被越过（祖先）不叫错位，改核「消费后形状」
+
+- **WHEN** 授权仍是 head 相对 base 的新增，其 `applies_to_base` 与本次 merge-base **不相等**，但**是**本次 merge-base 的祖先（`git merge-base --is-ancestor` 成立）
+- **THEN** 门禁 MUST NOT 报「坐标系错位」，而 MUST 把该授权判为**已消费**（`retired:true`），改为核对消费后形状：head 条目数 MUST 等于授权声明的 `expected_entries_after`，且 MUST 打印退休理由与两个坐标系 sha；此后新增条目只能经正常追加进入台账，不得借退休复活已被清掉的副本（PR #3151 落地）
+
 ### Requirement: 清理结果 MUST 由一个独立对账器核对，且核对的是「块」而非「行」
 
 系统 SHALL 提供 `scripts/changelog-dedup-reconcile.js`，以 base/head 两个 blob 为输入，独立核对五条**与顺序无关**的性质，
@@ -95,3 +100,37 @@
 
 - **WHEN** base 或 head 的 blob 读不出来，或其中一方**一条条目都没有**
 - **THEN** 对账器必须以非零码失败并点名，MUST NOT 把"零条目"当成"零丢失"通过
+
+
+### Requirement: 一次性授权 MUST 有生命周期，不得作为常驻文件留在仓库
+
+系统 SHALL 由 `scripts/check-changelog-growth.test.js` 内的生命周期锁守住授权件的**存在形态**。判据 MUST 取
+**base ∧ head**（两侧清单同时成立才算违规），MUST NOT 写成「任何地方存在就红」——后者会把自己提示语推荐的
+修复路径（退役 PR：base 有 / head 无）一起打红，使通路代码还在而流程层已死。两条清单 MUST 取自 git
+（`git ls-files` 与 `git ls-tree -r --name-only <base>`），不是工作树，且各带规模下界断言，防解析退化成空集合造成恒真。
+base 坐标系可用 `MP_CHANGELOG_BASE_REF` 注入（反证与本地复现用）；取不到 MUST 当场红，MUST NOT 读成「没有 base」放行。
+
+#### Scenario: 已落 main 还被继续携带即红
+
+- **WHEN** base 清单里有 `changelog-dedup-authorization*.json`，head 清单里也有
+- **THEN** 锁点名红并给出两种出路（本次 PR 删掉它 / 或确认正在借一份已消费的授权混过门禁）
+
+#### Scenario: 退役 PR 形态必须放行
+
+- **WHEN** base 有、head 无（即本次 PR 正在删除它）
+- **THEN** 锁 MUST 通过 —— 这条是锁自己的恢复路径，不是漏洞
+
+#### Scenario: 未来合规的一次性新增必须放行
+
+- **WHEN** base 无、head 有规范路径那一份（未来某次清理在同一 PR 内用 `changelog-dedup-regen.js` 现生成）
+- **THEN** 锁 MUST 通过，豁免通路在流程层仍然可用
+
+#### Scenario: 改名或换目录不放行
+
+- **WHEN** head 清单里的授权件路径不等于规范常量 `AUTH_PATH`
+- **THEN** 锁红（按 `deepEqual(atHead, [AUTH_PATH])` 判定，换位与改名同一条覆盖）
+
+#### Scenario: 退的是授权件，不是通路
+
+- **WHEN** 有人为了消除上一条的红而删掉 `AUTH_PATH` 常量、`changelog-dedup-regen.js` 的 `regenerate` 或门禁的 `evaluateAuthorization` / `checkDedupShape`
+- **THEN** 另一条锁 MUST 红（断言四样仍在且 `regen.AUTH_PATH === AUTH_PATH`）—— 把门禁拆掉不算修门禁

@@ -1,0 +1,58 @@
+[
+  {
+    "severity": "Critical",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 572,
+    "issue": "规格 Requirement 2 Scenario 7「坐标系被越过（祖先）不叫错位，改核『消费后形状』」在测试中无覆盖。代码 evaluateAuthorization 有退休分支逻辑（lines 187-210），但测试只覆盖 applies_to_base 相等、不等且非祖先、JSON 损坏、字段缺失等情况，缺失 applies_to_base 为本次 merge-base 祖先的测试用例。这会导致退休通路未被回归保护。",
+    "fix": "在 check-changelog-growth.test.js 中添加测试用例：构造 base 包含授权文件且 applies_to_base 为当前 base 的祖先（非相等）的场景，验证 evaluateAuthorization 返回 retired:true 且核对 head 条目数等于 expected_entries_after。"
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/changelog-dedup-reconcile.js",
+    "line": 64,
+    "issue": "独立对账器 A6 preamble 检查与 check-changelog-growth.js 的 checkDedupShape 重复检查 preamble，但错误文案不同（reconcile: 'A6 文件头被改写，清理不得顺手改 preamble'；checkDedupShape: '文件头被改写'）。规格 Requirement 3 只要求核对五条块级性质 (A1-A5)，未提 preamble。两处重复可能导致：同一差异在授权通路与独立对账报出不一致的结论，且 preamble 变更可能正常（如文档更新），两把锁不应都把它当硬判据。",
+    "fix": "建议：要么在规格中明确 preamble 为第六条核对项，要么只在 checkDedupShape（授权通路）保留 preamble 检查，独立对账器专注块级性质 A1-A5。"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-changelog-growth.js",
+    "line": 264,
+    "issue": "规格 Requirement 3 Scenario 2 将『保留块逐字节同源』与『必须是 pickKeeper 选定的那份』写成并列的两条 THEN 要求，但代码实现中（checkDedupShape lines 264-273）A2 逻辑上蕴含 A3（注释 line 265-268 明确：『A3 逻辑上蕴含 A2』）。规格措辞可能误导认为是两条独立检查，实际上 A3 是 A2 的强化形式。",
+    "fix": "建议在规格中明确：『保留份逐字节等于 base 某一份（A2）且这一份必须就是 pickKeeper 选定的那份（A3）—— 后者是前者的强化，二者不是独立判据。』"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/changelog-entries.js",
+    "line": 24,
+    "issue": "规格 Requirement 1 Scenario 2 措辞『两把锁都必须把它算作条目』暗示 growth 与 duplicate-entries 可能各自维护口径，但实现已收敛为 changelog-entries.js 单一实现（两把锁都 require 它）。规格未明确『单一实现』已落地，读起来像仍需防范分裂。",
+    "fix": "建议在规格 Requirement 1 补充：『现已收敛为 changelog-entries.js 单一实现，两把锁共用 HEADING_RE、splitEntries 等口径，分裂风险已消除。』"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 540,
+    "issue": "规格 Requirement 4 Scenario 1 措辞『base 清单里有』中的 base 易被误解为 origin/main，但实际判据用的是 CI 的 base 坐标系（merge-base）。测试代码正确使用了 merge-base（或 MP_CHANGELOG_BASE_REF 注入），但规格未明确 base = merge-base。",
+    "fix": "建议规格改为：『WHEN CI 判据的 base（即本次 merge-base）清单里有授权文件，且 head 清单里也有』"
+  },
+  {
+    "severity": "Critical",
+    "file": "scripts/check-changelog-growth.js",
+    "line": 363,
+    "issue": "规格 Requirement 2 Scenario 7 要求退休授权时『MUST 打印退休理由与两个坐标系 sha』，但 collect 函数在 retired 分支（ev.retired===true）下只核对 headEntries === expected_entries_after（line 362-364），未将 retiredReason 与两个 sha 打印到输出。授权成立的正常分支会打印『例外由授权触发...』（line 417-418），但 retired 分支缺失同等出声。",
+    "fix": "在 collect 函数中，ev.retired 为 true 时，在返回结果前添加 console.log 打印退休理由与 appliedBase/curBase 两个 sha。"
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/changelog-dedup-reconcile.js",
+    "line": 86,
+    "issue": "规格 Requirement 3 Scenario 2 要求『保留块必须是 pickKeeper 选定的那份』无条件适用，但 reconcile.js A3（line 86-93）只在 bo.length > 1 && ho.length === 1（即被削减到 1 份）时检查。代码注释解释未削减标题多份并存时不适用 pickKeeper 判据（否则误报）。规格未明确这个边界条件，可能导致后续实现者误判。",
+    "fix": "建议规格明确：『A3 仅对被削减到恰好 1 份的标题生效；未削减标题（head 仍多份）不适用 pickKeeper 判据，避免误报。』"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 558,
+    "issue": "规格 Requirement 4 Scenario 5 判据写法『按 deepEqual(atHead, [AUTH_PATH]) 判定』不准确：atHead 是过滤后的违规文件清单（只含匹配 changelog-dedup-authorization*.json 的文件），head 正常情况只有一个标准路径授权文件时 atHead = [AUTH_PATH] 通过；但 deepEqual 要求数组完全相等，若 head 同时有标准路径和其他文件（极少见）会误判。实际意图是『head 里的授权文件路径必须恰好等于 AUTH_PATH 常量』，建议规格改为『atHead.length === 1 && atHead[0] === AUTH_PATH』或『head 清单中授权文件路径必须等于规范常量 AUTH_PATH』。",
+    "fix": "规格措辞改为：判据按『head 侧授权文件清单仅含一项且该项等于 AUTH_PATH』判定，避免 deepEqual 对数组长度的严格要求产生歧义。"
+  }
+]
