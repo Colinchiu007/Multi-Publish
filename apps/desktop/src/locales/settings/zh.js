@@ -21,6 +21,11 @@ export default {
     placeholder: '该功能正在开发中，敬请期待',
     publishFrequency: {
       title: '发布频率策略',
+      // 档位摘要：拼装式文案（Gate 7 的渲染端 CJK 基线要求用户可见文案一律走 locale，
+      // 不得在 .vue 里写中文字面量 —— 本次首轮 CI 就是被这一条拦下的）
+      tierSummary: (ctx) => ctx.named('tier') + '（' + ctx.named('count') + ' 个平台，如 ' + ctx.named('sample')
+        + '）：' + ctx.named('account') + ' / ' + ctx.named('platform') + ' / ' + ctx.named('daily'),
+      tierSeparator: '；',
       subtitle: '控制同一账号、同一平台的发布节奏。数值是工程保守默认，不是平台官方规则，本工具不声称符合任何平台规定。修改后立即生效（无需重启）。',
       currentTier: '当前档位（账号间隔 / 平台间隔 / 每日上限）',
       effectiveRange: '实际等待区间（含抖动）',

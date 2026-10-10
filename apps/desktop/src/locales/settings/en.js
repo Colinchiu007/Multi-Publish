@@ -21,6 +21,9 @@ export default {
     placeholder: 'This feature is under development. Stay tuned.',
     publishFrequency: {
       title: 'Publish Frequency Policy',
+      tierSummary: (ctx) => ctx.named('tier') + ' (' + ctx.named('count') + ' platforms, e.g. ' + ctx.named('sample')
+        + '): ' + ctx.named('account') + ' / ' + ctx.named('platform') + ' / ' + ctx.named('daily'),
+      tierSeparator: '; ',
       subtitle: 'Controls the publishing pace per account and per platform. The numbers are conservative engineering defaults, not official platform rules; this tool does not claim compliance with any platform policy. Changes take effect immediately (no restart).',
       currentTier: 'Current tiers (account / platform / daily limit)',
       effectiveRange: 'Effective wait range (with jitter)',

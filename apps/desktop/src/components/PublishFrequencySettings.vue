@@ -164,8 +164,15 @@ const currentTierText = computed(() => {
     byTier.get(sig).count += 1
   }
   return [...byTier.values()]
-    .map((g) => `${g.tier}（${g.count} 个平台，如 ${g.sample}）：${fmtMin(g.v.accountMinMs)} / ${fmtMin(g.v.platformMinMs)} / ${g.v.accountDailyMax}`)
-    .join('；')
+    .map((g) => t('settings.publishFrequency.tierSummary', {
+      tier: g.tier,
+      count: g.count,
+      sample: g.sample,
+      account: fmtMin(g.v.accountMinMs),
+      platform: fmtMin(g.v.platformMinMs),
+      daily: g.v.accountDailyMax,
+    }))
+    .join(t('settings.publishFrequency.tierSeparator'))
 })
 
 /** 实际等待区间 = [账号档, 账号档 × (1 + 抖动比例)) */
