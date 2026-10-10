@@ -7,7 +7,7 @@ date: 2026-10-07
 ## 本次执行记录：真机端到端复验审核回写并入库（keyfix-live-verify，2026-10-07）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 见下表「classify-docs-only」行
-- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 收口 ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 收口 ✅ | 远程同步 PASS（已合并 #3100 → main `cc7f0bc8a`，三源取证见同篇权威表格行）
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|

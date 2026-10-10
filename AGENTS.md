@@ -62,6 +62,8 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - 备注（可选）
 ```
 
+- ⛔ **两种形态必须同写、回填时必须同次改写**（2026-10-10 起有门禁兜底）：上面这条模板把「远程同步」状态写在 `- 保留门禁：… | 远程同步 PENDING` 的 **bullet** 里，而 `scripts/check-gate-record-debt.js` 的 `ROW_RE = /^\|\s*远程同步\s*\|/` 只认 **表格行**。两套约定 2026-09-28 同日落地（门禁 #2561、模板 #2581）而彼此不对账，实测 origin/main 有 8 篇「表格行早已 PASS、bullet 仍写着 PENDING」且门禁 rc 恒 0。现在的规矩：① 每篇 docs-only 记录**既要写这条 bullet，也要写 `| 远程同步 | <状态> |` 表格行**（缺表格行当场红）；② 回填时**两处一起改**——同篇两形态互相矛盾会被 `Gate 2c` 判红并点名文件与行号。判据锚点是「表格行已闭合 + bullet 以状态词收尾」这个**形状组合**：宽判据（行内含「远程同步」与状态词即判）实测 27 命中里 25 是散文误报，还含一处自指误报（有记录在行内代码里引用表格行原文来描述这个盲区本身）。
+
 - **「远程同步」状态列只认闭合词表 `^(PASS|N\/A|✅|已)`（`check-gate-record-debt.js` Gate 2c）**：写复合箭头（如 `PENDING→PASS`）会被判**未收口欠账** → `QG Changes`/`Gate Result` 连带红，哪怕 PR 实际已合并。开 PR 时写 `PENDING`（并同一条 PR 往 `scripts/gate-record-debt-ledger.json` 按记录标题登记），合并后**就地改写成** `PASS` + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证）并在**同一次提交**删除登记项——回填与销账必须同一次发生，状态列不写「历程」，只写「当下状态」。
 - 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
 - 进白名单的前提锁（2026-09-30 实测确立）：任何路径要加进 `CI_IGNORED_PATHS`，它的**校验必须先接线到不被 docs-only 短路的 job**（`quality-gate.yml` 的 `changes`，且放在非 PR 早退之前）。原因是 `static-gates` 整个 job 被 `docs-only != 'true'` 门控 —— 一个"门禁的数据文件"进了白名单却仍只在 static-gates 里被校验，等于**给自己关掉校验**（`scripts/gate-record-debt-ledger.json` 就是这一例：搬进 `changes` 后才放开，锁见 `scripts/classify-docs-only.test.js` 的「账本 JSON 在名单内 ⇒ 它的门禁必须接线进 changes job」）。

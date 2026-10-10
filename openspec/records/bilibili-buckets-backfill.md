@@ -7,7 +7,7 @@ date: 2026-10-07
 ## 本次执行记录：#3065 回填销账 + 真机取证文档入库（bilibili-buckets-backfill，2026-10-07）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → docs-only=true（4 个文件全在白名单：`CHANGELOG.md` 根级 `*.md`、`docs/**` ×2、`openspec/**`；判定以提交后 HEAD 复跑为准）
-- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 收口 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 收口 ✅ | 远程同步 PASS（已合并 #3078 → main `8a959ef68`，三源取证见同篇权威表格行）
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|

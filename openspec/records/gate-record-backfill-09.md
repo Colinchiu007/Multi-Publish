@@ -7,7 +7,7 @@ date: 2026-10-07
 ## 本次执行记录：批量回填 6 篇新载体记录的远程同步欠账（gate-record-backfill-09，2026-10-07）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见下表「classify-docs-only」行
-- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PASS（已合并 #3092 → main `1dd530d1b`，三源取证见同篇权威表格行）
 
 ### 为什么要专门开一批来收这笔账
 

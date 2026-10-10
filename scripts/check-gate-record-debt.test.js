@@ -435,3 +435,145 @@ test('模板与豁免目录不得被当作记录扫描（模板自己就带一�
   assert.strictEqual(r.recordsFromFiles, 0, `模板/豁免不该计入记录数：${JSON.stringify(r)}`)
   assert.strictEqual(r.open.length, 0)
 })
+// ── 同篇两形态对账（change: gate-record-status-consistency，2026-10-10）─────────────────
+// 现场实测：157 篇记录里 8 篇「表格行已 PASS、bullet 仍声明 远程同步 PENDING」，
+// 而 readRecord() 只读表格行 ⇒ 那 8 句谎话门禁全盲。判据范围由实测决定：
+//   宽式（含「远程同步」+状态词即判）27 命中 / 25 误报；收尾式 8 命中 / 0 误报。
+// 因此锚点是「行闭合」与「bullet 以状态词收尾」，而**不是**词表穷举。
+
+function recDecl(dir, name, rowStatus, declLine, extraFrontmatter) {
+  const p = path.join(dir, 'openspec', 'records', name + '.md')
+  const lines = ['---', 'record: ' + name]
+  if (extraFrontmatter) for (const [k, v] of Object.entries(extraFrontmatter)) lines.push(k + ': ' + v)
+  lines.push('---', '', '## 本次执行记录：' + name + '（' + name + '，2026-10-10）', '')
+  if (rowStatus !== null) {
+    lines.push('| 门禁 | 状态 | Fresh 证据 |', '|------|------|-----------|')
+    lines.push('| 远程同步 | ' + rowStatus + ' | 见正文 |')
+  }
+  lines.push('', declLine, '')
+  fs.writeFileSync(p, lines.join('\r\n') + '\r\n', 'utf8')
+  return p
+}
+
+test('行已 PASS、bullet 仍声明未收口 ⇒ 必须点名矛盾（本 change 的主判据）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'contra', 'PASS', '- 保留门禁：变更类型与隔离声明 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 远程同步 PENDING（本条自己的欠账）')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 1, JSON.stringify(r.statusContradictions))
+  const c = r.statusContradictions[0]
+  assert.match(c.file, /contra\.md/, '必须点名到文件')
+  assert.strictEqual(c.rowStatus, 'PASS')
+  assert.match(c.bulletStatus, /^PENDING/, 'bullet 状态必须被原样取出: ' + c.bulletStatus)
+  assert.ok(c.bulletLine > 0, '必须给出行号，否则回填者找不到位置')
+  assert.match(checker.format(r), /两种形态互相矛盾/)
+  assert.strictEqual(checker.hasBlocking(r), true, '矛盾必须进退出码面，不能只是打印')
+})
+
+test('合规形态必须绿：行 PASS + bullet 也 PASS（带 PR 号与 SHA 括注）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'ok-both', 'PASS', '- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 远程同步 PASS（PR #3221 → main 8a64e3d1e）')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 0, JSON.stringify(r.statusContradictions))
+  assert.strictEqual(r.statusMismatchVisible.length, 0)
+  assert.strictEqual(checker.hasBlocking(r), false, '锁不得把它自己提示的修复路径打红')
+})
+
+test('在飞 PR 的正常形态不得因新判据变红：行 PENDING + bullet PENDING（同侧未收口）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'inflight', 'PENDING',
+    '- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 远程同步 PENDING（本条自己的欠账）',
+    { sync_reason: '本 PR 尚未合并', sync_backfill_owner: '后续回填轮' })
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 0, JSON.stringify(r.statusContradictions))
+  assert.strictEqual(r.open.length, 0, '自带登记字段的未收口行仍按既有语义放行')
+  assert.strictEqual(checker.hasBlocking(r), false)
+})
+
+test('散文里转述「把 远程同步 行 PENDING 回填为 PASS」不得被当成声明式状态（宽式误报回归）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'prose', 'PASS', '- 本条把 远程同步 行由 PENDING 回填为 PASS，并在同一次提交删除三个 sync_* 字段')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 0, JSON.stringify(r.statusContradictions))
+  assert.strictEqual(r.statusMismatchVisible.length, 0, '散文也不得进可见项，否则可见项会被噪声淹没')
+})
+
+test('行内代码引用了表格行原文（描述该盲区本身）不得自指命中', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'selfref', 'PASS', '- 实测：`| 远程同步 | PENDING |` 那一行在落地时就是坏的，而没有任何门禁看得见')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 0, JSON.stringify(r.statusContradictions))
+})
+
+test('状态词后的尾随空格/制表不得让判据退化（收尾式的边界必须由测试钉住）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'trailing', 'PASS', '- 保留门禁：行尾对账 ✅ | 远程同步 PENDING   ')
+  recDecl(dir, 'tabbed', 'PASS', '- 保留门禁：行尾对账 ✅ | 远程同步 OPEN\t')
+  const r = checker.collect({ root: dir, ledger: {} })
+  const named = r.statusContradictions.map(c => c.file).join('\n')
+  assert.match(named, /trailing/, '尾随空格变体必须仍被判')
+  assert.match(named, /tabbed/, '制表符变体必须仍被判')
+  assert.strictEqual(r.statusContradictions.length, 2, JSON.stringify(r.statusContradictions))
+})
+
+test('反向（行未收口、bullet 宣称完成）只可见、不拦截：拦截面按实测最小化', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'reverse', 'PENDING',
+    '- 保留门禁：行尾对账 ✅ | 远程同步 PASS（本行证据待补）',
+    { sync_reason: '本 PR 尚未合并', sync_backfill_owner: '后续回填轮' })
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 0, '反向实测 0 篇 ⇒ 不得进拦截面')
+  assert.strictEqual(r.statusMismatchVisible.length, 1, JSON.stringify(r.statusMismatchVisible))
+  assert.match(checker.format(r), /可见项[^\n]*反向/, '反向必须打印出来，不能静默丢掉')
+  assert.strictEqual(checker.hasBlocking(r), false)
+})
+
+test('同一文件至多命中一个方向的矛盾（两套红灯理由互斥，防"不知该听哪条"）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'multi', 'PASS', '- 保留门禁：行尾对账 ✅ | 远程同步 PENDING')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 1)
+  assert.strictEqual(r.statusMismatchVisible.length, 0, '行状态是二值的 ⇒ 一个文件不可能同时被两个方向点名')
+})
+
+test('无表格行的记录仍由既有「整块缺行」判据拦，且不得同时被矛盾判据重复点名', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recDecl(dir, 'norow', null, '- 保留门禁：行尾对账 ✅ | 远程同步 PENDING')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.missingRecordRows.length, 1, '既有判据必须仍然生效')
+  assert.strictEqual(r.statusContradictions.length, 0, '缺行与矛盾两条判据不得重叠')
+  assert.strictEqual(checker.hasBlocking(r), true)
+})
+
+test('旧载体 .quality-gates.md 的同形态矛盾只可见、不进拦截面（范围锁，防顺手扩面）', () => {
+  const dir = fixture([{ head: '本次执行记录：旧载体块（legacy-block，2026-10-05）', status: 'PASS' }])
+  const f = path.join(dir, '.quality-gates.md')
+  const body = fs.readFileSync(f, 'utf8')
+  fs.writeFileSync(f, body.replace(/\s+$/, '') + '\r\n- 保留门禁：行尾对账 ✅ | 远程同步 PENDING\r\n', 'utf8')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.legacyVisibleContradictions, 1, '旧载体必须被"看见"')
+  assert.strictEqual(r.statusContradictions.length, 0, '旧载体不得进新载体的拦截面（归属他人，不代改）')
+  assert.strictEqual(checker.hasBlocking(r), false)
+})
+
+test('真仓自证：openspec/records 全量跑，本 change 落地后矛盾必须为 0（且必须证明扫到了文件）', () => {
+  const root = path.resolve(__dirname, '..')
+  const r = checker.collect({ root, ledger: checker.loadLedger() })
+  assert.ok(r.recordsFromFiles > 100, '扫描域退化会让"零矛盾"变成假绿，实得 ' + r.recordsFromFiles)
+  assert.deepStrictEqual(r.statusContradictions.map(c => c.file), [],
+    '修复后仍存在的矛盾: ' + JSON.stringify(r.statusContradictions))
+})
+
+test('frontmatter 的 task: 行「…的远程同步行并销账（…）」不得被当成状态声明（真仓 6 处误报的形状）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  const p = recDecl(dir, 'taskline', 'PASS', '- 保留门禁：行尾对账 ✅ | 文档同步 ✅ | 远程同步 PASS（见同篇表格行）')
+  // 该形状与合法 bullet 的位置特征**完全相同**（状态词紧跟「远程同步」、整行以括注收尾），
+  // 唯一区别是它不是状态词。这就是实现第一版跑出 14 处（含 6 处误报）的原因，必须由命名用例钉住，
+  // 不能只靠仓库级自证——仓库级用例依赖真仓里恰好有这种行，那是一个会漂移的前提。
+  const text = fs.readFileSync(p, 'utf8')
+    .replace('record: taskline', 'record: taskline\r\ntask: 回填三篇记录的远程同步行并销账（gate-record-backfill-11 / sync-status-field-cleanup，2026-10-08）')
+  if (text === fs.readFileSync(p, 'utf8')) throw new Error('frontmatter 注入未生效')
+  fs.writeFileSync(p, text, 'utf8')
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.statusContradictions.length, 0, JSON.stringify(r.statusContradictions))
+  assert.strictEqual(r.statusMismatchVisible.length, 0, 'task: 行也不得进可见项：' + JSON.stringify(r.statusMismatchVisible))
+})
