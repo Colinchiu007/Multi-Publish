@@ -2,9 +2,6 @@
 record: tts-voices-extract
 task: useTtsVoices 抽取（FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 里程碑 2 第 2 批）
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：TTS 音色域抽为 useTtsVoices composable（tts-voices-extract，2026-10-10）【混合 PR】
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/` |
 | QM-4 视觉 | PASS（带取证） | 纯结构拆分 + zh 文案逐字不变 → 预期无新增像素差异；CI QG Visual 为准 |
 | QM-6 CCG 双模型外部评审 | PASS | 本批为方案 §2.2 既定步骤（第 2 步），无方案外新决策；评审依据沿用方案 v3 附录 B/C |
-| 远程同步 | PENDING | 开 PR 时登记 ledger；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA，`git ls-remote --heads origin tts-voices-extract` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3259 已 squash 合并，merge SHA `e11565b0ac91a2d44854bea656082f550b9baa9f`（2026-10-10T16:38:16+08:00），取证 `git log origin/main --grep='(#3259)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin tts-voices-extract` 返回 0 行，证远端分支已删；frontmatter `sync_*` 三字段与台账登记项已在本次回填提交删除 |
 
 ### 改动
 
