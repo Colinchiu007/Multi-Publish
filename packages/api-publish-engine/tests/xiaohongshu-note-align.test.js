@@ -1,9 +1,9 @@
 // @ts-check
 /**
- * note 请求对齐蚁小二形态的契约测试（TDD 红灯先行）。
+ * note 请求对齐参考产品A形态的契约测试（TDD 红灯先行）。
  *
  * 依据：
- *  - 蚁小二逆向报告 .agent_context/yxe-xhs-publish-research.md（publish$k/buildPostData$J）
+ *  - 参考产品A逆向报告 .agent_context/competitor-research-xhs.md（publish$k/buildPostData$J）
  *  - 网络调研：xhshow 系列确认 XYS_ 是现役格式；x-rap-param 是发布类接口的风控头（可后补）
  *
  * 契约变更（XiaohongshuDraftChain.submitNote / publishToDraft）：
@@ -54,7 +54,7 @@ const BASE = {
   readFile: async () => Buffer.from('img'),
 }
 
-describe('note 对齐蚁小二形态（visibilityType 草稿语义）', () => {
+describe('note 对齐参考产品A形态（visibilityType 草稿语义）', () => {
   let captured
   let chain
   beforeEach(() => {
@@ -74,7 +74,7 @@ describe('note 对齐蚁小二形态（visibilityType 草稿语义）', () => {
     expect(captured.headers.Cookie).toContain('web_session=SESS')
   })
 
-  it('C2a 图文用 image_list 完整对象数组（蚁小二 publish$j 形态）', async () => {
+  it('C2a 图文用 image_list 完整对象数组（参考产品A publish$j 形态）', async () => {
     await chain.publishToDraft({ ...BASE })
     const body = JSON.parse(captured.data)
     expect(Array.isArray(body.image_info.images)).toBe(true)

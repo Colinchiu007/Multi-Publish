@@ -176,7 +176,7 @@ class XiaohongshuDraftChain {
   /** Step 3：提交笔记（privacy_info.type 语义：0=public / 1=private，见 publishToDraft） */
   async submitNote (body, opts) {
     const { cookie, pageInpage, rotatedCookie } = opts
-    // Authorization 头**置空**（2026-10-10 对齐蚁小二 publish$k——真机取证 AT 跨域半认可
+    // Authorization 头**置空**（2026-10-10 对齐参考产品A publish$k——真机取证 AT 跨域半认可
     // 会触发 code:-1 业务拒绝，去掉后由 cookie 会话承担鉴权）。
     // note 端点宿主：edith（creator 域同名端点 404 不存在）。
     const noteOrigin = opts.noteOrigin
@@ -203,7 +203,7 @@ class XiaohongshuDraftChain {
       signHeaders = buildXiaohongshuSignHeaders({ fullUri: signUri, cookies: cookie })
       signHeaders['x-s'] = String(signResult)
     }
-    // cookie 轮换（对齐蚁小二 publish$j：签名返回的新 a1 写回，旧 a1 保留为 a1old=）
+    // cookie 轮换（对齐参考产品A publish$j：签名返回的新 a1 写回，旧 a1 保留为 a1old=）
     const effectiveCookie = rotatedA1 && typeof cookie === 'string' && cookie.includes('a1=')
       ? `${cookie.replace('a1=', 'a1old=')};a1=${rotatedA1}`
       : cookie
@@ -238,7 +238,7 @@ class XiaohongshuDraftChain {
   /**
    * 完整链路：逐张图片 permit + PUT，随后提交（默认草稿）。
    *
-   * 2026-10-10 对齐蚁小二 publish$j/buildPostData$J 形态（逆向报告 yxe-xhs-publish-research.md）：
+   * 2026-10-10 对齐参考产品A publish$j/buildPostData$J 形态（逆向报告 competitor-research-xhs.md）：
    *  - 草稿/私密语义 = privacy_info.type（VisibleTypeEnum：0=public / 1=private / 2=fan），
    *    平台 body **没有 draft 字段**——原 draft:true 平台不认。
    *  - 图文 image_list 为完整对象数组（file_id/height/width/extra_info_json/metadata/stickers）。
@@ -259,7 +259,7 @@ class XiaohongshuDraftChain {
     if (!a1) {
       throw new XiaohongshuDraftError('缺 a1 cookie（签名必需，fail-closed）', 'XHS_MISSING_A1')
     }
-    // Authorization（AT）头已不再发送（2026-10-10 对齐蚁小二 publish$k），authorization 参数保留但可选
+    // Authorization（AT）头已不再发送（2026-10-10 对齐参考产品A publish$k），authorization 参数保留但可选
     if (!Array.isArray(images) || images.length === 0) {
       throw new XiaohongshuDraftError('至少需要 1 张图片：小红书不支持纯文字笔记', 'XHS_NO_IMAGE')
     }
@@ -283,7 +283,7 @@ class XiaohongshuDraftChain {
         mimeType,
       })
       await this.uploadImageBinary(permit, buf, { cookie, authorization, mimeType })
-      // image_list 完整对象形态（蚁小二 buildPostData$J：file_id/height/width/extra_info_json/metadata/stickers）
+      // image_list 完整对象形态（参考产品A buildPostData$J：file_id/height/width/extra_info_json/metadata/stickers）
       imageList.push({
         file_id: permit.fileId,
         height: 4096,
@@ -297,7 +297,7 @@ class XiaohongshuDraftChain {
       throw new XiaohongshuDraftError('没有可用图片路径', 'XHS_NO_IMAGE')
     }
 
-    // note body（蚁小二 publish$j 形态）：common/image_info/video_info 三段；
+    // note body（参考产品A publish$j 形态）：common/image_info/video_info 三段；
     // 「草稿」语义 = privacy_info.type:1（private），平台没有 draft 字段。
     const body = {
       common: {

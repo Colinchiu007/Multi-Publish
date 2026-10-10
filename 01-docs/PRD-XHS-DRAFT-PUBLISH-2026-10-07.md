@@ -212,7 +212,7 @@ probe 调用（renderer → IPC xiaohongshu:probe-draft-chain）
 
 # 增补二：对齐参考产品A形态 + 凭据载体根因（第二轮增补，2026-10-10 晚，#3280）
 
-> 来源：参考产品A逆向（`.agent_context/yxe-xhs-publish-research.md`）+ xhshow 系列开源项目调研。
+> 来源：参考产品A逆向（`.agent_context/competitor-research-xhs.md`）+ xhshow 系列开源项目调研。
 > 本轮把请求形态全部对齐参考产品A后，note 响应从 406/-1 推进到 **-100「无登录信息」**——
 > 格式已被平台接受，暴露出最后一块拼图：**账号凭据缺主站 web_session cookie**（登录载体差异）。
 

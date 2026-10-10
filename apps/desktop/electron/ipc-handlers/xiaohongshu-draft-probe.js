@@ -199,7 +199,7 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
 
     try {
 
-      // 发送路径（2026-10-10 二次修正）：主进程直发（蚁小二同款）——
+      // 发送路径（2026-10-10 二次修正）：主进程直发（参考产品A同款）——
       // 显式全量 Cookie 头（主进程不受浏览器 cookie jar 限制）+ 页内 XYS_ 签名对象（bridge）。
       // 页内整发（pageInpage）被否：浏览器 fetch 不带 httpOnly 的 web_session（账号凭据本就没有
       // web_session，跨子域也无法显式设 Cookie 头），页内会话注定无登录态。

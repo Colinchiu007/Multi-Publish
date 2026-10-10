@@ -95,7 +95,7 @@ describe('xiaohongshu draft chain', () => {
     const submit = calls[2]
     expect(submit.headers['x-s']).toBe('XYW_test')
     expect(submit.headers['x-t']).toBe('1700000000000')
-    expect(submit.headers.Authorization).toBeUndefined() // 2026-10-10 对齐蚁小二：AT 头不发送（跨域半认可触发 code:-1）
+    expect(submit.headers.Authorization).toBeUndefined() // 2026-10-10 对齐参考产品A：AT 头不发送（跨域半认可触发 code:-1）
     expect(submit.url).not.toMatch(/[?&]sign=/)
     expect(submit.url).not.toContain('%5Bobject')
   })
