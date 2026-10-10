@@ -311,7 +311,7 @@ knowledgeBase: {
       fieldAuthor: '作者/主播名',
       fieldOwnerName: '所有者名称',
       fieldOwnerEmail: '所有者邮箱',
-      ownerEmailPrivacy: '该邮箱会公开出现在 RSS 中（写入 itunes:email），聚合端与订阅者均可见。',
+      ownerEmailPrivacy: '该邮箱会公开出现在 RSS 订阅源中（写入 itunes:email），聚合端与订阅者均可见。',
       fieldExplicit: '分级',
       fieldEpisodeType: '更新方式',
       fieldCoverUrl: '封面地址',
@@ -373,7 +373,7 @@ knowledgeBase: {
     },
     publish: {
       sectionTitle: '发布与自检',
-      sectionHint: '把频道设置与单集合成为 RSS 并写入用户数据目录；自检通过后再向分发端提交 Feed 地址。',
+      sectionHint: '把频道设置与单集合成为 RSS 订阅源文件并写入用户数据目录；自检通过后再向分发端提交 Feed 地址。',
       buildFeed: '生成 Feed',
       verifyFeed: '自检 Feed',
       feedBuilt: 'Feed 已生成：共 {count} 期',
