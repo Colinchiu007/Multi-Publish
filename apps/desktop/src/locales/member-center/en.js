@@ -7,12 +7,12 @@ import identityDiagnosticsEn from '../identity-diagnostics/en'
 
 export default {
     ...identityDiagnosticsEn,
-    plansTitle: 'Membership plans',,
-    plansUnavailable: 'Pricing is temporarily unavailable, please try again later',,
-    plansEmpty: 'No plans available for purchase',,
-    planCurrentSuffix: '{label} (current)',,
-    perMonth: 'mo',,
-    perYear: 'yr',,
+    plansTitle: 'Membership plans',
+    plansUnavailable: 'Pricing is temporarily unavailable, please try again later',
+    plansEmpty: 'No plans available for purchase',
+    planCurrentSuffix: '{label} (current)',
+    perMonth: 'mo',
+    perYear: 'yr',
     title: 'Member Center',
     menuEntry: 'Member Center',
     subtitle: 'Account, plan and membership in one place',
