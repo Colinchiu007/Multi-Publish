@@ -32,6 +32,8 @@ const {
   ITEMS_MAX,
 } = require('@multi-publish/shared-utils/src/podcast-rss')
 const { listPodcastEndpoints } = require('@multi-publish/shared-utils/src/podcast-endpoints')
+// 写前判据的唯一实现：字段规则一律留在引擎，本层不得再抄一份（PRD §9 三层校验位）
+const { validateEpisode: engineValidateEpisode } = require('@multi-publish/shared-utils/src/podcast-rss')
 
 const PODCAST_DIR_NAME = 'podcast'
 const CHANNEL_FILE = 'channel.json'
@@ -99,6 +101,8 @@ function resolveDefaultLogger () {
   return noopLogger()
 }
 
+const { channelBusyGate, CHANNEL_BUSY_ERROR } = require('./podcast-channel-locks')
+
 class PodcastChannelService {
   /**
    * @param {object} [options]
@@ -126,6 +130,15 @@ class PodcastChannelService {
     this._userData = explicit || null
     this._rootResolved = Boolean(explicit)
     this._root = explicit ? path.join(explicit, PODCAST_DIR_NAME) : null
+    // 多频道：registry 把「该频道的目录」交进来，本层不再自己拼 podcast/ 子目录。
+    // 两条解析路径必须互斥 —— 同时接受 userDataDir 与 channelDir 会让同一份数据落到两处。
+    const channelDir = typeof options.channelDir === 'string' ? options.channelDir.trim() : ''
+    if (channelDir) {
+      if (explicit) throw serviceError(SERVICE_ERRORS.STORE_UNAVAILABLE, 'userDataDir 与 channelDir 不得同时传')
+      this._root = channelDir
+      this._rootResolved = true
+    }
+    this._channelId = typeof options.channelId === 'string' ? options.channelId.trim() : ''
   }
 
   get logger () {
@@ -222,8 +235,28 @@ class PodcastChannelService {
   /** 频道元信息；尚未配置返回 null。 */
   getChannel () {
     const store = this._readJson(CHANNEL_FILE, null)
-    if (!store || typeof store.channel !== 'object' || store.channel === null) return null
-    return store.channel
+    if (!store || typeof store !== 'object') return null
+    // 两段结构（meta/feedSync）里 getChannel 只回 meta：渲染层与引擎看到的形状与单频道时代逐字一致
+    if (store.meta && typeof store.meta === 'object') return store.meta
+    if (store.channel && typeof store.channel === 'object') return store.channel
+    return null
+  }
+
+  /** 发布同步元数据；从未发布过返回 null（「没同步过」与「同步失败」的排查方向不同，不得合并）。 */
+  readFeedSync () {
+    const store = this._readJson(CHANNEL_FILE, null)
+    if (!store || !store.feedSync || typeof store.feedSync !== 'object') return null
+    return store.feedSync
+  }
+
+  /** 写发布同步元数据：**保留 meta 原值**（本方法与 saveChannel 是两个方向的写者，谁都不许抹掉对方）。 */
+  writeFeedSync (patch0) {
+    this._assertNoPublishInFlight('feed:sync')
+    const prev = this._readJson(CHANNEL_FILE, null)
+    const meta = (prev && (prev.meta || prev.channel)) || null
+    const feedSync = Object.assign({}, (prev && prev.feedSync) || {}, patch0 || {}, { updatedAt: new Date().toISOString() })
+    this._writeJson(CHANNEL_FILE, { version: 1, meta: meta || {}, feedSync })
+    return feedSync
   }
 
   /**
@@ -231,7 +264,21 @@ class PodcastChannelService {
    * @param {object} channel
    * @returns {object} 已落盘的频道对象
    */
+  /**
+   * 手工写者与一键发布互斥的唯一判据：该频道此刻有发布在飞即拒绝（PRD 降级矩阵 busy 行）。
+   * ⛔ 不得改成排队等待：一键发布跨 await、可达分钟级，把同步的手工写拖进等待队列只会让
+   *    用户点一次「保存」看到转圈超时；同步写互相之间的串行由事件循环本身保证。
+   */
+  _assertNoPublishInFlight (section) {
+    const key = this._channelId || this._root || ''
+    if (!key || !channelBusyGate.isBusy(key)) return
+    const e = new Error(CHANNEL_BUSY_ERROR + ': ' + section + ' 频道正在发布，请稍候')
+    e.code = CHANNEL_BUSY_ERROR
+    throw e
+  }
+
   saveChannel (channel) {
+    this._assertNoPublishInFlight('channel:save')
     if (!channel || typeof channel !== 'object' || Array.isArray(channel)) {
       throw serviceError(SERVICE_ERRORS.CHANNEL_INVALID, '频道数据必须是对象', {
         issues: [engineIssue('CHANNEL_MISSING', 'channel', '频道配置缺失')],
@@ -248,9 +295,16 @@ class PodcastChannelService {
       createdAt: (previous && previous.createdAt) || nowIso,
       updatedAt: nowIso,
     })
-    this._writeJson(CHANNEL_FILE, { version: 1, channel: stored })
+    // 改名不得抹掉发布状态（评审 #19）：feedSync 从旧文件原样带过来
+    const prev = this._readJson(CHANNEL_FILE, null)
+    this._writeJson(CHANNEL_FILE, { version: 1, meta: stored, feedSync: (prev && prev.feedSync) || null })
     this.logger.info('PodcastChannel', 'channel saved (fields=' + Object.keys(stored).length + ')')
     return stored
+  }
+
+  /** 上限与判据同源：渲染层要拿它做事前禁用，绝不允许自己写一份 1000（评审 D-8/#6）。 */
+  episodeCap () {
+    return ITEMS_MAX
   }
 
   /** 单集列表（未配置返回空数组）。 */
@@ -268,10 +322,17 @@ class PodcastChannelService {
    * @param {object} episode
    * @returns {object} 已落盘的单集
    */
-  saveEpisode (episode) {
+  /**
+   * @param {object} episode
+   * @param {{strict?:boolean}} [options] strict=true 时校验**合并后的产物**，不过即整次拒绝；
+   *        strict=false（手工路径）落盘照旧、只出声——「先登记本地文件、尚未拿到直链」的中间态是既有合法状态。
+   */
+  saveEpisode (episode, options = {}) {
+    this._assertNoPublishInFlight('episode:save')
     if (!episode || typeof episode !== 'object' || Array.isArray(episode)) {
       throw serviceError(SERVICE_ERRORS.EPISODE_INVALID, '单集数据必须是对象')
     }
+    const strict = options.strict === true
     const list = this.listEpisodes()
     const incomingId = typeof episode.id === 'string' ? episode.id.trim() : ''
     const incomingGuid = typeof episode.guid === 'string' ? episode.guid.trim() : ''
@@ -287,6 +348,8 @@ class PodcastChannelService {
         createdAt: list[index].createdAt || nowIso,
         updatedAt: nowIso,
       })
+      // 校验对象必须是**合并结果**：只校验传入对象会让旧记录里的脏字段在合并中存活（评审 #24）
+      this._checkEpisodeForWrite(merged, strict)
       list[index] = merged
       this._writeJson(EPISODES_FILE, { version: 1, episodes: list })
       this.logger.info('PodcastChannel', 'episode updated (total=' + list.length + ')')
@@ -302,10 +365,27 @@ class PodcastChannelService {
       createdAt: nowIso,
       updatedAt: nowIso,
     })
+    this._checkEpisodeForWrite(created, strict)
     list.push(created)
     this._writeJson(EPISODES_FILE, { version: 1, episodes: list })
     this.logger.info('PodcastChannel', 'episode created (total=' + list.length + ')')
     return created
+  }
+
+  /**
+   * 写前判据：委托引擎 validateEpisode，**不在本层另写字段规则**。
+   * @param {object} candidate 将要落盘的完整对象（合并结果，不是入参）
+   * @param {boolean} strict
+   */
+  _checkEpisodeForWrite (candidate, strict) {
+    const issues = engineValidateEpisode(candidate, 0)
+    if (!issues || !issues.length) return
+    if (strict) {
+      throw serviceError(SERVICE_ERRORS.EPISODE_INVALID,
+        'PODCAST_EPISODE_INVALID: ' + issues.map((i) => i.code).join(','), { issues })
+    }
+    // 非严格：落盘照旧但必须出声——「有判据可依却不吭声」是静默失真的起点
+    this.logger.warn('PodcastChannel', 'episode saved with violations (codes=' + issues.map((i) => i.code).join(',') + ')')
   }
 
   /**
@@ -314,6 +394,7 @@ class PodcastChannelService {
    * @returns {boolean} false = 该 id 不存在（调用方必须如实透传，不得恒回 true）
    */
   removeEpisode (id) {
+    this._assertNoPublishInFlight('episode:remove')
     const key = typeof id === 'string' ? id.trim() : ''
     if (!key) return false
     const list = this.listEpisodes()
@@ -330,6 +411,7 @@ class PodcastChannelService {
    * @returns {{path:string, itemCount:number, bytes:number}} 不回传 xml 正文
    */
   buildFeed () {
+    this._assertNoPublishInFlight('feed:build')
     const channel = this.getChannel()
     const episodes = this.listEpisodes()
     let xml

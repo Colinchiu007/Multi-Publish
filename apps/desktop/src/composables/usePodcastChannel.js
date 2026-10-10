@@ -28,10 +28,16 @@
  * - 全程零真实网络请求；feed 可达性自检由主进程注入 headImpl 完成。
  */
 import { ref, computed } from 'vue'
+import { createPodcastChannelPicker } from './usePodcastChannelPicker'
 import i18n from '@/i18n'
 // 渲染端 IPC 唯一取用点（单轨制）：本文件任何位置（含注释）都不得直写桌面端暴露面
 // 的属性名——结构锁见 src/composables/usePodcastChannel-ipc.test.js「IPC 单轨制结构锁」
 import {
+  channelList,
+  channelCreate,
+  channelRename,
+  channelSetDefault,
+  channelMigrateResolve,
   channelGet,
   channelSave,
   episodeList,
@@ -144,6 +150,13 @@ function makeChannelDraft () {
   }
 }
 
+// 刀 1 起频道是复数：这 7 个调用必须带 channelId，且**只在这一个出口注入**。
+// 在 7 个调用点各写一份 `channelId: activeChannelId.value` 是本仓反复踩过的「一件事两处写」，
+// 漏一处就是「读 A 频道、写 B 频道」级别的错乱。endpoint 目录与频道无关，故不在表内。
+const CHANNEL_SCOPED = new Set([
+  channelGet, channelSave, episodeList, episodeSave, episodeRemove, feedBuild, feedVerify,
+])
+
 /**
  * @returns 频道状态 / 单集列表 / feed 生成与自检 / 分发端目录 的全部状态与动作
  */
@@ -186,6 +199,14 @@ export function usePodcastChannel () {
    * 「按变量名转发」，ipc-exposure-contract 的静态对账就看不见这条路径。
    */
   async function call (invoke, ...args) {
+    if (CHANNEL_SCOPED.has(invoke)) {
+      // 没有频道上下文就先补，而不是带着空串发出去：空串打到主进程会被判
+      // PODCAST_CHANNEL_ID_REQUIRED，用户看到的是一句莫名其妙的失败
+      if (!activeChannelId.value) await ensureChannel()
+      const head = args[0]
+      const base = head && typeof head === 'object' ? head : (typeof head === 'string' ? { id: head } : {})
+      args = [Object.assign({}, base, { channelId: activeChannelId.value }), ...args.slice(1)]
+    }
     let envelope
     try {
       envelope = await invoke(...args)
@@ -199,10 +220,14 @@ export function usePodcastChannel () {
     if (res == null || typeof res !== 'object') {
       return { ok: false, code: IPC_EXCEPTION }
     }
+    // 领域码优先：EC 数字只区分「往哪查」，用户可见文案必须按领域码取（PRD §6 每码成对）。
+    // 只在这一处归一，视图与 composable 的其余分支继续看 EC，避免把两种码混成第三种。
+    if (res && res.ok === false && res.subCode) return Object.assign({}, res, { code: res.subCode })
     return res
   }
 
   async function loadChannel () {
+    await ensureChannel()
     channelError.value = ''
     const res = await call(channelGet)
     if (res.ok) {
@@ -215,6 +240,7 @@ export function usePodcastChannel () {
   }
 
   async function loadEpisodes () {
+    await ensureChannel()
     episodesError.value = ''
     const res = await call(episodeList)
     if (res.ok) {
@@ -372,8 +398,55 @@ export function usePodcastChannel () {
     return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
   }
 
+  // 频道目录域拆到 usePodcastChannelPicker.js（逐文件行数门禁 + 「目录态与页面态各有各的不变量」）；
+  // 本文件只留页面态与它的清理责任，切换频道时要清什么由这里说，不由目录模块猜。
+  const picker = createPodcastChannelPicker({
+    call,
+    ipcException: IPC_EXCEPTION,
+    onChannelActivated: async () => {
+      channel.value = null
+      episodes.value = []
+      feedResult.value = null
+      verifyResult.value = null
+      await loadChannel()
+      await loadEpisodes()
+    },
+  })
+  const {
+    channels,
+    activeChannelId,
+    migrationStatus,
+    migrationConflicts,
+    channelCap,
+    channelCount,
+    channelListError,
+    switchingChannel,
+    loadChannels,
+    ensureChannel,
+    createChannel,
+    renameChannel,
+    setDefaultChannel,
+    resolveMigration,
+    switchChannel,
+    refreshQuota,
+  } = picker
+
   return {
     // 状态
+    channels,
+    activeChannelId,
+    migrationStatus,
+    migrationConflicts,
+    channelCap,
+    channelCount,
+    switchingChannel,
+    loadChannels,
+    createChannel,
+    renameChannel,
+    setDefaultChannel,
+    resolveMigration,
+    switchChannel,
+    refreshQuota,
     channel,
     channelLoaded,
     savingChannel,
@@ -402,6 +475,7 @@ export function usePodcastChannel () {
     makeChannelDraft,
     durationText,
     errorText,
+    channelListError,
     issueText,
   }
 }

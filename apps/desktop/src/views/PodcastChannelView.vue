@@ -6,6 +6,33 @@
     </header>
 
     <!-- 区块一：频道设置 -->
+    <section class="podcast-section" data-testid="podcast-channel-picker" aria-labelledby="podcast-picker-heading">
+      <h2 id="podcast-picker-heading">{{ t('podcast.picker.sectionTitle') }}</h2>
+      <p v-if="migrationStatus === 'conflict'" class="podcast-error" data-testid="podcast-migration-conflict">
+        {{ t('podcast.picker.migrationConflict') }}<span v-if="migrationConflicts.length" class="podcast-migration-files" data-testid="podcast-migration-files">{{ migrationConflicts.join(' / ') }}</span>
+        <button type="button" data-testid="podcast-migration-keep-existing" @click="onResolveMigration('keep_existing')">{{ t('podcast.picker.keepExisting') }}</button>
+        <button type="button" data-testid="podcast-migration-keep-legacy" @click="onResolveMigration('keep_legacy')">{{ t('podcast.picker.keepLegacy') }}</button>
+      </p>
+      <p v-else-if="migrationStatus === 'error'" class="podcast-error" data-testid="podcast-migration-error">{{ t('podcast.picker.migrationError') }}</p>
+      <p v-if="channelListError" class="podcast-error" data-testid="podcast-picker-list-error">{{ errorText(channelListError) }}</p>
+      <div v-if="channels.length === 0" class="podcast-empty" data-testid="podcast-picker-empty">{{ t('podcast.picker.empty') }}</div>
+      <label v-else class="podcast-field">
+        <span>{{ t('podcast.picker.current') }}</span>
+        <select v-model="activeChannelId" data-testid="podcast-picker-select" :disabled="switchingChannel" @change="onSwitchChannel">
+          <option v-for="c in channels" :key="c.id" :value="c.id">{{ c.name }} · {{ c.count }}/{{ c.cap }}</option>
+        </select>
+      </label>
+      <div class="podcast-picker-actions">
+        <input v-model="newChannelName" data-testid="podcast-picker-new-name" :placeholder="t('podcast.picker.namePlaceholder')" :maxlength="120">
+        <button type="button" data-testid="podcast-picker-create" @click="onCreateChannel">{{ t('podcast.picker.create') }}</button>
+        <button type="button" data-testid="podcast-picker-set-default" :disabled="!activeChannelId" @click="onSetDefault">{{ t('podcast.picker.setDefault') }}</button>
+        <input v-model="renameName" data-testid="podcast-picker-rename-name" :placeholder="t('podcast.picker.namePlaceholder')" :maxlength="120">
+        <button type="button" data-testid="podcast-picker-rename" :disabled="!activeChannelId" @click="onRenameChannel">{{ t('podcast.picker.rename') }}</button>
+      </div>
+      <p v-if="pickerError" class="podcast-error" data-testid="podcast-picker-error">{{ pickerError }}</p>
+      <p class="podcast-hint" data-testid="podcast-picker-quota-hint">{{ t('podcast.picker.quotaHint', { cap: channelCap, count: channelCount }) }}</p>
+    </section>
+
     <section class="podcast-section" data-testid="podcast-channel-section" aria-labelledby="podcast-channel-heading">
       <h2 id="podcast-channel-heading">{{ t('podcast.channel.sectionTitle') }}</h2>
       <p class="podcast-hint">{{ t('podcast.channel.sectionHint') }}</p>
@@ -272,7 +299,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { useNotify } from '@/composables/useNotify'
-import { writeClipboard } from '@/utils/clipboard'
 import {
   usePodcastChannel,
   CHANNEL_CATEGORIES,
@@ -282,11 +308,27 @@ import {
   channelPayloadToForm,
   subCategoriesOf,
 } from '@/composables/usePodcastChannel'
+import { createPodcastChannelActions } from '@/composables/usePodcastChannelActions'
 
+const api = usePodcastChannel()
 const { t } = useI18n()
 const { notifySuccess, notifyError } = useNotify()
 
 const {
+  channels,
+  activeChannelId,
+  migrationStatus,
+  migrationConflicts,
+  channelListError,
+  channelCap,
+  channelCount,
+  switchingChannel,
+  createChannel,
+  renameChannel,
+  setDefaultChannel,
+  resolveMigration,
+  switchChannel,
+  loadChannels,
   channel,
   savingChannel,
   channelError,
@@ -313,119 +355,41 @@ const {
   durationText,
   errorText,
   issueText,
-} = usePodcastChannel()
+} = api
 
-const channelForm = ref(makeChannelDraft())
-const editingEpisode = ref(null)
-const editingIsNew = ref(true)
-const pendingDeleteId = ref('')
-const episodeFormError = ref('')
-const channelSaveIssues = ref([])
-const episodeSaveIssues = ref([])
+const actions = createPodcastChannelActions({ api, t, notifySuccess, notifyError })
+const {
+  newChannelName,
+  renameName,
+  pickerError,
+  onCreateChannel,
+  onSetDefault,
+  onRenameChannel,
+  onResolveMigration,
+  onSwitchChannel,
+  channelForm,
+  editingEpisode,
+  editingIsNew,
+  pendingDeleteId,
+  episodeFormError,
+  channelSaveIssues,
+  episodeSaveIssues,
+  availableSubCategories,
+  nonChannelIssues,
+  applyChannelToForm,
+  onCategoryChange,
+  onSaveChannel,
+  toFormPayload,
+  startNewEpisode,
+  startEditEpisode,
+  closeEpisodeForm,
+  onSaveEpisode,
+  confirmDeleteEpisode,
+  onBuildFeed,
+  onVerifyFeed,
+  onCopyFeedPath,
+} = actions
 
-const availableSubCategories = computed(() => subCategoriesOf(channelForm.value.category))
-const nonChannelIssues = computed(() => {
-  const all = verifyResult.value && verifyResult.value.issues ? verifyResult.value.issues : []
-  return all.filter((it) => !String((it && it.code) || '').startsWith('CHANNEL_'))
-})
-
-function applyChannelToForm (loaded) {
-  return channelPayloadToForm(loaded)
-}
-
-function onCategoryChange () {
-  channelForm.value.subCategory = ''
-}
-
-async function onSaveChannel () {
-  const res = await saveChannel({ ...toFormPayload(channelForm.value) })
-  if (res && res.ok) {
-    channelSaveIssues.value = []
-    notifySuccess(t('podcast.channel.saved'))
-  } else {
-    // F1 验收：校验失败必须逐项展示引擎 issues（定位到字段），不能只报通用码
-    channelSaveIssues.value = Array.isArray(res && res.issues) ? res.issues : []
-    notifyError(errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION'))
-  }
-}
-
-/** 表单 → 频道载荷：空串的可选项不进载荷；显式枚举按合同键名透传 */
-function toFormPayload (form) {
-  const payload = { ...form }
-  if (!payload.subtitle) delete payload.subtitle
-  if (!payload.link) delete payload.link
-  if (!payload.coverSize) delete payload.coverSize
-  if (payload.explicit === '') delete payload.explicit
-  return payload
-}
-
-function startNewEpisode () {
-  editingEpisode.value = makeEpisodeDraft()
-  editingIsNew.value = true
-  episodeFormError.value = ''
-  episodeSaveIssues.value = []
-}
-
-function startEditEpisode (ep) {
-  editingEpisode.value = { ...ep, explicit: ep.explicit || '' }
-  editingIsNew.value = false
-  episodeFormError.value = ''
-  episodeSaveIssues.value = []
-}
-
-function closeEpisodeForm () {
-  editingEpisode.value = null
-  episodeFormError.value = ''
-}
-
-async function onSaveEpisode () {
-  const draft = editingEpisode.value
-  if (!draft) return
-  const payload = { ...draft }
-  if (payload.explicit === '') delete payload.explicit
-  if (!payload.localFilePath) delete payload.localFilePath
-  if (!payload.audioUrl) delete payload.audioUrl
-  if (payload.sizeBytes === '' || payload.sizeBytes == null) delete payload.sizeBytes
-  const res = await saveEpisode(payload)
-  if (res && res.ok) {
-    episodeSaveIssues.value = []
-    notifySuccess(t('podcast.episodes.saved'))
-    closeEpisodeForm()
-  } else {
-    // F1 验收：单集校验失败逐项展示引擎 issues，通用码只进 toast
-    episodeSaveIssues.value = Array.isArray(res && res.issues) ? res.issues : []
-    episodeFormError.value = errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION')
-    notifyError(episodeFormError.value)
-  }
-}
-
-async function confirmDeleteEpisode (id) {
-  pendingDeleteId.value = ''
-  const res = await removeEpisode(id)
-  if (res && res.ok) notifySuccess(t('podcast.episodes.deleted'))
-  else notifyError(errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION'))
-}
-
-async function onBuildFeed () {
-  const res = await buildFeed()
-  if (res && res.ok) notifySuccess(t('podcast.publish.feedBuiltNotify'))
-  else notifyError(errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION'))
-}
-
-async function onVerifyFeed () {
-  await verifyFeed()
-}
-
-async function onCopyFeedPath () {
-  const path = feedResult.value && feedResult.value.path ? feedResult.value.path : ''
-  if (!path) return
-  try {
-    await writeClipboard(path)
-    notifySuccess(t('podcast.publish.copied'))
-  } catch {
-    notifyError(t('podcast.publish.copyFailed'))
-  }
-}
 
 onMounted(async () => {
   const [chRes] = await Promise.allSettled([loadChannel()])

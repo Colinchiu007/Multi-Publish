@@ -34,10 +34,12 @@ function makeIpc (responsesByChannel) {
 }
 
 describe('podcast preload · 通道与命名空间', () => {
-  it('暴露 podcast.* 八个方法，通道名逐字对齐主进程合同', () => {
+  it('暴露 podcast.* 十三个方法，通道名逐字对齐主进程合同', () => {
     const api = createPodcastApi(makeIpc({}))
     expect(Object.keys(api.podcast).sort()).toEqual([
-      'channelGet', 'channelSave', 'endpointList', 'episodeList',
+      'channelCreate', 'channelGet', 'channelList', 'channelMigrateResolve',
+      'channelRename', 'channelSave', 'channelSetDefault',
+      'endpointList', 'episodeList',
       'episodeRemove', 'episodeSave', 'feedBuild', 'feedVerify',
     ])
     for (const channel of CHANNELS) {
@@ -76,14 +78,25 @@ describe('podcast preload · envelope 剥壳', () => {
       'podcast:channel:save': { code: -2, message: 'PODCAST_CHANNEL_INVALID', issues },
     }))
     await expect(podcast.channelSave({})).resolves.toEqual({
-      ok: false, code: -2, message: 'PODCAST_CHANNEL_INVALID', issues,
+      ok: false, code: -2, subCode: '', message: 'PODCAST_CHANNEL_INVALID', issues,
     })
   })
 
   it('失败但 issues 缺席：补空数组（渲染层按数组遍历，不得因 undefined 抛错而丢失错误码）', async () => {
     const { podcast } = createPodcastApi(makeIpc({ 'podcast:feed:build': { code: -1, message: 'boom' } }))
     const res = await podcast.feedBuild()
-    expect(res).toEqual({ ok: false, code: -1, message: 'boom', issues: [] })
+    expect(res).toEqual({ ok: false, code: -1, subCode: '', message: 'boom', issues: [] })
+
+  })
+  // 评审 i7：领域码必须能被渲染层拿去取文案；EC 数字只区分「往哪查」，两码不得互相顶替
+  it('失败信封带 subCode 时必须原样透出（未知码不得被压成 EC 数字后失去专属文案）', async () => {
+    const { podcast } = createPodcastApi(makeIpc({
+      'podcast:episode:save': { code: -3, subCode: 'PODCAST_CHANNEL_BUSY', message: 'PODCAST_CHANNEL_BUSY: episode:save' },
+    }))
+    const res = await podcast.episodeSave({}
+    )
+    expect(res.subCode).toBe('PODCAST_CHANNEL_BUSY')
+    expect(res.code).toBe(-3)
   })
 
   it('载荷破坏（返回 null / 非对象 / code 缺失）一律判失败，不得判成功', async () => {

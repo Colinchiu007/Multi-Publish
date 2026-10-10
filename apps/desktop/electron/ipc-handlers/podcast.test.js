@@ -35,6 +35,9 @@ beforeEach(async () => {
 })
 
 const EC = require('../core/error-codes').ERROR
+const nodeFs = require('fs')
+const nodeOs = require('os')
+const nodePath = require('path')
 
 function makeIpcMain () {
   const handlers = new Map()
@@ -54,6 +57,9 @@ function makeService (overrides = {}) {
     buildFeed: vi.fn(() => ({ path: 'C:/tmp/feed.xml', itemCount: 2, bytes: 1234 })),
     verifyFeed: vi.fn(async () => ({ issues: [], checks: [{ name: 'parse', ok: true }], itemCount: 2 })),
     listEndpoints: vi.fn(() => [{ id: 'xiaoyuzhou' }]),
+    episodeCap: vi.fn(() => 1000),
+    readFeedSync: vi.fn(() => null),
+    writeFeedSync: vi.fn((p) => Object.assign({ updatedAt: 'now' }, p)),
     ...overrides,
   }
 }
@@ -71,10 +77,12 @@ function setup (overrides) {
 }
 
 describe('podcast handler · 通道注册', () => {
-  it('八条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
-    const { ipcMain } = setup()
+  it('十三条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
+    const { ipcMain, service } = setup()
     expect([...ipcMain.handlers.keys()].sort()).toEqual([
-      'podcast:channel:get', 'podcast:channel:save',
+      'podcast:channel:create', 'podcast:channel:get', 'podcast:channel:list',
+      'podcast:channel:migrate:resolve', 'podcast:channel:rename',
+      'podcast:channel:save', 'podcast:channel:setDefault',
       'podcast:endpoints:list', 'podcast:episode:list',
       'podcast:episode:remove', 'podcast:episode:save',
       'podcast:feed:build', 'podcast:feed:verify',
@@ -84,16 +92,21 @@ describe('podcast handler · 通道注册', () => {
   it('注册阶段不得触碰 userData：未注入服务时也能完成注册，第一次调用才惰性建服务', () => {
     const ipcMain = makeIpcMain()
     expect(() => registerHandlers(ipcMain, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })).not.toThrow()
-    expect(ipcMain.handlers.size).toBe(8)
+    expect(ipcMain.handlers.size).toBe(13)
   })
 })
 
 describe('podcast handler · 成功信封', () => {
   it('每条通道都回 { code:0, data:{…} }，键名与合同逐字一致', async () => {
-    const { ipcMain } = setup()
+    const { ipcMain, service } = setup()
     expect(await invoke(ipcMain, 'podcast:channel:get')).toEqual({ code: 0, data: { channel: { title: '午间电台' } } })
-    expect(await invoke(ipcMain, 'podcast:episode:list')).toEqual({ code: 0, data: { episodes: [{ id: 'ep-1' }] } })
-    expect(await invoke(ipcMain, 'podcast:endpoints:list')).toEqual({ code: 0, data: { endpoints: [{ id: 'xiaoyuzhou' }] } })
+    expect(await invoke(ipcMain, 'podcast:episode:list')).toEqual({ code: 0, data: { episodes: [{ id: 'ep-1' }], cap: 1000, count: 1 } })
+    // 评审 i2：分发端目录不再经「按频道构造」的 service，所以注入的假 service 一次都不该被调用
+    const epRes = await invoke(ipcMain, 'podcast:endpoints:list')
+    expect(Object.keys(epRes)).toEqual(['code', 'data'])
+    expect(Object.keys(epRes.data)).toEqual(['endpoints'])
+    expect(epRes.data.endpoints.length).toBeGreaterThan(0)
+    expect(service.listEndpoints).not.toHaveBeenCalled()
     expect(await invoke(ipcMain, 'podcast:feed:build')).toEqual({ code: 0, data: { path: 'C:/tmp/feed.xml', itemCount: 2, bytes: 1234 } })
     const verified = await invoke(ipcMain, 'podcast:feed:verify')
     expect(verified).toEqual({ code: 0, data: { issues: [], checks: [{ name: 'parse', ok: true }], itemCount: 2 } })
@@ -170,3 +183,35 @@ describe('podcast handler · unwrapObject 形状判据', () => {
     expect(unwrapObject({ title: 'A' }, 'channel')).toEqual({ title: 'A' })
   })
 })
+
+
+describe("podcast IPC · 评审 i2/i4 处置", () => {
+  it("生产路径（不注入 service、payload 为空）也必须返回分发端目录，而不是恒抛 PODCAST_CHANNEL_ID_REQUIRED", async () => {
+    const ipcMain = makeIpcMain()
+    registerHandlers(ipcMain, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const res = await ipcMain.handlers.get("podcast:endpoints:list")({}, {})
+    expect(res.code).toBe(0)
+    expect(Array.isArray(res.data.endpoints)).toBe(true)
+    expect(res.data.endpoints.length).toBeGreaterThan(0)
+  })
+
+  it("写入口走 assertChannelWritable、读入口只走 assertChannelExists（读写分档判据只在 registry 一份）", async () => {
+    const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "mp-pod-ipcw-"))
+    const writeId = "ch_wtest01"
+    const readId = "ch_rtest01"
+    for (const id of [writeId, readId]) nodeFs.mkdirSync(nodePath.join(dir, id), { recursive: true })
+    const calls = []
+    const registry = {
+      assertChannelExists: (id) => { calls.push("read:" + id); return id },
+      assertChannelWritable: (id) => { calls.push("write:" + id); return id },
+      channelDir: (id) => nodePath.join(dir, id),
+    }
+    const ipcMain = makeIpcMain()
+    registerHandlers(ipcMain, { podcastRegistry: registry, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    await ipcMain.handlers.get("podcast:feed:build")({}, { channelId: writeId })
+    await ipcMain.handlers.get("podcast:episode:list")({}, { channelId: readId })
+    expect(calls).toEqual(["write:" + writeId, "read:" + readId])
+    nodeFs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+

@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "source": "CCG 双模型外部评审（设计阶段 backend=claude）",
+  "session": "dabbc2ec-7e85-4bbd-b951-513aca08300a",
+  "reviewedAt": "2026-10-10T13:44:32.350Z",
+  "target": ".adversarial/podcast-oneclick-publish/proposal-v1.md",
+  "note": "非对抗循环 critique 轮产物，单独存档以免污染 proposal/critique/rebuttal 配对",
+  "findings": [
+    {
+      "severity": "Critical",
+      "id": "PODCAST-LOCK-WRITER-COVERAGE",
+      "title": "withPodcastChannelLock 只串行“一键发布”，未覆盖 episodes.json 的全部写者（read-modify-write 丢失更新）",
+      "area": "2) 并发口径",
+      "anchor": "design §5.1.3 + podcast-channel-service.js:275-309",
+      "failure_scenario": "saveEpisode/removeEpisode 是整段 read-modify-write（listEpisodes() → findIndex → _writeJson），只有在一把通道级锁内才安全。设计把锁的口径写成“同一频道两次**一键**必须串行”，即锁只圈住一键发布编排；但播客页的手工单集增/删、既有 8 个通道（刀 1）、以及迁移，都直接调用同一个公开的 saveEpisode/removeEpisode。若手工加单集不持这同一把锁：用户对频道 A 点一键发布（持锁，第 1 步 list=[ep1]，追加 epX 后写 [ep1,epX]），同时用户提交进程正在写之前的窗口在播客页手工加了 epY（其 listEpisodes 读到 [ep1]，随后把 [ep1,epY] 写回）——后写者覆盖先写者，epX 或 epY 静默丢失，feed 里少一期却不报错。",
+      "verdict": "CONFIRMED (against design; reused service has no internal lock)",
+      "fix": "把锁的圈定从“一键发布编排”下放到“episodes.json 的每一次变更”这一单一收口点：在 podcast-channel-service 的 saveEpisode/removeEpisode/buildFeed-input 内部获取 withPodcastChannelLock(channelId)（并让一键发布复用同一入口，而不是在编排层另起一把）。需在 §5.1.3 明确写：episodes.json 的**所有**写者（手工增删、迁移、一键）都经同一把 per-channel 串行锁。该收口点还同时解决“锁只圈虎头不让蛇尾写半截”的问题。"
+    },
+    {
+      "severity": "Critical",
+      "id": "PODCAST-INVARIANT4-HEADIMPL-GATE",
+      "title": "不变量 4 的“OSS Content-Length == feed length”在默认零出站路径下根本无法成立检查（fail-open 直达 Apple）",
+      "area": "4) 五条不变量 / ffprobe 一致性",
+      "anchor": "design §5.1.4 + podcast-rss.js:373 + podcast-channel-service.js:120",
+      "failure_scenario": "不变量 4 声称“实测字节、feed length、OSS Content-Length 三处任一漂移即拒收”。但唯一能做长度交叉校验的机制是 verifyFeed，而它只有注入 headImpl 时才检查 contentLength vs item.sizeBytes（podcast-rss.js:373 的 `if (typeof headImpl === 'function')`）；podcast-channel-service 的默认 headImpl 是 null（零出站，:120）。design §7 又明确“podcast:hosting:check 缺省跳过真实探测，与 pod:feed:verify 的 headImpl 同口径”。结果：生产默认路径下，上传到 OSS 的已存对象的真实字节数与 feed 里写的 length **从不做任何比对**。若上传中断/服务端转码导致对象实际字节 ≠ ffprobe 记录的 sizeBytes，validateFeed 照样过、uploadFeed 照样发，Apple 拒收或进度条错乱——正是不变量要消灭的形态，却没任何检查点兜底。",
+      "verdict": "CONFIRMED (design claims a check the reused engine only does under egress)",
+      "fix": "指定一条**无需额外出站**的带内校验：uploadAudio 后把 OSS PUT 响应体/头里的真实字节数（或对已存对象再做一次仅有本上传通道的 HEAD/Content-Length 读取）与记录进 feed 的 sizeBytes 比对，不等则判 PODCAST_AUDIO_MEASURE_FAILED 并阻止 uploadFeed；明确“在带内强制，headImpl 缺省零出站仅豁免测试”，使不变量 4 在默认生产路径可执行。"
+    },
+    {
+      "severity": "Critical",
+      "id": "PODCAST-DEGRADED-MIX-MASKED",
+      "title": "刀 3 的“degraded 旁白 fail closed”若对全混音做响度判定会被 BGM 掩盖——必须读源旁白标志，否则静音占位混音照常上传",
+      "area": "4) 降级矩阵 / degraded 音频",
+      "anchor": "design §5.1.2 + D-5 + ResultView.vue:652 silent_narration 语义",
+      "failure_scenario": "D-5 取“全混音”（含 BGM/音效），而 silent_narration 只由 ResultView 从源旁白 `segment.audioMeta.degraded===true` 组装。若刀 3 的 degraded 判定策略是“对抽出的混音做响度/astats 静音检测”——混音里 BGM 会把静音占位旁白“垫”到非静音，静音检测不触发；同时项目里源旁白的 degraded 标志若未被一键管线显式读取并携带，这条“degraded 旁白→fail closed”就变成 dead branch，一期“旁白是静音占位 + 只有 BGM”的混音被当作正常上传进 feed。这是静默失败，不是注释掉的死代码——degraded 语义从源到混音之间断链。",
+      "verdict": "CONFIRMED (design never states the degraded truth is read from source narration)",
+      "fix": "在设计里明示刀 3 的 degraded 判定**不是对混音做响度测量，而是读取源项目的 narration degraded 标志**（与 ResultView 同一真源），读不到/不一致即 fail closed；刀 4 的 assembler 则除自置的 degraded 标志外，加一道对合成结果的有测量（ffmpeg volumedetect/astats 低于阈值判静音），两处判定来源分开写清。"
+    },
+    {
+      "severity": "Warning",
+      "id": "PODCAST-EVICT-CONTRADICT",
+      "title": "“将挤出最早的 N 期”与复用的 saveEpisode 语义矛盾：现实现到 ITEMS_MAX 抛 EPISODES_FULL，不挤出",
+      "area": "4) 降级矩阵 + 数据模型边界",
+      "anchor": "design §5.2 挤出行 + podcast-channel-service.js:296-299",
+      "failure_scenario": "§5.2 与 §5.3 承诺“挤出最老一期”并给 confirm 预告；但 design §3 又说“episodes.json 沿用 saveEpisode 语义（ITEMS_MAX 按频道计）”，而现有 saveEpisode 在 list.length >= ITEMS_MAX 时直接 throw EPISODES_FULL（:296），**从不挤出**。结果：当某频道单集数到 1000 时，一键发布不是“预告挤出最老一期”，而是抛 EPISODES_FULL 失败——用户看到的前置预告与实际行为不一致；反之若为兑现“挤出”而给 saveEpisode 加 eviction，又违背“沿用语义逐字不变”的承诺。",
+      "verdict": "CONFIRMED (promised UX vs reused code path diverge)",
+      "fix": "在 §3 明确二选一：要么保留 EPISODES_FULL（则该行为即设计原文，需删掉矩阵“挤出”行与 confirm 文案）；要么增加挤出——设计须一次性写清挤出算法（按 pubDate 最老、per-channel 计、是否同步删 OSS 音频对象）、ITEMS_MAX 常量是否仍沿用共享层 1000 或改为按频道，并在 §3 声明“saveEpisode 语义**已**变更，非逐字沿用”。不要让“沿用语义”与“挤出行为”同时成立。"
+    },
+    {
+      "severity": "Warning",
+      "id": "PODCAST-MIGRATION-CONFLICT-NO-RESOLUTION",
+      "title": "迁移在“首次访问”读路径上触发且无解决通道：PODCAST_MIGRATION_CONFLICT 会把用户永久卡死在一次 `:list` 上",
+      "area": "1) 迁移不可逆 / 冲突语义",
+      "anchor": "design §3 + §4 接口表（无 migrate:resolve 通道）",
+      "failure_scenario": "迁移条件是“首次访问时有 legacy channel.json 且 index.json 无 migratedAt”。(a) 冲突分支“报 PODCAST_MIGRATION_CONFLICT 交用户处置”——但 §4 接口表没有任何 `podcast:*:migrate:resolve` 通道，也没有“延续 legacy”/“保留已建频道”两个处置入口，用户被卡在冲突态且无操作可做，legacy 又不删（作为回滚依据），等于永久不可推进。(b) 迁移是**读路径触发的写**：用户只是 `podcast:channel:list` 也会执行复制+建目录，一次无辜的列表请求可能抛 STORE_CORRUPT/冲突错，UX 意外。(c) 迁移无 channelId，withPodcastChannelLock 键不上（键是 channelId），迁移本身不是 single-flight——两个并发首访（或一次首访与一次发布）可交错迁移；若发布在迁移完成前落地，会写到半迁移的目录或读到“尚未有 default 频道”的 index.json。",
+      "verdict": "CONFIRMED (conflict state has no defined exit)",
+      "fix": "① 增一条 `podcast:channel:migrate:resolve`（带 direction: keep_legacy | keep_existing）并写清两分支都幂等；② 迁移改为主进程确定性触发（例如注册表构造时单飞执行，或用 migrateAt 文件锁做 single-flight），且迁移期间对该目录的其它操作串行/等待，读路径（getChannel/list）不得再隐式触发写迁移；③ 迁移冲突态在索引 JSON 里落一个 persistent status 字段而非每次重算。"
+    },
+    {
+      "severity": "Warning",
+      "id": "PODCAST-MIGRATED-CHANNEL-ID-INVALID",
+      "title": "迁移建的 `channels/default/` 目录名违反 `^ch_[a-z0-9]{4,16}$` 不可变 id 约定，且作为对象路径前缀/key 不可修订",
+      "area": "1) 数据模型不可逆",
+      "anchor": "design §3（channels/default/） vs §6（id 正则）+ assertChannel 落盘层校验",
+      "failure_scenario": "§3 迁移建 `channels/default/`，但 §6 校验判据与 D-4 说 channelId 是 `^ch_[a-z0-9]{4,16}$` 的不可变短 id、“绝不用频道名”。“default”既不符 `^ch_` 前缀（落盘层写前校验频道 id 形态会当场拒绝），又是个“频道名”而非不可变 id。一旦用 `default` 作为托管路径 `{pathPrefix}/default/feed.xml`，再想改成合规的 `ch_*` 就会改已提交给 Apple 的 feed URL——不可逆承诺在迁移第一步就破了。",
+      "verdict": "CONFIRMED (id namespace inconsistent in the same doc)",
+      "fix": "迁移必须为 legacy 频道分配一个**合规的不可变 `ch_<uuid4-16>`**（与手工建频道同源生成），目录即 `<channelId>`，并把该 id 记入 index.json 的 channelId；删掉任何以目录名 `default` 作 channelId 的写法，落盘层校验与对象 key 派生对迁移频道同样生效。"
+    },
+    {
+      "severity": "Warning",
+      "id": "PODCAST-LOCK-WAIT-SCALE",
+      "title": "借用的等待超时（account-lock 默认 30s）与发布级临界区（含 TTS/ffmpeg/上传，可达分钟级）不匹配：同频道第二次点击会误报超时",
+      "area": "2) 锁的超时排队口径",
+      "anchor": "design §5.1.3（“同族口径见 account-state-lock.js 七条”） + account-state-lock.js:41-44 默认 30s",
+      "failure_scenario": "刀 4 的临界区含分块 TTS 合成（每块 0.3–1.6s 静音、多块拼接），总时长可能远超 30s；刀 3 含 ffmpeg 抽流加 OSS 上传（PUT_TIMEOUT_MS 默认 120s）。若按“同族口径”沿用 account-state-lock 的 waitTimeoutMs 默认 30000ms，用户在同频道第一次发布进行中第二次点击，会在 30s 后收到 ACCOUNT_LOCK_WAIT_TIMEOUT（一个“登录态写入等待超时”文案）——把“频道正在发布”的正常状态误报成超时失败，用户会认为出错了或重复点击叠出死状态。",
+      "verdict": "CONFIRMED (the borrowed default is not publish-scale)",
+      "fix": "在 §5.1.3 明确 withPodcastChannelLock 的 waitTimeoutMs **不得复用 30s 默认**，需按发布半程设更大上限并 bad（或改为语义化拒绝：同频道已有持锁者时立即返回 PODCAST_CHANNEL_BUSY 而非等超时），且文案是该专用码而非借用登录态文案；同时写清“临界区自身时长由各自的 TTS 单任务硬超时/上传超时负责，不作为锁等待预算”。"
+    },
+    {
+      "severity": "Warning",
+      "id": "PODCAST-HOSTING-SAVE-SECRET-RECONCILE",
+      "title": "validateHosting 每次 :save 都要求 accessKeySecret 非空，但 :get 永不回显 secret——设计未定义“只改 bucket 不重输 secret”的合并规则，会静默用空 secret 覆盖存储",
+      "area": "3) OSS 凭证处理",
+      "anchor": "design §4 hosting:get/save + podcast-hosting-upload.js:65-67 + credential-store 方言",
+      "failure_scenario": "§6 说 validateHosting“直接复用 podcast-hosting-upload.js:47”，而该实现把 `accessKeyId || accessKeySecret` 任一为空即报 PODCAST_HOSTING_CREDENTIAL_REQUIRED（:65-67）。同时 §4 规定 `podcast:hosting:get` 永不回显 secret 只回 masked+configured。那么用户在页面改 endpoint/bucket 后保存：若 :save 收到的对象不含 secret，validateHosting 直接拒绝（需要每次重输，UX 断裂）；若 :save 为了不给用户添麻烦而“从存储合并 secret 再存”，但设计没定义合并规则，一旦合并把空/缺 secret 写回 credential-store，就用空 secret 覆盖了原本有效的长期 AK，下次上传全部 403，且因为 secret 存在 store 里、界面只显示 “configured”，用户无从察觉被吞。",
+      "verdict": "CONFIRMED (reconcile rule undefined)",
+      "fix": "设计明示 :save 的分区合并语义：secret 字段缺省视为“保持不变，从 credential-store 取旧值回填后再 validateHosting”，仅当显式清空（clear secret 动作）才覆写；并加断言——当 store 已有 secret 时，:save 不得以空 secret 通过校验路径静默落盘（落盘层拒空 secret 覆写）。这同时保住“:get 永不回显”与“validateHosting 单一实现”。"
+    },
+    {
+      "severity": "Info",
+      "id": "PODCAST-PARTIAL-ORPHAN-SEMANTICS",
+      "title": "`partial` 是有效但“内容未达公网”的中间态；历史列表与降级矩阵都缺一行真正的“成功”终态，且 `partial` 不应混入发布历史“已发布”区",
+      "area": "4) 降级矩阵 / fail-open 终态",
+      "anchor": "design §5.2（无 success 行） + §1.1.4（“播客没有发布失败”）",
+      "failure_scenario": "§5.1 不变量 1 说成功只有一种“两个对象都落地”，但 §5.2 矩阵只列 blocked/failed/retryable/partial/confirm，**没有定义成功终态行**；“partial”在语义上既不是成功也不是失败（音频已上传、公网 feed 未更新，用户这一期听众听不到）。若「单集已写入 episodes.json + 本地 feed.xml」与「公网 feed 更新成功」被任何 UI/历史页混置，用户会在“发布历史”看到一条看似已发布的记录，实际聚合端根本没这期——正是 §1.1.4 想避免的“假装发布”。",
+      "verdict": "PLAUSIBLE (design omits the success terminal and partial is distinct from it)",
+      "fix": "在 §5.2 显式补一行 success 终态（“音频对象与 feed.xml 均已在 OSS 落下”），并在发布历史/单集列表中把 `partial` 与 success 用不同标记区分：partial 永不落入“已发布/成功”分桶，仅显示“待补传 feed”，另配【只重试上传 feed】入口（§5.1 已有）。"
+    },
+    {
+      "severity": "Info",
+      "id": "PODCAST-PARTIAL-ORPHAN-AUDIO",
+      "title": "用户放弃 `partial`（不再重试上传 feed）时，已上传的 OSS 音频对象成为无引用的计费孤儿",
+      "area": "4) 降级矩阵 / 数据价值",
+      "anchor": "design §5.1.1 + deriveObjectKey:104-110",
+      "failure_scenario": "音频上传成功但 feed 上传失败 → partial。若用户选择不重试（或改期），该对象 `{pathPrefix}/{channelId}/{episodeId}{ext}` 已在 OSS，却无任何 feed <enclosure> 引用它。因 key 含 episodeId、幂等覆盖，后续不会自动复用，对象长期占用存储并计费；删除单集（removeEpisode）也不回收对应 OSS 对象（设计未定义回收）。",
+      "verdict": "PLAUSIBLE (no lifecycle defined for abandoned audio objects)",
+      "fix": "在 §3/§5 补一条对象生命周期：`partial` 且用户确认放弃，或 removeEpisode 删除单集时，可选执行 delete 收回 `{pathPrefix}/{channelId}/{episodeId}{ext}`（注入 clientImpl，缺省删除失败仅记日志不阻断），并注明是“可调回收”非必选，避免把“删一期”引成引用计数问题（§3 已 YAGNI 否决去重）。"
+    }
+  ]
+}
