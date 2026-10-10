@@ -282,7 +282,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 
 页面「播客频道」三区块（已实现，2026-10-09 渲染层刀；下述为规范，实现偏差见 §9.1）：
 
-**A. 频道配置区**：表单字段=§5.2；【保存】随时可用（半成品允许），保存被校验拒绝时 §6.2 issues 以**区块下方逐条清单**渲染（`podcast-channel-save-issues`，每条 `issueText` 文案 + `<code>field</code>` 定位字段，保存成功即清空；B 区单集表单同口径 `podcast-episode-save-issues`；回归锁 `PodcastChannelView.test.js`「保存频道校验失败：逐项展示引擎 issues 并定位字段，不得只有通用码（QM-6 W4 / F1 验收）」）；封面尺寸输入框旁实时显示校验结果（正方形/1400~3000/无法解析三态）；`ownerEmail` 字段下固定提示「该邮箱会公开出现在 RSS 中（写入 itunes:email），聚合端与订阅者均可见。」（`podcast-owner-email-privacy-hint`，文案唯一实现 zh/en 成对，见 §11.1）。
+**A. 频道配置区**：表单字段=§5.2；【保存】随时可用（半成品允许），保存被校验拒绝时 §6.2 issues 以**区块下方逐条清单**渲染（`podcast-channel-save-issues`，每条 `issueText` 文案 + `<code>field</code>` 定位字段，保存成功即清空；B 区单集表单同口径 `podcast-episode-save-issues`；回归锁 `PodcastChannelView.test.js`「保存频道校验失败：逐项展示引擎 issues 并定位字段，不得只有通用码（QM-6 W4 / F1 验收）」）；封面尺寸输入框旁实时显示校验结果（正方形/1400~3000/无法解析三态）；`ownerEmail` 字段下固定提示「该邮箱会公开出现在 RSS 订阅源中（写入 itunes:email），聚合端与订阅者均可见。」（`podcast-owner-email-privacy-hint`，文案唯一实现 zh/en 成对，见 §11.1）。
 
 **B. 单集列表区**：倒序列表（期号/标题/时长/体积/发布日期/外链状态徽标）；【添加单集】打开表单：音频来源二选一「粘贴外链 / 选择本地文件（P0 提示需先有外链，P1 走直传）」；外链失焦即做 https 协议判据预检；【保存】走 `podcast:episode:save`（幂等语义）；【删除】需确认弹窗；体积人类可读（KB/MB/GB，渲染层格式化，`sizeBytes` 原值持久化）；时长 `HH:MM:SS`/`MM:SS`（与引擎 `formatDuration` 同口径，禁止第二份实现）。
 
@@ -331,7 +331,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 
 > 键名风格对齐既有 locales（顶层 `podcast: {}`，camelCase 子键；先例 `publish:`/`settings:`）。渲染层非 locales 文件禁止新增中文字面量（CJK 基线扫描）；校验类 issue 的 zh 文案以引擎 `issue.message` 为底稿（shared-utils 属数据层中文，PLATFORM_NAMES 先例），en 侧由渲染层按 `podcast.errors.<CODE>` 映射——**下表 code 行即为错误映射的单一清单**，新增码必须成对补键。
 
-### 11.1 界面 chrome（表单标签/占位/按钮/状态）
+> **提示文字有两把不同的锁，不可互替**：① **键级成对**由 `.github/scripts/check-locale-sync.js --pair-base` 守（zh.js 与 en.js 的同名键必须同批出现，漏一侧当场红）；② **产品术语成对**由 `apps/desktop/src/i18n/glossary.test.js`（L3）守——它读 `01-docs/i18n-glossary.md` 的词条表，要求每个词条的 zh 术语出现在 zh locale、en 术语出现在 en locale（en 侧不区分大小写）。本 PR 曾只满足 ① 而未满足 ②（词典加了「RSS 订阅源 / RSS feed」而 zh 文案用裸词「RSS」），CI 一次报红 4 条但真实红因只有 1 条，故**新增或修改词典词条必须本机跑该锁**。术语取向一律是「**UI 采用词典 canonical 术语**」，不把词典削到已有裸词（后者等于把锁的目标改成缺陷）。本节下表内所有 zh 文案均按**当前实现值**抄录，与 `src/locales/zh.js` 逐字一致（第七刀 2026-10-10 校订）。### 11.1 界面 chrome（表单标签/占位/按钮/状态）
 
 | key | zh | en |
 | --- | --- | --- |
@@ -350,7 +350,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | podcast.channel.author | 作者/主播 | Author |
 | podcast.channel.ownerName | 所有者名称 | Owner Name |
 | podcast.channel.ownerEmail | 所有者邮箱 | Owner Email |
-| podcast.channel.ownerEmailPrivacy | 该邮箱会公开出现在 RSS 中（写入 itunes:email），聚合端与订阅者均可见。 | This email is published in the RSS feed (written to itunes:email) and visible to aggregators and subscribers. |
+| podcast.channel.ownerEmailPrivacy | 该邮箱会公开出现在 RSS 订阅源中（写入 itunes:email），聚合端与订阅者均可见。 | This email is published in the RSS feed (written to itunes:email) and visible to aggregators and subscribers. |
 | podcast.channel.explicit | 内容分级 | Explicit Rating |
 | podcast.channel.feedType | 节目类型 | Feed Type |
 | podcast.channel.category | 播客分类 | Podcast Category |

@@ -260,6 +260,10 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 - 文案变长使基线**第三次**由 Gate 7b（而非 Gate 7）拦下：只红 2 张（1312 / 1408 px），已按同一 run 的 artifact 重取并两轮自证 0 违规。
 - **一处我自己的写错位（如实）**：第六刀往 `.quality-gates.md` 插登记行时锚点取了「文件内第一个 `| QM-4 视觉 |`」，而该文件是多记录拼接、该行首标签出现 41 次，两行因此落到别人的记录块里；本刀插入前按所属 `## 本次执行记录` 标题反向断言并搬回原位。判据：`check-gate-record-debt` 只看行内容合规，**看不出行落在谁的块里**，所以拼接文件的插入锚点必须先在「本记录标题 → 下一个 `^## `」的块界内定位。
 
+- **QM-6 外部评审回项（后端 claude，用 `resume` 续接同一会话拿到结论）**：两条 Info（键名/键集、IPC 契约与错误码映射）无发现；两条 Warning 分别按「部分成立」与「方法论」处置。
+- **W③「术语未全量对齐」逐条核对后只有 1 条成立并已修**：`podcast.pageTitle` 原值为「播客RSS频道」，中英夹杂缺空格，与本仓写法（`route-registry.js` 的注释、en 侧「Podcast RSS Channel」）不一致，已改为「播客 RSS 频道」。被一并点名的 `pageSubtitle`「经 RSS 订阅…」、`directory.sectionHint`「RSS 聚合端…」以及 `collection` 模块的「RSS 批量采集」，语义上指**技术/通道**而非词典定义的 "RSS feed"（那一份可提交的订阅源），改成「RSS 订阅源」反而失真，故不改——**术语对齐只覆盖"指代同一事物"的出现点，不做无差别字符串替换**。
+- **W④「重取基线是否会掩盖真实回归」用归因代替自参照**：QM-4 第 7 条要求基线与比对环境同源，自参照是规则的设计而非漏洞；防掩盖靠的是「差值逐项归因」＋「同一次 run 内未触碰的视图漂移为 0」（三次重取分别是 19335 px、1312 + 1408 px、+1 px，而未触碰的 41 张始终 0 px）。判据补一条硬要求：**此后每次重取都必须同时给出这两项，只报"违规数归零"不构成证据**。
+- **工具路由坑（写下来防下次被误判成"模型没结论"）**：`codeagent-wrapper resume <id>` 不带 `--backend` 会落到默认后端 codex，用 claude 的 session id 去 resume 直接报 `no rollout found for thread id (-32600)`；且 `… | tail` 会把 `timeout` 的 rc=124 吃成 0——判有没有结论只看产物里有无结论行。
 ## 修复（第五刀：QM-6 双模型复审回项——两条都不是文案问题，而是把用户引向错误排障方向）
 
 - **Warning（后端 claude）｜权限前置条件被报成"调用失败"**：未登录 / 许可证未激活时，`invokeNamespace` 的抛错发生在**实参求值期**（preload 的 `createDynamicAccessApi` 是普通 `function`、**同步** throw `LicensePermissionError`，播客 8 个方法都不在 `PUBLIC_METHODS` 里 ⇒ 需要已登录），而第四刀写成 `toEnvelope(await invokeNamespace(…))`——包装器自己的 `try` 那时还没进场，结构上不可能接住，用户看到的是 `PODCAST_IPC_EXCEPTION`（并被告知"请稍后重试"）。修法：`envelope(() => invokeNamespace(NS, '…'))` 以 **thunk** 传入、在 `try` 体内求值，catch 内用 `electron-bridge.js` 导出的**共享判据** `isPermissionError` 归进 `{available:false}` ⇒ 界面映射 `PODCAST_IPC_UNAVAILABLE`；其余错误原样上抛。口径来源是本仓既有约定 **M-14**（`invokeWithFallback`：权限不足落进 fallback、其余照原样抛），**不是新发明**；`electron-bridge.js` 与 `access-control.js` 未改动，只消费其既有导出。反向依据：主进程 8 个 handler 全被 `guarded` 包住、领域错误以负码**返回**而不 throw，所以能穿透边界的 throw 这一档**只剩**环境/前置条件——把它映射成"调用失败"等于丢掉唯一有意义的分类。

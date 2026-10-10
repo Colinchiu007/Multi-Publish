@@ -298,7 +298,7 @@ knowledgeBase: {
   },
 
   podcast: {
-    pageTitle: '播客RSS频道',
+    pageTitle: '播客 RSS 频道',
     pageSubtitle: '经 RSS 订阅把播客收录进小宇宙 / Apple / Spotify 等聚合端：配置频道一次 → 逐期追加单集 → 生成并自检 Feed → 向分发端提交 Feed 地址',
     channel: {
       sectionTitle: '频道设置',
