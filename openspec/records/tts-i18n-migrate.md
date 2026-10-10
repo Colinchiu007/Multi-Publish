@@ -2,9 +2,6 @@
 record: tts-i18n-migrate
 task: TTS 音色域硬编码中文迁入 locales（FRONTEND-FILE-SPLIT-PLAN-2026-10 §2.6 发现 T1 的前置任务）
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：TTS 音色域硬编码中文迁入 locales（tts-i18n-migrate，2026-10-10）【混合 PR】
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一个会话
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/`，无主进程改动 |
 | QM-4 视觉 | PASS（带取证） | 见下方「视觉」小节 |
 | QM-6 CCG 双模型外部评审 | PASS | 本次为纯字符串→键位替换（值不变），无方案外新决策；评审依据沿用方案 v3 附录 B/C |
-| 远程同步 | PENDING | 开 PR 时登记 ledger；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA，`git ls-remote --heads origin tts-i18n-migrate` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3252 已 squash 合并，merge SHA `0947ec3e3905e175e09074ba22c2bed092dbd247`（2026-10-10T12:34:23+08:00），取证 `git log origin/main --grep='(#3252)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin tts-i18n-migrate` 返回 0 行，证远端分支已删；frontmatter `sync_*` 三字段与台账登记项已在本次回填提交删除 |
 
 ### 动机（可核对的硬证据）
 
