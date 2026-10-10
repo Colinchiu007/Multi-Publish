@@ -223,6 +223,29 @@ node .github/scripts/check-locale-sync.js --cjk
 
 **残留项**：`s2vConfigSummary`（L1925）等壳内文案仍含非本域 CJK；本批已把 `'自动 Edge TTS'` 与 `'（多模态）'` 收敛为共用 locale 键（`autoEdgeProvider` / `multimodalSuffix`，后者由语音与视频两处共用），其余留待后续。
 
+### 2.8 第 3–5 步 CJK 预检结论与批量域抽取的暂缓决定（2026-10-10）
+
+**§2.6 同口径预检（探针实测，main @ 8ba53d078 基线）**：
+
+| 步 | 候选 | 行数 | fresh CJK 命中 | T1 阻断 |
+|---|---|---|---|---|
+| 3 | 批量创作域 19 方法 | 279 | **0** | 无 |
+| 4 | 快速渲染域 6 方法 | 36 | **0** | 无 |
+| 5 | ConfigProfile 域 12 方法 | 163 | **0** | 无 |
+
+**结论**：第 3–5 步均无 T1 阻断（i18n 债已在 #3252 一并清偿）。
+
+**批量域（第 3 步）的归属修正与暂缓**：
+
+1. **归属修正**：批量删除三方法（`requestHistoryBatchDeletion` / `closeBatchDeletionDialog` / `confirmBatchDeletion`）与删除确认文案 `story2videoBatchDeleteDialogMessage` **依赖历史域状态**（`deleting` / `history` / `story2videoBatchDeleteDialog`），跨域过深 → **留壳**。批量域实际可迁出：15 方法 + 10 状态（含被模板引用的 `S2V_BATCH_MAX_TEXTS/FILES`）+ 轮询定时器。
+2. **模板引用面**：与 TTS 域（UI 在子组件、模板 0 引用）不同，**批量创作 UI 就在 CreateView 模板里（36 处引用）**——抽取后桥接/代理面必须完整覆盖模板触点。
+3. **抽取已实现并自检全过（useBatchCreate.js 330 行），但旧测试在连跑下暴露 3 例跨用例状态污染**（单跑全绿）：
+   - 现象：批量弹窗经 **Teleport 渲染到 body**，弹窗内交互（如切 tab 的 `@click="s2vBatchTab = 'files'"`）的事件闭包在**上一用例 unmount 后仍可能通过残留 DOM 触发**，写入模块级单例（桥接 setter 委托 `batchCreateRefs`）→ 下一用例读到 `s2vBatchTab === 'files'` 残留，走错分支。
+   - **单文件时代的同类风险不存在**：状态挂在 vm 实例上，unmount 即销毁。**composable 模块级单例把「组件卸载」与「状态生命周期」解耦了**——这是本方案 §2.3 模式的结构性代价，此前 BGM/TTS 两批未暴露是因为它们的弹窗测试均单跑语义/不依赖 Teleport 交互残留。
+   - 已试并放弃的修法：包装 `w.unmount`（破坏 this 绑定与时序）、`afterEach` 清 `document.body`（残留不在 DOM）。**未找到不改旧测试语义的最小修复**。
+4. **决定（止损纪律）**：批量域抽取**暂缓**，回退本批代码改动；下一步先做**测试基建修复**——给批量弹窗测试建立「卸载后清扫 Teleport 残留 + flush 挂起微任务」的标准模式（候选：`afterEach` 内 `await new Promise(setTimeout 0)` 冲刷后再清 body；或让桥接 setter 带代际标记拒收过期 vm 的写入），修复后重跑本批。**在此期间第 3 步不计入已完成里程碑。**
+5. **教训入档**：§2.3 的「模块级单例 composable」模式对**有 Teleport 弹窗交互的域**有一个此前未识别的前提——测试必须在卸载后冲刷并清场。抽取前应先审「该域的测试是否依赖 Teleport 交互」，把这类测试基建成本计入 §2.3-5 的工期估算。
+
 
 ---
 
