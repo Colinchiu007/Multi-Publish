@@ -1106,6 +1106,19 @@ describe("RpaVmPublisher 发布方式标记", () => {
     expect(caught.definitelyNotSent).toBeUndefined()
   })
 
+  it("RPA 结果里的中文登录短语**不得**打标（评审 i2：可能是动作之后从页面文本判出的）", async () => {
+    // rpa-view-platforms.js 的失败检测正则含 `登录失效|请登录`——那是**动作之后**判出来的，
+    // 此时内容可能已被平台接收。据此打标会误回滚已提交窗口 ⇒ 早于窗口的重复发布（危险侧）。
+    const rpaViewManager = { publish: vi.fn(async () => ({ success: false, error: "登录失效，请重新登录" })) }
+    const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    let caught = null
+    try {
+      await publisher.publish({ id: "t-rpa-cn-login", platform: "wechat_mp", article: { title: "T", content: "C" } })
+    } catch (e) { caught = e }
+    expect(caught).toBeTruthy()
+    expect(caught.definitelyNotSent).toBeUndefined()
+  })
+
   it("RPA 失败兜底文案不再出现编码损坏（曾为 'RPA 鍙戝竷澶辫触'）", async () => {
     const rpaViewManager = { publish: vi.fn(async () => ({ success: false })) }
     const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })

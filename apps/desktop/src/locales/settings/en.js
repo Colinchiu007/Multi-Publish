@@ -25,6 +25,8 @@ export default {
       currentTier: 'Current tiers (account / platform / daily limit)',
       effectiveRange: 'Effective wait range (with jitter)',
       accountInterval: 'Min interval per account (minutes)',
+      unset: 'Not overridden',
+      overrideScopeHint: 'These fields apply to **all platforms**; leaving one empty means that dimension is not overridden (each platform keeps its own default tier). Fill in only what you want to change — untouched fields are not cleared.',
       platformInterval: 'Cross-account platform interval (minutes, 0 = off)',
       platformIntervalHint: 'Applies only when switching accounts on the same platform; for the same account the account tier is always stricter.',
       dailyMaxLong: 'Daily limit for long-form tier (0 = unlimited)',

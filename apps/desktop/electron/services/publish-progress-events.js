@@ -19,13 +19,13 @@ const log = require('./logger')
 
 /** stageKey 稳定枚举（渲染层 i18n 按此渲染步骤标签） */
 const STAGE_KEY_ENUM = [
-  'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'done', 'failed', 'detail',
+  'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'released', 'done', 'failed', 'detail',
 ]
 
 /** 事件相位（生命周期边界，对齐账号批量检测 start/done 双边界先例）。
  * cancelled（publish-progress-panel-refine）：取消终态——TaskQueue 取消任务时发
  * task:cancelled，经 phase4-events 转发；渲染层以中性「已取消」态呈现（非失败红态）。 */
-const PHASE_ENUM = ['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'cancelled']
+const PHASE_ENUM = ['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'released', 'cancelled']
 
 /**
  * 已知阶段串 → stageKey 封闭映射表。
@@ -139,12 +139,17 @@ function createPublishProgressEmitter({ getMainWin }) {
     const percent = extra.percent !== undefined
       ? normalizePercent(extra.percent)
       : defaultPercentForPhase(normalizedPhase)
+    // stageKey 默认由 stage 文本反查；但调用方显式给出**合法** stageKey 时以它为准
+    // （publish-frequency-policy-v2 的 released 相位带中文兜底串，反查只会得到 detail）
+    const explicitStageKey = typeof extra.stageKey === 'string' && STAGE_KEY_ENUM.includes(extra.stageKey)
+      ? extra.stageKey
+      : null
     const payload = {
       platform,
       taskId,
       stage,
       phase: normalizedPhase,
-      stageKey: mapStageToKey(stage),
+      stageKey: explicitStageKey || mapStageToKey(stage),
       percent,
       batchId: (typeof extra.batchId === 'string' && extra.batchId) || null,
       timestamp: Date.now(),
@@ -154,6 +159,13 @@ function createPublishProgressEmitter({ getMainWin }) {
     if (extra.remainingWait !== undefined) payload.remainingWait = extra.remainingWait
     if (extra.retriesLeft !== undefined) payload.retriesLeft = extra.retriesLeft
     if (extra.bucket !== undefined) payload.bucket = extra.bucket
+    // publish-frequency-policy-v2：阻塞原因与当日用量必须**显式加进白名单**，
+    // 否则会在这一层被静默过滤掉（本文件的 payload 是逐字段挑选的，不是 { ...extra }）。
+    // 这是评审 i6 实测抓出的真缺陷：渲染层单测直接注 store 状态、绕过本层 ⇒ 不会暴露。
+    if (extra.reason !== undefined) payload.reason = extra.reason
+    if (extra.daily !== undefined) payload.daily = extra.daily
+    if (extra.releaseReason !== undefined) payload.releaseReason = extra.releaseReason
+    if (extra.graceMs !== undefined) payload.graceMs = extra.graceMs
     try {
       win.webContents.send('publish:progress', payload)
     } catch (e) {

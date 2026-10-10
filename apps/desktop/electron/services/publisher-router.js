@@ -668,10 +668,11 @@ class ApiPublisher {
       throw new Error('任务已取消')
     }
     if (!result || !result.success) {
-      // publish-frequency-policy-v2 P0-1：登录态失效族可确证未送出（见 publish-not-submitted.js）
-      const apiErr = new Error((result && result.error) || 'API 发布失败')
-      markDefinitelyNotSent(apiErr, result && result.error)
-      throw apiErr
+      // publish-frequency-policy-v2 P0-1：**此处刻意不打 definitelyNotSent**（评审 i2）。
+      // 走到这里说明已经过了一次完整的网络往返（publishViaApi 已返回），请求是**发出去过的**；
+      // 平台响应里出现「登录失效」这类文本恰恰证明请求到达了平台。把它判成「未送出」会让
+      // 已提交窗口被误回滚 ⇒ 早于窗口的重复发布（危险侧）。凭证缺失在更早处已无条件打标。
+      throw new Error((result && result.error) || 'API 发布失败')
     }
     const postId = typeof result.publishId === 'string' && result.publishId.trim() ? result.publishId.trim() : ''
     if (!postId) throw new Error('发布结果缺少平台作品 ID')

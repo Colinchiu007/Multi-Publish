@@ -10,11 +10,11 @@ describe('publish-not-submitted（P0-1 细粒度打标）', () => {
       'douyin not logged in',
       'zhihu not logged in',
       'wechat_mp not logged in',
-      '平台未登录',
-      '登录态失效，请重新登录',
-      '登录超时',
+      'youtube not logged in',
+      'bilibili not logged in',
       '平台 Cookie 缺失（账号 acc_1 未登录或凭证不可用）',
       '凭证不可用',
+      '凭证缺失',
       '风控挂起：douyin',
       'RiskSuspendedError',
     ]
@@ -38,6 +38,13 @@ describe('publish-not-submitted（P0-1 细粒度打标）', () => {
       '视频信息探测失败（ffprobe 不可用或文件损坏）',
       '发布结果缺少平台作品 ID',
       '风控命中：发布过于频繁',
+      // ── 评审 i2 收窄后**必须不命中**的中文登录短语 ──
+      // rpa-view-platforms.js 的失败检测正则含 `登录失效|请登录`，那是**动作之后**从页面文本
+      // 判出来的，此时内容可能已被平台接收 ⇒ 判成「未送出」会误回滚已提交窗口（危险侧）
+      '登录失效，请重新登录',
+      '登录超时',
+      '未登录',
+      '请先登录',
     ]
     for (const text of misses) {
       it(`不命中：${JSON.stringify(text)}`, () => {
@@ -75,7 +82,8 @@ describe('publish-not-submitted（P0-1 细粒度打标）', () => {
 
   it('词表每条都带「为什么在平台写之前」的理由（新增条目必须解释机制，防随手加泛化错误）', () => {
     const sigs = listSignatures()
-    expect(sigs.length).toBeGreaterThanOrEqual(4)
+    // 评审 i2 收窄后剩 3 条：RPA 登录态早退 / 发出请求前的凭证缺失 / 派发前拦截的风控挂起
+    expect(sigs.length).toBe(3)
     for (const s of sigs) {
       expect(typeof s.source).toBe('string')
       expect(s.source.length).toBeGreaterThan(0)

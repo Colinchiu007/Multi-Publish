@@ -10,7 +10,6 @@ const api = vi.hoisted(() => ({
   getPublishEmergencyStatus: vi.fn(),
 }))
 vi.mock('@/api/publisher', () => api)
-
 const messages = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 const box = vi.hoisted(() => ({ confirm: vi.fn() }))
 vi.mock('element-plus', async (importOriginal) => {
@@ -65,9 +64,24 @@ describe('PublishFrequencySettings（publish-frequency-policy-v2 设置页）', 
     api.getPublishFrequencyPolicy.mockReset().mockResolvedValue(POLICY_RES)
     api.setPublishFrequencyPolicy.mockReset().mockResolvedValue({ code: 0, data: { saved: true } })
     api.emergencyReleasePublishWait.mockReset().mockResolvedValue({ code: 0, data: { released: true, taskId: 't-1', used: 1, max: 1 } })
+    api.getPublishEmergencyStatus.mockReset().mockResolvedValue({ code: 0, data: { dayKey: '2026-10-10', max: 1, cooldownMs: 600000, retryAfterMs: 0, perAccount: {} } })
     messages.success.mockReset()
     messages.error.mockReset()
     box.confirm.mockReset().mockResolvedValue('confirm')
+  })
+
+  it('紧急放行每日上限取自 emergencyStatus（评审 i8：此前读 getPolicy 不返回的字段 ⇒ 恒显示 —）', async () => {
+    const wrapper = await mountPage()
+    expect(api.getPublishEmergencyStatus).toHaveBeenCalled()
+    const text = wrapper.find('[data-testid="pubfreq-emergency-quota"]').text()
+    expect(text).toContain('1')
+    expect(text).not.toBe('—')
+  })
+
+  it('emergencyStatus 取不到时保持 —（不编造数字）', async () => {
+    api.getPublishEmergencyStatus.mockResolvedValue({ code: -1, message: '未初始化' })
+    const wrapper = await mountPage()
+    expect(wrapper.find('[data-testid="pubfreq-emergency-quota"]').text()).toBe('—')
   })
 
   it('挂载即拉取策略，并展示按档位分组的当前口径', async () => {
@@ -89,8 +103,41 @@ describe('PublishFrequencySettings（publish-frequency-policy-v2 设置页）', 
     expect(wrapper.find('[data-testid="pubfreq-save"]').exists()).toBe(false)
   })
 
+  it('评审 i3：无覆盖时直接保存 ⇒ 提交 null，**不得**把首个平台档位压平到所有平台', async () => {
+    // 覆盖对象是全局的：若按「首个平台」预填再保存，short 档（3 分钟 / 20 条）会被静默压成
+    // 20 分钟 / 3 条，还提示「已保存并立即生效」。这条锁住「未填 = 不覆盖」。
+    const wrapper = await mountPage()
+    expect(wrapper.vm.form.accountMinutes).toBe(null)
+    expect(wrapper.vm.form.dailyShort).toBe(null)
+    await wrapper.find('[data-testid="pubfreq-save"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(api.setPublishFrequencyPolicy).toHaveBeenCalledWith(null)
+  })
+
+  it('只提交用户真正填了的字段（未填维度不被清掉）', async () => {
+    const wrapper = await mountPage()
+    wrapper.vm.form.accountMinutes = 15
+    wrapper.vm.form.jitterOn = true
+    await nextTick()
+    await wrapper.find('[data-testid="pubfreq-save"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+
+    const payload = api.setPublishFrequencyPolicy.mock.calls[0][0]
+    expect(Object.keys(payload).sort()).toEqual(['accountMinMs', 'jitterRatio'])
+    expect(payload.accountMinMs).toBe(15 * 60000)
+    expect(payload.dailyMax).toBeUndefined()
+    expect(payload.platformMinMs).toBeUndefined()
+  })
+
   it('保存时提交的字段名与主进程 resolvePolicyOverrides 逐一对应（自创字段名会被静默忽略）', async () => {
     const wrapper = await mountPage()
+    wrapper.vm.form.accountMinutes = 20
+    wrapper.vm.form.platformMinutes = 2
+    wrapper.vm.form.dailyLong = 3
+    wrapper.vm.form.dailyClip = 5
+    wrapper.vm.form.dailyShort = 20
+    wrapper.vm.form.jitterOn = true
+    await nextTick()
     await wrapper.find('[data-testid="pubfreq-save"]').trigger('click')
     await new Promise((r) => setTimeout(r, 0))
 
@@ -98,7 +145,7 @@ describe('PublishFrequencySettings（publish-frequency-policy-v2 设置页）', 
     const payload = api.setPublishFrequencyPolicy.mock.calls[0][0]
     expect(Object.keys(payload).sort()).toEqual(['accountMinMs', 'dailyMax', 'jitterRatio', 'platformMinMs'])
     expect(payload).toMatchObject({ accountMinMs: 20 * 60000, platformMinMs: 2 * 60000, jitterRatio: 0.4 })
-    expect(Object.keys(payload.dailyMax).sort()).toEqual(['clip', 'long', 'short'])
+    expect(payload.dailyMax).toEqual({ long: 3, clip: 5, short: 20 })
   })
 
   it('保存被主进程拒绝（全有或全无）⇒ 报错且**不报成功**', async () => {

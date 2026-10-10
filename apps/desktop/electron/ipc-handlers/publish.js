@@ -591,6 +591,7 @@ function registerHandlers(ipcMain, deps) {
       const recorded = svc.record(platform, accountId, {
         result: 'ok',
         reason: payload && payload.reason ? String(payload.reason) : undefined,
+        clearedKeys: r.clearedKeys,
       })
 
       try {

@@ -27,9 +27,15 @@
 
       <!-- 覆盖项（保存后即时生效） -->
       <section class="pubfreq__section">
+        <el-alert
+          type="warning"
+          :closable="false"
+          :title="t('settings.publishFrequency.overrideScopeHint')"
+          data-testid="pubfreq-override-scope"
+        />
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.accountInterval') }}</label>
-          <el-input-number v-model="form.accountMinutes" :min="0" :max="10080" :step="1" data-testid="pubfreq-account-min" />
+          <el-input-number v-model="form.accountMinutes" :min="0" :max="10080" :step="1" :placeholder="t('settings.publishFrequency.unset')" data-testid="pubfreq-account-min" />
         </div>
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.platformInterval') }}</label>
@@ -117,6 +123,7 @@ import {
   getPublishFrequencyPolicy,
   setPublishFrequencyPolicy,
   emergencyReleasePublishWait,
+  getPublishEmergencyStatus,
 } from '@/api/publisher'
 
 const { t } = useI18n()
@@ -128,12 +135,14 @@ const loadError = ref('')
 const raw = ref(null)
 
 const form = reactive({
-  accountMinutes: 0,
-  platformMinutes: 0,
-  dailyLong: 0,
-  dailyClip: 0,
-  dailyShort: 0,
-  jitterOn: true,
+  // null = 该项未覆盖（继续用各平台自己的默认档）。**不用 0 / 默认值预填**，
+  // 否则用户「什么都不改直接保存」会把所有平台的差异化档位压平（评审 i3）。
+  accountMinutes: null,
+  platformMinutes: null,
+  dailyLong: null,
+  dailyClip: null,
+  dailyShort: null,
+  jitterOn: null,
 })
 
 const emergency = reactive({ platform: '', accountId: '', reason: '' })
@@ -193,6 +202,15 @@ async function load () {
     }
     raw.value = res.data
     applyOverridesToForm(res.data)
+    // 评审 i8：每日上限来自 publishFreq:emergencyStatus（getPolicy 不返回它）。
+    // 此前只读 res.data.emergencyStatus ⇒ 该行恒显示「—」。取不到时保持 null，界面显示 —
+    // （不编造一个数字糊弄用户）。
+    try {
+      const st = await getPublishEmergencyStatus()
+      if (st && st.code === 0 && st.data) raw.value = { ...raw.value, emergencyStatus: st.data }
+    } catch (e) {
+      /* 状态取不到不影响策略展示，界面按 — 显示 */
+    }
   } catch (e) {
     loadError.value = (e && e.message) || t('settings.publishFrequency.loadFailed')
   } finally {
@@ -200,37 +218,55 @@ async function load () {
   }
 }
 
-function applyOverridesToForm (data) {
-  const ov = data && data.overrides && typeof data.overrides === 'object' ? data.overrides : {}
-  const anyPlatform = Object.values((data && data.platforms) || {})[0] || {}
-  const toMin = (ms, dflt) => (Number.isFinite(Number(ms)) ? Math.round(Number(ms) / 60000) : dflt)
-  form.accountMinutes = toMin(ov.accountMinMs, toMin(anyPlatform.accountMinMs, 0))
-  form.platformMinutes = toMin(ov.platformMinMs, toMin(anyPlatform.platformMinMs, 0))
-  form.dailyLong = Number.isFinite(Number(ov.dailyMax && ov.dailyMax.long))
-    ? Number(ov.dailyMax.long)
-    : Number(anyPlatform.accountDailyMax) || 0
-  form.dailyClip = Number.isFinite(Number(ov.dailyMax && ov.dailyMax.clip))
-    ? Number(ov.dailyMax.clip)
-    : Number(anyPlatform.accountDailyMax) || 0
-  form.dailyShort = Number.isFinite(Number(ov.dailyMax && ov.dailyMax.short))
-    ? Number(ov.dailyMax.short)
-    : Number(anyPlatform.accountDailyMax) || 0
-  form.jitterOn = ov.jitterRatio === undefined ? true : ov.jitterRatio > 0
+/** 严格数值归一：null / undefined / '' / 非数值一律返回 null。
+ *  ⚠️ 不能用 `Number.isFinite(Number(v))` 判空 —— `Number(null) === 0`，会把「未填」
+ *  当成 0 提交（评审 i3 的隐患本体：一次静默压平）。 */
+function toNumOrNull (v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
-/** 组装覆盖对象：与主进程 resolvePolicyOverrides 的字段名逐一对应（不得自创字段名） */
-function buildPolicy () {
-  const policy = {
-    accountMinMs: Math.round(form.accountMinutes * 60000),
-    platformMinMs: Math.round(form.platformMinutes * 60000),
-    dailyMax: {
-      long: Math.round(form.dailyLong),
-      clip: Math.round(form.dailyClip),
-      short: Math.round(form.dailyShort),
-    },
-    jitterRatio: form.jitterOn ? 0.4 : 0,
+function applyOverridesToForm (data) {
+  const ov = data && data.overrides && typeof data.overrides === 'object' ? data.overrides : {}
+  const toMin = (ms) => {
+    const n = toNumOrNull(ms)
+    return n === null ? null : Math.round(n / 60000)
   }
-  return policy
+  // ⚠️ 评审 i3：**无覆盖时不得回填「首个平台」的档位**。
+  // 覆盖对象是**全局**的（accountMinMs 对所有平台生效），用 wechat_mp 的值回填会让用户
+  // 「什么都不改直接保存」就把 short 档（3 分钟 / 20 条）静默压平成 20 分钟 / 3 条，
+  // 还提示「已保存并立即生效」。故无覆盖即留空（null），由 buildPolicy 略过未填字段。
+  form.accountMinutes = toMin(ov.accountMinMs)
+  form.platformMinutes = toMin(ov.platformMinMs)
+  const dm = ov.dailyMax && typeof ov.dailyMax === 'object' ? ov.dailyMax : {}
+  form.dailyLong = toNumOrNull(dm.long)
+  form.dailyClip = toNumOrNull(dm.clip)
+  form.dailyShort = toNumOrNull(dm.short)
+  form.jitterOn = ov.jitterRatio === undefined || ov.jitterRatio === null ? null : ov.jitterRatio > 0
+}
+
+/**
+ * 组装覆盖对象：与主进程 resolvePolicyOverrides 的字段名逐一对应（不得自创字段名）。
+ * **只提交用户真正填了的字段** —— 未填字段省略 = 该维度继续用各平台自己的默认档，
+ * 这样「只改抖动」不会顺手把三档日配额也压成一个值（评审 i3）。全部未填 ⇒ 提交 null（清空覆盖）。
+ */
+function buildPolicy () {
+  const policy = {}
+  const acc = toNumOrNull(form.accountMinutes)
+  if (acc !== null) policy.accountMinMs = Math.round(acc * 60000)
+  const plat = toNumOrNull(form.platformMinutes)
+  if (plat !== null) policy.platformMinMs = Math.round(plat * 60000)
+  const daily = {}
+  const dl = toNumOrNull(form.dailyLong)
+  if (dl !== null) daily.long = Math.round(dl)
+  const dc = toNumOrNull(form.dailyClip)
+  if (dc !== null) daily.clip = Math.round(dc)
+  const ds = toNumOrNull(form.dailyShort)
+  if (ds !== null) daily.short = Math.round(ds)
+  if (Object.keys(daily).length > 0) policy.dailyMax = daily
+  if (form.jitterOn !== null && form.jitterOn !== undefined) policy.jitterRatio = form.jitterOn ? 0.4 : 0
+  return Object.keys(policy).length > 0 ? policy : null
 }
 
 async function onSave () {

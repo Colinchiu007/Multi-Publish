@@ -824,8 +824,12 @@ class TaskQueue extends EventEmitter {
       rollbackable = false
     }
 
-    // 失败路径接线探针：声称「未发起尝试」的失败若出现在已证明会打点的平台上，判为接线矛盾
-    if (!attempted) {
+    // 失败路径接线探针：**只统计「既未发起尝试、也不属于词表确认未送出」的失败**。
+    // ⚠️ 必须排除 definitelyNotSent（评审 i1 Critical 实测抓出）：发布器在**登录态早退**处
+    // 主动打标 definitelyNotSent=true 的失败是**合法的未提交**，不是接线缺陷。若不排除，
+    // 平台只要有过一次成功发布（_platformsProvenSubmit 命中），第一次登录失效就会被判成
+    // 「接线矛盾」⇒ 永久停用该平台回滚 ⇒ P0-1 对最该生效的场景自毁。
+    if (!attempted && !definitelyNotSent) {
       const n = (this._missingWiringCounts.get(platform) || 0) + 1
       this._missingWiringCounts.set(platform, n)
       if (this._platformsProvenSubmit.has(platform)) {

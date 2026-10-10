@@ -143,6 +143,18 @@ describe('publish-emergency-release', () => {
     expect(typeof row.ts).toBe('string')
   })
 
+  it('评审 i5：审计必须记下被清掉的键（含连带释放的 platform:*），否则事后无法解释', () => {
+    const { service } = makeService()
+    const r = service.record('douyin', 'acc_1', { result: 'ok', clearedKeys: ['douyin:acc_1', 'douyin:*'] })
+    expect(r.clearedKeys).toEqual(['douyin:acc_1', 'douyin:*'])
+    const row = JSON.parse(fs.readFileSync(tmpFile, 'utf8').trim())
+    expect(row.clearedKeys).toEqual(['douyin:acc_1', 'douyin:*'])
+    // 缺省为空数组而不是 undefined（下游按数组消费）
+    service.record('douyin', 'acc_2', { result: 'ok' })
+    const rows = fs.readFileSync(tmpFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    expect(rows[1].clearedKeys).toEqual([])
+  })
+
   it('操作者取不到时如实写 unknown（不假装是某人）', () => {
     const { service } = makeService()
     const r = service.record('douyin', 'acc_1', { result: 'ok' })

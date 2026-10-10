@@ -192,6 +192,10 @@ function createPublishEmergencyReleaseService (deps = {}) {
 
       const reason = typeof detail.reason === 'string' ? detail.reason.slice(0, MAX_REASON_LEN) : null
       const operator = detail.operator || resolveOperator()
+      // 评审 i5：审计必须记下**清掉了哪些键** —— clearWindow 会连带清 `platform:*`，
+      // 即该平台**其他账号**的跨账号保护也失效一次。不记下来，事后无法解释
+      // 「为什么另一个账号那次没被拦」。
+      const clearedKeys = Array.isArray(detail.clearedKeys) ? detail.clearedKeys.slice(0, 8) : []
       const audited = appendAudit({
         ts: new Date(at).toISOString(),
         platform,
@@ -199,8 +203,9 @@ function createPublishEmergencyReleaseService (deps = {}) {
         operator,
         reason,
         result: detail.result || 'ok',
+        clearedKeys,
       })
-      return { at, operator, audited }
+      return { at, operator, audited, clearedKeys }
     },
   }
 }

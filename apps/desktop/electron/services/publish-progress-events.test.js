@@ -268,3 +268,44 @@ describe('createPublishProgressEmitter — 关键相位 notify 可观测性（P0
     expect(allPhaseKeys().sort()).toEqual(['phase-start', 'phase-success'])
   })
 })
+
+// ── publish-frequency-policy-v2：新字段必须穿过本层的**显式白名单** ──────────────
+// 评审 i6 实测抓出的真缺陷：本文件的 payload 是逐字段挑选的（不是 { ...extra }），
+// 新增 reason/daily/released 若不同步加进白名单，会在这一层被**静默丢掉** ——
+// 而渲染层单测直接注 store 状态、绕过本层，所以那些单测全绿也发现不了。
+describe('publish-frequency-policy-v2 字段穿透（i6 接线锁）', () => {
+  it('blocked(daily_quota)：reason 与 daily 必须原样出现在 payload 上', () => {
+    const win = makeWin()
+    const emitter = createPublishProgressEmitter({ getMainWin: () => win })
+    const daily = { used: 3, max: 3, dayKey: '2026-10-10' }
+    emitter.emit('task-d', 'douyin', 'blocked', {
+      stage: '⏳ 今日发布已达上限', remainingWait: 0, bucket: 'daily', reason: 'daily_quota', daily,
+    })
+    const payload = win.webContents.send.mock.calls[0][1]
+    expect(payload.reason).toBe('daily_quota')
+    expect(payload.daily).toEqual(daily)
+    expect(payload.bucket).toBe('daily')
+  })
+
+  it('released 相位不得被降级成 progress，且显式 stageKey 生效', () => {
+    const win = makeWin()
+    const emitter = createPublishProgressEmitter({ getMainWin: () => win })
+    emitter.emit('task-r', 'douyin', 'released', {
+      stage: '↺ 未提交到平台，已恢复可发布', stageKey: 'released', releaseReason: 'not_submitted', graceMs: 60000,
+    })
+    const payload = win.webContents.send.mock.calls[0][1]
+    expect(payload.phase).toBe('released')
+    expect(payload.stageKey).toBe('released')
+    expect(payload.releaseReason).toBe('not_submitted')
+    expect(payload.graceMs).toBe(60000)
+  })
+
+  it('未登记相位仍降级为 progress，未登记 stageKey 不被采信（白名单不得变成任意透传）', () => {
+    const win = makeWin()
+    const emitter = createPublishProgressEmitter({ getMainWin: () => win })
+    emitter.emit('task-x', 'douyin', 'totally-new-phase', { stage: '随便', stageKey: 'totally-new-key' })
+    const payload = win.webContents.send.mock.calls[0][1]
+    expect(payload.phase).toBe('progress')
+    expect(payload.stageKey).toBe('detail')
+  })
+})

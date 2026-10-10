@@ -25,6 +25,8 @@ export default {
       currentTier: '当前档位（账号间隔 / 平台间隔 / 每日上限）',
       effectiveRange: '实际等待区间（含抖动）',
       accountInterval: '同账号最小间隔（分钟）',
+      unset: '未覆盖',
+      overrideScopeHint: '以下字段对**所有平台**生效；留空表示不覆盖该维度（继续使用各平台自己的默认档）。只填你想改的那几项即可，未填的不会被清掉。',
       platformInterval: '同平台跨账号最小间隔（分钟，0 = 关闭）',
       platformIntervalHint: '仅在「同平台换账号」时生效；同账号时账号档恒更严，该值不改变结果。',
       dailyMaxLong: '长文档每日上限（条，0 = 不限）',
