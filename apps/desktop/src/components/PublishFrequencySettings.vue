@@ -374,18 +374,18 @@ defineExpose({ load, buildPolicy, emergency, form })
 
 <style scoped>
 .pubfreq { display: flex; flex-direction: column; gap: 16px; }
-.pubfreq__title { margin: 0; font-size: 16px; font-weight: 600; }
-.pubfreq__subtitle { margin: 0; font-size: 14px; font-weight: 600; }
-.pubfreq__hint { margin: 0; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.6; }
+.pubfreq__title { margin: 0; font-size: var(--font-size-md); font-weight: 600; }
+.pubfreq__subtitle { margin: 0; font-size: var(--font-size-base); font-weight: 600; }
+.pubfreq__hint { margin: 0; font-size: var(--font-size-xs); color: var(--el-text-color-secondary); line-height: 1.6; }
 .pubfreq__section { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; }
 .pubfreq__section--danger { border-color: var(--el-color-warning-light-5); }
 .pubfreq__row { display: flex; gap: 10px; align-items: baseline; }
-.pubfreq__label { min-width: 220px; font-size: 13px; color: var(--el-text-color-regular); }
-.pubfreq__value { font-size: 13px; color: var(--el-text-color-primary); }
+.pubfreq__label { min-width: 220px; font-size: var(--font-size-sm); color: var(--el-text-color-regular); }
+.pubfreq__value { font-size: var(--font-size-sm); color: var(--el-text-color-primary); }
 .pubfreq__field { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.pubfreq__field-hint { font-size: 12px; color: var(--el-text-color-secondary); }
+.pubfreq__field-hint { font-size: var(--font-size-xs); color: var(--el-text-color-secondary); }
 .pubfreq__actions { display: flex; gap: 10px; }
-.pubfreq__result { margin: 0; font-size: 13px; }
+.pubfreq__result { margin: 0; font-size: var(--font-size-sm); }
 .pubfreq__result.is-ok { color: var(--el-color-success); }
 .pubfreq__result.is-warn { color: var(--el-color-warning); }
 .pubfreq__result.is-error { color: var(--el-color-danger); }
