@@ -43,7 +43,7 @@ date: 2026-10-09
 5. **提交与确认**：确认弹窗如实提示「即将发布 5 篇内容，共 40 个平台账号任务」并列出快手 480 字截断预告（1263→468 等）；点「确认发布」后回执「🚀 已接受 40 个发布任务」。
 6. **第二轮（含小红书草稿轨的完整验收）**：重启应用加载新代码后重跑同一链路——5 条改写完成（正文 1061/714/1081/863/1277 字）→ 去发布 → `?drafts=` 装载 5 条并预置 8 平台 + 默认账号 → 每条设封面（小红书草稿必须有图）→ 第 1 条取消百家号（避免与上一批已成功的那篇重复）→ 「批量发布 (39 个任务)」→ 确认弹窗「即将发布 5 篇内容，共 39 个平台账号任务」→ 回执「🚀 已接受 39 个发布任务」。
 7. **冷重载复验**：在 `?drafts=` URL 上 `location.reload()`（组件冷挂载）后，内容仍装载、平台仍预置、任务数回到 39 —— 验证「交接幂等 + 预置来自账号目录（不依赖平台目录就绪）」两项修复；同轮以 Vue 实例树直读确认 `articles` 内部状态与 DOM 输入一致。
-8. **批量 5 条小红书草稿（终证据）**：带封面重投后首条于 `2026-10-09T18:12:15Z` 走 RPA 轨成功——`uploading image...` → `DIAG[publish2] draftOnly=true` → `draft-only done saved=true` → `draft saved` → `publish done platform=xiaohongshu ... draft=true`；**批量路径同样只存草稿、无发布点击**。其余 4 条按每账号 30 分钟频控排队（store 现场：1×`✓ 发布成功` + 4×`⏳ 发布间隔限制`），未为取证放宽频控.`
+8. **批量 5 条小红书草稿（终态：5/5 全部落库）**：带封面重投 5 条，`2026-10-09T18:12:22Z` / `18:42:21Z` / `19:12:28Z` / `19:42:21Z` / `20:12:21Z` 各一次成功——`uploading image...` → `DIAG[publish2] draftOnly=true` → `draft-only done saved=true` → `draft saved` → `publish done platform=xiaohongshu ... draft=true`。**同窗口硬判据**：`[xiaohongshu] publishing...` 计数 **0**（无发布点击）、`draft-only ABORT` 计数 **0**、`audit-requery`/`PublishMonitor` **0 行**（草稿不建回查）。节奏由每账号 30 分钟频控决定（18:12 → 20:12 五条依次落库），**未为取证放宽频控**（保护真实账号）。
 9. **小红书草稿落点（真机复验，PASS）**：第一版把 `xiaohongshu` 路由到新增 API 草稿轨被实测推翻——
    - `xiaohongshu:probe-draft-chain` 实跑：permit（GET）与 ros-upload（PUT）**均通过**；note 步
      `creator.xiaohongshu.com/web_api/sns/v2/note` → **404**（端点不在 creator 域），
