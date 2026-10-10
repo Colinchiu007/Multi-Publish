@@ -372,20 +372,16 @@ function createContainer(options) {
   });
   container.register("publishIntervalGuard", function(c) {
     const s = c.get("store");
-    // publish-frequency-policy-v2：设置页覆盖（全有或全无）+ 抖动 + 日配额存储。
-    // 覆盖解析在策略模块内（纯函数）。
-    //
-    // ⚠️ 覆盖对象**每次 check 现取**，不在构造时快照：设置页改完要求「下一次判定即生效」，
-    //    构造期快照会让改动只能靠重启生效，而 UI 又没有任何提示（静默不生效）。
-    //    代价是每次 check 一次 settings 读（发生在任务粒度，不是热路径）。
+    // publish-frequency-policy-v2：设置页覆盖（全有或全无，解析在策略模块内）+ 抖动 + 日配额存储。
+    // ⚠️ 覆盖对象**每次 check 现取**（不在构造时快照）：设置页改完要求「下一次判定即生效」，
+    //    构造期快照会让改动只能靠重启生效而 UI 无任何提示；代价是每次 check 一次 settings 读（任务粒度）。
     const warn = (m) => logger.warn(m);
     const readOverrides = () => resolvePolicyOverrides(
       typeof s.getSettingObject === 'function' ? s.getSettingObject("publishFrequencyPolicy", null) : null,
       { warn }
     );
     return new PublishIntervalGuard({
-      // 间隔值由 publish-frequency-policy 单一持有（含环境变量 + 设置页覆盖）；
-      // 禁止在此硬编码 minInterval，那会让策略表变成摆设。
+      // 间隔值由 publish-frequency-policy 单一持有（含 env + 设置页覆盖）；禁止在此硬编码 minInterval
       policy: (platform) => resolvePublishIntervals(platform, { overrides: readOverrides(), warn }),
       isKnownPlatform: isKnownPublishPlatform,
       store: {
@@ -398,8 +394,7 @@ function createContainer(options) {
         incrDay: (key, dayKey, field, delta) => s.incrPublishDailyCount(key, dayKey, field, delta),
         decrDay: (key, dayKey, field) => s.decrPublishDailyCount(key, dayKey, field),
       },
-      jitterRatio: resolveJitterRatio({ overrides: readOverrides(), warn }),
-      releaseGraceMs: resolveReleaseGraceMs({ overrides: readOverrides(), warn }),
+      jitterRatio: resolveJitterRatio({ overrides: readOverrides(), warn }), releaseGraceMs: resolveReleaseGraceMs({ overrides: readOverrides(), warn }),
       warn,
     });
   });

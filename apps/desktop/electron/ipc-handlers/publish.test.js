@@ -600,6 +600,13 @@ describe('publish IPC Logto 权益门禁', () => {
 
 // ── publish-frequency-policy-v2：策略读取 / 覆盖写入 / 紧急放行 ────────────────
 describe('publishFreq IPC（策略与紧急放行）', () => {
+
+  // publish-frequency-policy-v2：publishFreq:* handler 已按行数门禁要求外移到独立模块，
+  // 故本组用例必须同时注册两个模块 —— 只注册 publish.js 会得到「handler 不存在」的假红。
+  const registerFreq = (ipcMain, deps) => {
+    registerHandlers(ipcMain, deps)
+    require('./publish-frequency')(ipcMain, deps)
+  }
   const EC = require('../core/error-codes').ERROR
 
   function policyGuard (overrides = {}) {
@@ -628,7 +635,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
 
   it('emergencyRelease 拒绝外部网页调用（与其余写通道同闸）', async () => {
     const ipcMain = createMockIpcMain()
-    registerHandlers(ipcMain, makeDeps())
+    registerFreq(ipcMain, makeDeps())
     const result = await ipcMain._get('publishFreq:emergencyRelease')(UNTRUSTED_EVENT, { platform: 'douyin', accountId: 'a' })
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
   })
@@ -636,7 +643,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
   it('emergencyRelease 校验 platform / accountId 格式（防注入进 key 与审计）', async () => {
     const ipcMain = createMockIpcMain()
     const deps = makeDeps()
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
     const handler = ipcMain._get('publishFreq:emergencyRelease')
 
     expect(await handler(TRUSTED_EVENT, { platform: 'dou/../yin', accountId: 'a' }))
@@ -648,7 +655,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
 
   it('emergencyRelease：服务未初始化时如实回报，不静默成功', async () => {
     const ipcMain = createMockIpcMain()
-    registerHandlers(ipcMain, makeDeps({ publishEmergencyRelease: null }))
+    registerFreq(ipcMain, makeDeps({ publishEmergencyRelease: null }))
     const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin' })
     expect(result).toMatchObject({ code: EC.REQUEST_ERROR })
   })
@@ -659,7 +666,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
     deps.publishEmergencyRelease.check = vi.fn(() => ({
       allowed: false, code: 'exhausted', used: 1, max: 1, dayKey: '2026-10-10',
     }))
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
 
     const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin', accountId: 'a' })
     expect(result).toEqual({
@@ -677,7 +684,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
     deps.publishEmergencyRelease.check = vi.fn(() => ({
       allowed: false, code: 'cooldown', used: 0, max: 1, retryAfterMs: 12345, dayKey: '2026-10-10',
     }))
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
     const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin' })
     expect(result.data).toMatchObject({ released: false, reason: 'cooldown', retryAfterMs: 12345 })
   })
@@ -686,7 +693,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
     const ipcMain = createMockIpcMain()
     const deps = makeDeps()
     deps.taskQueue.emergencyRelease = vi.fn(() => ({ ok: false, code: 'no_waiting_window' }))
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
 
     const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin', accountId: 'a' })
     expect(result.data).toMatchObject({ released: false, reason: 'no_waiting_window' })
@@ -700,7 +707,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
       BrowserWindow: { getAllWindows: () => [{ isDestroyed: () => false, webContents: { send: (ch, p) => sent.push({ ch, p }) } }] },
     })
     deps.taskQueue.emergencyRelease = vi.fn(() => ({ ok: true, taskId: 't-9', clearedKeys: ['douyin:*', 'douyin:a'] }))
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
 
     const result = await ipcMain._get('publishFreq:emergencyRelease')(TRUSTED_EVENT, { platform: 'douyin', accountId: 'a', reason: '客户催稿' })
     expect(result.code).toBe(0)
@@ -715,7 +722,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
   it('setPolicy：非法配置整体拒绝且**不写库**（半生效态不可解释）', async () => {
     const ipcMain = createMockIpcMain()
     const deps = makeDeps()
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
 
     const result = await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy: { accountMinMs: -5 } })
     expect(result).toMatchObject({ code: EC.VALIDATION_ERROR })
@@ -726,7 +733,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
   it('setPolicy：合法配置写库并下发抖动/退避（间隔与日配额是每次现取，无需下发）', async () => {
     const ipcMain = createMockIpcMain()
     const deps = makeDeps()
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
 
     const policy = { accountMinMs: 30000, jitterRatio: 0.2, releaseGraceMs: 30000 }
     const result = await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy })
@@ -740,7 +747,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
   it('setPolicy：null ⇒ 清空覆盖（写库为 null），不是校验错误', async () => {
     const ipcMain = createMockIpcMain()
     const deps = makeDeps()
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
     const result = await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy: null })
     expect(result.code).toBe(0)
     expect(deps.store.setSetting).toHaveBeenCalledWith('publishFrequencyPolicy', null)
@@ -749,7 +756,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
   it('getPolicy：逐平台回报档位 + 抖动/退避 + 覆盖原文', async () => {
     const ipcMain = createMockIpcMain()
     const deps = makeDeps()
-    registerHandlers(ipcMain, deps)
+    registerFreq(ipcMain, deps)
     const result = await ipcMain._get('publishFreq:getPolicy')(TRUSTED_EVENT)
     expect(result.code).toBe(0)
     expect(Object.keys(result.data.platforms).length).toBeGreaterThanOrEqual(15)
@@ -759,7 +766,7 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
 
   it('守卫未初始化时 getPolicy/setPolicy 如实回报，不抛', async () => {
     const ipcMain = createMockIpcMain()
-    registerHandlers(ipcMain, makeDeps({ publishIntervalGuard: null }))
+    registerFreq(ipcMain, makeDeps({ publishIntervalGuard: null }))
     expect(await ipcMain._get('publishFreq:getPolicy')(TRUSTED_EVENT)).toMatchObject({ code: EC.REQUEST_ERROR })
     expect(await ipcMain._get('publishFreq:setPolicy')(TRUSTED_EVENT, { policy: {} })).toMatchObject({ code: EC.REQUEST_ERROR })
   })

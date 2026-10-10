@@ -12,6 +12,10 @@ function registerAllHandlers(ipcMain, deps) {
   require('./cloud-account')(ipcMain, deps)
   require('./keyword')(ipcMain, deps)
   require('./publish')(ipcMain, deps)
+  // publish-frequency-policy-v2：策略读取/写入 + 紧急放行。原在 publish.js 内，
+  // 该文件被本次变更推到 645 行触到「新代码不得引入超大文件」门禁（limit=500），
+  // 按门禁给的正解（mixin/composable 范式拆分）外移为独立模块。
+  require('./publish-frequency')(ipcMain, deps)
   require('./analytics')(ipcMain, deps)
   require('./sync')(ipcMain, deps)
   require('./update')(ipcMain, deps)
