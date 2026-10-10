@@ -252,6 +252,14 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 - **一轮 CI 的代价**：为尽早入库 docs 而单独推了一次提交，撞上 `quality-gate.yml:29-36` 的 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`，把上一轮重型 job 整个取消——而我要的产物正是被取消那轮的 artifact。判据改写成可机械执行的一句：**推送前先问「有没有 pending 的 job 正持有我下一步要取的产物」，有就不推**；本刀把 12 张基线 + 记录 + 措辞修正 + SHA 表攒成一次提交一次推送。
 - **一条没放宽的纪律**：未提 `PIXEL_THRESHOLD`、未加 mask、`KNOWN_DYNAMIC` 保持为空、零本机截图；重取全程复用 `scripts/check-baseline-freshness.js` 导出的 `findRender()`，未写第二份命名映射。复跑 `check-baseline-freshness --partial` 由「42 查 / 11 违规」变「43 查 / 0 违规」，并对同一次 run 的第二轮渲染（`screenshots-round1/`）同样 0 违规（两轮交集为空 ⇒ 非 flake）；`vitest run tests/visual-ci.test.js electron/tests/visual-view-runner.test.js` → 2 files / 34 tests passed。
 
+## 修（第七刀：词典术语锁的 CI 红 + 基线第二次重取）
+
+- CI 四条红（`QG Unit Tests` / 两个 `QG Desktop Shards` / `QG Coverage`）只有一个红因：`src/i18n/glossary.test.js` 的 L3 锁报「术语『RSS 订阅源 / RSS feed』在 zh locale 中未出现，但 en locale 已出现」。根因是 docs 刀往 `01-docs/i18n-glossary.md` 加了词条，而 zh 文案用裸词「RSS」。
+- 修法取「UI 采用词典 canonical 术语」，不把词典削到已有裸词（后者等于把锁的目标改成缺陷）：`podcast.channel.ownerEmailPrivacy`、`podcast.feed.sectionHint` 两处 zh 改为「RSS 订阅源」，en 不动。验证 3 files / 46 passed，`--pair-base` / `--cjk` / 品牌残留 / 记录欠账全 PASS。
+- **逃逸分析**：本机预跑清单没有这条锁；`check-locale-sync --pair-base` 判键级成对、判不到术语成对，不能当它的替代证据；自审把「zh/en 成对」理解成键与条目成对。只有 CI 的 `vitest run src` 全域收得到。落点：改词典词条必须本机跑该锁（已写入 `.quality-gates.md` 与执行记录）。
+- 文案变长使基线**第三次**由 Gate 7b（而非 Gate 7）拦下：只红 2 张（1312 / 1408 px），已按同一 run 的 artifact 重取并两轮自证 0 违规。
+- **一处我自己的写错位（如实）**：第六刀往 `.quality-gates.md` 插登记行时锚点取了「文件内第一个 `| QM-4 视觉 |`」，而该文件是多记录拼接、该行首标签出现 41 次，两行因此落到别人的记录块里；本刀插入前按所属 `## 本次执行记录` 标题反向断言并搬回原位。判据：`check-gate-record-debt` 只看行内容合规，**看不出行落在谁的块里**，所以拼接文件的插入锚点必须先在「本记录标题 → 下一个 `^## `」的块界内定位。
+
 ## 修复（第五刀：QM-6 双模型复审回项——两条都不是文案问题，而是把用户引向错误排障方向）
 
 - **Warning（后端 claude）｜权限前置条件被报成"调用失败"**：未登录 / 许可证未激活时，`invokeNamespace` 的抛错发生在**实参求值期**（preload 的 `createDynamicAccessApi` 是普通 `function`、**同步** throw `LicensePermissionError`，播客 8 个方法都不在 `PUBLIC_METHODS` 里 ⇒ 需要已登录），而第四刀写成 `toEnvelope(await invokeNamespace(…))`——包装器自己的 `try` 那时还没进场，结构上不可能接住，用户看到的是 `PODCAST_IPC_EXCEPTION`（并被告知"请稍后重试"）。修法：`envelope(() => invokeNamespace(NS, '…'))` 以 **thunk** 传入、在 `try` 体内求值，catch 内用 `electron-bridge.js` 导出的**共享判据** `isPermissionError` 归进 `{available:false}` ⇒ 界面映射 `PODCAST_IPC_UNAVAILABLE`；其余错误原样上抛。口径来源是本仓既有约定 **M-14**（`invokeWithFallback`：权限不足落进 fallback、其余照原样抛），**不是新发明**；`electron-bridge.js` 与 `access-control.js` 未改动，只消费其既有导出。反向依据：主进程 8 个 handler 全被 `guarded` 包住、领域错误以负码**返回**而不 throw，所以能穿透边界的 throw 这一档**只剩**环境/前置条件——把它映射成"调用失败"等于丢掉唯一有意义的分类。
