@@ -18,7 +18,8 @@ sync_backfill_owner: 合并后的后续 docs PR
 | 防止再次发生（QM-5 ⑤） | PASS | ① `production-driver.js` 注释写明「taskId 是用户手输的，故必须比对 shotId 本身」；② `useFilmEngineering.js:310-313` 写明快照演进必须「多余字段忽略、缺失字段不阻塞」并点名「字段被删、断言还在」即本 bug 形态；③ `pipeline-model-preflight.js` / `film-engineering-stages.js` 把**未来接线的位置**写进代码，而非仅标「已废弃」 |
 | 行尾与 diff 对账 | PASS | 两口径 numstat 相等（无删除行 ⇒ 无 CRLF 幽灵行）。全部改动文件纯 LF：`CR=0 / NUL=0 / BOM=False` |
 | 接线棘轮 | N/A | 未新增 `*.test.js` 文件（全部在既有测试文件内追加），不涉及 workflow 接线 |
-| QM-1 打包 / QM-4 视觉 | N/A | 未新增依赖、未改构建产物。视觉回归：该视图**无像素基线**（`tests/visual-testing/views/` 下无 film 相关），改动为既有列表行内新增一行文本 + 一个 CSS 类，未改布局结构 |
+| QM-1 打包 | PASS | **运行时代码变更（`apps/` 下 8 个源文件）⇒ QM-1 适用，不适用 N/A**。打包证据取自 CI `build` job（结论 success，run 对应 head `3ff6542`）——该 job 产出 Electron 安装包，本次改动不新增依赖、不改 `package.json` / `files` glob / asar 资源清单，故打包面无变化。未改 `pnpm-lock.yaml`。|
+| QM-4 视觉 | N/A（已确认非跳过） | 该视图**无像素基线**：`apps/desktop/tests/visual-testing/views/` 下无 film 相关用例，无基线可回归。改动为既有列表行内新增一行文本 + 一个 CSS 类（`.fe-vg-shot-meta`），未改布局结构、未新增路由/组件/全局样式，故不触发像素基线失效。CI `QG Visual` job 实跑 success。|
 | locale 成对（Gate 7） | PASS | zh/en `filmEngineering` 命名空间 **204 ↔ 204 键完全对称**（删除 3 键后仍对称）。CI Gate 7 `check-locale-sync.js` 需 git ref，在无 `.git` 的测试副本内不可跑，改以键集直接比对取证 |
 | QM-6 CCG 双模型外部评审 | **未执行（环境不具备）** | `sh scripts/deep-review.sh --check-deps` 实测：`claude`（评审主力）MISS、`opencode`（跨家族校验）MISS、`codeagent-wrapper` 候选路径是 Windows `.exe` 形态与本 Linux 沙箱不匹配；脚本自述「没有任何评审后端可用 —— 深度审查根本起不来」。按 AGENTS.md「CCG 未安装 → 告警并跳过，不阻断任务」处理，如实记「未执行」 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3110)$' --format='%H\|%cI'` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-film-engineering-three-defects` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
@@ -36,6 +37,25 @@ sync_backfill_owner: 合并后的后续 docs PR
 | 债务基线 `maxFileLines` | ✅ 7 个改动源文件均不在 `scripts/debt-baseline.json` 内 |
 
 **既有失败（与本次无关，已证）**：`electron/ipc-handlers/film-engineering.test.js` 的 `download-recycled` 用例报 `TypeError: Cannot read properties of undefined (reading 'ok')`。取证方式：`git archive origin/main` 导出**未改动的原版测试文件**跑，同样失败 ⇒ main 上既有，未在本次修复范围。
+
+## 合并前 rebase（2026-10-10 补记）
+
+PR #3110 开了约两天半后 `mergeable_state` 变 `dirty`——`origin/main` 已前进 **133 个提交**。按 AGENTS.md 判据① 执行 rebase，两处冲突全在 locale，处置记录如下（**不是**「剥标记、双方保留」那套通用解法）：
+
+| 冲突 | 形态 | 处置 |
+|---|---|---|
+| `apps/desktop/src/locales/{zh,en}.js` | main 已把 `filmEngineering` 从内联大对象**重构成** `filmEngineering: { ...filmEngineeringZh }`（拆到 `locales/film-engineering/{zh,en}.js`）；本分支仍持有旧的 388 行内联块 | **采用 main 的拆分结构**，并把本分支的 3 个 locale 键删除**注入到拆分后的模块文件**里，内联块整个丢弃 |
+
+若用「双方内容都保留」消解，两个 `filmEngineering` 键会同时存活 ⇒ JS 对象字面量后者覆盖前者 ⇒ **main 的拆分重构被整个静默回退**，且 `check-locale-sync` 对此**不报错**（它只校验 zh/en 成对，不校验文件自身自洽）。
+
+**收口自查（全部实跑）**：
+- `filmEngineering` 顶层键在 `zh.js`/`en.js` 中各**只出现 1 次**（确认拆分未被回退）
+- 真解析器（`import()`，非 `node --check`）加载两个模块成功，**各 231 键、zh/en 完全对称、无 llm 残留**
+- 重复 key 扫描：我的扁平扫描在缩进 4 报出 `title` 重复，逐处核对后确认**分属不同父对象**（顶层 `title` vs `production.title`），是检测器误报而非真重复
+
+**rebase 后测试全部重跑**（`origin/main` 前进 133 提交，旧结论不作数）：film-engineering 19 文件全绿、composables+views+i18n 9 文件全绿、3 组变异反证重跑（2 红 / 2 红 / 1 红）后还原全绿。
+
+> 运行环境提示：本次沙箱 `/workspace` 为 NFS、`/tmp` 为 overlayfs。装依赖实测 NFS 需 5 小时量级、`/tmp` 需 83 秒，**测试一律在 `/tmp` 的工作树副本上跑**，改动文件逐个同步并在跑前 `diff -q` 验证一致。
 
 ## 遗留（不假装已闭合）
 
