@@ -37,6 +37,7 @@ const VITEST_FILES = new Set([
   'signer-local-xyw.test.js',
   'xiaohongshu-draft-chain.test.js',
   'xiaohongshu-adapter-load.test.js',
+  'xiaohongshu-note-inpage.test.js',
   'signer-default-path.test.js',
   'tiktok.test.js',
   'topic-inline-contract.test.js',

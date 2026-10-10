@@ -175,7 +175,7 @@ class XiaohongshuDraftChain {
 
   /** Step 3：提交笔记（draft=true ⇒ 存创作者中心草稿箱） */
   async submitNote (body, opts) {
-    const { cookie, authorization } = opts
+    const { cookie, authorization, pageInpage } = opts
     // note 端点宿主：真机实测 2026-10-10 —— creator 域 `/web_api/sns/v2/note` 返回 **404**（该端点
     // 不在 creator 域），edith 域同名端点存在但本账号返回 **406**（签名/风控未过）。故默认取
     // **edith**（唯一存在的端点），creator 仅作为 A/B 对照保留。
@@ -212,6 +212,16 @@ class XiaohongshuDraftChain {
       referer: 'https://creator.xiaohongshu.com/',
       Origin: CREATOR_ORIGIN,
       ...signHeaders,
+    }
+    // 页内整发（2026-10-10，xhs-xys-signer 遗留项落地）：sendNote 由探针/调用方注入，
+    // 在签名页上下文执行 fetch（credentials:'include' 自动带登录 cookie 与页内全套头）。
+    // X-S-Common 页内生成入口未逆向，本地短模板混用仍 406 —— 页内整发是绕开该 mismatch 的正解。
+    // 契约：sendNote({url, headers, body}) => {status, data}；错误语义与 http 路径一致（assertBusinessOk）。
+    if (pageInpage && typeof pageInpage.sendNote === 'function') {
+      const pageRes = await pageInpage.sendNote({ url: fullUri, headers, body: JSON.stringify(body) })
+      assertBusinessOk(pageRes && pageRes.data, 'note')
+      const pageData = (pageRes.data && pageRes.data.data) || {}
+      return { noteId: pageData.note_id || pageData.noteId || '', draftId: pageData.draft_id || '' }
     }
     const res = await this.http.request({
       method: 'POST',
@@ -283,7 +293,12 @@ class XiaohongshuDraftChain {
       body.tag_list = tags.map(t => ({ name: String(t), type: 0 }))
     }
 
-    const submitted = await this.submitNote(body, { cookie, authorization, noteOrigin: input && input.noteOrigin })
+    const submitted = await this.submitNote(body, {
+      cookie,
+      authorization,
+      noteOrigin: input && input.noteOrigin,
+      pageInpage: input && input.pageInpage,
+    })
     return {
       success: true,
       platform: 'xiaohongshu',
