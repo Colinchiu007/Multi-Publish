@@ -88,9 +88,10 @@ describe('TTS 音色域 i18n 迁移（tts-i18n-migrate）', () => {
     expect(mismatch).toEqual([])
   })
 
-  it('CreateView 的 TTS 取值确实由 locale 驱动（不再写死中文）', () => {
-    const src = readFileSync(resolve(here, 'CreateView.vue'), 'utf8')
-    // 迁走的 4 类代表性命中不应再以字面量出现
+  it('TTS 取值确实由 locale 驱动（不再写死中文）——迁出前在 CreateView、迁出后在 useTtsVoices', () => {
+    const view = readFileSync(resolve(here, 'CreateView.vue'), 'utf8')
+    const comp = readFileSync(resolve(here, 'video-creation/composables/useTtsVoices.js'), 'utf8')
+    // 迁走的代表性命中不应再以字面量出现在壳或 composable 中
     const gone = [
       "'图片'",
       "'旁白音频'",
@@ -100,20 +101,23 @@ describe('TTS 音色域 i18n 迁移（tts-i18n-migrate）', () => {
       "'无法添加克隆音色。'",
       "'已添加克隆音色「'",
       "'音色' + String(nextIndex)",
-      "上传的音频文件格式需为：",
+      '上传的音频文件格式需为：',
+      "'自动 Edge TTS'",
+      "'（多模态）'",
     ]
-    const still = gone.filter((lit) => src.includes(lit))
-    expect(still).toEqual([])
-    // 且确实改走了 locale 键
+    expect(gone.filter((lit) => view.includes(lit))).toEqual([])
+    expect(gone.filter((lit) => comp.includes(lit))).toEqual([])
+    // 键位归属：TTS 域方法迁出后，其 locale 键出现在 composable
     for (const key of [
-      // kind 标签走 `create.story2video.voice.${labelKey}` 模板串，故断言其 map 值
-      "image: 'kindImage'",
-      "bgm: 'kindBgm'",
       'create.story2video.voice.cloneNamePrefix',
       'create.story2video.voice.cloneHintFormat',
       'create.story2video.voice.durationMinutesSeconds',
+      'create.story2video.voice.autoEdgeProvider',
     ]) {
-      expect(src).toContain(key)
+      expect(comp).toContain(key)
     }
+    // kind 标签走 `create.story2video.voice.${labelKey}` 模板串，故断言其 map 值（仍在壳：被 BGM 依赖注入复用）
+    expect(view).toContain("image: 'kindImage'")
+    expect(view).toContain("bgm: 'kindBgm'")
   })
 })

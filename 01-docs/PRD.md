@@ -19414,6 +19414,109 @@ apps/desktop/src/views/
 | S5 | QM-4 像素回归 | ✅ 18/19（collection 1.5986% 红在 main 基线同样复现，非本批引入） |
 | S6 | 行为零变更（测试零改动 + 像素无新增回归） | ✅ |
 
+---
+
+## 附录：TTS 音色域结构拆分（2026-10-10，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 里程碑 2 第 2 批 · useTtsVoices）
+
+> 背景：CreateView.vue 的 TTS 音色域（服务商/模型/音色目录、音色克隆的增删改、素材要求校验）原为 28 个方法 + 6 个计算属性 + 20 个状态，内联在 5522 行的壳文件中。本批将其抽为 `useTtsVoices` composable，壳以「方法代理 + computed get/set 状态桥接」接入，**CreateView.test.js 288/288 零改动全绿**。
+>
+> 本批的前置条件是先偿还该域的 i18n 债（51 个硬编码中文字面量 → locales，见「CreateView 结构拆分」附录与方案 §2.6 发现 T1）——否则新文件会撞 CI Gate 7 的 CJK 基线（基线按 `file:line` 记账，**新路径一律算 fresh 命中**）。
+
+### 结构
+
+```
+apps/desktop/src/views/
+├── CreateView.vue                                    # 壳：桥接 + 代理（5522→5056 行，净 -466）
+└── video-creation/composables/
+    ├── useTtsVoices.js                               # TTS 音色域（792 行）
+    └── useTtsVoices.test.js                          # 独立测试（15 例）
+```
+
+| 导出 | 类型 | 说明 |
+|---|---|---|
+| `ttsVoicesRefs` | `toRefs(reactive)` | 20 个状态（供壳 computed get/set 桥接） |
+| `ttsVoicesComputeds` | object | 6 个只读计算属性（服务商/模型/音色选项、模型隐藏、上下文模型、目录可刷新） |
+| `ttsVoicesMethods` | object | 28 个方法（目录加载/选择/克隆 CRUD/格式化） |
+| `setupTtsVoicesDeps(deps)` | function | 壳注入 6 个跨域依赖 |
+| `resetTtsVoicesForTest()` | function | 测试复位（模块级单例状态隔离 + 清空 deps） |
+
+**注入的 6 个依赖**（`setupTtsVoicesDeps`）：`getS2vConfig()`（读写信箱）、`t(key, params)`（locale 取值）、`translate(key, zh, en, params)`（带兜底的 locale 取值）、`cloneForIpc(value)`（IPC 参数脱壳）、`isAlive()`（卸载守卫）、`showOptionsToast(msg)`（操作反馈）。
+
+### 数据校验
+
+| 项 | 规则 | 失败处理 |
+|---|---|---|
+| 语音上下文 | `providerId` 与 `model` 均非空才构成有效上下文（`s2vVoiceModelHidden` 时 model 固定 `mimo-v2.5-tts`） | 返回 `null`，调用方直接 return，不发起 IPC |
+| 音色目录响应 | `result.code === 0` 且 `data` 为非数组对象；`voices`/`invalidVoices` 必须为数组 | 目录置空 + 记录 `s2vVoiceCatalogErrorCode` + 按 message 细分友好文案 |
+| 克隆能力 | `capability.type === 'user_clone'` 且 `capability.clone.enabled === true` 才拉取克隆要求与列表 | 不拉取，克隆区不渲染 |
+| 克隆素材要求 | `maxSampleCount/Bytes/TotalBytes/DurationSeconds` 经 `Number.isFinite && >= 0` 归一，非法取 `null`；`minSampleDurationSeconds` 非法取 `0` | 归一为 `null` 后由 UI 省略该项提示 |
+| 音色条目 | `id` 与 `name` 均须为非空字符串（`toS2VVoiceOption`） | 返回 `null` 并**从列表剔除**（防渲染空行） |
+| 克隆命名 | 规范化后非空、长度由输入框 `maxlength` 约束；重名由主进程返回 `VOICE_CLONE_DUPLICATE_ID` | 表单禁用提交 + 错误文案 |
+| 删除目标 | `voiceId` 非空且非加载中；必须存在二次确认 | 直接 return（不可逆操作门禁） |
+| 请求时序 | 4 个自增 `requestId`（目录/选择/克隆/服务商）+ 上下文比对 | 过期响应**不写任何状态**（静默丢弃） |
+
+### 流程（功能逻辑）
+
+1. **服务商列表加载**（留壳的 `loadS2VProviders` 驱动）：拉取 image/tts/video 三域 → 语音侧只保留 `enabled && is_configured` 的 provider → 默认选多模态 TTS（`category=multimodal && capability_models.tts`），否则回退首个普通 TTS；用户显式选过（含显式「自动 Edge TTS」）则优先 → 上下文变化时清空 `voiceId` → 触发 `loadS2VVoiceData()`。
+2. **音色目录加载** `loadS2VVoiceData({ refresh })`：卸载守卫 → 取上下文 → 自增 `s2vVoiceRequestId` 并同时作废选择/克隆请求 → 重置目录态 → 并发拉取 `catalog` 与 `capability` → 请求过期即 return → 落盘目录/能力/错误码 → 克隆可用时再并发拉取 `requirements` 与 `clones`（克隆请求 id 独立守卫）→ 目录返回的 `selectedVoiceId` 若在可用集合内则回写 `s2vConfig.voiceId`，否则回退已配置值或清空。
+3. **选择音色** `selectS2VVoice(voiceId)`：空 id 表示「恢复默认」→ 调 `clearTtsVoicePreference`；非空 id 必须存在于当前音色集合（否则报「不在当前目录」）→ **先乐观同步** `s2vConfig.voiceId`（让并发守卫命中本次请求、让「默认」徽标即时反馈）→ 调 `selectTtsVoice` → 失败则**回滚**到前一音色并报保存失败。
+4. **克隆音色**：
+   - `chooseS2VVoiceCloneSamples()`：选本地音频 → 返回 `selectionId` 与样本数 → 记入 `s2vVoiceCloneSelection` → 释放「选择中」加载态 → **自动**调 `addS2VVoiceClone(默认名)`（需求：选完即自动入库，无需手填名称）。
+   - `addS2VVoiceClone(name)`：置「创建中」占位行（`s2vVoiceClonePending`，带 `pending-<requestId>` 临时 id 与样本数）→ 调 `addTtsVoiceClone`（`consent: true`）→ 成功则并入列表、选中该音色并 toast；失败清空选择令牌与占位行并报错。
+   - `deleteS2VVoiceClone(id)`：二次确认（点名音色与不可恢复后果）→ 删除 → 从目录与克隆列表双删 → 若删除的是当前选中音色，回退到首个可用音色并重新持久化。
+   - `startS2VVoiceCloneRename/cancelS2VVoiceCloneRename/renameS2VVoiceClone`：行内编辑态；重命名只更新展示名，**保留旧条目的 `invalid` 标记**（防失效克隆被误判可用）。
+5. **默认命名** `nextS2VVoiceCloneName()`：前缀取 locale（`cloneNamePrefix`）；扫描现有名字中「前缀+数字」的最大序号，与克隆数量取较大者 +1，3 位零填充；序号用 `BigInt` 解析比较（防超长数字名经 `Number` 转浮点后污染名称）。
+6. **卸载兜底**：所有异步写点前经 `isAlive()` 守卫（`_s2vAlive === false` 即放弃写状态）。
+
+### 交互逻辑
+
+| 交互 | 行为 |
+|---|---|
+| 切换语音生成器 | 重置模型为该 provider 默认值、清空已选音色，并记「显式选择自动 Edge」标记（区分「未选择」与「显式 Edge」，防被多模态默认覆盖） |
+| 切换语音模型 | 模型不在当前 provider 的模型列表内时回退默认值，清空已选音色 |
+| 音色下拉选择 | 立即反映到下拉与列表「默认」徽标；持久化失败自动回滚 |
+| 目录加载失败 | 仅瞬时/未知错误显示「刷新音色列表」入口（配置类/不支持/模型不匹配/身份问题重试无效） |
+| 克隆进行中 | 列表顶部显示占位行 + 状态文本（「已选择 N 个样本，正在上传并克隆音色…」）；期间禁止再次选择/删除/重命名 |
+| 删除克隆音色 | 必须二次确认；确认后按钮进入加载态 |
+| 重命名 | 回车保存 / Esc 取消；空名称时确认按钮禁用 |
+
+### 显示项与提示文字（键位全部在 `create.story2video.voice.*`，zh/en 成对）
+
+- **服务商/模型下拉**：首项「自动 Edge TTS」（`autoEdgeProvider`）；多模态 provider 名称加后缀（`multimodalSuffix`，与视频生成器共用同一键）。
+- **音色类别宾语**：`kindImage` / `kindAudio` / `kindBgm` / `kindVideo`（`kindAudio` 为本次新增文案；经壳 `story2videoKindLabel` 注入，BGM 域亦复用）。
+- **目录/能力错误**：`catalogLoadFailed`、`catalogFetchFailed`、`VOICE_CATALOG_UNSUPPORTED`、`VOICE_CATALOG_CONFIG_UNAVAILABLE`、`VOICE_CATALOG_UNAVAILABLE`、`VOICE_MODEL_MISMATCH`、`VOICE_PREFERENCE_STORE_UNAVAILABLE`、`VOICE_OWNER_UNAVAILABLE`、`VOICE_NOT_IN_CATALOG`、`selectionNotInCatalog`、`defaultVoiceRestoreFailed`、`selectionSaveFailed`。
+- **克隆错误**：`VOICE_CLONE_SAMPLE_INVALID/DURATION_INVALID/EXTENSION_UNSUPPORTED/TOO_LARGE`、`VOICE_CLONE_TOTAL_SIZE_EXCEEDED/TOTAL_DURATION_EXCEEDED`、`VOICE_CLONE_PROVIDER_UNAVAILABLE`、`VOICE_CLONE_UNAVAILABLE`、`VOICE_CLONE_UNSUPPORTED`、`VOICE_CLONE_DIALOG_UNAVAILABLE`、`VOICE_CLONE_DUPLICATE_ID`、`VOICE_CLONE_MODEL_MISMATCH`、`VOICE_CLONE_NOT_FOUND`、`VOICE_CLONE_REGISTRY_INVALID`、`VOICE_CLONE_ROLLBACK_REQUIRED`、`VOICE_CLONE_SELECTION_UNAVAILABLE`、`VOICE_CLONE_STORE_UNAVAILABLE`、`VOICE_CLONE_STORAGE_UNAVAILABLE`、`VOICE_CLONE_INVALID_ARGUMENTS`、`cloneSamplePickFailed`、`cloneAddFailed`、`cloneDeleteFailed`、`cloneRenameFailed`、`cloneInfoUnavailable`。
+- **克隆素材要求提示**（带占位符）：`cloneHintFormat`、`cloneHintMinDuration`、`cloneHintMaxDuration`、`cloneHintMaxSize`。
+- **进行中/成功反馈**：`cloneStatusPending`（`{count}`）、`cloneSuccessToast`（`{name}`）。
+- **时长格式化**：`durationMinutesSeconds` / `durationMinutes` / `durationSeconds`（zh「M 分 S 秒」逐字不变）。
+- **危险操作**：`cloneDeleteConfirmTitle` / `cloneDeleteConfirmMessage`（`{name}`）/ `cloneDeleteConfirmButton`。
+
+**译文边界（如实声明）**：zh 用户文案**逐字不变**；en 用户有 3 处改善（音色类别宾语随 locale、克隆默认名前缀由 `音色NNN` 变为 `VoiceNNN`（解析既有名字的正则同步用该前缀）、素材要求与时长格式随 locale）。「键缺失」防御路径由中文兜底改为英文兜底（相关键在 zh/en 均已存在，该路径不可达）。
+
+### 不变式（回归保护）
+
+| # | 不变式 | 锁定位置 |
+|---|---|---|
+| T1 | 旧测试零改动全绿（代理 + 桥接等价） | `CreateView.test.js` 288/288 |
+| T2 | 子组件与面板契约零改动（按名访问父实例） | `S2vConfigPanels.test.js` + `s2v-panel-contract.parent-keys.test.js` |
+| T3 | deps 未注入时 fail-closed 抛错 | `useTtsVoices.test.js` |
+| T4 | 并发守卫：requestId 落后或上下文不一致即判过期 | `useTtsVoices.test.js` |
+| T5 | 删除当前选中音色后回退到首个可用音色 | `useTtsVoices.test.js` + `CreateView.test.js` |
+| T6 | 重命名保留 `invalid` 标记 | `CreateView.test.js` |
+| T7 | 模块级单例状态可复位（防跨用例泄漏） | `resetTtsVoicesForTest` + 2 处 describe `beforeEach` |
+| T8 | composable 源文件零 CJK 字面量（防回流） | `useTtsVoices.test.js` + CI Gate 7 `--cjk` |
+
+### 验收
+
+| # | 判据 | 结果 |
+|---|------|------|
+| U1 | CreateView.test.js 零改动全绿 | ✅ 288/288 |
+| U2 | 新增 composable 独立测试 | ✅ 15/15 |
+| U3 | 相关域全量（views + locales + overlay） | ✅ 1703 passed / 1 skipped（71 文件） |
+| U4 | Gate 7 `--cjk` / `--keys` | ✅ PASS（基线 1489 → 当前 1270）/ PASS（1524 key） |
+| U5 | 壳文件净减 | ✅ 5522 → 5056（-466 行） |
+| U6 | 行为零变更（测试零改动） | ✅ |
+
 
 ## 附录：快手图文封面 tofu 乱码修复（2026-10-09，fix-kuaishou-tuwen-tofu）
 

@@ -169,6 +169,44 @@ node .github/scripts/check-locale-sync.js --cjk
 
 **下一步**：`useTtsVoices` 抽取可开工（新文件应零 CJK）；§2.2 第 3–5 步仍须按同口径预检。
 
+### 2.7 执行记录（里程碑 2 第 2 批：useTtsVoices 抽取，2026-10-10）
+
+**§2.2 第 2 步至此完成**（`useBgmLibrary` 见 §2.5，`useTtsVoices` 见本节）。
+
+**前置检查（§2.6 同口径，实测）**：把 TTS 方法块（`CreateView.vue:3225–3866`，641 行）放入探针文件后 `check-locale-sync.js --cjk` 报 **0 处** fresh 命中——T1 的 i18n 前置任务（§2.6 处置结果）确实解除了阻断。
+
+**抽取规模**：28 个方法 + 6 个计算属性 + 20 个状态 → `useTtsVoices.js`（**792 行**）。
+
+| 项 | 结果 |
+|---|---|
+| CreateView.vue | 5522 → **5056 行**（净 **-466**） |
+| CreateView.test.js | **288/288 零改动全绿**（仅新增 composable 复位钩子） |
+| 新增 `useTtsVoices.test.js` | 15/15 |
+| `tts-voice-i18n.test.js` | 6/6（防回流断言改指向新家） |
+| Gate 7 `--cjk` / `--keys` | PASS（基线 1489 → 当前 1270）/ PASS（1524 key） |
+
+**关键架构发现（决定了本批为何能零改动）**：TTS 语音 UI **不在 CreateView 模板里**（模板区 0 处 `s2vVoice*`），而在子组件 `S2vConfigPanels.vue`；该子组件经 `s2v-panel-contract.js` 的 `createS2VPanel(vm)` **按名访问父实例**（`state[key] → vm[key]`、`fns[key] = (...a) => vm[key](...a)`、`setState(key, v) → vm[key] = v`）。因此**只要壳实例上仍存在同名 computed/方法**，子组件与契约**零改动**即可继续工作——本批据此把「桥接 + 代理」做成完整同名面，未触碰 `s2v-panel-contract.js` 一行。
+
+**留壳（不迁出）的方法与理由**（`KEEP` 清单已做成接线脚本的 fail-closed 断言，误删即报错）：
+
+| 留壳成员 | 理由 |
+|---|---|
+| `loadS2VProviders` | 跨域：同时加载 image/voice/video 三域服务商 |
+| `getS2VVideoProvider` / `getS2VDefaultVideoModel` / `handleS2VVideoProviderChange` | 视频域 |
+| `story2videoKindLabel` | 被 useBgmLibrary 经 deps 注入复用（跨域） |
+| `isS2VDefaultVoice` / `previewS2VVoice` | 仅依赖 s2vConfig / 预览器，非本域状态 |
+| `s2vEstimateFactors` | 采样域（`s2vTtsSamples`），非音色域 |
+
+**本批新实测坑（已固化进生成器/脚本）**：
+
+1. **默认参数在函数体之前求值**：把 `this.s2vConfig.voiceProvider` 注入为 `d.getS2vConfig()` 后，`function getS2VVoiceProvider(providerId = d.getS2vConfig().voiceProvider)` 会在**进入函数体前**求值 `d` → `ReferenceError: d is not defined`（实测 21 例失败 / 127 errors）。正解：把引用 `d` 的默认值**下沉到函数体首行**（`if (param === undefined) param = d....`）。
+2. **成员前的注释归属**：按 `name() {` 行切区间会把「属于下一成员的注释」算进上一成员（并导致区间重叠）。正解：前导注释归属**其后**成员，区间 = [本成员含注释起点, 下一成员含注释起点)。
+3. **必须「先删 data 再算区间」**：接线脚本里若在「删除 data 字段」**之前**就算好方法/计算属性的行区间，索引会整体偏移，导致**误删留壳方法**（本次实测误删 `isS2VDefaultVoice`/`loadS2VProviders` 等，已 `git checkout --` 回退重做）。已在脚本内加两条 fail-closed 断言：区间不得重叠、留壳清单必须齐全。
+4. **CRLF 陷阱**：源文件为 CRLF，生成器的多行正则若用 `\n` 会静默不匹配（`injectRequireDeps` 直接报错，`.replace` 类操作则可能静默漏改）。正解：统一 `replace(/\r\n/g,'\n')` 处理后，写回 `.vue` 时还原其原行尾。
+
+**残留项**：`s2vConfigSummary`（L1925）等壳内文案仍含非本域 CJK；本批已把 `'自动 Edge TTS'` 与 `'（多模态）'` 收敛为共用 locale 键（`autoEdgeProvider` / `multimodalSuffix`，后者由语音与视频两处共用），其余留待后续。
+
+
 ---
 
 ## 三、里程碑 1（P0-2）：locales/zh.js · en.js（各 ~3800 行，51 命名空间）

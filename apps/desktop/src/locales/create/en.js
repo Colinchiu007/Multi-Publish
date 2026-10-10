@@ -242,6 +242,9 @@ export default {
         durationMinutesSeconds: '{minutes} min {seconds} s',
         durationMinutes: '{minutes} min',
         durationSeconds: '{seconds} s',
+        // Provider dropdown display (migrated with the 2026-10-10 TTS split; multimodalSuffix is shared with the video provider dropdown)
+        autoEdgeProvider: 'Auto Edge TTS',
+        multimodalSuffix: ' (Multimodal)',
         // 2026-08-13 In-progress feedback while cloning a voice after choosing a local audio file
         cloneSelectButton: 'Choose local audio file',
         cloneReselectButton: 'Choose audio file again',
