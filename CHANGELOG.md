@@ -252,6 +252,14 @@ main 的 Visual Tests **连续三次红**（`15fd49c0d` 07:24 / `8b3d3e91f` 09:4
 - **一轮 CI 的代价**：为尽早入库 docs 而单独推了一次提交，撞上 `quality-gate.yml:29-36` 的 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`，把上一轮重型 job 整个取消——而我要的产物正是被取消那轮的 artifact。判据改写成可机械执行的一句：**推送前先问「有没有 pending 的 job 正持有我下一步要取的产物」，有就不推**；本刀把 12 张基线 + 记录 + 措辞修正 + SHA 表攒成一次提交一次推送。
 - **一条没放宽的纪律**：未提 `PIXEL_THRESHOLD`、未加 mask、`KNOWN_DYNAMIC` 保持为空、零本机截图；重取全程复用 `scripts/check-baseline-freshness.js` 导出的 `findRender()`，未写第二份命名映射。复跑 `check-baseline-freshness --partial` 由「42 查 / 11 违规」变「43 查 / 0 违规」，并对同一次 run 的第二轮渲染（`screenshots-round1/`）同样 0 违规（两轮交集为空 ⇒ 非 flake）；`vitest run tests/visual-ci.test.js electron/tests/visual-view-runner.test.js` → 2 files / 34 tests passed。
 
+## 修（第九刀：基线第三次重取，并把「上游造成的陈旧」与「本 PR 造成的陈旧」分开记账）
+
+- 本轮 freshness 一开局报 **18 张违规**，而不是我预期的 2 张。分两类，必须分开记账：
+  - **本 PR 的 2 张**：`podcast-channel.png` / `podcast-channel-dark.png`——第八刀把 `pageTitle` 的「播客RSS频道」补空格成「播客 RSS 频道」，标题宽度变了（新基线 119121 / 124092 B）。
+  - **上游造成的 16 张**：11 个视图的浅色与暗色，浅色**逐张恰好 396 px**、暗色**逐张恰好 424 px**。`origin/main` 自 merge-base `840ccd370` 起前进 2 个提交，其中 `0947ec3e3`（TTS 音色域硬编码中文迁入 locales）改的是**渲染文案**且**没有改任何 `base-screenshots`**；PR 侧 run 渲染的是 main+分支的 merge commit，于是这批基线在这条 PR 上集体判旧。
+- **处置依据**：QM-4 的既定口径是"陈旧基线 → 按**同一次 run** 的 CI 渲染重建"，所以由能拿到同源渲染的这一侧收口；否则每个后续 PR 都要继承这批红。**同时把"归因"写成硬性判据**：每次重取必须交两样——差值的逐项归因 + 同一次 run 内未触碰视图漂移为 0（本轮重取后两轮渲染均 0 违规；`PIXEL_THRESHOLD` 未动、`KNOWN_DYNAMIC` 仍空、零本机截图）。
+- **一条方法论自我纠正**：我原本按"只有 podcast 两张会红"去预期，若没现场跑 freshness 就直接写记录，会漏记上游那 16 张并给出错误归因。**判据一律取当场产物，不取预期。**
+
 ## 修（第七刀：词典术语锁的 CI 红 + 基线第二次重取）
 
 - CI 四条红（`QG Unit Tests` / 两个 `QG Desktop Shards` / `QG Coverage`）只有一个红因：`src/i18n/glossary.test.js` 的 L3 锁报「术语『RSS 订阅源 / RSS feed』在 zh locale 中未出现，但 en locale 已出现」。根因是 docs 刀往 `01-docs/i18n-glossary.md` 加了词条，而 zh 文案用裸词「RSS」。
