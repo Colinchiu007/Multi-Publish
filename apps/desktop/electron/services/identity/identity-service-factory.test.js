@@ -45,6 +45,8 @@ describe('createIdentityService', () => {
     let listener
     const authService = {
       restore: vi.fn(async () => ({ status: 'signed_out' })),
+        // 价目取价分支在 .then 里回读状态；缺这个方法会让 promise 回调抛错
+        getState: () => ({ status: 'authenticated' }),
       onStateChanged: vi.fn((fn) => { listener = fn; return () => {} }),
     }
     const win = { isDestroyed: () => false, webContents: { send: vi.fn() } }
@@ -96,6 +98,8 @@ describe('createIdentityService', () => {
     let listener
     const authService = {
       restore: vi.fn(async () => ({ status: 'signed_out' })),
+        // 价目取价分支在 .then 里回读状态；缺这个方法会让 promise 回调抛错
+        getState: () => ({ status: 'authenticated' }),
       onStateChanged: vi.fn((fn) => { listener = fn; return () => {} }),
     }
     const win = {

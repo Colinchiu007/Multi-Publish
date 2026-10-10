@@ -174,7 +174,12 @@ async function createIdentityService(options = {}) {
       // 取价是异步的（要打服务端），拿到后需**再推一次** UI 才能看到价格。
       // 不走 onStateChanged 回调，避免自触发循环。
       if (state && state.status === 'authenticated' && plansCache.current === null && !plansCache.loading) {
-        plansCache.load().then(() => pushState(authService.getState()))
+        // 这条链上任何异常都**不能冒泡**：它落在 .then 回调里，一旦抛出会变成
+        // unhandled rejection，让 vitest 以 exit 1 收场——把「取价降级」
+        // 误报成「测试失败」。故取状态与投递都要有兜底。
+        plansCache.load()
+          .then(() => pushState(typeof authService.getState === 'function' ? authService.getState() : state))
+          .catch((e) => log.warn('[identity] 价目目录取价后投递失败，已降级: ' + ((e && e.message) || e)))
       }
     })
   }
