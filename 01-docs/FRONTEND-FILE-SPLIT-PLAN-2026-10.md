@@ -61,7 +61,7 @@ src/views/
 | 步 | 内容 | 预估移动行数 | 风险 |
 |---|---|---|---|
 | 1 | 抽 **BGM + SceneAsset** 两个弹窗组件（实测这两段模板 0 处 s2vConfig/selectedPipeline/$route 引用，真正低耦合）+ **每个弹窗按 QM-2 浮层互斥合同登记唯一 owner**（见 §2.4） | ~700 | 中（v2 上调：owner 登记义务） |
-| 2 | 抽 `useTtsVoices` + `useBgmLibrary` 两个 composable（无模板依赖的纯逻辑） | ~600 | 低 |
+| 2 | 抽 `useTtsVoices` + `useBgmLibrary` 两个 composable（无模板依赖的纯逻辑） | ~600 | 低 → **`useBgmLibrary` 已完成（§2.5）；`useTtsVoices` 被实测阻断，见 §2.6 发现 T1（56 处 CJK 会撞 Gate 7 基线，须先决策 (a) 迁 i18n 或 (b) 显式 update-baseline）** |
 | 3 | 抽 `BatchCreatePanel` + `useBatchCreate` | ~500 | 中（队列状态与发布中任务互斥） |
 | 4 | 抽 `QuickRenderView` | ~250 | 低 |
 | 5 | 抽 `useS2vConfig` + `useConfigProfiles` + **ConfigProfile 三弹窗**（依赖 s2vConfig，必须在 useS2vConfig 之后，审查 A-4） | ~1100 | **高（v3 上调，外部 E9：s2vConfig 域 vm 触点 >800 处是全案最重域，且是状态桥接机制首个实战验证点——若 computed get/set 委托在此步被证不可行，第 6-7 步复评结论需连带重估）** |
@@ -128,6 +128,35 @@ CreateView 全文 0 处 `useEmbeddedViewSuspension`，`overlay-view-suspension.t
 4. **`closeXxxDialog` 级联释放的幂等前提**：素材库弹窗关闭会级联调 `closeBgmDeleteDialog()`，后者无条件 release 删除弹窗 owner。其安全性依赖 `releaseEmbeddedViewsForOverlay` 对未知/已释放 owner **幂等返回 false**（该行为已有 `overlay-view-suspension.test.js` 锁定），故无需在级联路径加条件判断——但这条依赖必须在方案里写明，否则后来者会把「无条件 release」当 bug 改掉。
 
 **方法论校验点（供后续批次参考）**：§2.3 的「方法代理 + 状态桥接」经本批实测**成立**（288/288 零改动全绿是最硬的证据）；§2.3-5 的「工期按测试改写量翻倍计」在本批**未发生**（因代理/桥接无需改写测试），该估算仍待第 5 步（s2vConfig 重域）验证。
+
+### 2.6 剩余步骤的实测前置条件（2026-10-10 新增，发现 T1：§2.2 第 2 步被证不成立）
+
+**发现 T1（有硬证据的阻断项）**：§2.2 第 2 步把 `useTtsVoices` 描述为「无模板依赖的纯逻辑」——**该判断经实测为错**。把 TTS 方法块（CreateView.vue:3225–3865，28 个方法）原样放入新文件后，用仓库自带门禁实测：
+
+```
+node .github/scripts/check-locale-sync.js --cjk
+→ [locale-sync] FAIL：渲染端新增 56 处硬编码中文字符串（基线 1489 条，当前 1381 条）
+   apps/desktop/src/views/video-creation/composables/__probe-tts.js
+     :122  "当前语音模型暂不支持音色列表与克隆功能，已使用默认音色。"
+     :123  "当前语音服务商配置不可用，请在模型设置中检查并配置后重试。"
+     :124  "暂时无法获取音色列表，已使用默认音色，请稍后重试。"
+     … 共 56 处
+```
+
+**为什么这是结构性阻断而非可忽略告警**：Gate 7 的 CJK 基线按 **file:line** 记账，**同一文件内的行号漂移被容忍**（该行为有 `check-locale-sync.test.js`「行号漂移不产生假阳性」锁定），但**新路径一律算 fresh 命中**——所以「把代码从 A 文件搬到 B 文件」在基线口径下等价于「新增硬编码中文」，哪怕字符串多重集完全没变。
+
+**56 处的来源分布**（抽取自 `friendlyVoiceCatalogError` / `s2vVoiceCloneHint` / `nextS2VVoiceCloneName` / `selectS2VVoice` / `addS2VVoiceClone` / `deleteS2VVoiceClone` / `renameS2VVoiceClone` / `formatS2VVoiceCloneDuration` 等，以及 `story2videoKindLabel` 的 kind 宾语表：图片 / 旁白音频 / 背景音乐 / 视频素材）。
+
+**因此 `useTtsVoices` 抽取前必须先做一次决策（二选一，均非本方案可默认）**：
+
+| 路径 | 内容 | 代价 / 风险 |
+|---|---|---|
+| **(a) 先迁 i18n** | 把这 56 处 CJK 迁到 locales（zh/en 成对），抽完后新文件零 CJK | **属行为影响面**：文案迁移必须逐条保持措辞，且既有断言这些字符串的测试需核对；是一个独立的 i18n 任务 |
+| **(b) 走 `--update-baseline`** | 纯搬迁（字符串多重集不变），显式吸收为存量债务 | AGENTS.md 允许「存量债务吸收」，但**禁止掩盖新增**——PR 内必须附「前后字符串多重集完全相同」的可核对证据（本批已备该检测手段） |
+
+**连带结论**：§2.2 的**第 3–5 步同样需要按此口径预检**（先测「方法块搬入新文件后 `--cjk` 的 fresh 命中数」），再决定是否纳入批次——尤其第 5 步 `useS2vConfig`（s2vConfig 域含 TTS/图片/视频三域文案）。
+
+**与 §2.5 坑 3 的关系**：坑 3 记录的是「**新写**的 composable 不要让 CJK 进入」；发现 T1 是它的**镜像**——「**搬迁**含既有 CJK 的代码同样会撞基线」。两条合起来构成 composable 抽取的完整 CJK 前置检查。
 
 ---
 
