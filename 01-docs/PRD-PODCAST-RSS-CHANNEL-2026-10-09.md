@@ -460,6 +460,149 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | podcast.errors.ENCLOSURE_LENGTH_MISMATCH | 声明的 length 与实际字节数不一致 | Declared length mismatches actual bytes |
 | podcast.errors.DURATION_MISSING | 单集缺少时长 | Episode duration missing |
 
+### 11.5 实现态全量文案清单（与 `locales/{zh,en}.js` 逐字一致，2026-10-10 第八刀生成）
+
+> 上面 §11.1~§11.4 是**规划态**清单，实现中新增/改写的键以前没有逐条回写，实测有 89/135 条 zh 文案在 PRD 里查不到逐字值——这正是"文档落后于实现"的形态。本节按「深度解析 `podcast` 命名空间取键路径」的方式直接从两份 locale 文件生成（键路径 = 嵌套路径，按字典序），因此它是**当前唯一逐字可信的文案清单**；新增或修改 `podcast` 命名空间文案时必须重新生成该表，不得手工维护。同一生成过程同时核对**键集对称性**（zh/en 双向差集必须为空）。
+
+| 键路径 | zh（用户可见） | en（用户可见） |
+| --- | --- | --- |
+| `podcast.audioSource.oss` | 托管直传（对象存储） | Managed upload (object storage) |
+| `podcast.audioSource.url` | 外链直连（https 音频地址） | External URL (https audio link) |
+| `podcast.channel.categoryPlaceholder` | 请选择顶级分类 | Select a top-level category |
+| `podcast.channel.fieldAudioSource` | 音频来源 | Audio Source |
+| `podcast.channel.fieldAuthor` | 作者/主播名 | Author / Host |
+| `podcast.channel.fieldCategory` | 分类 | Category |
+| `podcast.channel.fieldCoverSize` | 封面尺寸 | Cover Size |
+| `podcast.channel.fieldCoverUrl` | 封面地址 | Cover URL |
+| `podcast.channel.fieldDescription` | 频道简介 | Channel Description |
+| `podcast.channel.fieldEpisodeType` | 更新方式 | Update Order |
+| `podcast.channel.fieldExplicit` | 分级 | Rating |
+| `podcast.channel.fieldLanguage` | 语言 | Language |
+| `podcast.channel.fieldLink` | 站点地址 | Site URL |
+| `podcast.channel.fieldOwnerEmail` | 所有者邮箱 | Owner Email |
+| `podcast.channel.fieldOwnerName` | 所有者名称 | Owner Name |
+| `podcast.channel.fieldSubCategories` | 子分类 | Subcategories |
+| `podcast.channel.fieldSubtitle` | 副标题 | Subtitle |
+| `podcast.channel.fieldTitle` | 频道标题 | Channel Title |
+| `podcast.channel.ownerEmailPrivacy` | 该邮箱会公开出现在 RSS 订阅源中（写入 itunes:email），聚合端与订阅者均可见。 | This email is published in the RSS feed (written to itunes:email) and visible to aggregators and subscribers. |
+| `podcast.channel.save` | 保存频道设置 | Save Channel |
+| `podcast.channel.saved` | 频道设置已保存 | Channel saved |
+| `podcast.channel.sectionHint` | 频道元信息只需配置一次，生成 Feed 时写入。带校验的字段以自检结果为准。 | Channel metadata is configured once and embedded into the feed. Validation results are shown by the feed self-check. |
+| `podcast.channel.sectionTitle` | 频道设置 | Channel Settings |
+| `podcast.channel.subCategoriesHint` | 可选，最多一个（聚合端按「顶级/子级」单层归类）；切换顶级分类会清空已选子分类 | Optional, at most one (aggregators classify by "Top/Sub"); changing the top category clears the selected subcategory |
+| `podcast.channel.subCategoryNone` | 不指定子分类 | No subcategory |
+| `podcast.channelFeedType.episodic` | 随更（节目型） | Episodic (auto-latest order) |
+| `podcast.channelFeedType.serial` | 按时间序（连续剧型） | Serial (chronological) |
+| `podcast.endpoints.docLink` | 官方文档 | Official docs |
+| `podcast.endpoints.empty` | 未能读取分发端目录 | Failed to load the distribution endpoint catalog |
+| `podcast.endpoints.manualFirstSubmit` | 需先人工首次提交 | Manual first submission required |
+| `podcast.endpoints.noSubmitUrl` | 暂无公开提交地址，请按指引步骤操作 | No public submission URL; follow the guide steps |
+| `podcast.endpoints.sectionHint` | RSS 聚合端没有发布 API，请按各端指引人工提交 Feed 地址；小宇宙首次收录需要等待其抓取周期。 | RSS aggregators have no publish API. Submit your feed URL manually following each directory guide; the first Xiaoyuzhou inclusion needs to wait for its crawl cycle. |
+| `podcast.endpoints.sectionTitle` | 分发端提交指引 | Directory Submission Guide |
+| `podcast.endpoints.submitLink` | 前往提交页 | Open submission page |
+| `podcast.episodeType.bonus` | 加更 | Bonus |
+| `podcast.episodeType.full` | 正片 | Full |
+| `podcast.episodeType.trailer` | 预告片 | Trailer |
+| `podcast.episodes.add` | 新增单集 | Add Episode |
+| `podcast.episodes.addTitle` | 新增单集 | Add Episode |
+| `podcast.episodes.cancel` | 收起 | Close |
+| `podcast.episodes.confirmDelete` | 确定删除这一期吗？ | Delete this episode? |
+| `podcast.episodes.delete` | 删除 | Delete |
+| `podcast.episodes.deleteNo` | 取消 | Cancel |
+| `podcast.episodes.deleteYes` | 确认删除 | Confirm |
+| `podcast.episodes.deleted` | 单集已删除 | Episode deleted |
+| `podcast.episodes.edit` | 编辑 | Edit |
+| `podcast.episodes.editTitle` | 编辑单集 | Edit Episode |
+| `podcast.episodes.empty` | 暂未添加单集。点击「新增单集」添加第一期。 | No episodes yet. Click "Add Episode" to create the first one. |
+| `podcast.episodes.explicitInherit` | 沿用频道设置 | Inherit from channel |
+| `podcast.episodes.fieldAudioUrl` | 音频直链（https） | Audio URL (https) |
+| `podcast.episodes.fieldDescription` | 节目简介 | Episode Description |
+| `podcast.episodes.fieldDurationSec` | 时长（秒） | Duration (sec) |
+| `podcast.episodes.fieldEpisodeType` | 类型 | Type |
+| `podcast.episodes.fieldExplicit` | 分级 | Rating |
+| `podcast.episodes.fieldGuid` | GUID | GUID |
+| `podcast.episodes.fieldLocalFilePath` | 本地音频文件路径 | Local Audio File Path |
+| `podcast.episodes.fieldPubDate` | 发布时间（ISO） | Publish Date (ISO) |
+| `podcast.episodes.fieldSizeBytes` | 字节数 | Size (bytes) |
+| `podcast.episodes.fieldTitle` | 单集标题 | Episode Title |
+| `podcast.episodes.guidHint` | 唯一标识，不可为空；新增时已自动生成 | Unique identifier, must not be empty; auto-generated for new episodes |
+| `podcast.episodes.save` | 保存单集 | Save Episode |
+| `podcast.episodes.saved` | 单集已保存 | Episode saved |
+| `podcast.episodes.sectionTitle` | 单集管理 | Episodes |
+| `podcast.errors.CHANNEL_AUTHOR_REQUIRED` | 作者/主播名不能为空 | Author / host name is required |
+| `podcast.errors.CHANNEL_CATEGORY_REQUIRED` | 必须选择顶级分类 | A top-level category is required |
+| `podcast.errors.CHANNEL_CATEGORY_TOO_DEEP` | 分类最多两级 | Category supports at most two levels |
+| `podcast.errors.CHANNEL_CATEGORY_UNKNOWN` | 未知顶级分类 | Unknown top-level category |
+| `podcast.errors.CHANNEL_COVER_NOT_HTTPS` | 封面必须使用 https 绝对地址 | Cover must be an absolute https URL |
+| `podcast.errors.CHANNEL_COVER_NOT_SQUARE` | 封面必须为正方形 | Cover must be square |
+| `podcast.errors.CHANNEL_COVER_REQUIRED` | 封面地址不能为空 | Cover URL is required |
+| `podcast.errors.CHANNEL_COVER_SIZE_OUT_OF_RANGE` | 封面边长超出允许范围（1400~3000） | Cover side length is out of the allowed range (1400–3000) |
+| `podcast.errors.CHANNEL_COVER_SIZE_UNKNOWN` | 需填写封面尺寸（形如 3000x3000）以便校验 | Cover size (e.g. 3000x3000) is required for validation |
+| `podcast.errors.CHANNEL_DESC_REQUIRED` | 频道简介不能为空 | Channel description is required |
+| `podcast.errors.CHANNEL_DESC_TOO_LONG` | 频道简介超出长度上限 | Channel description exceeds the length limit |
+| `podcast.errors.CHANNEL_EXPLICIT_INVALID` | 频道分级取值不合法（yes/no/clean） | Channel rating must be yes / no / clean |
+| `podcast.errors.CHANNEL_FEED_TYPE_INVALID` | feed 类型取值不合法（episodic/serial） | Feed type must be episodic / serial |
+| `podcast.errors.CHANNEL_LANGUAGE_INVALID` | 语言需形如 zh-CN / en-US | Language must look like zh-CN / en-US |
+| `podcast.errors.CHANNEL_LINK_NOT_HTTPS` | 站点地址必须使用 https 绝对地址 | Site URL must be an absolute https URL |
+| `podcast.errors.CHANNEL_MISSING` | 缺少频道配置 | Channel configuration is missing |
+| `podcast.errors.CHANNEL_OWNER_EMAIL_INVALID` | 所有者邮箱格式不正确 | Owner email format is invalid |
+| `podcast.errors.CHANNEL_SUBCATEGORY_UNKNOWN` | 未知子分类 | Unknown subcategory |
+| `podcast.errors.CHANNEL_SUBTITLE_TOO_LONG` | 频道副标题超出长度上限 | Channel subtitle exceeds the length limit |
+| `podcast.errors.CHANNEL_TITLE_REQUIRED` | 频道标题不能为空 | Channel title is required |
+| `podcast.errors.CHANNEL_TITLE_TOO_LONG` | 频道标题超出长度上限 | Channel title exceeds the length limit |
+| `podcast.errors.DURATION_MISSING` | 有单集缺少时长 | An episode is missing its duration |
+| `podcast.errors.ENCLOSURE_LENGTH_MISMATCH` | 声明的字节数与实际大小不一致 | Declared byte size does not match the actual length |
+| `podcast.errors.ENCLOSURE_MISSING` | 存在缺少 enclosure 的单集 | An episode has no enclosure |
+| `podcast.errors.ENCLOSURE_NOT_HTTPS` | 存在非 https 的 enclosure | An enclosure is not an https URL |
+| `podcast.errors.ENCLOSURE_TYPE_MISMATCH` | enclosure 指向的资源不是音频 | The enclosure does not point to an audio resource |
+| `podcast.errors.ENCLOSURE_UNREACHABLE` | 音频地址不可达，请检查托管或直链是否过期 | Audio URL is unreachable; check the hosting or whether the link expired |
+| `podcast.errors.EPISODES_EMPTY` | 还没有单集：feed 至少需要一个单集 | No episodes yet: the feed requires at least one episode |
+| `podcast.errors.EPISODES_TOO_MANY` | 单集数量超过上限 | Episode count exceeds the limit |
+| `podcast.errors.EPISODE_AUDIO_NOT_HTTPS` | 音频必须使用 https 绝对地址 | Audio must be an absolute https URL |
+| `podcast.errors.EPISODE_AUDIO_REQUIRED` | 缺少音频地址：请填写 https 直链，或先配置托管直传 | Audio is missing: provide an https URL or configure hosting |
+| `podcast.errors.EPISODE_COVER_NOT_HTTPS` | 单集封面必须使用 https 绝对地址 | Episode cover must be an absolute https URL |
+| `podcast.errors.EPISODE_DESC_TOO_LONG` | 单集简介超出长度上限 | Episode description exceeds the length limit |
+| `podcast.errors.EPISODE_DUPLICATE` | 存在重复的 guid 或音频地址 | Duplicate guid or audio URL exists |
+| `podcast.errors.EPISODE_DURATION_INVALID` | 时长须为规定范围内的整数秒 | Duration must be an integer number of seconds within the allowed range |
+| `podcast.errors.EPISODE_EXPLICIT_INVALID` | 单集分级取值不合法（yes/no/clean） | Episode rating must be yes / no / clean |
+| `podcast.errors.EPISODE_GUID_TOO_LONG` | GUID 过长 | GUID is too long |
+| `podcast.errors.EPISODE_HOSTING_NOT_CONFIGURED` | 仅有本地文件，尚未配置托管直传，无法生成公开音频地址 | Only a local file exists; managed upload is not configured, so no public audio URL can be produced |
+| `podcast.errors.EPISODE_MIME_INVALID` | 音频 MIME 类型不受支持 | Audio MIME type is not supported |
+| `podcast.errors.EPISODE_MISSING` | 缺少单集数据 | Episode data is missing |
+| `podcast.errors.EPISODE_NUMBER_INVALID` | 期号须为正整数 | Episode number must be a positive integer |
+| `podcast.errors.EPISODE_PUBDATE_INVALID` | 发布时间无法解析 | Publish date could not be parsed |
+| `podcast.errors.EPISODE_SEASON_INVALID` | 季号须为正整数 | Season number must be a positive integer |
+| `podcast.errors.EPISODE_SIZE_INVALID` | 字节数须为正整数 | Size in bytes must be a positive integer |
+| `podcast.errors.EPISODE_SIZE_REQUIRED` | 必须填写音频字节数（enclosure length） | Audio size in bytes (enclosure length) is required |
+| `podcast.errors.EPISODE_SUBTITLE_TOO_LONG` | 单集副标题超出长度上限 | Episode subtitle exceeds the length limit |
+| `podcast.errors.EPISODE_TITLE_REQUIRED` | 单集标题不能为空 | Episode title is required |
+| `podcast.errors.EPISODE_TITLE_TOO_LONG` | 单集标题超出长度上限 | Episode title exceeds the length limit |
+| `podcast.errors.EPISODE_TYPE_INVALID` | 单集类型取值不合法（full/trailer/bonus） | Episode type must be full / trailer / bonus |
+| `podcast.errors.FEED_MISSING_ITUNES_NS` | Feed 缺少 itunes 命名空间 | The feed is missing the itunes namespace |
+| `podcast.errors.FEED_MISSING_XML_DECL` | Feed 缺少 XML 声明 | The feed is missing the XML declaration |
+| `podcast.errors.FEED_NO_ITEMS` | Feed 中没有任何单集 | The feed contains no episodes |
+| `podcast.errors.PODCAST_FEED_INVALID` | Feed 校验未通过，请先按下列问题解决 | Feed validation failed. Fix the issues below first |
+| `podcast.errors.PODCAST_IPC_EXCEPTION` | 播客服务调用失败，请重试 | Podcast service call failed, please retry |
+| `podcast.errors.PODCAST_IPC_UNAVAILABLE` | 播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载） | Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted) |
+| `podcast.errors.PODCAST_PAYLOAD_NOT_SERIALIZABLE` | 表单数据无法序列化，请检查后重试 | Form data could not be serialized, please check and retry |
+| `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
+| `podcast.explicit.clean` | Clean（干净版） | Clean |
+| `podcast.explicit.no` | 未分级 | Not explicit |
+| `podcast.explicit.yes` | Explicit（有成人内容） | Explicit (adult content) |
+| `podcast.pageSubtitle` | 经 RSS 订阅把播客收录进小宇宙 / Apple / Spotify 等聚合端：配置频道一次 → 逐期追加单集 → 生成并自检 Feed → 向分发端提交 Feed 地址 | Podcast inclusion in RSS aggregators (Xiaoyuzhou / Apple / Spotify): configure the channel once → add episodes one by one → build & self-check the feed → submit the feed URL to each directory |
+| `podcast.pageTitle` | 播客 RSS 频道 | Podcast RSS Channel |
+| `podcast.publish.buildFeed` | 生成 Feed | Build Feed |
+| `podcast.publish.copied` | 路径已复制 | Path copied |
+| `podcast.publish.copyFailed` | 复制失败，请手动复制路径 | Copy failed, please copy the path manually |
+| `podcast.publish.copyPath` | 复制文件路径 | Copy File Path |
+| `podcast.publish.feedBuilt` | Feed 已生成：共 {count} 期 | Feed built: {count} episode(s) |
+| `podcast.publish.feedBuiltNotify` | Feed 生成成功 | Feed built successfully |
+| `podcast.publish.sectionHint` | 把频道设置与单集合成为 RSS 订阅源文件并写入用户数据目录；自检通过后再向分发端提交 Feed 地址。 | Merges channel settings and episodes into an RSS file under the user data directory; submit the feed URL to directories only after the self-check passes. |
+| `podcast.publish.sectionTitle` | 发布与自检 | Build & Self-check |
+| `podcast.publish.verifyFailed` | 自检发现 {count} 个问题 | Self-check found {count} issue(s) |
+| `podcast.publish.verifyFeed` | 自检 Feed | Verify Feed |
+| `podcast.publish.verifyPassed` | 自检通过：共 {count} 期 | Self-check passed: {count} episode(s) |
+
 ## 十二、验收标准（整体验收）
 
 1. **引擎**：`podcast-rss.test.js`（25 例）+ `podcast-endpoints.test.js`（8 例）全绿；校验码表（§六）与测试断言逐码对齐，新增码必须同时出现在两侧。
