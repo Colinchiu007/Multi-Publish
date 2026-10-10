@@ -48,6 +48,18 @@ class TaskQueue extends EventEmitter {
     this._history = []        // 已完成的任务历史
     this._pendingTimers = new Set()  // R28/R37：跟踪频率控制重排定时器，shutdown 时清理
     this._delayed = new Map() // 频控等待任务 { id -> { task, timer } }
+    // ── publish-frequency-policy-v2 ──────────────────────────────────────────
+    // 日配额被拒的任务单独成集：它们不是「等一会儿」而是「今天到此为止」，
+    // _processNext 必须跳过，否则会立刻重新取到同一任务形成紧循环。
+    this._quotaBlocked = new Set()
+    // 已证明「会调用 markSubmitted」的平台（由成功且 submittedAt 非空的发布累积）。
+    // 用于失败路径的接线矛盾检测：若某平台既能证明会打点、又持续出现
+    // 「从未发起提交尝试」的失败，则判为接线矛盾 ⇒ 对该平台停用回滚（fail-closed）。
+    this._platformsProvenSubmit = new Set()
+    this._rollbackDisabledPlatforms = new Set()
+    this._missingWiringCounts = new Map()
+    // 探针计数（供设置页/诊断读取）
+    this._probeCounts = { successWithoutSubmittedAt: 0, releaseFailed: 0, rollbackDisabled: 0 }
     this._abortControllers = new Map() // 运行中任务的协作式取消信号
     this._runningByChannel = new Map() // 通道键 -> 在跑计数（B 方案：同通道串行，跨通道并行）
     this._paused = false
@@ -69,6 +81,7 @@ class TaskQueue extends EventEmitter {
     this._pendingTimers.clear()
     for (const { task } of this._delayed.values()) this._markCancelled(task, true)
     this._delayed.clear()
+    this._quotaBlocked.clear()
     for (const task of this._queue.splice(0)) this._markCancelled(task, true)
     for (const [taskId, task] of this._running) {
       this._markCancelled(task, false)
@@ -473,6 +486,12 @@ class TaskQueue extends EventEmitter {
         this._queue.push(task)
         continue
       }
+      // v2：日配额被拒的任务不参与本轮扫描（否则会被反复取到 ⇒ 紧循环）。
+      // 它们由跨日定时器或下一次 _processNext 的显式重新判定放行。
+      if (this._quotaBlocked.has(task.id)) {
+        this._queue.push(task)
+        continue
+      }
       // B 方案通道调度：同通道（platform:accountId）已有任务在跑时，本任务留队轮候，
       // 继续扫描后续可启动任务（跨通道不互相阻塞）。轮候计数用 inspected 保证不无限循环。
       if ((this._runningByChannel.get(this._channelKey(task)) || 0) > 0) {
@@ -525,25 +544,44 @@ class TaskQueue extends EventEmitter {
         const blockedCount = (this._runningByChannel.get(blockedChannelKey) || 0) - 1
         if (blockedCount <= 0) this._runningByChannel.delete(blockedChannelKey)
         else this._runningByChannel.set(blockedChannelKey, blockedCount)
+
+        const isDailyQuota = verdict.bucket === 'daily' || verdict.reason === 'daily_quota'
         this.emit('publish:blocked', {
-          task, remainingWait: verdict.remainingMs, bucket: verdict.bucket,
+          task,
+          remainingWait: verdict.remainingMs,
+          bucket: verdict.bucket,
+          reason: verdict.reason || null,
+          daily: verdict.daily || null,
         })
         // 达到等待时间后重新加入队列
         // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
+        // v2：日配额命中的等待是「到次日 00:00:05」（几十万毫秒量级），
+        //     且截止时间由守卫的注入时钟推导（与 today() 同源），避免测试注入时钟时漂移。
+        const waitMs = isDailyQuota
+          ? (typeof this._publishIntervalGuard.msUntilNextDay === 'function'
+              ? this._publishIntervalGuard.msUntilNextDay()
+              : 24 * 60 * 60 * 1000)
+          : verdict.remainingMs
+        if (isDailyQuota) this._quotaBlocked.add(task.id)
         const requeueTimer = setTimeout(() => {
           this._pendingTimers.delete(requeueTimer)
           this._delayed.delete(task.id)
+          this._quotaBlocked.delete(task.id)
           if (task.cancelRequested || task.status === 'cancelled') return
           this._queue.unshift(task)
           this._processNext()
-        }, verdict.remainingMs)
+        }, waitMs)
         if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
         this._pendingTimers.add(requeueTimer)
         this._delayed.set(task.id, { task, timer: requeueTimer })
         this._saveState()
         return
       }
-      this._publishIntervalGuard.recordPublish(task.platform, accountId)
+      this._quotaBlocked.delete(task.id)
+      // 占位并保存前值：release() 需要它才能精确还原（结构锁断言该返回值被消费）
+      task._hold = this._publishIntervalGuard.recordPublish(task.platform, accountId)
+      task.submitAttempted = false
+      task.submittedAt = null
     }
 
     // 创建超时 Promise
@@ -577,19 +615,40 @@ class TaskQueue extends EventEmitter {
       task.status = 'success'
       task.result = result
       task.completedAt = new Date().toISOString()
+      // ── 不变量 I4：成功路径自证 ──
+      // 成功的发布必然发生过平台写操作，因此传输层**必须**已置位 submittedAt。
+      // 若为空，说明该平台的传输层漏接线 —— 这会把「未提交失败」误判为可回滚（危险侧），
+      // 故在这里把它变成第一次成功就暴露的主动告警，而不是等某次失败被误放行。
+      if (this._publishIntervalGuard && !task.submittedAt) {
+        this._probeCounts.successWithoutSubmittedAt += 1
+        console.error(
+          `[task-queue] 接线缺陷：平台 ${task.platform} 的发布成功但 submittedAt 为空`
+          + '（传输层未调用 markSubmitted）—— 该平台的「未提交失败」判定不可信'
+        )
+        this._disableRollbackForPlatform(task.platform, 'success_without_submitted_at')
+      } else if (this._publishIntervalGuard && task.submittedAt) {
+        this._platformsProvenSubmit.add(task.platform)
+      }
       this.emit('task:success', task)
       this._saveState()
     } catch (e) {
       if (task.cancelRequested || task.status === 'cancelled') return
       task.error = e.message
 
+      // ── P0-1：未提交失败回滚窗口 ──
+      // 判据是**提交阶段**而非错误类型：从未发起平台写尝试（submitAttempted=false），
+      // 或传输层显式声明可确证未送出（definitelyNotSent=true）。其余一律占窗口（I2）。
+      const rolledBack = this._maybeRollback(task, e)
+
       // 风控即停等不可重试错误（e.noRetry）直接判失败，不进入重试环
       if (!e.noRetry && task.retriesLeft > 0) {
         task.retriesLeft--
         task.status = 'pending'
+        task.lastAttemptNotSubmitted = rolledBack
         this.emit('task:retry', task)
-        // 放回队列尾部
-        this._queue.push(task)
+        // 放回队列尾部；回滚过的按最小退避延后重排（防「回滚即零等待」的重试风暴）
+        if (rolledBack) this._delayRequeue(task, this._releaseGraceMs())
+        else this._queue.push(task)
       } else {
         task.status = 'failed'
         task.completedAt = new Date().toISOString()
@@ -615,6 +674,136 @@ class TaskQueue extends EventEmitter {
       }
       this._processNext()
     }
+  }
+
+  /**
+   * 传输层打点①：即将发起**首次**平台写尝试。
+   *
+   * 必须由真正发出平台请求的那一层调用（rpa-view-manager / publisher-router），
+   * **不是**由抛出错误的那一层声明 —— 否则「免等重试」的获益方可以自行伪造。
+   * @param {string} taskId
+   */
+  markSubmitAttempted (taskId) {
+    const task = this._running.get(taskId)
+    if (task) task.submitAttempted = true
+  }
+
+  /**
+   * 传输层打点②：平台**已确认发出**（收到响应或等价确认）。
+   *
+   * 与 `markSubmitAttempted` 的区别：前者只证明「我们试过」，后者证明「确实送出去了」。
+   * 只有两者都为空时才可能回滚（P0-1）；只调用过①的失败一律占窗口。
+   * @param {string} taskId
+   */
+  markSubmitted (taskId) {
+    const task = this._running.get(taskId)
+    if (task) {
+      task.submitAttempted = true
+      task.submittedAt = Date.now()
+    }
+  }
+
+  /** 探针计数（供设置页 / 诊断读取；不参与判定） */
+  getProbeCounts () {
+    return {
+      ...this._probeCounts,
+      missingWiring: Object.fromEntries(this._missingWiringCounts),
+      rollbackDisabledPlatforms: [...this._rollbackDisabledPlatforms],
+    }
+  }
+
+  _releaseGraceMs () {
+    const g = this._publishIntervalGuard
+    const ms = g && Number.isFinite(g.releaseGraceMs) ? g.releaseGraceMs : 60 * 1000
+    return Math.max(10000, ms)
+  }
+
+  _disableRollbackForPlatform (platform, reason) {
+    if (this._rollbackDisabledPlatforms.has(platform)) return
+    this._rollbackDisabledPlatforms.add(platform)
+    this._probeCounts.rollbackDisabled += 1
+    console.error(
+      `[task-queue] 已对平台 ${platform} 停用「未提交失败回滚」（${reason}）：`
+      + '宁可多等一个窗口，也不冒早于窗口重复发布的风险。重启或用户在设置页确认后解除'
+    )
+  }
+
+  /** 用户手动清除「停用回滚」标记（设置页「我确认该平台接线正常」） */
+  clearRollbackDisabled (platform) {
+    if (platform === undefined) this._rollbackDisabledPlatforms.clear()
+    else this._rollbackDisabledPlatforms.delete(platform)
+  }
+
+  /**
+   * P0-1 回滚判定与执行。返回是否真正回滚（供重试退避与事件使用）。
+   * @param {object} task
+   * @param {Error & {notSubmitted?: boolean, definitelyNotSent?: boolean}} e
+   * @returns {boolean}
+   */
+  _maybeRollback (task, e) {
+    const guard = this._publishIntervalGuard
+    if (!guard || !task._hold) return false
+
+    const platform = task.platform
+    const attempted = task.submitAttempted === true
+    const definitelyNotSent = e && e.definitelyNotSent === true
+    const hinted = e && e.notSubmitted === true
+
+    // 阶段判据：只有「从未发起写尝试」或「传输层确证未送出」才可回滚
+    let rollbackable = !attempted || definitelyNotSent
+
+    // 佐证位不得与阶段判据矛盾：说「未提交」但阶段标记说已尝试且未确证 ⇒ fail-closed
+    if (hinted && !rollbackable) {
+      this._probeCounts.releaseFailed += 1
+      console.error(
+        `[task-queue] 平台 ${platform} 的错误同时带 notSubmitted=true 与已发起的提交尝试，`
+        + '判定为**已提交**（占窗口）：佐证位与阶段判据矛盾时一律取更保守的一侧'
+      )
+      rollbackable = false
+    }
+
+    // 失败路径接线探针：声称「未发起尝试」的失败若出现在已证明会打点的平台上，判为接线矛盾
+    if (!attempted) {
+      const n = (this._missingWiringCounts.get(platform) || 0) + 1
+      this._missingWiringCounts.set(platform, n)
+      if (this._platformsProvenSubmit.has(platform)) {
+        this._disableRollbackForPlatform(platform, 'failure_without_submit_attempt_on_proven_platform')
+        rollbackable = false
+      }
+    }
+
+    if (this._rollbackDisabledPlatforms.has(platform)) rollbackable = false
+    if (!rollbackable) return false
+
+    const res = guard.release(platform, task.accountId, task._hold)
+    if (!res || !res.released) {
+      this._probeCounts.releaseFailed += 1
+      return false
+    }
+
+    task._hold = null
+    task.lastAttemptNotSubmitted = true
+    task.lastAttemptAt = Date.now()
+    this.emit('publish:released', {
+      task,
+      platform,
+      accountId: task.accountId ?? null,
+      reason: 'not_submitted',
+      graceMs: this._releaseGraceMs(),
+    })
+    return true
+  }
+
+  /** 回滚后的最小退避重排（任务重新入队头，但延后 graceMs 执行） */
+  _delayRequeue (task, ms) {
+    const timer = setTimeout(() => {
+      this._pendingTimers.delete(timer)
+      if (task.cancelRequested || task.status === 'cancelled') return
+      this._queue.unshift(task)
+      this._processNext()
+    }, ms)
+    if (timer && timer.unref) timer.unref()
+    this._pendingTimers.add(timer)
   }
 
   /**

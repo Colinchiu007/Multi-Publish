@@ -130,16 +130,18 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     queue.shutdown()
   })
 
-  test('任务失败/超时仍占用间隔窗口（记账必须在提交之前）', async () => {
+  test('【已提交】失败/超时仍占用间隔窗口（记账必须在提交之前）', async () => {
     // 平台侧限流窗口按「请求已发生」计时，不按「应用是否解析到成功」计时。
     // 若只在 task:success 记账，则内容已发到平台但应用判超时/报错的三类形态都不占窗口，
     // 下一次提交不受限、重试还会重复发布。
+    // v2：本用例模拟**已提交后**的失败（传输层已打点），故窗口必须保持占用。
     const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
     const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
 
     let attempts = 0
-    queue.setExecutor(async () => {
+    queue.setExecutor(async (task) => {
       attempts += 1
+      queue.markSubmitted(task.id) // 模拟：请求已送达平台
       throw new Error('视频上传超时')
     })
 
@@ -161,14 +163,77 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     queue.shutdown()
   })
 
-  test('失败重试必须等满间隔窗口（等待不消耗 retriesLeft）', async () => {
+  test('【未提交】失败回滚窗口：可立即重发，且发 publish:released', async () => {
+    // P0-1 的核心收益：登录失效 / 预检不过 / 风控挂起 / 缺文件这类**从未发出平台请求**
+    // 的失败不应吃掉整个间隔窗口。
+    const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL, jitterRatio: 0 })
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+
+    const released = []
+    queue.on('publish:released', (p) => released.push(p))
+
+    let attempts = 0
+    queue.setExecutor(async () => {
+      attempts += 1
+      if (attempts === 1) {
+        const err = new Error('登录态失效')
+        err.notSubmitted = true
+        throw err
+      }
+      return { success: true }
+    })
+
+    queue.add({ platform: 'douyin', article: { title: 'T', accountId: 'acc_1' } })
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(attempts).toBe(1)
+    // 未提交 ⇒ 窗口已回滚 ⇒ 同账号立即可发布
+    expect(guard.canPublish('douyin', 'acc_1')).toBe(true)
+    expect(released).toHaveLength(1)
+    expect(released[0].reason).toBe('not_submitted')
+    expect(released[0].graceMs).toBeGreaterThanOrEqual(10000)
+
+    // 立即再发不再被守卫拦
+    queue.add({ platform: 'douyin', article: { title: 'T2', accountId: 'acc_1' } })
+    await new Promise(r => setTimeout(r, 50))
+    expect(attempts).toBe(2)
+    queue.shutdown()
+  })
+
+  test('【矛盾】notSubmitted=true 但已发起提交尝试 ⇒ 占窗口（fail-closed）', async () => {
+    const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL, jitterRatio: 0 })
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+
+    const released = []
+    queue.on('publish:released', (p) => released.push(p))
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    queue.setExecutor(async (task) => {
+      queue.markSubmitAttempted(task.id) // 已尝试发出请求
+      const err = new Error('响应超时')
+      err.notSubmitted = true // 但错误却自称未提交
+      throw err
+    })
+
+    queue.add({ platform: 'douyin', article: { title: 'T', accountId: 'acc_1' } })
+    await new Promise(r => setTimeout(r, 60))
+
+    expect(released).toHaveLength(0)
+    expect(guard.canPublish('douyin', 'acc_1')).toBe(false)
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
+    queue.shutdown()
+  })
+
+  test('【已提交】失败重试必须等满间隔窗口（等待不消耗 retriesLeft）', async () => {
     const MIN = 200
-    const guard = new PublishIntervalGuard({ minInterval: MIN })
+    const guard = new PublishIntervalGuard({ minInterval: MIN, jitterRatio: 0 })
     const queue = new TaskQueue({ defaultRetry: 1, publishIntervalGuard: guard })
 
     const starts = []
     queue.setExecutor(async (task) => {
       starts.push({ at: Date.now(), retriesLeft: task.retriesLeft })
+      queue.markSubmitted(task.id)
       throw new Error('boom')
     })
 
@@ -180,6 +245,74 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     expect(starts[1].at - starts[0].at).toBeGreaterThanOrEqual(MIN - 50)
     const failed = queue.getHistory().find(t => t.article && t.article.accountId === 'acc_9')
     expect(failed.status).toBe('failed')
+    queue.shutdown()
+  })
+
+  test('【探针 I4】成功但传输层未打点 ⇒ 计入接线缺陷并对该平台停用回滚', async () => {
+    const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL, jitterRatio: 0 })
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    queue.setExecutor(async () => ({ success: true })) // 未调用 markSubmitted
+    queue.add({ platform: 'douyin', article: { title: 'T', accountId: 'acc_1' } })
+    await new Promise(r => setTimeout(r, 60))
+
+    const counts = queue.getProbeCounts()
+    expect(counts.successWithoutSubmittedAt).toBe(1)
+    expect(counts.rollbackDisabledPlatforms).toContain('douyin')
+
+    // 停用后：即使「未发起尝试」的失败也不再回滚
+    queue.setExecutor(async () => {
+      const err = new Error('登录态失效')
+      err.notSubmitted = true
+      throw err
+    })
+    guard.recordPublish('douyin', 'acc_2', Date.now() - MIN_INTERVAL - 1000)
+    queue.add({ platform: 'douyin', article: { title: 'T2', accountId: 'acc_2' } })
+    await new Promise(r => setTimeout(r, 60))
+    expect(guard.canPublish('douyin', 'acc_2')).toBe(false)
+
+    queue.clearRollbackDisabled('douyin')
+    expect(queue.getProbeCounts().rollbackDisabledPlatforms).toEqual([])
+    errSpy.mockRestore()
+    queue.shutdown()
+  })
+
+  test('【日配额】用尽后 bucket=daily、被 _quotaBlocked 跳过（不产生紧循环）', async () => {
+    const guard = new PublishIntervalGuard({
+      minInterval: 0,
+      jitterRatio: 0,
+      policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: 1 }),
+      dailyStore: new (require('../src/publish-interval-guard').InMemoryDailyStore)(),
+    })
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+
+    let executed = 0
+    queue.setExecutor(async () => { executed += 1; return { success: true } })
+
+    const blocked = []
+    queue.on('publish:blocked', (p) => blocked.push(p))
+
+    // 第一条：配额 1，直接占满
+    queue.add({ platform: 'douyin', article: { title: 'T1', accountId: 'acc_q' } })
+    await new Promise(r => setTimeout(r, 60))
+    expect(executed).toBe(1)
+
+    // 第二条：被日配额挡住
+    queue.add({ platform: 'douyin', article: { title: 'T2', accountId: 'acc_q' } })
+    await new Promise(r => setTimeout(r, 80))
+    expect(executed).toBe(1)
+    expect(blocked).toHaveLength(1)
+    expect(blocked[0].bucket).toBe('daily')
+    expect(blocked[0].reason).toBe('daily_quota')
+    expect(blocked[0].daily).toEqual({ used: 1, max: 1, dayKey: guard.today() })
+
+    // 紧循环探针：连续多轮 _processNext 不得反复重判同一条配额被拒任务
+    const before = blocked.length
+    for (let i = 0; i < 5; i++) queue._processNext()
+    await new Promise(r => setTimeout(r, 20))
+    expect(blocked.length).toBe(before)
+    expect(executed).toBe(1)
     queue.shutdown()
   })
 
