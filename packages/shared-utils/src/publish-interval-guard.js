@@ -153,6 +153,35 @@ class PublishIntervalGuard {
     return this._releaseGraceMs
   }
 
+  /**
+   * 运行期更新抖动比例（设置页改动即时生效，无需重启）。非法值 no-op 并出声，
+   * 绝不让「设置页写了个非法值」把已生效的保守配置降级成 0（那等于静默关掉抖动）。
+   * @param {number} n
+   * @returns {boolean} 是否已应用
+   */
+  setJitterRatio (n) {
+    if (!Number.isFinite(n) || n < 0 || n >= 1) {
+      this._warn(`[PublishFrequency] 拒绝应用非法抖动比例 ${JSON.stringify(n)}（需 [0,1) 的有限数），保持 ${this._jitterRatio}`)
+      return false
+    }
+    this._jitterRatio = n
+    return true
+  }
+
+  /**
+   * 运行期更新回滚退避（下界 10s 钳位，与 env 同纪律）。
+   * @param {number} n
+   * @returns {boolean} 是否已应用
+   */
+  setReleaseGraceMs (n) {
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+      this._warn(`[PublishFrequency] 拒绝应用非法回滚退避 ${JSON.stringify(n)}（需 >=0 整数），保持 ${this._releaseGraceMs}`)
+      return false
+    }
+    this._releaseGraceMs = Math.max(MIN_RELEASE_GRACE_MS, n)
+    return true
+  }
+
   /** 今天（本机运营日） */
   today () {
     return this._today()
@@ -413,6 +442,36 @@ class PublishIntervalGuard {
     return { released: true, reason: null }
   }
 
+  /**
+   * 人为清空某平台当前占用的间隔窗口（**紧急放行专用**，唯一调用方是 task-queue 的
+   * emergencyRelease，且必须已经过每日上限 + 冷却 + 审计三道闸）。
+   *
+   * ⚠️ 副作用范围：会同时清掉**平台键**（`platform:*`），即该平台**其他账号**的跨账号
+   * 保护也会随之失效一次。这是刻意的：只清账号键的话，平台键仍会把本次紧急放行挡住，
+   * 功能等于没实现。代价由「每账号每日 1 次 + 冷却 + 追加式审计」共同约束。
+   *
+   * @param {string} platform
+   * @param {string} [accountId]
+   * @returns {{cleared: boolean, clearedKeys: string[]}}
+   */
+  clearWindow (platform, accountId) {
+    const normalizedAccount = normalizeAccountId(accountId)
+    const accountKey = normalizedAccount ? this._key(platform, normalizedAccount) : null
+    const platformKey = this._key(platform, null)
+    const clearedKeys = []
+
+    if (accountKey && this._store.get(accountKey) != null) {
+      this._store.set(accountKey, null)
+      clearedKeys.push(accountKey)
+    }
+    if (this._store.get(platformKey) != null) {
+      this._store.set(platformKey, null)
+      clearedKeys.push(platformKey)
+    }
+
+    return { cleared: clearedKeys.length > 0, clearedKeys }
+  }
+
   /** 回滚上限：max(2, dailyMax)；日配额关闭（0）时给一个保守的固定上限 2 */
   _rollbackCap (platform) {
     const { accountDailyMax } = this._intervals(platform)
@@ -428,6 +487,7 @@ PublishIntervalGuard.TIMER_SAFE_MS = TIMER_SAFE_MS
 
 module.exports = PublishIntervalGuard
 module.exports.buildKey = buildKey
+module.exports.normalizeAccountId = normalizeAccountId
 module.exports.InMemoryStore = InMemoryStore
 module.exports.InMemoryDailyStore = InMemoryDailyStore
 module.exports.PLATFORM_BUCKET_ACCOUNT_ID = PLATFORM_BUCKET_ACCOUNT_ID

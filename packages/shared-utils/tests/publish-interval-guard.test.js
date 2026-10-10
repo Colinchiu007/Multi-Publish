@@ -508,6 +508,55 @@ describe('PublishIntervalGuard v2', () => {
     })
   })
 
+  describe('clearWindow 人为清窗（紧急放行专用）', () => {
+    function makeClearGuard () {
+      const store = new Map()
+      const guard = exactGuard({
+        policy: () => ({ accountMinMs: 10 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 3 }),
+        store: { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v) } },
+        now: () => T0,
+        today: () => DAY1,
+      })
+      return { guard, store }
+    }
+
+    test('同时清掉账号键与平台键，并回报清掉了哪些键', () => {
+      const { guard } = makeClearGuard()
+      guard.recordPublish('douyin', 'acc_1')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+
+      const r = guard.clearWindow('douyin', 'acc_1')
+      expect(r.cleared).toBe(true)
+      expect(r.clearedKeys.sort()).toEqual(['douyin:*', 'douyin:acc_1'])
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      // 副作用如实：同平台其他账号也不再被平台键拦住（代价由每日上限+冷却+审计约束）
+      expect(guard.check('douyin', 'acc_2').allowed).toBe(true)
+    })
+
+    test('无窗口可清时返回 cleared=false（不得谎报成功）', () => {
+      const { guard } = makeClearGuard()
+      const r = guard.clearWindow('douyin', 'acc_1')
+      expect(r).toEqual({ cleared: false, clearedKeys: [] })
+    })
+
+    test('不影响其他平台', () => {
+      const { guard } = makeClearGuard()
+      guard.recordPublish('douyin', 'acc_1')
+      guard.recordPublish('kuaishou', 'acc_1')
+      guard.clearWindow('douyin', 'acc_1')
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      expect(guard.check('kuaishou', 'acc_1').allowed).toBe(false)
+    })
+
+    test('accountId 缺席时只清平台键', () => {
+      const { guard, store } = makeClearGuard()
+      guard.recordPublish('douyin', null)
+      const r = guard.clearWindow('douyin', null)
+      expect(r.clearedKeys).toEqual(['douyin:*'])
+      expect(store.get('douyin:*')).toBe(null)
+    })
+  })
+
   describe('未登记平台出声（v2 变更：由静默改为一次告警）', () => {
     test('同平台只出声一次，且内容含平台名与档位', () => {
       const warns = []

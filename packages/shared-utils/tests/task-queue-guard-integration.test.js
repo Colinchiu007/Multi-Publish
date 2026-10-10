@@ -225,6 +225,63 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     queue.shutdown()
   })
 
+  test('【紧急放行】跳过等待窗口立即入队；三类结果如实回报；无限窗口时不得谎报成功', async () => {
+    const MIN = 10 * 60 * 1000
+    const guard = new PublishIntervalGuard({ minInterval: MIN, jitterRatio: 0, now: () => Date.now() })
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+
+    const executed = []
+    queue.setExecutor(async (task) => {
+      executed.push(task.article.title)
+      return { success: true }
+    })
+
+    // 无名额时：没有等待中的窗口 ⇒ 必须如实回报，不得假装成功
+    expect(queue.emergencyRelease('douyin', 'acc_e')).toEqual({ ok: false, code: 'no_waiting_window' })
+
+    // 第一条正常发布，占住窗口
+    queue.add({ platform: 'douyin', article: { title: 'A', accountId: 'acc_e' } })
+    await new Promise(r => setTimeout(r, 60))
+    expect(executed).toEqual(['A'])
+
+    // 第二条被间隔挡住，进入等待
+    const blocked = []
+    queue.on('publish:blocked', (p) => blocked.push(p))
+    queue.add({ platform: 'douyin', article: { title: 'B', accountId: 'acc_e' } })
+    await new Promise(r => setTimeout(r, 80))
+    expect(blocked).toHaveLength(1)
+    expect(executed).toEqual(['A'])
+
+    // 紧急放行
+    const released = []
+    queue.on('publish:emergencyReleased', (d) => released.push(d))
+    const r = queue.emergencyRelease('douyin', 'acc_e', { operator: 'tester', reason: '客户催稿' })
+    expect(r.ok).toBe(true)
+    expect(typeof r.taskId).toBe('string')
+    expect(r.clearedKeys.sort()).toEqual(['douyin:*', 'douyin:acc_e'])
+    expect(released).toHaveLength(1)
+    expect(released[0].operator).toBe('tester')
+    expect(released[0].reason).toBe('客户催稿')
+
+    await new Promise(r2 => setTimeout(r2, 80))
+    expect(executed).toEqual(['A', 'B'])
+
+    // 关键反证：紧急放行**不是**把门禁关掉 —— B 发布后重新占窗，C 必须再次被拦
+    const blockedAgain = []
+    queue.on('publish:blocked', (p) => blockedAgain.push(p))
+    queue.add({ platform: 'douyin', article: { title: 'C', accountId: 'acc_e' } })
+    await new Promise(r3 => setTimeout(r3, 80))
+    expect(executed).toEqual(['A', 'B'])
+    expect(blockedAgain).toHaveLength(1)
+    expect(blockedAgain[0].bucket).toBe('account')
+
+    // 未注入守卫时如实回报
+    const bare = new TaskQueue({ defaultRetry: 0 })
+    expect(bare.emergencyRelease('douyin', 'acc_e')).toEqual({ ok: false, code: 'no_guard' })
+    bare.shutdown()
+    queue.shutdown()
+  })
+
   test('【已提交】失败重试必须等满间隔窗口（等待不消耗 retriesLeft）', async () => {
     const MIN = 200
     const guard = new PublishIntervalGuard({ minInterval: MIN, jitterRatio: 0 })

@@ -84,6 +84,22 @@ var require_publish = __commonJS({
         cropVideoCover: (payload) => ipcRenderer2.invoke("cover:crop", payload),
         readCoverData: (imagePath) => ipcRenderer2.invoke("cover:read-data", imagePath),
         listAccounts: () => ipcRenderer2.invoke("accounts:list"),
+        // 发布频率策略（publish-frequency-policy-v2）：读取 / 覆盖写入 / 紧急放行。
+        // 紧急放行不接受渲染层自报操作者（operator 由主进程按当前 identity 解析），
+        // 故这里只转发 platform/accountId/reason 三项。
+        getPublishFrequencyPolicy: () => ipcRenderer2.invoke("publishFreq:getPolicy"),
+        setPublishFrequencyPolicy: (policy) => ipcRenderer2.invoke("publishFreq:setPolicy", { policy }),
+        emergencyReleasePublishWait: (payload) => ipcRenderer2.invoke("publishFreq:emergencyRelease", {
+          platform: payload && payload.platform,
+          accountId: payload && payload.accountId,
+          reason: payload && payload.reason
+        }),
+        getPublishEmergencyStatus: () => ipcRenderer2.invoke("publishFreq:emergencyStatus"),
+        onPublishEmergencyReleased: (callback) => {
+          const h = (_e, p) => callback(p);
+          ipcRenderer2.on("publish:emergencyReleased", h);
+          return () => ipcRenderer2.removeListener("publish:emergencyReleased", h);
+        },
         // 渲染 API
         renderStart: (data) => ipcRenderer2.invoke("render:start", data),
         renderStartAiVideo: (data) => ipcRenderer2.invoke("render:start-ai-video", data),

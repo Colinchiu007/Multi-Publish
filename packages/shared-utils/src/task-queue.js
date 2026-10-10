@@ -8,6 +8,10 @@
  * - 进度事件通知
  */
 const EventEmitter = require('events')
+// 紧急放行需要与守卫**同一份** accountId 归一判据（否则「设置页传 abc」与「任务里存 abc 」
+// 在归一后不等，会找不到等待中的任务却报 no_waiting_window）。守卫只用 publish-frequency-policy，
+// 不反向依赖本模块，无循环依赖。
+const PublishIntervalGuard = require('./publish-interval-guard')
 // R14：持久化快照（待派发 / running / delayed）的字段取舍统一到一处，
 // 见 task-projection.js 头注释（publishTime 曾在三份手抄白名单里全部缺席）。
 const { projectTask } = require('./task-projection')
@@ -732,6 +736,64 @@ class TaskQueue extends EventEmitter {
   clearRollbackDisabled (platform) {
     if (platform === undefined) this._rollbackDisabledPlatforms.clear()
     else this._rollbackDisabledPlatforms.delete(platform)
+  }
+
+  /**
+   * 紧急放行（P2-2）：跳过该 (platform, accountId) 当前的等待窗口，立即重新入队。
+   *
+   * ⚠️ 本方法**只负责机制**（找等待任务 → 取消防守定时器 → 清窗 → 重新入队 → 广播）。
+   * 每日上限、冷却、审计由调用方（IPC 层）在调用**之前**判定并落盘 —— 那些是策略与合规，
+   * 混进来会让本方法无法在无 store 的环境（测试 / headless）复用。
+   *
+   * 三类结果都必须如实回报，不得静默：
+   *   { ok:false, code:'no_guard' }          注入缺失
+   *   { ok:false, code:'no_waiting_window' } 当前没有等待中的窗口
+   *   { ok:true,  taskId, clearedKeys }      成功
+   *
+   * @param {string} platform
+   * @param {string|null} [accountId]
+   * @param {{operator?: string, reason?: string}} [opts]
+   */
+  emergencyRelease (platform, accountId, opts = {}) {
+    const guard = this._publishIntervalGuard
+    if (!guard) return { ok: false, code: 'no_guard' }
+    const normalize = typeof PublishIntervalGuard.normalizeAccountId === 'function'
+      ? PublishIntervalGuard.normalizeAccountId
+      : (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+    const normAccount = normalize(accountId)
+
+    // _delayed 同时承载「等间隔」与「等次日配额」两类等待，两者都应可被紧急放行
+    let target = null
+    for (const entry of this._delayed.values()) {
+      if (entry.task.platform === platform && normalize(entry.task.accountId) === normAccount) {
+        target = entry
+        break
+      }
+    }
+    if (!target) return { ok: false, code: 'no_waiting_window' }
+
+    if (target.timer) {
+      clearTimeout(target.timer)
+      this._pendingTimers.delete(target.timer)
+    }
+    this._delayed.delete(target.task.id)
+    this._quotaBlocked.delete(target.task.id)
+
+    const cleared = guard.clearWindow(platform, normAccount)
+    if (!this._queue.includes(target.task)) this._queue.unshift(target.task)
+    this._processNext()
+
+    const detail = {
+      task: target.task,
+      platform,
+      accountId: normAccount,
+      clearedKeys: cleared.clearedKeys,
+      operator: opts.operator || null,
+      reason: opts.reason || null,
+      at: Date.now(),
+    }
+    this.emit('publish:emergencyReleased', detail)
+    return { ok: true, taskId: target.task.id, clearedKeys: cleared.clearedKeys }
   }
 
   /**
