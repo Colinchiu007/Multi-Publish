@@ -240,10 +240,31 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }
   })
 
-  taskQueue.on('publish:blocked', ({ task, remainingWait, bucket }) => {
+  taskQueue.on('publish:blocked', ({ task, remainingWait, bucket, reason, daily }) => {
+    // v2：日配额用尽是「今天到此为止」而非「等一会儿」，remainingWait 恒为 0，
+    // 故 stage 文案必须按 reason 分流；渲染端另按 reason 选择本地化文案（勿依赖这句中文）。
+    const isDailyQuota = reason === 'daily_quota' || bucket === 'daily'
+    const stage = isDailyQuota
+      ? '⏳ 今日发布已达上限，明日 00:00 后自动继续'
+      : '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试'
     emitter.emit(task.id, task.platform, 'blocked', {
-      stage: '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试',
-      remainingWait, bucket: bucket || null, batchId: task.batchId || null,
+      stage,
+      remainingWait,
+      bucket: bucket || null,
+      reason: reason || null,
+      daily: daily || null,
+      batchId: task.batchId || null,
+    })
+  })
+
+  // v2：未提交失败已回滚窗口（可立即重试）——必须可观测，否则「为什么这次不用等」无从解释
+  taskQueue.on('publish:released', ({ task, reason, graceMs }) => {
+    emitter.emit(task.id, task.platform, 'released', {
+      stage: '↺ 未提交到平台，已恢复可发布',
+      stageKey: 'released',
+      releaseReason: reason || null,
+      graceMs: graceMs || null,
+      batchId: task.batchId || null,
     })
   })
 

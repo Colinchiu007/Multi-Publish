@@ -9,6 +9,7 @@ const {
   resolveJitterRatio,
   resolveReleaseGraceMs,
   resolveEmergencyMaxPerDay,
+  resolvePolicyOverrides,
   isKnownPlatform,
   BASELINE_INTERVALS,
   PLATFORM_FREQUENCY_POLICY,
@@ -243,6 +244,80 @@ describe('publish-frequency-policy v2', () => {
       const w1 = []
       expect(resolveEmergencyMaxPerDay({ env: { [ENV_EMERGENCY_MAX_PER_DAY]: '99' }, warn: (m) => w1.push(m) })).toBe(10)
       expect(w1.length).toBe(1)
+    })
+  })
+
+  describe('设置页覆盖解析（resolvePolicyOverrides，全有或全无）', () => {
+    it('null/undefined ⇒ 无覆盖；非对象 ⇒ 丢弃并出声', () => {
+      expect(resolvePolicyOverrides(null, { env: {} })).toBe(null)
+      expect(resolvePolicyOverrides(undefined, {})).toBe(null)
+      for (const bad of ['x', 5, [], true]) {
+        const warns = []
+        expect(resolvePolicyOverrides(bad, { warn: (m) => warns.push(m) })).toBe(null)
+        expect(warns.length).toBe(1)
+      }
+    })
+
+    it('合法字段逐项通过；未知字段忽略（前向兼容，不作废）', () => {
+      const o = resolvePolicyOverrides({
+        accountMinMs: 30000,
+        platformMinMs: 0,
+        dailyMax: { long: 2, clip: 6 },
+        jitterRatio: 0.2,
+        releaseGraceMs: 30000,
+        emergencyMaxPerDay: 2,
+        futureField: 'ignore-me',
+      }, { warn: () => {} })
+      expect(o).toEqual({
+        accountMinMs: 30000,
+        platformMinMs: 0,
+        dailyMax: { long: 2, clip: 6 },
+        jitterRatio: 0.2,
+        releaseGraceMs: 30000,
+        emergencyMaxPerDay: 2,
+      })
+    })
+
+    it('任一字段非法 ⇒ 整个对象作废 + 出声（不半生效）', () => {
+      const cases = [
+        { accountMinMs: -1 },
+        { accountMinMs: 'abc' },
+        { platformMinMs: -5 },
+        { dailyMax: { long: 1.5 } },
+        { dailyMax: { clip: -1 } },
+        { dailyMax: 3 },
+        { jitterRatio: 1 },
+        { jitterRatio: -0.1 },
+        { releaseGraceMs: 1000 },
+        { accountDailyMax: 2.5 },
+        { emergencyMaxPerDay: 99 },
+      ]
+      for (const bad of cases) {
+        const warns = []
+        expect(resolvePolicyOverrides(bad, { warn: (m) => warns.push(m) }), JSON.stringify(bad)).toBe(null)
+        expect(warns.length, JSON.stringify(bad)).toBe(1)
+        expect(warns[0], JSON.stringify(bad)).toContain('已整体丢弃')
+      }
+    })
+
+    it('合法但为空的对象 ⇒ 返回 null（不得返回空对象冒充覆盖）', () => {
+      expect(resolvePolicyOverrides({}, { warn: () => {} })).toBe(null)
+      expect(resolvePolicyOverrides({ dailyMax: {} }, { warn: () => {} })).toBe(null)
+    })
+
+    it('间隔字段超上界被钳位（不整体作废，与 env 的钳位语义一致）', () => {
+      const warns = []
+      const o = resolvePolicyOverrides({ accountMinMs: 60 * 24 * 60 * 60 * 1000 }, { warn: (m) => warns.push(m) })
+      expect(o.accountMinMs).toBe(MAX_INTERVAL_MS)
+      expect(warns).toEqual([])
+    })
+
+    it('overrides 参与 resolveIntervals：优先于 env 与策略表', () => {
+      const env = { [ENV_DAILY_MAX_CLIP]: '9', [ENV_ACCOUNT_MIN_INTERVAL]: '999999' }
+      const o = resolvePolicyOverrides({ accountMinMs: 12345, dailyMax: { clip: 2 } }, { warn: () => {} })
+      const r = resolveIntervals('douyin', { env, overrides: o })
+      expect(r.accountMinMs).toBe(12345)
+      expect(r.accountDailyMax).toBe(2)
     })
   })
 

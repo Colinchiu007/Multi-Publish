@@ -250,11 +250,103 @@ function resolveEmergencyMaxPerDay (options = {}) {
   })
 }
 
+/**
+ * 校验设置页下发的策略覆盖对象（PRD §7.2）。
+ *
+ * 语义是**全有或全无**：任一字段非法 ⇒ **整个覆盖对象作废**（返回 null）并出声，
+ * 不允许部分生效 —— 半生效态会让「我改了 A 却影响了 B」变成不可解释的行为。
+ * 未知字段一律忽略（前向兼容：旧版本读到新字段不应整体作废）。
+ *
+ * @param {unknown} raw - 从 store 读回的对象（可能是 null / 字符串 / 数组 / 损坏值）
+ * @param {{warn?: (msg: string) => void}} [options]
+ * @returns {{accountMinMs?: number, platformMinMs?: number, accountDailyMax?: number,
+ *            dailyMax?: {long?: number, clip?: number, short?: number},
+ *            jitterRatio?: number, releaseGraceMs?: number, emergencyMaxPerDay?: number} | null}
+ */
+function resolvePolicyOverrides (raw, options = {}) {
+  const warn = warnSink(options)
+  if (raw === undefined || raw === null) return null
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    warn(`[PublishFrequency] 设置页策略覆盖不是对象（${typeof raw}），已整体丢弃`)
+    return null
+  }
+
+  const out = {}
+  const bad = (name, value, why) => {
+    warn(`[PublishFrequency] 设置页策略覆盖字段 ${name}=${JSON.stringify(value)} 非法（${why}），已整体丢弃`)
+  }
+
+  const intervalKeys = ['accountMinMs', 'platformMinMs']
+  for (const key of intervalKeys) {
+    if (raw[key] === undefined || raw[key] === null) continue
+    const n = Number(raw[key])
+    if (!Number.isFinite(n) || n < 0) {
+      bad(key, raw[key], '需 >=0 的有限数')
+      return null
+    }
+    out[key] = Math.min(Math.floor(n), MAX_INTERVAL_MS)
+  }
+
+  const intKeys = [
+    ['accountDailyMax', 0, undefined],
+    ['emergencyMaxPerDay', 0, MAX_EMERGENCY_MAX_PER_DAY],
+  ]
+  for (const [key, min, max] of intKeys) {
+    if (raw[key] === undefined || raw[key] === null) continue
+    const n = Number(raw[key])
+    if (!Number.isInteger(n) || n < min || (max !== undefined && n > max)) {
+      bad(key, raw[key], max === undefined ? `需 >=${min} 的整数` : `需 [${min},${max}] 的整数`)
+      return null
+    }
+    out[key] = n
+  }
+
+  if (raw.dailyMax !== undefined && raw.dailyMax !== null) {
+    if (typeof raw.dailyMax !== 'object' || Array.isArray(raw.dailyMax)) {
+      bad('dailyMax', raw.dailyMax, '需对象 {long, clip, short}')
+      return null
+    }
+    const daily = {}
+    for (const tier of [TIER_LONG, TIER_CLIP, TIER_SHORT]) {
+      const v = raw.dailyMax[tier]
+      if (v === undefined || v === null) continue
+      const n = Number(v)
+      if (!Number.isInteger(n) || n < 0) {
+        bad(`dailyMax.${tier}`, v, '需 >=0 的整数')
+        return null
+      }
+      daily[tier] = n
+    }
+    if (Object.keys(daily).length > 0) out.dailyMax = daily
+  }
+
+  if (raw.jitterRatio !== undefined && raw.jitterRatio !== null) {
+    const n = Number(raw.jitterRatio)
+    if (!Number.isFinite(n) || n < 0 || n >= 1) {
+      bad('jitterRatio', raw.jitterRatio, '需 [0,1) 的有限数')
+      return null
+    }
+    out.jitterRatio = n
+  }
+
+  if (raw.releaseGraceMs !== undefined && raw.releaseGraceMs !== null) {
+    const n = Number(raw.releaseGraceMs)
+    if (!Number.isInteger(n) || n < MIN_RELEASE_GRACE_MS) {
+      bad('releaseGraceMs', raw.releaseGraceMs, `需 >=${MIN_RELEASE_GRACE_MS} 的整数`)
+      return null
+    }
+    out.releaseGraceMs = n
+  }
+
+  return Object.keys(out).length > 0 ? out : null
+}
+
 module.exports = {
   resolveIntervals,
   resolveJitterRatio,
   resolveReleaseGraceMs,
   resolveEmergencyMaxPerDay,
+  resolvePolicyOverrides,
   isKnownPlatform,
   parseEnvNumber,
   PLATFORM_FREQUENCY_POLICY,

@@ -35,13 +35,21 @@
     <span v-else-if="task.phase === 'failed'" class="ppp__task-error" :title="task.error">
       {{ truncateError(task.error) }}
     </span>
-    <span v-else-if="task.phase === 'blocked' && task.remainingWait" class="ppp__task-wait">
-      {{ t('publishPage.publishProgressPanel.blockedWaitMinutes', { minutes: Math.max(1, Math.ceil(task.remainingWait / 60000)) }) }}
+    <span v-else-if="task.phase === 'blocked'" class="ppp__task-wait" data-testid="publish-progress-task-wait">
+      <template v-if="isDailyQuota">
+        {{ t('publishPage.publishProgressPanel.blockedDailyQuota', { used: dailyUsed, max: dailyMax }) }}
+      </template>
+      <template v-else>
+        {{ t('publishPage.publishProgressPanel.blockedWaitMinutes', { minutes: Math.max(1, Math.ceil((task.remainingWait || 0) / 60000)) }) }}
+      </template>
       <span
         v-if="blockedBucketLabel"
         class="ppp__task-wait-bucket"
         data-testid="publish-progress-task-bucket"
       >{{ blockedBucketLabel }}</span>
+    </span>
+    <span v-else-if="task.phase === 'released'" class="ppp__task-released" data-testid="publish-progress-task-released">
+      {{ t('publishPage.publishProgressPanel.releasedNotSubmitted') }}
     </span>
     <span v-else-if="task.stageKey === 'detail' && task.stage" class="ppp__task-detail">
       {{ task.stage }}
@@ -158,12 +166,25 @@ const showPercent = computed(() =>
   props.task.percent !== null && props.task.percent !== undefined
   && (props.task.phase === 'start' || props.task.phase === 'progress'))
 
-/** 阻塞归因只认守卫产出的两档取值（account/platform）；其他取值不渲染标签，避免把未知口径猜成一种归因 */
+/** 阻塞归因只认守卫产出的三档取值（account/platform/daily）；其他取值不渲染标签，避免把未知口径猜成一种归因 */
 const blockedBucketLabel = computed(() => {
   const bucket = props.task.bucket
   if (bucket === 'account') return t('publishPage.publishProgressPanel.blockedBucketAccount')
   if (bucket === 'platform') return t('publishPage.publishProgressPanel.blockedBucketPlatform')
+  if (bucket === 'daily') return t('publishPage.publishProgressPanel.blockedBucketDaily')
   return ''
+})
+
+/** v2：日配额用尽走独立文案（它是「改期」而非「等待」，remainingWait 恒为 0） */
+const isDailyQuota = computed(() =>
+  props.task.reason === 'daily_quota' || props.task.bucket === 'daily')
+const dailyUsed = computed(() => {
+  const d = props.task.daily
+  return d && Number.isFinite(Number(d.used)) ? Number(d.used) : 0
+})
+const dailyMax = computed(() => {
+  const d = props.task.daily
+  return d && Number.isFinite(Number(d.max)) ? Number(d.max) : 0
 })
 
 function isPastStep(current, step) {

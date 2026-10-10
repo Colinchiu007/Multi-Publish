@@ -12,6 +12,7 @@ const TABLE_NAMES = {
   callback_logs: "callback_logs",
   batch_jobs: "batch_jobs",
   publish_timeline: "publish_timeline",
+  publish_daily_count: "publish_daily_count",
   model_providers: "model_providers",
   model_provider_logs: "model_provider_logs",
   backlot_projects: "backlot_projects",
@@ -82,6 +83,18 @@ const OWNER_TABLE_SCHEMA_SQL = {
     last_publish_at TEXT,
     PRIMARY KEY (owner_subject, key)
   )`,
+  // publish-frequency-policy-v2：账号级日配额计数（本机运营日）。
+  // 两个计数器语义分离：count = 已实际提交到平台的次数（未提交回滚会幂等回补）；
+  // rollback_count = 回滚尝试次数（只增不减，用于防风上限）。day_key 形如 'YYYY-MM-DD'。
+  publish_daily_count: `CREATE TABLE IF NOT EXISTS publish_daily_count (
+    owner_subject  TEXT NOT NULL,
+    key            TEXT NOT NULL,
+    day_key        TEXT NOT NULL,
+    count          INTEGER NOT NULL DEFAULT 0,
+    rollback_count INTEGER NOT NULL DEFAULT 0,
+    updated_at     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner_subject, key, day_key)
+  )`,
 };
 
 const OWNER_INDEX_SQL = [
@@ -91,6 +104,7 @@ const OWNER_INDEX_SQL = [
   `CREATE INDEX IF NOT EXISTS idx_scheduled_owner_time ON scheduled_tasks(owner_subject, publish_time)`,
   `CREATE INDEX IF NOT EXISTS idx_batch_owner_created ON batch_jobs(owner_subject, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_timeline_owner_key ON publish_timeline(owner_subject, key)`,
+  `CREATE INDEX IF NOT EXISTS idx_daily_owner_key ON publish_daily_count(owner_subject, key)`,
 ];
 
 const SCHEMA_SQL = [
@@ -99,6 +113,7 @@ const SCHEMA_SQL = [
   OWNER_TABLE_SCHEMA_SQL.scheduled_tasks,
   OWNER_TABLE_SCHEMA_SQL.batch_jobs,
   OWNER_TABLE_SCHEMA_SQL.publish_timeline,
+  OWNER_TABLE_SCHEMA_SQL.publish_daily_count,
   `CREATE TABLE IF NOT EXISTS settings (
     key           TEXT PRIMARY KEY,
     value         TEXT
@@ -261,6 +276,7 @@ const OWNER_TABLE_COLUMNS = {
   scheduled_tasks: ["owner_subject", "id", "platform", "article", "publish_time", "status", "created_at"],
   batch_jobs: ["owner_subject", "id", "name", "articles", "total", "completed", "failed", "status", "created_at"],
   publish_timeline: ["owner_subject", "key", "last_publish_at"],
+  publish_daily_count: ["owner_subject", "key", "day_key", "count", "rollback_count", "updated_at"],
 };
 
 const OWNER_TABLE_KEY_COLUMNS = {
@@ -269,6 +285,9 @@ const OWNER_TABLE_KEY_COLUMNS = {
   scheduled_tasks: "id",
   batch_jobs: "id",
   publish_timeline: "key",
+  // 复合主键的第二列（key 之后是 day_key）：重建判据只校验 pk[0]=owner_subject 与 pk[1]=key，
+  // 第三个主键列不参与 needsOwnerTableRebuild 的判定，故此处仍登记 "key"。
+  publish_daily_count: "key",
 };
 
 const OWNER_COLUMN_DEFAULTS = {
@@ -297,6 +316,10 @@ const OWNER_COLUMN_DEFAULTS = {
   completed: "0",
   failed: "0",
   last_publish_at: "NULL",
+  day_key: "''",
+  count: "0",
+  rollback_count: "0",
+  updated_at: "0",
 };
 
 function execSchemaSql(db, sql) {
