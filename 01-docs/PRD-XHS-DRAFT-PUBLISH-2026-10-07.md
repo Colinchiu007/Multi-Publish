@@ -207,3 +207,92 @@ probe 调用（renderer → IPC xiaohongshu:probe-draft-chain）
 | note 签名（页内 XYS_） | ✅ 签名关已过（业务层响应替代 406/401）|
 | note 业务受理 | ⚠️ `code:-1`（无 msg）——**端点域不匹配**：edith 不吃 creator 会话（401 实证），creator 域同名端点 404 |
 | 下一刀 | 抓登录后「手动存草稿」的真实页面交互流量（CDP 拦截）→ 定位真实草稿保存端点与参数 → 替换 NOTE_PATH → 全链闭环 |
+
+---
+
+# 增补二：对齐蚁小二形态 + 凭据载体根因（第二轮增补，2026-10-10 晚，#3280）
+
+> 来源：蚁小二逆向（`.agent_context/yxe-xhs-publish-research.md`）+ xhshow 系列开源项目调研。
+> 本轮把请求形态全部对齐蚁小二后，note 响应从 406/-1 推进到 **-100「无登录信息」**——
+> 格式已被平台接受，暴露出最后一块拼图：**账号凭据缺主站 web_session cookie**（登录载体差异）。
+
+## 11. 请求形态契约（对齐蚁小二 publish$j/buildPostData$J，现行有效）
+
+### 11.1 请求头
+
+```
+Cookie: <完整凭据串（a1 轮换后：a1old=旧值; a1=新值; …）>
+referer: https://creator.xiaohongshu.com/
+Origin:  https://creator.xiaohongshu.com
+Authorization: **不发送**（蚁小二实证置空；AT 跨域半认可触发 code:-1）
+Content-Type: application/json;charset=UTF-8
+User-Agent: 与签名页环境一致
+X-s / X-t / X-S-Common: 页内签名产物（bridge 注入，蚁小二由签名服务返回）
+```
+
+### 11.2 note body（蚁小二 publish$j 形态）
+
+```json
+{
+  "common": {
+    "type": "normal",
+    "title": "<≤20字>",
+    "note_id": "",
+    "desc": "<正文>",
+    "source": "{\"type\":\"web\",\"ids\":\"\",\"extraInfo\":\"{\\\"systemId\\\":\\\"web\\\"}\"}",
+    "business_binds": "{\"version\":1,\"noteId\":0,\"bizType\":0,\"noteOrderBind\":{},\"notePostTiming\":{},\"groupBind\":{},\"noteCollectionBind\":{\"id\":\"\"}}",
+    "ats": [],
+    "biz_relations": null,
+    "hash_tag": [{"id":"","name":"…","link":"","type":"topic"}],
+    "post_loc": null,
+    "privacy_info": { "op_type": 1, "type": <visibilityType> }
+  },
+  "image_info": { "images": [{
+    "file_id": "<permit 返回>", "height": 4096, "width": 4096,
+    "extra_info_json": {"mimeType": "image/png"},
+    "metadata": {"source": -1},
+    "stickers": {"floating": [], "version": 2}
+  }] },
+  "video_info": null
+}
+```
+
+**注意：平台 body 没有 draft 字段**——「草稿/私密」语义由 `privacy_info.type` 承担
+（`VisibleTypeEnum`：0=public / -1=unPublic / **1=private** / 2=fan）。原 `draft:true` 平台不认。
+
+### 11.3 a1 轮换
+
+签名产物含新 a1（设备指纹滚动）时，请求 cookie 做：`a1=<旧>→a1old=<旧>; a1=<新>`。
+链内已实现（submitNote rotatedCookie），probe 自动跟随。
+
+## 12. 真机验证证据链（三轮迭代，#3280）
+
+| 轮次 | 形态 | note 响应 | 判定 |
+|---|---|---|---|
+| 1 | 旧形态（draft:true + AT 头 + 短模板 X-S-Common） | 406 | 网关拒 |
+| 2 | #3215 页内签名（XYS_）但 AT 头仍在 | code:-1（空 msg） | AT 跨域半认可 |
+| 3 | 本轮对齐形态（无 AT + 蚁小二 body） | **code:-100「无登录信息」** | 格式被接受，进入会话鉴权层 |
+
+## 13. 凭据载体根因（最终确认，诚实登记）
+
+- **-100 = 账号凭据缺主站 `web_session` cookie**。取证：`accountCredentialNames` 返回 20 个
+  cookie（a1/AT/galaxy session/…）**无 web_session**；CDP `Network.getCookies` 对 edith 请求
+  的模拟同样缺它。
+- 蚁小二的账号登录走 **www.xiaohongshu.com 主站**（拿全量含 web_session 的 cookie）；
+  我们的登录走 **creator webview**（只有创作者中心域的会话）——登录载体差异，非链路代码问题。
+- **修复归属**：xiaohongshu 账号登录流程改造（登录页导航到主站或补抓主站会话），独立工作项。
+- **发送路径决策**：主进程直发（显式全量 Cookie 头，蚁小二同款）。页内整发被否——浏览器 fetch
+  禁显式 Cookie 头且凭据本就无 web_session，页内会话注定无登录态。
+
+## 14. 开源生态情报（xhshow 系列调研结论）
+
+| 项目 | 形态 | 对我们的价值 |
+|---|---|---|
+| Cloxl/xhshow（Python，MIT） | XYS_ 纯算（signSvn 56）+ x-s-common + x-rap-param | 算法参照；x-rap-param 是发布类接口风控头（后续需要）|
+| xhshow-js / @ikenxuan/xhshow-ts | TS 移植，含 **signFormat:"xyw"**（AES，数据接口绕 406）与 **SessionManager**（会话状态）| 我们 signer-local 的 XYW_ 与其 xyw 同源；SSK 会话（x6/x7）是增强方向 |
+| tamnd/xiaohongshu-cli（Go，Apache-2.0） | **clean-room XYW 实现**（常量逐字节一致：AES key/IV/envFlags/signSvn=56） | 交叉验证我们 signer-local 的正确性 |
+| Tonwed/xhs_sign_service（Playwright 服务） | 浏览器池签名服务 | 与我们签名页方案同思路，佐证架构正确 |
+
+**情报总结**：XYS_（mns0301 档）是现役网页端签名；XYW_（AES-128-CBC）是数据接口绕 406 的替代档；
+两者常量与我们 signer-local 一致。**发布类接口额外需要 x-rap-param**（基于 URI+body 的 MurmurHash），
+note 全链闭环后的候选增强项。
