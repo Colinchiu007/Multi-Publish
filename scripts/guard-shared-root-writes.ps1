@@ -53,7 +53,11 @@ function Test-ExcludedSegment([string]$Path) {
     return $false
 }
 
-$allowedTop = @('docs','01-docs','scripts','openspec','.ccg','.agent_context','.hermes')
+# 对抗评审产物（.adversarial）与 .ccg 同性质：纯 .md + .json、已跟踪入库（174 个文件）、
+# 且 classify-docs-only.js 的 docs 白名单已含 .adversarial/**。两份名单必须一致——
+# 漏项的后果：评审产物每写一次就被隔离一次（实测一轮评审 11 个文件全被移走），
+# 评审记录在共享主目录永远留不下来。
+$allowedTop = @('docs','01-docs','scripts','openspec','.ccg','.agent_context','.hermes','.adversarial')
 $allowedRootFiles = @('AGENTS.md','README.md','CHANGELOG.md','.quality-gates.md')
 $script:ignoreUntil = @{}
 
