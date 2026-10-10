@@ -82,7 +82,7 @@ describe('xiaohongshu draft chain', () => {
     expect(calls[1].headers['X-Cos-Security-Token']).toBe('TK1') // 与 fixture 的 token 对齐
     expect(calls[2].url).toBe('https://edith.xiaohongshu.com/web_api/sns/v2/note')
     expect(out.success).toBe(true)
-    expect(out.draft).toBe(true)
+    expect(out.visibilityType).toBe(0) // 2026-10-10 形态切换：draft 字段移除，草稿语义=privacy_info.type
     expect(out.noteId).toBe('N123')
   })
 
@@ -95,23 +95,23 @@ describe('xiaohongshu draft chain', () => {
     const submit = calls[2]
     expect(submit.headers['x-s']).toBe('XYW_test')
     expect(submit.headers['x-t']).toBe('1700000000000')
-    expect(submit.headers['Authorization']).toBe('AT tk')
+    expect(submit.headers.Authorization).toBeUndefined() // 2026-10-10 对齐参考产品A：AT 头不发送（跨域半认可触发 code:-1）
     expect(submit.url).not.toMatch(/[?&]sign=/)
     expect(submit.url).not.toContain('%5Bobject')
   })
 
-  it('draft=true 时提交体必须带草稿语义（不公开发布）', async () => {
+  it('privacy_info 承担草稿语义（type=1=private，平台无 draft 字段）', async () => {
     await chain.publishToDraft({
       title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
-      draft: true, cookie: 'a1=AAAA', authorization: 'AT tk',
+      visibilityType: 1, cookie: 'a1=AAAA', authorization: 'AT tk',
       readFile: async () => Buffer.from('x'),
     })
     const body = JSON.parse(calls[2].data)
-    expect(body.title).toBe('t')
-    expect(body.draft).toBe(true)
-    expect(Array.isArray(body.image_list)).toBe(true)
-    expect(body.image_list.length).toBe(1)
-    expect(body.image_list[0].file_id).toBe('F1')
+    expect(body.common.privacy_info).toEqual({ op_type: 1, type: 1 })
+    expect(body.common.draft).toBeUndefined()
+    expect(Array.isArray(body.image_info.images)).toBe(true)
+    expect(body.image_info.images[0].file_id).toBe('F1')
+    expect(body.image_info.images[0].stickers).toEqual({ floating: [], version: 2 })
   })
 
   it('无图片时 fail-closed：小红书不支持纯文字笔记', async () => {
@@ -123,19 +123,12 @@ describe('xiaohongshu draft chain', () => {
     }))).rejects.toThrow(/image|图片/i)
   })
 
-  it('缺 a1 / 缺 Authorization 时 fail-closed，不得发出请求', async () => {
+  it('缺 a1 时 fail-closed，不得发出请求（2026-10-10：Authorization 头不再发送，缺 AT 不再拦截）', async () => {
     await expect(chain.publishToDraft({
       title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
       draft: true, cookie: 'web_session=x', authorization: 'AT tk',
       readFile: async () => Buffer.from('x'),
     })).rejects.toThrow(/a1/i)
-    expect(calls).toHaveLength(0)
-
-    await expect(chain.publishToDraft({
-      title: 't', content: 'c', images: [{ path: 'C:/tmp/a.png' }],
-      draft: true, cookie: 'a1=AAAA', authorization: '',
-      readFile: async () => Buffer.from('x'),
-    })).rejects.toThrow(/authorization/i)
     expect(calls).toHaveLength(0)
   })
 

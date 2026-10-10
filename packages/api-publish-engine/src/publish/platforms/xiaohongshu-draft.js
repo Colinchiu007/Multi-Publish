@@ -173,25 +173,20 @@ class XiaohongshuDraftChain {
     return res
   }
 
-  /** Step 3：提交笔记（draft=true ⇒ 存创作者中心草稿箱） */
+  /** Step 3：提交笔记（privacy_info.type 语义：0=public / 1=private，见 publishToDraft） */
   async submitNote (body, opts) {
-    const { cookie, authorization, pageInpage } = opts
-    // note 端点宿主：真机实测 2026-10-10 —— creator 域 `/web_api/sns/v2/note` 返回 **404**（该端点
-    // 不在 creator 域），edith 域同名端点存在但本账号返回 **406**（签名/风控未过）。故默认取
-    // **edith**（唯一存在的端点），creator 仅作为 A/B 对照保留。
-    // 取值优先级：调用方显式 noteOrigin > env MP_XHS_NOTE_HOST=creator（A/B）> 默认 edith。
+    const { cookie, pageInpage, rotatedCookie } = opts
+    // Authorization 头**置空**（2026-10-10 对齐参考产品A publish$k——真机取证 AT 跨域半认可
+    // 会触发 code:-1 业务拒绝，去掉后由 cookie 会话承担鉴权）。
+    // note 端点宿主：edith（creator 域同名端点 404 不存在）。
     const noteOrigin = opts.noteOrigin
       || (process.env.MP_XHS_NOTE_HOST === 'creator' ? CREATOR_ORIGIN : EDITH_ORIGIN)
     const fullUri = `${noteOrigin}${NOTE_PATH}`
-    // 签名基址：XYW 的 x1 = md5("url=" + uri)。参考实现传的是**路径（含 query）**，
-    // 本仓原先传绝对 URL。真机 2026-10-10 实测：**两种形态都返回 406**（未证实哪种正确），
-    // 故按参考实现口径默认走路径，并保留 MP_XHS_SIGN_URI=absolute 回退位以便后续对照。
+    // 签名基址：按参考实现口径默认走路径，保留 MP_XHS_SIGN_URI=absolute 回退位。
     const signUri = process.env.MP_XHS_SIGN_URI === 'absolute'
       ? fullUri
       : (() => { try { const u = new URL(fullUri); return u.pathname + u.search } catch (_e) { return fullUri } })()
-    // 签名器契约兼容：装配签名器（signer-assembly）返回裸字符串（XYW_ x-s），
-    // 也有实现返回完整头集合。字符串形态下补齐 x-t / x-s-common / traceid——
-    // 406 的根因之一是请求缺 x-s-common（真机 2026-10-09：permit+upload 已通，note 406）。
+    // 签名器契约兼容：返回对象（含 X-s/X-t/X-S-Common，或 a1 轮换值）或裸字符串。
     const signResult = await this.sign({
       fullUri: signUri,
       cookie,
@@ -199,23 +194,29 @@ class XiaohongshuDraftChain {
       payload: body,
     })
     let signHeaders
+    let rotatedA1 = ''
     if (signResult && typeof signResult === 'object') {
       signHeaders = signResult
+      rotatedA1 = typeof signResult.a1 === 'string' ? signResult.a1 : ''
     } else {
       const { buildXiaohongshuSignHeaders } = require('../../signer-local')
       signHeaders = buildXiaohongshuSignHeaders({ fullUri: signUri, cookies: cookie })
       signHeaders['x-s'] = String(signResult)
     }
+    // cookie 轮换（对齐参考产品A publish$j：签名返回的新 a1 写回，旧 a1 保留为 a1old=）
+    const effectiveCookie = rotatedA1 && typeof cookie === 'string' && cookie.includes('a1=')
+      ? `${cookie.replace('a1=', 'a1old=')};a1=${rotatedA1}`
+      : cookie
     const headers = {
-      ...this._baseHeaders(cookie, authorization),
+      ...this._baseHeaders(effectiveCookie, ''),
       'Content-Type': 'application/json;charset=UTF-8',
       referer: 'https://creator.xiaohongshu.com/',
       Origin: CREATOR_ORIGIN,
       ...signHeaders,
     }
-    // 页内整发（2026-10-10，xhs-xys-signer 遗留项落地）：sendNote 由探针/调用方注入，
-    // 在签名页上下文执行 fetch（credentials:'include' 自动带登录 cookie 与页内全套头）。
-    // X-S-Common 页内生成入口未逆向，本地短模板混用仍 406 —— 页内整发是绕开该 mismatch 的正解。
+    if (headers.Authorization !== undefined) delete headers.Authorization
+    // 页内整发：sendNote 由探针/调用方注入，在签名页上下文执行 fetch
+    // （credentials:'include' 自动带登录 cookie 与页内全套头）。
     // 契约：sendNote({url, headers, body}) => {status, data}；错误语义与 http 路径一致（assertBusinessOk）。
     if (pageInpage && typeof pageInpage.sendNote === 'function') {
       const pageRes = await pageInpage.sendNote({ url: fullUri, headers, body: JSON.stringify(body) })
@@ -237,23 +238,28 @@ class XiaohongshuDraftChain {
   /**
    * 完整链路：逐张图片 permit + PUT，随后提交（默认草稿）。
    *
+   * 2026-10-10 对齐参考产品A publish$j/buildPostData$J 形态（逆向报告 competitor-research-xhs.md）：
+   *  - 草稿/私密语义 = privacy_info.type（VisibleTypeEnum：0=public / 1=private / 2=fan），
+   *    平台 body **没有 draft 字段**——原 draft:true 平台不认。
+   *  - 图文 image_list 为完整对象数组（file_id/height/width/extra_info_json/metadata/stickers）。
+   *  - common 补 source/business_binds(bizType:0)/note_id 契约结构；Authorization 头置空。
+   *
    * @param {{title: string, content: string, images: Array<{path: string}>,
-   *          draft?: boolean, tags?: string[], cookie: string|object,
-   *          authorization: string, readFile?: Function, mimeType?: string}} input
+   *          visibilityType?: number, tags?: string[], cookie: string|object,
+   *          authorization?: string, readFile?: Function, mimeType?: string,
+   *          noteOrigin?: string, pageInpage?: {sendNote: Function}}} input
    */
   async publishToDraft (input) {
     const {
       title, content, images, cookie, authorization,
-      draft = true, tags = [], readFile, mimeType,
+      visibilityType = 0, tags = [], readFile, mimeType,
     } = input || {}
 
     const a1 = readCookieValue(cookie, 'a1')
     if (!a1) {
       throw new XiaohongshuDraftError('缺 a1 cookie（签名必需，fail-closed）', 'XHS_MISSING_A1')
     }
-    if (!authorization || !String(authorization).trim()) {
-      throw new XiaohongshuDraftError('缺 Authorization（AT token），fail-closed', 'XHS_MISSING_AUTHORIZATION')
-    }
+    // Authorization（AT）头已不再发送（2026-10-10 对齐参考产品A publish$k），authorization 参数保留但可选
     if (!Array.isArray(images) || images.length === 0) {
       throw new XiaohongshuDraftError('至少需要 1 张图片：小红书不支持纯文字笔记', 'XHS_NO_IMAGE')
     }
@@ -277,20 +283,48 @@ class XiaohongshuDraftChain {
         mimeType,
       })
       await this.uploadImageBinary(permit, buf, { cookie, authorization, mimeType })
-      imageList.push({ file_id: permit.fileId })
+      // image_list 完整对象形态（参考产品A buildPostData$J：file_id/height/width/extra_info_json/metadata/stickers）
+      imageList.push({
+        file_id: permit.fileId,
+        height: 4096,
+        width: 4096,
+        extra_info_json: { mimeType: mimeType || 'image/png' },
+        metadata: { source: -1 },
+        stickers: { floating: [], version: 2 },
+      })
     }
     if (imageList.length === 0) {
       throw new XiaohongshuDraftError('没有可用图片路径', 'XHS_NO_IMAGE')
     }
 
+    // note body（参考产品A publish$j 形态）：common/image_info/video_info 三段；
+    // 「草稿」语义 = privacy_info.type:1（private），平台没有 draft 字段。
     const body = {
-      title: String(title).slice(0, 20),   // 平台标题上限 20 字
-      desc: String(content == null ? '' : content),
-      image_list: imageList,
-      draft: draft !== false,
-    }
-    if (Array.isArray(tags) && tags.length) {
-      body.tag_list = tags.map(t => ({ name: String(t), type: 0 }))
+      common: {
+        type: 'normal',
+        title: String(title).slice(0, 20),   // 平台标题上限 20 字
+        note_id: '',
+        desc: String(content == null ? '' : content),
+        source: '{"type":"web","ids":"","extraInfo":"{\\"systemId\\":\\"web\\"}"}',
+        business_binds: JSON.stringify({
+          version: 1,
+          noteId: 0,
+          bizType: 0,
+          noteOrderBind: {},
+          notePostTiming: {},
+          groupBind: {},
+          noteCollectionBind: { id: '' },
+        }),
+        ats: [],
+        biz_relations: null,
+        hash_tag: Array.isArray(tags) && tags.length
+          ? tags.map(t => ({ id: '', name: String(t), link: '', type: 'topic' }))
+          : [],
+        post_loc: null,
+        privacy_info: { op_type: 1, type: Number(visibilityType) || 0 },
+      },
+      image_info: { images: imageList },
+      video_info: null,
     }
 
     const submitted = await this.submitNote(body, {
@@ -302,7 +336,7 @@ class XiaohongshuDraftChain {
     return {
       success: true,
       platform: 'xiaohongshu',
-      draft: body.draft,
+      visibilityType: Number(visibilityType) || 0,
       noteId: submitted.noteId,
       draftId: submitted.draftId,
     }

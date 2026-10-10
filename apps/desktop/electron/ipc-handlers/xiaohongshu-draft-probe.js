@@ -128,8 +128,9 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     if (!isSafe(accountId)) {
       return { code: EC.VALIDATION_ERROR, message: 'accountId 非法', data: { stage: 'validate' } }
     }
-    // 调试通道只走草稿：draft 锁死 true，调用方传 draft:false 一律忽略（公开发布走产品正式发布通道）
-    const draft = true
+    // 调试通道只走私密语义（2026-10-10 形态切换）：平台无 draft 字段，
+    // 「草稿/私密」= privacy_info.type:1（private）。公开发布走产品正式发布通道。
+    const visibilityType = 1
 
     // ── 阶段 1：解密凭据（只在主进程内，DPAPI 可用）──
     let cookies
@@ -197,66 +198,32 @@ function registerXiaohongshuDraftProbe ({ deps, withSenderCheck, EC, ipcLog, ipc
     })
 
     try {
-      // 页内整发（2026-10-10）：note 步在签名页上下文执行（X-S-Common 页内生成，绕开本地模板 406）。
-      // ① cookie 注入签名页：bindSignerCookie in-proc 绑定（provider.js 契约，cookie 不过 renderer）
-      // ② sendNote 桥：经 signer-assembly 的页窗口 executeJavaScript 执行带签名头的 fetch
-      //    （credentials:'include' 自动带登录态；页内 _webmsxyw 已由 #3215 extractor 通道就绪）
-      let pageInpage
-      try {
-        const provider = require('../signer/provider')
-        provider.bindSignerCookie('xiaohongshu', accountId, cookie)
-        const asm = provider.__getAssemblyForProbe()
-        if (asm && typeof asm.getOrCreatePage === 'function') {
-          const entry = await asm.getOrCreatePage('xiaohongshu', accountId, cookie)
-          const wc = entry.win.webContents
-          pageInpage = {
-            sendNote: async ({ url, headers, body }) => {
-              const script = `(async function () {
-                try {
-                  const resp = await fetch(${JSON.stringify(url)}, {
-                    method: 'POST',
-                    headers: ${JSON.stringify(headers)},
-                    body: ${JSON.stringify(body)},
-                    credentials: 'include',
-                  })
-                  const status = resp.status
-                  let data = null
-                  try { data = await resp.json() } catch (_e) { data = null }
-                  return { status, data }
-                } catch (e) {
-                  return { status: 0, data: { code: -1, msg: 'inpage-fetch: ' + String((e && e.message) || e).slice(0, 120) } }
-                }
-              })()`
-              return wc.executeJavaScript(script)
-            },
-          }
-        }
-      } catch (e) {
-        // 页内整发准备失败：降级回 http 路径（pageInpage 保持 undefined），错误只进日志
-        ipcLog('warn', 'xiaohongshu:probe-draft-chain', 'inpage-prep-failed',
-          `accountId=${accountId} message=${sanitizeMessage(e instanceof Error ? e.message : String(e))}`)
-      }
+
+      // 发送路径（2026-10-10 二次修正）：主进程直发（参考产品A同款）——
+      // 显式全量 Cookie 头（主进程不受浏览器 cookie jar 限制）+ 页内 XYS_ 签名对象（bridge）。
+      // 页内整发（pageInpage）被否：浏览器 fetch 不带 httpOnly 的 web_session（账号凭据本就没有
+      // web_session，跨子域也无法显式设 Cookie 头），页内会话注定无登录态。
+      // 注意：这里不再构造 pageInpage，直接不传 → 链走 http 路径。
 
       const result = await chain.publishToDraft({
         title: article.title,
         content: article.content,
         images: images.map((p) => ({ path: p })),
-        draft,
+        visibilityType,
         tags: Array.isArray(article.tags) ? article.tags : [],
         cookie,
         authorization,
         // 调试通道专用：A/B 对照 note 端点宿主（'creator' | 'edith'），生产路由不传该字段
         noteOrigin: arg && arg.noteHost === 'edith' ? 'https://edith.xiaohongshu.com'
           : (arg && arg.noteHost === 'creator' ? 'https://creator.xiaohongshu.com' : undefined),
-        pageInpage,
       })
-      ipcLog('info', 'xiaohongshu:probe-draft-chain', 'ok', `accountId=${accountId} draft=${draft}`)
+      ipcLog('info', 'xiaohongshu:probe-draft-chain', 'ok', `accountId=${accountId} visibilityType=${visibilityType}`)
       return {
         code: 0,
         data: {
           stage: 'publish',
           success: true,
-          draft: result.draft,
+          visibilityType: result.visibilityType,
           // 作品标识是发布产物，不是凭据，可安全回传
           noteId: result.noteId || '',
           draftId: result.draftId || '',
