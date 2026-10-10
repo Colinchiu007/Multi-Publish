@@ -34,10 +34,5 @@
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
     "line": 4479
-  },
-  "本次执行记录：CreateView 拆分第1+2步 — useBgmLibrary composable + overlay owner 登记（createview-split-step1，2026-10-10）【混合 PR】": {
-    "reason": "PR 合并后销账（同一次提交改写远程同步行 + 删本登记项）",
-    "status": "PENDING",
-    "line": 0
   }
 }
