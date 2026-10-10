@@ -210,13 +210,13 @@ probe 调用（renderer → IPC xiaohongshu:probe-draft-chain）
 
 ---
 
-# 增补二：对齐蚁小二形态 + 凭据载体根因（第二轮增补，2026-10-10 晚，#3280）
+# 增补二：对齐参考产品A形态 + 凭据载体根因（第二轮增补，2026-10-10 晚，#3280）
 
-> 来源：蚁小二逆向（`.agent_context/yxe-xhs-publish-research.md`）+ xhshow 系列开源项目调研。
-> 本轮把请求形态全部对齐蚁小二后，note 响应从 406/-1 推进到 **-100「无登录信息」**——
+> 来源：参考产品A逆向（`.agent_context/yxe-xhs-publish-research.md`）+ xhshow 系列开源项目调研。
+> 本轮把请求形态全部对齐参考产品A后，note 响应从 406/-1 推进到 **-100「无登录信息」**——
 > 格式已被平台接受，暴露出最后一块拼图：**账号凭据缺主站 web_session cookie**（登录载体差异）。
 
-## 11. 请求形态契约（对齐蚁小二 publish$j/buildPostData$J，现行有效）
+## 11. 请求形态契约（对齐参考产品A publish$j/buildPostData$J，现行有效）
 
 ### 11.1 请求头
 
@@ -224,13 +224,13 @@ probe 调用（renderer → IPC xiaohongshu:probe-draft-chain）
 Cookie: <完整凭据串（a1 轮换后：a1old=旧值; a1=新值; …）>
 referer: https://creator.xiaohongshu.com/
 Origin:  https://creator.xiaohongshu.com
-Authorization: **不发送**（蚁小二实证置空；AT 跨域半认可触发 code:-1）
+Authorization: **不发送**（参考产品A实证置空；AT 跨域半认可触发 code:-1）
 Content-Type: application/json;charset=UTF-8
 User-Agent: 与签名页环境一致
-X-s / X-t / X-S-Common: 页内签名产物（bridge 注入，蚁小二由签名服务返回）
+X-s / X-t / X-S-Common: 页内签名产物（bridge 注入，参考产品A由签名服务返回）
 ```
 
-### 11.2 note body（蚁小二 publish$j 形态）
+### 11.2 note body（参考产品A publish$j 形态）
 
 ```json
 {
@@ -271,17 +271,17 @@ X-s / X-t / X-S-Common: 页内签名产物（bridge 注入，蚁小二由签名�
 |---|---|---|---|
 | 1 | 旧形态（draft:true + AT 头 + 短模板 X-S-Common） | 406 | 网关拒 |
 | 2 | #3215 页内签名（XYS_）但 AT 头仍在 | code:-1（空 msg） | AT 跨域半认可 |
-| 3 | 本轮对齐形态（无 AT + 蚁小二 body） | **code:-100「无登录信息」** | 格式被接受，进入会话鉴权层 |
+| 3 | 本轮对齐形态（无 AT + 参考产品A body） | **code:-100「无登录信息」** | 格式被接受，进入会话鉴权层 |
 
 ## 13. 凭据载体根因（最终确认，诚实登记）
 
 - **-100 = 账号凭据缺主站 `web_session` cookie**。取证：`accountCredentialNames` 返回 20 个
   cookie（a1/AT/galaxy session/…）**无 web_session**；CDP `Network.getCookies` 对 edith 请求
   的模拟同样缺它。
-- 蚁小二的账号登录走 **www.xiaohongshu.com 主站**（拿全量含 web_session 的 cookie）；
+- 参考产品A的账号登录走 **www.xiaohongshu.com 主站**（拿全量含 web_session 的 cookie）；
   我们的登录走 **creator webview**（只有创作者中心域的会话）——登录载体差异，非链路代码问题。
 - **修复归属**：xiaohongshu 账号登录流程改造（登录页导航到主站或补抓主站会话），独立工作项。
-- **发送路径决策**：主进程直发（显式全量 Cookie 头，蚁小二同款）。页内整发被否——浏览器 fetch
+- **发送路径决策**：主进程直发（显式全量 Cookie 头，参考产品A同款）。页内整发被否——浏览器 fetch
   禁显式 Cookie 头且凭据本就无 web_session，页内会话注定无登录态。
 
 ## 14. 开源生态情报（xhshow 系列调研结论）
