@@ -242,6 +242,9 @@ export default {
         durationMinutesSeconds: '{minutes} 分 {seconds} 秒',
         durationMinutes: '{minutes} 分',
         durationSeconds: '{seconds} 秒',
+        // 服务商下拉展示（2026-10-10 TTS 拆分迁入；multimodalSuffix 同时被视频服务商下拉复用）
+        autoEdgeProvider: '自动 Edge TTS',
+        multimodalSuffix: '（多模态）',
         // 2026-08-13 音色克隆进行中反馈（选择文件后自动克隆期间）
         cloneSelectButton: '选择本地音频文件',
         cloneReselectButton: '重新选择音频文件',
