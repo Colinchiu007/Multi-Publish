@@ -2,9 +2,6 @@
 record: createview-split-step1
 task: CreateView 拆分第1+2步 — useBgmLibrary composable + overlay owner 登记（FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 里程碑2）
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR（#3236）尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：CreateView 拆分第1+2步 — useBgmLibrary composable + overlay owner 登记（createview-split-step1，2026-10-10）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | PASS | 新增 2 个测试文件均在 vitest 扫描路径（`src/views/video-creation/composables/`、`src/`），被全量测试自然覆盖 |
 | QM-1 打包 / QM-4 视觉 | N/A / 见证据 | 未触 electron 主进程（QM-1 N/A）；QM-4 像素 18/19（collection 1.5986% 红在 **main 基线同样复现**，非本分支引入，取证 report-1791569685443） |
 | QM-6 CCG 双模型外部评审 | PASS | 方案 v3 经内部双模型（12 findings 全接受）+ 外部 codex（9 findings 全接受）两轮对抗评审（FRONTEND-FILE-SPLIT-PLAN 附录 B/C）；本步为方案内既定步骤，未新增方案外决策 |
-| 远程同步 | PENDING | PR #3236；合并后取 `git log origin/main --grep='(#3236)$' --format=%H|%cI` 回填 merge SHA，`git ls-remote --heads origin createview-split-step1` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3236 已 squash 合并，merge SHA `01a6f92b32a2aae73b82fffab90d622b9638ec6b`（2026-10-10T10:58:03+08:00），取证 `git log origin/main --grep='(#3236)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin createview-split-step1` 返回 0 行，证远端分支已删；台账登记项已在本次回填提交删除 |
 
 ### 验证
 
