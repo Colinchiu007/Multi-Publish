@@ -48,3 +48,10 @@ node -e "const g=require('<repo>/scripts/check-spec-purpose.js');console.log(g.c
 - **Gate 12d 的「活体 TBD」在真实仓库里仍未出现过一次**。本次构造的是仓库外探针，不是 PR 现场。若要让它在仓库里真出现一次，得提交一份不带 Purpose 的 delta 并归档——那是**故意留一条违规主规格**，代价大于收益，故不做；改为把探针配方与判据条件写进本记录（可重跑）与主规格对账节。
 - `openspec validate --all` 那 7 条失败属他人未完成的 change，本次只证明「不是我引入的」，没有认领修复。
 - 归档后 `openspec/changes/archive/2026-10-10-dedup-changelog-history/` 里 `5.5` 的勾是按实况补的；若原执行会话另有口径（例如意图保留该 worktree 以便再跑一次清理），以本条证据为准并提出更正，本记录就是它的现场。
+- **归档打破了 4 处路径引用，逐处按性质分类处置（实测 `grep -rna "changes/dedup-changelog-history"`，排除 archive 目录自身）**：
+  ① `scripts/changelog-dedup-regen.js:75` 是**活代码**——它把 `openspec/changes/dedup-changelog-history/` 写进生成授权件的 `reason` 字段，归档后该路径失效。
+  **本 PR 不顺手改**：改 `scripts/` 会让 PR 从 docs-only 变成混合 PR（完整门禁 + 强制 QM-6），且 AGENTS.md/质量节拍 Step ③ 明令禁止在一个交付里混两类变更。
+  已核实这一行是**零风险改动**——`regen.js` 无自己的测试文件，`check-changelog-growth.test.js:154` 只在**注释**里提到该 change 名（不是钉字符串的断言），
+  门禁读的也只有 `applies_to_base` / `expected_titles_reduced` / `expected_entries_after` 三个字段 ⇒ 另开一笔一行修（把路径改成 `openspec/changes/archive/2026-10-10-dedup-changelog-history/`）。
+  ②③④ 是三处**历史快照**：`.ccg/reviews/retire-auth-maint.json`（#3225 的模型评审原件）、`CHANGELOG.md:1042`（#3059 那次清理的条目，append-only 台账不得改写，改了撞 growth 棘轮）、
+  `openspec/records/changelog-history-dedup.md:12/200`（那次执行的记录）——一律**不改写**，本记录即取代它们的最新锚点。
