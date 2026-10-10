@@ -34,5 +34,10 @@
     "status": "待 PR 合并后核验",
     "line": 4489
   },
-  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。"
+  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。",
+  "本次执行记录：发布频率策略 v2（publish-frequency-policy-v2，2026-10-10）": {
+    "reason": "本 PR 开 PR 时按 docs-only/运行时通道规则写 PENDING 并同一次提交登记；合并后须在同一次提交内把 .quality-gates.md 与 openspec/records/publish-frequency-policy-v2.md 的「远程同步」行改写为 PASS + merge SHA，删除记录 frontmatter 的 sync_* 三字段，并删除本登记项。回填者＝本分支作者（本会话）。",
+    "status": "待 PR 合并后核验",
+    "line": 1
+  }
 }
